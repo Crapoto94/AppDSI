@@ -213,6 +213,54 @@ async function getDgpStats(opts = {}) {
 }
 
 /**
+ * Évolution du DGP au cours de l'année, PAR SEMAINE (lundi → dimanche), depuis le cache Postgres.
+ * Base : factures effectivement PAYÉES dans l'année (date de paiement), non refusées ; le DGP d'une facture est le délai
+ * réception → paiement. Pour chaque semaine : DGP moyen des factures payées cette semaine-là, et DGP moyen CUMULÉ depuis
+ * janvier. Les semaines sans paiement sont présentes (valeurs nulles) pour une courbe continue.
+ * @param {object} [opts]
+ * @param {number|string} [opts.fiscalYear] année de paiement (défaut : année en cours)
+ */
+async function getDgpWeekly(opts = {}) {
+    const year = Number(opts.fiscalYear) || new Date().getFullYear();
+    const { rows } = await pool.query(
+        `SELECT to_char(date_trunc('week', paiement_date), 'YYYY-MM-DD') AS semaine,
+                COUNT(*)::int AS nb, SUM(dgp)::int AS somme, COUNT(*) FILTER (WHERE dgp > 30)::int AS nb_hors
+           FROM finance.facture_dgp
+          WHERE NOT refused AND paiement_date IS NOT NULL AND dgp IS NOT NULL
+            AND EXTRACT(YEAR FROM paiement_date) = $1
+          GROUP BY 1 ORDER BY 1`,
+        [year]
+    );
+    const bySemaine = new Map(rows.map(r => [r.semaine, r]));
+    const iso = (d) => d.toISOString().slice(0, 10);
+    // Lundi de la semaine contenant le 1er janvier → dernière semaine à afficher (semaine courante, ou fin d'année)
+    const start = new Date(Date.UTC(year, 0, 1));
+    start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+    const today = new Date();
+    const end = year < today.getFullYear() ? new Date(Date.UTC(year, 11, 31)) : new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    const weeks = [];
+    let cumNb = 0, cumSum = 0, cumHors = 0;
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 7)) {
+        const key = iso(d);
+        const r = bySemaine.get(key);
+        const nb = r ? Number(r.nb) : 0;
+        if (r) { cumNb += nb; cumSum += Number(r.somme); cumHors += Number(r.nb_hors); }
+        // Numéro de semaine ISO (jeudi de la semaine)
+        const th = new Date(d); th.setUTCDate(th.getUTCDate() + 3);
+        const jan4 = new Date(Date.UTC(th.getUTCFullYear(), 0, 4));
+        const num = 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+        weeks.push({
+            semaine: key, num, nb,
+            dgp_semaine: r ? Math.round((Number(r.somme) / nb) * 10) / 10 : null,
+            dgp_cumule: cumNb ? Math.round((cumSum / cumNb) * 10) / 10 : null,
+            nb_cumule: cumNb,
+            nb_hors_cumule: cumHors,
+        });
+    }
+    return { year, weeks, dgp_moyen: cumNb ? Math.round((cumSum / cumNb) * 10) / 10 : null, nb_payees: cumNb, nb_hors_delai: cumHors };
+}
+
+/**
  * Info de mandatement par facture (ROO) depuis le cache : `{ [roo]: { mandate_date, mandated } }`.
  * Utilisé par /telecom (contour « mandaté » + infobulle date de mandatement de la synthèse mensuelle).
  */
@@ -234,4 +282,4 @@ async function getMandateInfoByRoos(roos) {
     return out;
 }
 
-module.exports = { getDgpStats, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };
+module.exports = { getDgpStats, getDgpWeekly, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };

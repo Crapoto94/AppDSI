@@ -1,6 +1,7 @@
 const { getSqlite, pool, pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const { readEngagementRows } = require('./sedit-engagements.service');
+const seditLive = require('./sedit-live-facturation.service');
 
 function parseNum(val) {
     if (val === undefined || val === null || val === '') return 0;
@@ -310,11 +311,37 @@ module.exports = {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
             }
 
-            console.log('[getInvoices] Query:', sql, 'Params:', params);
-            const result = await pool.query(sql, params);
-            console.log('[getInvoices] Result count:', result.rows.length, 'fiscalYear param:', fiscalYear);
+            // Lecture EN DIRECT dans Sedit (cache 3 min) ; repli sur la copie PostgreSQL si Sedit est injoignable.
+            let rows = null;
+            try {
+                const live = await seditLive.readFactures(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1' });
+                const links = await pgDb.all("SELECT target_id, operation_id FROM oracle.oracle_links WHERE target_table = 'invoices'");
+                const linkMap = new Map(links.map(l => [String(l.target_id).trim(), l.operation_id]));
+                const budgets = await pgDb.all('SELECT "BUDGET_BUDGET", MIN("BUDGET_ROO_IMA_REF") AS roo, MIN("BUDGET_LIBELLE") AS lib FROM oracle.gf_oracle_budget GROUP BY "BUDGET_BUDGET"');
+                const budMap = new Map(budgets.map(b => [String(b.BUDGET_BUDGET).trim(), b]));
+                // L'état FACETAT de Sedit n'est renseigné que pour les factures mandatées (sinon « XXXXX ») : pour les autres on
+                // lit le VRAI avancement (suivi Sedit : refusée / mandatée / service fait / reçue) afin que « factures à traiter » soit juste.
+                const filtered = live.filter(r => budgetScope !== 'Ville' || String(r.FACTURE_POBJ_EXTRACT_1 || '').trim() === '00');
+                const reels = await seditLive.getEtatsReels(filtered.filter(r => !/MANDAT/i.test(String(r.FACETAT_LIBELLE || ''))).map(r => String(r.FACTURE_FACTURE || '').trim()));
+                rows = filtered.map(r => {
+                    const b = budMap.get(String(r.FACTURE_POBJ_EXTRACT_1 || '').trim());
+                    const reel = reels[String(r.FACTURE_FACTURE || '').trim()];
+                    return {
+                        ...r, ...(reel ? { FACETAT_LIBELLE: reel } : {}),
+                        operation_id: linkMap.get(String(r.FACTURE_FACTURE || '').trim()) || null, BUDGET_LIBELLE: b ? b.lib : null, BUDGET_ROO_IMA_REF: b ? b.roo : null,
+                    };
+                });
+                res.set('X-Source', 'sedit-live');
+            } catch (e) {
+                console.warn('[getInvoices] Sedit injoignable, repli sur la copie synchronisée :', e.message);
+            }
+            if (!rows) {
+                const result = await pool.query(sql, params);
+                rows = result.rows;
+                res.set('X-Source', 'copie-postgres');
+            }
 
-            const cleaned = result.rows.map(row => {
+            const cleaned = rows.map(row => {
                 const budgetCode = String(row.BUDGET_ROO_IMA_REF || '').trim();
                 const parseNum = (val) => {
                     if (!val || val === null || val === undefined) return 0;
@@ -325,7 +352,8 @@ module.exports = {
                     id: String(row.FACTURE_FACTURE || '').trim(),
                     'N° Facture interne': String(row.FACTURE_FACTURE || '').trim(),
                     'N° Facture fournisseur': String(row.FACTURE_REFERENCE || '').trim(),
-                    'Fournisseur': String(row.FACTURE_LIBELLE2 || '').trim(),
+                    // LIBELLE2 est vide sur certaines factures : on prend alors le nom du tiers (fiche tiers : segments 2 et 3 du libellé)
+                    'Fournisseur': String(row.FACTURE_LIBELLE2 || '').trim() || [row.TIERS_POBJ_EXTRACT_2, row.TIERS_POBJ_EXTRACT_3].map(x => String(x || '').trim()).filter(Boolean).join(' '),
                     'Libellé': String(row.FACTURE_LIBELLE1 || '').trim(),
                     'Montant TTC': parseNum(row.FACTURE_MONTANTTC_E),
                     'Budget': row.BUDGET_LIBELLE,
@@ -518,8 +546,24 @@ module.exports = {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
             }
 
-            const result = await pool.query(sql, params);
-            const pgRows = result.rows;
+            // Lecture EN DIRECT dans Sedit (cache 3 min) ; repli sur la copie PostgreSQL si Sedit est injoignable.
+            let pgRows = null;
+            try {
+                const live = await seditLive.readCommandes(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1' });
+                const links = await pgDb.all("SELECT target_id, operation_id, app_id FROM oracle.oracle_links WHERE target_table = 'orders'");
+                const linkMap = new Map(links.map(l => [String(l.target_id).trim(), l]));
+                pgRows = live
+                    .filter(r => budgetScope !== 'Ville' || String(r.BUDGET_BUDGET || '').trim() === '00')
+                    .map(r => { const l = linkMap.get(String(r.COMMANDE_COMMANDE || '').trim()); return { ...r, operation_id: l ? l.operation_id : null, app_id: l ? l.app_id : null }; });
+                res.set('X-Source', 'sedit-live');
+            } catch (e) {
+                console.warn('[getOrders] Sedit injoignable, repli sur la copie synchronisée :', e.message);
+            }
+            if (!pgRows) {
+                const result = await pool.query(sql, params);
+                pgRows = result.rows;
+                res.set('X-Source', 'copie-postgres');
+            }
 
             // Get operations for labels
             const opResult = await pool.query('SELECT id, "LIBELLE" FROM oracle.operations');

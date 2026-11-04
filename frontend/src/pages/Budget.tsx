@@ -7,6 +7,7 @@ import {
   Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import DgpWeeklyChart from '../components/DgpWeeklyChart';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import BudgetPrepTab from '../components/BudgetPrepTab';
 import DemandesCommandeTab from '../components/DemandesCommandeTab';
@@ -635,7 +636,7 @@ const Budget: React.FC = () => {
       // On considère que par défaut si ce n'est pas mandaté, c'est à traiter
       if (etat.includes('SUSPENDUE')) {
         stats.suspended++;
-      } else if (!etat.includes('MANDATEE') && etat !== '') {
+      } else if (!etat.includes('MANDATEE') && !etat.includes('REFUS') && etat !== '') {
         const arrivalDate = parseExcelDate(inv['Arrivée']);
         if (arrivalDate) {
           const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -1505,6 +1506,8 @@ const Budget: React.FC = () => {
                     </ResponsiveContainer>
                   </div>
                 </div>
+
+                <DgpWeeklyChart year={currentFiscalYear} token={token} />
               </div>
             )}
 

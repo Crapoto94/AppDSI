@@ -13,6 +13,16 @@ router.get('/stats', authenticateJWT, async (req, res) => {
     }
 });
 
+// Évolution du DGP par semaine sur l'année (courbe de /budget).
+router.get('/weekly', authenticateJWT, async (req, res) => {
+    try {
+        res.json(await service.getDgpWeekly({ fiscalYear: req.query.fiscal_year }));
+    } catch (e) {
+        console.error('[DGP] weekly error:', e.message);
+        res.status(500).json({ message: 'Erreur calcul DGP hebdomadaire', error: e.message });
+    }
+});
+
 // DGP par facture (chargement progressif) : { roos: [...] } -> { [roo]: { dgp, def, refuse } }.
 router.post('/factures', authenticateJWT, async (req, res) => {
     try {

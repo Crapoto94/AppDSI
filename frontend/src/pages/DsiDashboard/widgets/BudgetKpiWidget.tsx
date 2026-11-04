@@ -33,7 +33,7 @@ export default function BudgetKpiWidget() {
 
       const totalCmd = ordersArr.reduce((s, o) => s + parseNum(o['COMMANDE_MONTANT_TTC'] ?? o['Montant TTC'] ?? o.montant_ttc), 0);
       const totalFact = invoicesArr.reduce((s, inv) => s + parseNum(inv['FACTURE_MONTANTTC_E'] ?? inv['Montant TTC'] ?? inv.montant_ttc), 0);
-      const pendingInv = invoicesArr.filter((inv) => !/mandat|pay/i.test(String(inv['Etat'] ?? inv.FACETAT_LIBELLE ?? ''))).length;
+      const pendingInv = invoicesArr.filter((inv) => !/mandat|pay|refus/i.test(String(inv['Etat'] ?? inv.FACETAT_LIBELLE ?? ''))).length;
 
       const prevu = opsArr.reduce((s, op) => s + parseNum(op['Montant prévu'] ?? op.montant_prevu), 0);
       const realise = opsArr.reduce((s, op) => s + parseNum(op.used_amount), 0);

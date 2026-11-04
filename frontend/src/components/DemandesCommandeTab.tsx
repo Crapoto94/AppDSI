@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X } from 'lucide-react';
+import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X, Archive, ChevronDown, ChevronRight, Truck } from 'lucide-react';
 import DemandeCommentsModal from './DemandeCommentsModal';
 import { openAttachmentViewer } from './AttachmentViewer';
 import AgentPickerRH, { type AgentRef } from './parapheur/AgentPickerRH';
 import AgentPresenceBadge from './AgentPresenceBadge';
 
-interface Piece { id: number; file_path: string; file_name: string; size: number | null; }
+interface Piece { id: number; file_path: string; file_name: string; size: number | null; categorie?: string; uploaded_by?: string | null; }
 interface Demande {
   id: number;
   designation: string;
@@ -35,6 +35,10 @@ interface Demande {
   comment_count?: number;
   modifie_par?: string | null;
   modifie_at?: string | null;
+  // Facture(s) Sedit associées à la commande ; `archived` = facture mandatée → commande archivée
+  facture_etat?: 'recue' | 'service_fait' | 'mandatee' | 'refusee' | null;
+  factures?: string[];
+  archived?: boolean;
 }
 interface SeditCommande {
   ROO: string; NUMERO: string; DATE_COMMANDE: string | null; MONTANT_TTC: number | null;
@@ -74,6 +78,10 @@ const EtatCommande: React.FC<{ d: Demande }> = ({ d }) => {
       style={{ background: e.color, color: '#fff', borderRadius: 12, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.label}</span>
   );
 };
+
+// Documents ajoutés après l'envoi de la commande au fournisseur (hors devis)
+const DOC_CATEGORIES: Record<string, string> = { bon_livraison: 'Bon de livraison', facture: 'Facture', autre: 'Autre document' };
+const isDevis = (p: Piece) => (p.categorie || 'devis') === 'devis';
 
 const fmtMoney = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
@@ -275,9 +283,44 @@ const DemandesCommandeTab: React.FC = () => {
   };
 
   const aValider = demandes.filter(d => d.statut === 'devis_pris_en_compte');
-  const validees = demandes.filter(d => d.statut === 'validee');
+  const toutesValidees = demandes.filter(d => d.statut === 'validee');
+  // Archive : facture associée mandatée dans Sedit. Envoyées : bon envoyé au fournisseur, facture pas encore mandatée.
+  const archives = toutesValidees.filter(d => d.archived);
+  const envoyees = toutesValidees.filter(d => !d.archived && d.commande_etat === 'envoyee');
+  const validees = toutesValidees.filter(d => !d.archived && d.commande_etat !== 'envoyee');
+  const [showArchives, setShowArchives] = useState(false);
 
-  const renderTable = (rows: Demande[], withAction: boolean, withCommande = false) => (
+  // Documents (bon de livraison, etc.) d'une commande envoyée
+  const [docFor, setDocFor] = useState<Demande | null>(null);
+  const [docCat, setDocCat] = useState('bon_livraison');
+  const [docFiles, setDocFiles] = useState<File[]>([]);
+  const [docSaving, setDocSaving] = useState(false);
+  const [docError, setDocError] = useState('');
+
+  const openDocs = (d: Demande) => { setDocFor(d); setDocCat('bon_livraison'); setDocFiles([]); setDocError(''); };
+  const uploadDocs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docFor || !docFiles.length) return;
+    const fd = new FormData();
+    fd.append('categorie', docCat);
+    docFiles.forEach(f => fd.append('files', f));
+    setDocSaving(true); setDocError('');
+    try {
+      await axios.post(`/api/demandes-commande/${docFor.id}/documents`, fd, { headers });
+      setDocFor(null);
+      await load();
+    } catch (err: any) {
+      setDocError(err.response?.data?.message || "Erreur lors de l'ajout du document");
+    } finally { setDocSaving(false); }
+  };
+  const removeDoc = async (d: Demande, p: Piece) => {
+    if (!window.confirm(`Supprimer le document « ${p.file_name} » ?`)) return;
+    try { await axios.delete(`/api/demandes-commande/${d.id}/documents/${p.id}`, { headers }); await load(); }
+    catch (err: any) { alert(err.response?.data?.message || 'Erreur lors de la suppression'); }
+  };
+  const canRemoveDoc = (p: Piece) => me.can_manage || me.can_validate || p.uploaded_by === user?.username;
+
+  const renderTable = (rows: Demande[], withAction: boolean, withCommande = false, withDocs = false) => (
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr>
@@ -289,12 +332,13 @@ const DemandesCommandeTab: React.FC = () => {
           <th style={s.th}>Statut</th>
           <th style={s.th}>Échanges</th>
           {withCommande && <th style={s.th}>Commande Sedit</th>}
+          {withDocs && <th style={s.th}>Documents</th>}
           {withAction && <th style={s.th}></th>}
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 && (
-          <tr><td style={{ ...s.td, color: '#94a3b8' }} colSpan={7 + (withAction ? 1 : 0) + (withCommande ? 1 : 0)}>Aucune demande.</td></tr>
+          <tr><td style={{ ...s.td, color: '#94a3b8' }} colSpan={7 + (withAction ? 1 : 0) + (withCommande ? 1 : 0) + (withDocs ? 1 : 0)}>Aucune demande.</td></tr>
         )}
         {rows.map(d => {
           const st = STATUT_LABELS[d.statut] || { label: d.statut, color: '#64748b' };
@@ -314,11 +358,11 @@ const DemandesCommandeTab: React.FC = () => {
               </td>
               <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{fmtMoney(d.montant)}</td>
               <td style={{ ...s.td, width: 64 }}>
-                {d.pieces.length > 0 && (
-                  <button type="button" title={d.pieces.map(p => p.file_name).join(', ')}
-                    onClick={() => openAttachmentViewer(d.pieces.map(p => ({ url: `/${p.file_path}`, name: p.file_name })))}
+                {d.pieces.filter(isDevis).length > 0 && (
+                  <button type="button" title={d.pieces.filter(isDevis).map(p => p.file_name).join(', ')}
+                    onClick={() => openAttachmentViewer(d.pieces.filter(isDevis).map(p => ({ url: `/${p.file_path}`, name: p.file_name })))}
                     style={{ ...s.btn, background: '#2563eb', padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}>
-                    <FileText size={14} /> {d.pieces.length}
+                    <FileText size={14} /> {d.pieces.filter(isDevis).length}
                   </button>
                 )}
               </td>
@@ -353,6 +397,32 @@ const DemandesCommandeTab: React.FC = () => {
                     </button>
                   )}
                   <EtatCommande d={d} />
+                  {d.archived && (d.factures || []).length > 0 && (
+                    <div style={{ fontSize: '0.72rem', color: '#16a34a', marginTop: 4, fontWeight: 600 }} title="Facture mandatée dans Sedit">
+                      Facture mandatée : {(d.factures || []).join(', ')}
+                    </div>
+                  )}
+                </td>
+              )}
+              {withDocs && (
+                <td style={s.td}>
+                  {d.pieces.filter(p => !isDevis(p)).map(p => (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, fontSize: '0.8rem' }}>
+                      <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{DOC_CATEGORIES[p.categorie || 'autre'] || 'Document'} :</span>
+                      <button type="button" onClick={() => openAttachmentViewer([{ url: `/${p.file_path}`, name: p.file_name }])}
+                        style={{ border: 'none', background: 'none', padding: 0, color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', fontSize: 'inherit', textAlign: 'left' }}>{p.file_name}</button>
+                      {canRemoveDoc(p) && (
+                        <button type="button" title="Supprimer ce document" onClick={() => removeDoc(d, p)}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#dc2626', padding: 0, display: 'inline-flex' }}><X size={13} /></button>
+                      )}
+                    </div>
+                  ))}
+                  {(me.can_manage || me.can_validate || d.demandeur_username === user?.username) && (
+                    <button type="button" onClick={() => openDocs(d)} title="Ajouter un bon de livraison ou un autre document"
+                      style={{ ...s.btn, background: '#0ea5e9', padding: '0.3rem 0.6rem', fontSize: '0.78rem' }}>
+                      <Plus size={13} /> Ajouter un document
+                    </button>
+                  )}
                 </td>
               )}
               {withAction && (
@@ -445,6 +515,26 @@ const DemandesCommandeTab: React.FC = () => {
         </div>
       )}
 
+      {envoyees.length > 0 && (
+        <div style={s.card}>
+          <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}><Truck size={18} color="#2563eb" /> Commandes envoyées ({envoyees.length})</h3>
+          <p style={{ color: '#64748b', fontSize: '0.8rem', marginTop: 0 }}>
+            Commandes transmises au fournisseur, en attente de livraison et de facture. Ajoutez ici les bons de livraison et autres documents.
+          </p>
+          {renderTable(envoyees, true, true, true)}
+        </div>
+      )}
+
+      {archives.length > 0 && (
+        <div style={s.card}>
+          <h3 style={{ marginTop: 0, marginBottom: showArchives ? undefined : 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowArchives(!showArchives)}>
+            {showArchives ? <ChevronDown size={18} /> : <ChevronRight size={18} />} <Archive size={18} color="#64748b" /> Archives ({archives.length})
+            <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>commandes dont la facture est mandatée dans Sedit</span>
+          </h3>
+          {showArchives && renderTable(archives, false, true, true)}
+        </div>
+      )}
+
       {commentsFor && (
         <DemandeCommentsModal
           demandeId={commentsFor.id}
@@ -501,7 +591,7 @@ const DemandesCommandeTab: React.FC = () => {
             })()}
             <div style={{ marginTop: '1rem' }}>
               <label style={s.label}><Paperclip size={12} /> Devis</label>
-              {editFor.pieces.map(p => {
+              {editFor.pieces.filter(isDevis).map(p => {
                 const removed = editRemove.includes(p.id);
                 return (
                   <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', opacity: removed ? 0.45 : 1 }}>
@@ -522,6 +612,30 @@ const DemandesCommandeTab: React.FC = () => {
             <div style={{ marginTop: '1rem', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" style={{ ...s.btn, background: '#64748b' }} onClick={() => setEditFor(null)}>Annuler</button>
               <button type="submit" style={s.btn} disabled={editSaving}>{editSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {docFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setDocFor(null)}>
+          <form onSubmit={uploadDocs} style={{ ...s.card, width: 'min(520px, 94vw)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Ajouter un document</h3>
+            <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0 }}>
+              <b>{docFor.designation}</b>{docFor.commande_numero ? ` — commande ${docFor.commande_numero}` : ''}
+            </p>
+            <label style={s.label}>Type de document</label>
+            <select style={s.input} value={docCat} onChange={e => setDocCat(e.target.value)}>
+              {Object.entries(DOC_CATEGORIES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            <div style={{ marginTop: '1rem' }}>
+              <label style={s.label}><Paperclip size={12} /> Fichier(s) *</label>
+              <input type="file" multiple required onChange={e => setDocFiles(Array.from(e.target.files || []))} />
+            </div>
+            {docError && <div style={{ color: '#dc2626', marginTop: '0.75rem' }}>{docError}</div>}
+            <div style={{ marginTop: '1rem', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" style={{ ...s.btn, background: '#64748b' }} onClick={() => setDocFor(null)}>Annuler</button>
+              <button type="submit" style={s.btn} disabled={docSaving || !docFiles.length}>{docSaving ? 'Envoi…' : 'Ajouter'}</button>
             </div>
           </form>
         </div>

@@ -36,14 +36,17 @@ const normSection = (v) => { const x = String(v || '').trim().toUpperCase(); ret
 
 const eur = (n) => Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
-async function savePieces(demande, files, user, designation) {
+// Catégories de pièces : « devis » (à la création) ; les autres s'ajoutent une fois la commande envoyée au tiers.
+const DOC_CATEGORIES = { bon_livraison: 'Bon de livraison', facture: 'Facture', autre: 'Autre document' };
+
+async function savePieces(demande, files, user, designation, categorie = 'devis') {
     for (const file of files) {
         file.originalname = storage.fixUploadName(file.originalname);
         const saved = await storage.saveFile(MODULE, demande.id, file);
         await pool.query(
-            `INSERT INTO finance.demandes_commande_pj (demande_id, file_path, file_name, size, mimetype, uploaded_by)
-             VALUES ($1,$2,$3,$4,$5,$6)`,
-            [demande.id, saved.dbPath, file.originalname, file.size, file.mimetype, user.username]
+            `INSERT INTO finance.demandes_commande_pj (demande_id, file_path, file_name, size, mimetype, uploaded_by, categorie)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [demande.id, saved.dbPath, file.originalname, file.size, file.mimetype, user.username, categorie]
         );
         try {
             await require('../../shared/documents.service').registerExternalUpload({
@@ -61,7 +64,8 @@ const authorName = (user) => user?.displayName || user?.username || '';
 async function loadPjs(demandeIds) {
     if (!demandeIds.length) return {};
     const r = await pool.query(
-        'SELECT id, demande_id, file_path, file_name, size, uploaded_at FROM finance.demandes_commande_pj WHERE demande_id = ANY($1::int[]) ORDER BY id',
+        `SELECT id, demande_id, file_path, file_name, size, uploaded_at, uploaded_by, COALESCE(categorie, 'devis') AS categorie
+           FROM finance.demandes_commande_pj WHERE demande_id = ANY($1::int[]) ORDER BY id`,
         [demandeIds]
     );
     const map = {};
@@ -92,7 +96,82 @@ async function loadCommandeEtats(roos) {
     return out;
 }
 
+// Archivage : une commande dont la facture associée (FI.FACTURE.COMMANDE) est MANDATÉE dans Sedit passe en archive.
+// Résultat mis en cache 5 min par commande (requêtes Oracle) ; un échec Sedit ne bloque pas la liste (rien n'est archivé).
+const FACTURE_TTL_MS = 5 * 60 * 1000;
+const factureCache = new Map();
+async function loadFactureEtats(roos) {
+    const list = [...new Set(roos.map(r => String(r || '').trim()).filter(Boolean))];
+    const out = {};
+    const todo = [];
+    for (const roo of list) {
+        const hit = factureCache.get(roo);
+        if (hit && Date.now() - hit.ts < FACTURE_TTL_MS) out[roo] = hit.val; else todo.push(roo);
+    }
+    if (todo.length) {
+        try {
+            const fin = require('../finance/finance-share.controller');
+            const res = await fin.getCommandeFactureStatus(todo);
+            for (const roo of todo) {
+                const s = res[roo];
+                const val = s ? { facture_etat: s.state, factures: s.factures || [], archived: s.state === 'mandatee' } : { facture_etat: null, factures: [], archived: false };
+                factureCache.set(roo, { ts: Date.now(), val });
+                out[roo] = val;
+            }
+        } catch (e) { console.warn('[DemandesCommande] état des factures Sedit indisponible:', e.message); }
+    }
+    return out;
+}
+
 module.exports = {
+    // Ajout d'un document (bon de livraison, facture, autre) à une commande ENVOYÉE au tiers.
+    async addDocuments(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const d = (await pool.query('SELECT * FROM finance.demandes_commande WHERE id = $1', [id])).rows[0];
+            if (!d) return res.status(404).json({ message: 'Demande introuvable' });
+            if (!(isManager(req.user) || (await getValidateurRole(req.user)) || d.demandeur_username === req.user.username)) {
+                return res.status(403).json({ message: "Vous ne pouvez pas ajouter de document à cette commande" });
+            }
+            if (!d.commande_roo) return res.status(409).json({ message: "Aucune commande associée à cette demande" });
+            const etat = (await loadCommandeEtats([d.commande_roo]))[String(d.commande_roo).trim()];
+            if (!etat || etat.commande_etat !== 'envoyee') return res.status(409).json({ message: "Les documents ne peuvent être ajoutés qu'une fois la commande envoyée au fournisseur" });
+            const categorie = DOC_CATEGORIES[req.body.categorie] ? req.body.categorie : 'autre';
+            const files = req.files || [];
+            if (!files.length) return res.status(400).json({ message: 'Aucun fichier fourni' });
+            await savePieces({ id }, files, req.user, d.designation, categorie);
+            await pool.query(
+                `INSERT INTO finance.demandes_commande_commentaires (demande_id, author_username, author_name, content, is_system)
+                 VALUES ($1,$2,$3,$4,TRUE)`,
+                [id, req.user.username, authorName(req.user), `${DOC_CATEGORIES[categorie]} ajouté : ${files.map(f => f.originalname).join(', ')}`]
+            );
+            res.status(201).json({ message: 'Document(s) ajouté(s)' });
+        } catch (e) {
+            res.status(500).json({ message: "Erreur lors de l'ajout du document", error: e.message });
+        }
+    },
+
+    // Suppression d'un document (jamais un devis) : son auteur, les gestionnaires et les validateurs.
+    async removeDocument(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const pjId = parseInt(req.params.pjId, 10);
+            const pj = (await pool.query(
+                `SELECT id, file_path, file_name, uploaded_by FROM finance.demandes_commande_pj WHERE id = $1 AND demande_id = $2 AND COALESCE(categorie, 'devis') <> 'devis'`,
+                [pjId, id]
+            )).rows[0];
+            if (!pj) return res.status(404).json({ message: 'Document introuvable' });
+            if (!(pj.uploaded_by === req.user.username || isManager(req.user) || (await getValidateurRole(req.user)))) {
+                return res.status(403).json({ message: 'Vous ne pouvez pas supprimer ce document' });
+            }
+            await pool.query('DELETE FROM finance.demandes_commande_pj WHERE id = $1', [pjId]);
+            try { await storage.deleteFile(pj.file_path); } catch (e) { console.warn('[DEMANDES] suppression fichier:', e.message); }
+            res.json({ message: 'Document supprimé' });
+        } catch (e) {
+            res.status(500).json({ message: 'Erreur suppression du document', error: e.message });
+        }
+    },
+
     // Bon de commande Sedit (PDF) de la commande associée à la demande — signé si disponible.
     async bonCommande(req, res) {
         try {
@@ -131,7 +210,11 @@ module.exports = {
                 FROM finance.demandes_commande d ORDER BY d.created_at DESC`);
             const pjs = await loadPjs(r.rows.map(d => d.id));
             const etats = await loadCommandeEtats(r.rows.map(d => d.commande_roo));
-            res.json(r.rows.map(d => ({ ...d, montant: Number(d.montant), pieces: pjs[d.id] || [], ...(etats[String(d.commande_roo || '').trim()] || {}) })));
+            const factures = await loadFactureEtats(r.rows.map(d => d.commande_roo));
+            res.json(r.rows.map(d => {
+                const k = String(d.commande_roo || '').trim();
+                return { ...d, montant: Number(d.montant), pieces: pjs[d.id] || [], ...(etats[k] || {}), ...(factures[k] || {}) };
+            }));
         } catch (e) {
             res.status(500).json({ message: 'Erreur chargement des demandes', error: e.message });
         }
@@ -189,7 +272,7 @@ module.exports = {
             let removeIds = [];
             try { removeIds = JSON.parse(req.body.remove_piece_ids || '[]').map(Number).filter(Number.isFinite); } catch (e) { removeIds = []; }
             const files = req.files || [];
-            const pjs = (await pool.query('SELECT id, file_path, file_name FROM finance.demandes_commande_pj WHERE demande_id = $1', [id])).rows;
+            const pjs = (await pool.query(`SELECT id, file_path, file_name FROM finance.demandes_commande_pj WHERE demande_id = $1 AND COALESCE(categorie, 'devis') = 'devis'`, [id])).rows;
             const toRemove = pjs.filter(p => removeIds.includes(p.id));
             if (pjs.length - toRemove.length + files.length < 1) return res.status(400).json({ message: 'Conserver ou joindre au moins un devis' });
 
