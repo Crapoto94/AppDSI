@@ -133,9 +133,12 @@ module.exports = {
             if (!(isManager(req.user) || (await getValidateurRole(req.user)) || d.demandeur_username === req.user.username)) {
                 return res.status(403).json({ message: "Vous ne pouvez pas ajouter de document à cette commande" });
             }
-            if (!d.commande_roo) return res.status(409).json({ message: "Aucune commande associée à cette demande" });
-            const etat = (await loadCommandeEtats([d.commande_roo]))[String(d.commande_roo).trim()];
-            if (!etat || etat.commande_etat !== 'envoyee') return res.status(409).json({ message: "Les documents ne peuvent être ajoutés qu'une fois la commande envoyée au fournisseur" });
+            let envoyee = !!d.envoye_manuel_at;
+            if (!envoyee && d.commande_roo) {
+                const etat = (await loadCommandeEtats([d.commande_roo]))[String(d.commande_roo).trim()];
+                envoyee = !!etat && etat.commande_etat === 'envoyee';
+            }
+            if (!envoyee) return res.status(409).json({ message: "Les documents ne peuvent être ajoutés qu'une fois la commande envoyée au fournisseur" });
             const categorie = DOC_CATEGORIES[req.body.categorie] ? req.body.categorie : 'autre';
             const files = req.files || [];
             if (!files.length) return res.status(400).json({ message: 'Aucun fichier fourni' });
@@ -148,6 +151,29 @@ module.exports = {
             res.status(201).json({ message: 'Document(s) ajouté(s)' });
         } catch (e) {
             res.status(500).json({ message: "Erreur lors de l'ajout du document", error: e.message });
+        }
+    },
+
+    // « Déjà envoyée » : bascule manuelle d'une demande validée vers « Commandes envoyées » (gestionnaires et validateurs).
+    async marquerEnvoyee(req, res) {
+        try {
+            if (!(isManager(req.user) || (await getValidateurRole(req.user)))) {
+                return res.status(403).json({ message: 'Droits insuffisants' });
+            }
+            const id = parseInt(req.params.id, 10);
+            const envoye = req.body?.envoye !== false; // false = annuler le marquage
+            const r = envoye
+                ? await pool.query(`UPDATE finance.demandes_commande SET envoye_manuel_par = $1, envoye_manuel_at = NOW() WHERE id = $2 AND statut = $3 RETURNING designation`, [req.user.username, id, STATUT_VALIDEE])
+                : await pool.query(`UPDATE finance.demandes_commande SET envoye_manuel_par = NULL, envoye_manuel_at = NULL WHERE id = $1 RETURNING designation`, [id]);
+            if (!r.rowCount) return res.status(409).json({ message: 'Demande introuvable ou non validée' });
+            await pool.query(
+                `INSERT INTO finance.demandes_commande_commentaires (demande_id, author_username, author_name, content, is_system)
+                 VALUES ($1,$2,$3,$4,TRUE)`,
+                [id, req.user.username, authorName(req.user), envoye ? 'Commande marquée « déjà envoyée » au fournisseur' : 'Marquage « déjà envoyée » annulé']
+            );
+            res.json({ message: envoye ? 'Commande marquée comme envoyée' : 'Marquage annulé' });
+        } catch (e) {
+            res.status(500).json({ message: 'Erreur lors du changement de statut', error: e.message });
         }
     },
 
@@ -213,7 +239,14 @@ module.exports = {
             const factures = await loadFactureEtats(r.rows.map(d => d.commande_roo));
             res.json(r.rows.map(d => {
                 const k = String(d.commande_roo || '').trim();
-                return { ...d, montant: Number(d.montant), pieces: pjs[d.id] || [], ...(etats[k] || {}), ...(factures[k] || {}) };
+                const out = { ...d, montant: Number(d.montant), pieces: pjs[d.id] || [], ...(etats[k] || {}), ...(factures[k] || {}) };
+                // Marquée « déjà envoyée » à la main (commande transmise hors circuit) : traitée comme envoyée tant que Sedit ne dit pas mieux
+                if (d.envoye_manuel_at && out.commande_etat !== 'envoyee') {
+                    out.commande_etat = 'envoyee';
+                    out.commande_envoyee_at = d.envoye_manuel_at;
+                    out.envoye_manuel = true;
+                }
+                return out;
             }));
         } catch (e) {
             res.status(500).json({ message: 'Erreur chargement des demandes', error: e.message });

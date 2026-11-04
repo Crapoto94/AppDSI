@@ -3723,6 +3723,9 @@ async function setupPgDb() {
         uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Commande déjà envoyée au fournisseur hors du circuit Sedit / Hub : marquage manuel (qui, quand).
+    await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_par TEXT`);
+    await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_at TIMESTAMPTZ`);
     // Catégorie de la pièce : « devis » (création) ou, une fois la commande envoyée, bon_livraison / facture / autre.
     await client.query(`ALTER TABLE finance.demandes_commande_pj ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT 'devis'`);
     // Fil de commentaires d'une demande (dès le devis pris en compte) : réponses (parent_id) et @mentions.

@@ -29,6 +29,7 @@ interface Demande {
   commande_numero: string | null;
   commande_etat?: 'brouillon' | 'en_validation' | 'validee' | 'signee' | 'envoyee' | null;
   commande_envoyee_at?: string | null;
+  envoye_manuel?: boolean; // marquée « déjà envoyée » à la main
   commande_libelle: string | null;
   commande_montant: number | null;
   commande_tiers: string | null;
@@ -70,6 +71,12 @@ const COMMANDE_ETATS: Record<string, { label: string; color: string }> = {
 };
 
 const EtatCommande: React.FC<{ d: Demande }> = ({ d }) => {
+  if (d.envoye_manuel && !d.commande_numero) {
+    return (
+      <span title={d.commande_envoyee_at ? `Marquée envoyée le ${new Date(d.commande_envoyee_at).toLocaleDateString('fr-FR')}` : undefined}
+        style={{ background: COMMANDE_ETATS.envoyee.color, color: '#fff', borderRadius: 12, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Envoyée (marquée à la main)</span>
+    );
+  }
   if (!d.commande_numero) return null;
   const e = d.commande_etat ? COMMANDE_ETATS[d.commande_etat] : null;
   if (!e) return null;
@@ -297,6 +304,14 @@ const DemandesCommandeTab: React.FC = () => {
   const [docSaving, setDocSaving] = useState(false);
   const [docError, setDocError] = useState('');
 
+  const marquerEnvoyee = async (d: Demande, envoye: boolean) => {
+    const msg = envoye
+      ? `Marquer « ${d.designation} » comme déjà envoyée au fournisseur ?\nElle passera dans « Commandes envoyées ».`
+      : `Annuler le marquage « déjà envoyée » de « ${d.designation} » ?`;
+    if (!window.confirm(msg)) return;
+    try { await axios.post(`/api/demandes-commande/${d.id}/envoyee`, { envoye }, { headers }); await load(); }
+    catch (err: any) { alert(err.response?.data?.message || 'Erreur lors du changement de statut'); }
+  };
   const openDocs = (d: Demande) => { setDocFor(d); setDocCat('bon_livraison'); setDocFiles([]); setDocError(''); };
   const uploadDocs = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -436,6 +451,16 @@ const DemandesCommandeTab: React.FC = () => {
                     {me.can_validate && d.statut === 'devis_pris_en_compte' && (
                       <button style={{ ...s.btn, background: '#16a34a' }} onClick={() => openValidate(d)}>
                         <CheckCircle size={15} /> Valider
+                      </button>
+                    )}
+                    {(me.can_manage || me.can_validate) && d.statut === 'validee' && d.commande_etat !== 'envoyee' && (
+                      <button style={{ ...s.btn, background: '#2563eb' }} onClick={() => marquerEnvoyee(d, true)} title="La commande a déjà été envoyée au fournisseur : la passer dans « Commandes envoyées »">
+                        <Truck size={15} /> Déjà envoyé
+                      </button>
+                    )}
+                    {(me.can_manage || me.can_validate) && d.envoye_manuel && !d.archived && (
+                      <button style={{ ...s.btn, background: '#94a3b8' }} onClick={() => marquerEnvoyee(d, false)} title="Remettre la demande dans « Demandes validées »">
+                        Annuler « envoyé »
                       </button>
                     )}
                     {me.can_delete && (

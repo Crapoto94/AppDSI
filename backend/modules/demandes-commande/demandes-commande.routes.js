@@ -17,6 +17,7 @@ router.get('/', authenticateJWT, controller.list);
 router.post('/', authenticateJWT, upload.array('files', 10), controller.create);
 router.put('/:id', authenticateJWT, upload.array('files', 10), controller.update);
 router.get('/:id/bon-commande', authenticateJWT, controller.bonCommande);
+router.post('/:id/envoyee', authenticateJWT, controller.marquerEnvoyee);
 router.post('/:id/documents', authenticateJWT, upload.array('files', 10), controller.addDocuments);
 router.delete('/:id/documents/:pjId', authenticateJWT, controller.removeDocument);
 router.post('/:id/validate', authenticateJWT, controller.validate);
