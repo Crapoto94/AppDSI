@@ -1146,6 +1146,60 @@ module.exports = {
         };
     },
 
+    // ── Évolution mensuelle des modes de soumission (champ « source ») ──────────
+    // Les sources historiques de GLPI (texte libre) et celles de l'application (mail, hub, magapp, live) sont regroupées
+    // en catégories lisibles. Tickets rejetés (statut 8) exclus ; mois sans ticket présents (valeur 0).
+    async getSourceEvolution({ months = 12, group_id } = {}) {
+        const n = Math.max(1, Math.min(parseInt(months, 10) || 12, 60));
+        const groupId = /^\d+$/.test(String(group_id ?? '')) ? parseInt(group_id, 10) : null;
+        const grpAnd = groupId ? ` AND t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${groupId})` : '';
+        const CATS = [
+            { key: 'mail_collecteur', label: 'E-mail (collecteur)', color: '#4f46e5' },
+            { key: 'mail_utilisateur', label: 'E-mail (utilisateur)', color: '#a5b4fc' },
+            { key: 'telephone', label: 'Téléphone', color: '#f59e0b' },
+            { key: 'hub', label: 'DSI Hub', color: '#16a34a' },
+            { key: 'magapp', label: 'MagApp', color: '#d946ef' },
+            { key: 'chat', label: 'Chat en direct', color: '#0891b2' },
+            { key: 'formulaire', label: 'Formulaire', color: '#3b82f6' },
+            { key: 'direct', label: 'En direct (oral)', color: '#92400e' },
+            { key: 'autres', label: 'Autres / inconnu', color: '#94a3b8' },
+        ];
+        const rows = await pgDb.all(`
+            SELECT TO_CHAR(DATE_TRUNC('month', t.date_creation), 'YYYY-MM') AS month,
+                   CASE
+                     WHEN LOWER(TRIM(COALESCE(t.source, ''))) IN ('par messagerie collecteur', 'mail') THEN 'mail_collecteur'
+                     WHEN LOWER(TRIM(t.source)) = 'par messagerie utilisateur' THEN 'mail_utilisateur'
+                     WHEN LOWER(TRIM(t.source)) IN ('téléphone', 'telephone') THEN 'telephone'
+                     WHEN LOWER(TRIM(t.source)) = 'hub' THEN 'hub'
+                     WHEN LOWER(TRIM(t.source)) = 'magapp' THEN 'magapp'
+                     WHEN LOWER(TRIM(t.source)) = 'live' THEN 'chat'
+                     WHEN LOWER(TRIM(t.source)) IN ('formulaire', 'formcreator') THEN 'formulaire'
+                     WHEN LOWER(TRIM(t.source)) = 'direct (oral)' THEN 'direct'
+                     ELSE 'autres'
+                   END AS cat,
+                   COUNT(*)::int AS n
+              FROM hub_tickets.tickets t
+             WHERE t.status::int <> 8
+               AND t.date_creation >= DATE_TRUNC('month', CURRENT_DATE) - ($1::int - 1) * INTERVAL '1 month'${grpAnd}
+             GROUP BY 1, 2`, [n]);
+        const monthList = await pgDb.all(`
+            SELECT TO_CHAR(d, 'YYYY-MM') AS month, TO_CHAR(d, 'TMmon YYYY') AS label
+              FROM generate_series(DATE_TRUNC('month', CURRENT_DATE) - ($1::int - 1) * INTERVAL '1 month', DATE_TRUNC('month', CURRENT_DATE), INTERVAL '1 month') d
+             ORDER BY d`, [n]);
+        const byMonth = new Map(monthList.map(m => [m.month, { month: m.month, label: m.label, total: 0 }]));
+        const totals = {};
+        for (const r of rows) {
+            const m = byMonth.get(r.month);
+            if (!m) continue;
+            m[r.cat] = (m[r.cat] || 0) + r.n;
+            m.total += r.n;
+            totals[r.cat] = (totals[r.cat] || 0) + r.n;
+        }
+        const categories = CATS.filter(c => totals[c.key]).map(c => ({ ...c, total: totals[c.key] }));
+        const data = [...byMonth.values()].map(m => { for (const c of categories) m[c.key] = m[c.key] || 0; return m; });
+        return { months: n, categories, data };
+    },
+
     // ── Stats pilotage ────────────────────────────────────────
     async getTicketsStats(filters = {}) {
         // Plage de dates optionnelle (année / mois / période glissante) appliquée à tous les KPI.

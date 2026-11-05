@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
+import LiveChatAnalysis from './LiveChatAnalysis';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -312,6 +313,12 @@ export default function TicketsStats() {
             </div>
           </div>
         </div>
+
+        {/* Évolution des modes de soumission (source), pleine largeur, 12 mois par défaut */}
+        <SourcesEvolutionCard headers={headers} groupId={fGroup} />
+
+        {/* Chats en direct : indicateurs, performance par technicien, détail de chaque échange */}
+        <LiveChatAnalysis headers={headers} />
 
         {/* Row 3: three columns */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -783,6 +790,107 @@ export default function TicketsStats() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface SourceCategory { key: string; label: string; color: string; total: number }
+interface SourceEvolution { months: number; categories: SourceCategory[]; data: Array<Record<string, any>> }
+
+/** Évolution mensuelle des modes de soumission des tickets (e-mail, téléphone, Hub, MagApp, chat…), en graphique empilable. */
+function SourcesEvolutionCard({ headers, groupId }: { headers: Record<string, string>; groupId?: string }) {
+  const [months, setMonths] = useState(12);
+  const [mode, setMode] = useState<'stack' | 'percent' | 'lines'>('stack');
+  const [data, setData] = useState<SourceEvolution | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const auth = headers.Authorization;
+
+  useEffect(() => {
+    if (!auth) return;
+    let cancelled = false;
+    setLoading(true); setError('');
+    axios.get<SourceEvolution>('/api/tickets/stats/sources', { headers: { Authorization: auth }, params: { months, ...(groupId ? { group_id: groupId } : {}) } })
+      .then(r => { if (!cancelled) setData(r.data); })
+      .catch(e => { if (!cancelled) setError(e.response?.data?.message || e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [auth, months, groupId]);
+
+  const toggle = (key: string) => setHidden(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const cats = (data?.categories || []);
+  const visible = cats.filter(c => !hidden.has(c.key));
+  const total = cats.reduce((s, c) => s + c.total, 0);
+  const pill = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 8, border: `1px solid ${active ? COLORS.indigo : '#e2e8f0'}`, background: active ? COLORS.indigo : '#fff',
+    color: active ? '#fff' : '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  });
+
+  return (
+    <div className="stats-card" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>Évolution des modes de soumission des tickets</div>
+          <div style={{ fontSize: 12, color: COLORS.slate }}>
+            {months} derniers mois · {fmt(total)} ticket{total > 1 ? 's' : ''} créés{groupId ? ' (groupe filtré)' : ''} · cliquez sur la légende pour masquer un mode
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([['stack', 'Empilé'], ['percent', 'Empilé 100 %'], ['lines', 'Courbes']] as const).map(([k, l]) => (
+              <button key={k} type="button" style={pill(mode === k)} onClick={() => setMode(k)}>{l}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[6, 12, 24, 36].map(m => (
+              <button key={m} type="button" style={pill(months === m)} onClick={() => setMonths(m)}>{m} mois</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {loading && !data && <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>Chargement…</div>}
+      {error && <div style={{ color: COLORS.red, padding: 20 }}>{error}</div>}
+      {data && !error && (
+        <div style={{ opacity: loading ? 0.6 : 1, transition: 'opacity .15s' }}>
+          <ResponsiveContainer width="100%" height={340}>
+            {mode === 'lines' ? (
+              <LineChart data={data.data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={14} />
+                <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
+                <Tooltip />
+                <Legend onClick={(e: any) => toggle(String(e.dataKey))} wrapperStyle={{ cursor: 'pointer' }} />
+                {cats.map(c => (
+                  <Line key={c.key} type="monotone" dataKey={c.key} name={c.label} stroke={c.color} strokeWidth={2.5} dot={{ r: 2 }} hide={hidden.has(c.key)} />
+                ))}
+              </LineChart>
+            ) : (
+              <BarChart data={data.data} stackOffset={mode === 'percent' ? 'expand' : 'none'}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={14} />
+                {/* 100 % : domaine forcé à [0 ; 1] (sinon l'axe se base sur les valeurs brutes et monte à 400 %) */}
+                <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={mode === 'percent'}
+                  domain={mode === 'percent' ? [0, 1] : [0, 'auto']} ticks={mode === 'percent' ? [0, 0.25, 0.5, 0.75, 1] : undefined}
+                  tickFormatter={mode === 'percent' ? (v: number) => `${Math.round(v * 100)} %` : undefined} />
+                <Tooltip
+                  formatter={(v: any, name: any, item: any) => {
+                    const t = item?.payload?.total || 0;
+                    return [mode === 'percent' && t ? `${v} (${Math.round((Number(v) / t) * 100)} %)` : v, name];
+                  }}
+                  labelFormatter={(l: any, p: any) => `${l} — ${fmt(p && p[0] ? p[0].payload.total : 0)} ticket(s)`}
+                />
+                <Legend onClick={(e: any) => toggle(String(e.dataKey))} wrapperStyle={{ cursor: 'pointer' }} />
+                {cats.map((c, i) => (
+                  <Bar key={c.key} dataKey={c.key} name={c.label} stackId="src" fill={c.color} hide={hidden.has(c.key)}
+                    radius={i === cats.length - 1 ? [3, 3, 0, 0] : undefined} />
+                ))}
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+          {visible.length === 0 && <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Tous les modes sont masqués.</div>}
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import Header from '../../components/Header';
+import { useAuth } from '../../contexts/AuthContext';
 import RequesterSearch from '../../components/RequesterSearch';
 import { Phone, Paperclip, X } from 'lucide-react';
 import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from './ticketEditor';
@@ -23,6 +24,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ACCEPT_EXT = '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt';
 
 export default function TicketCreate() {
+  const { user } = useAuth();
   const [form, setForm] = useState({
     title: '', content: '', type: 1, priority: 3, impact: 2,
     category_id: '', subcategory_id: '', software_id: '', requester_name: '', requester_email: '',
@@ -45,6 +47,10 @@ export default function TicketCreate() {
   const [vipMap, setVipMap] = useState<Record<string, boolean>>({});
   const [requesterVip, setRequesterVip] = useState<{ vip: boolean; elu: boolean }>({ vip: false, elu: false });
   const [files, setFiles] = useState<File[]>([]);
+  // Ticket « téléphone » : coché d'office quand le demandeur n'est pas un agent DSI (sinon ticket « DSI Hub »), modifiable
+  const [isPhone, setIsPhone] = useState(false);
+  const [phoneTouched, setPhoneTouched] = useState(false);
+  const [dsiAgents, setDsiAgents] = useState<{ emails: Set<string>; usernames: Set<string> } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function addFiles(list: FileList | null) {
@@ -70,7 +76,30 @@ export default function TicketCreate() {
     loadCategoriesAndApps();
     loadVips();
     fetchSavedPhone();
+    loadDsiAgents();
   }, []);
+
+  async function loadDsiAgents() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/calendrier-dsi/agents', { headers: { Authorization: `Bearer ${token}` } });
+      const list: any[] = Array.isArray(res.data) ? res.data : [];
+      setDsiAgents({
+        emails: new Set(list.map(a => String(a.email || '').toLowerCase()).filter(Boolean)),
+        usernames: new Set(list.map(a => String(a.username || '').toLowerCase()).filter(Boolean)),
+      });
+    } catch (e) { /* silencieux : pas de pré-coche */ }
+  }
+
+  // Pré-coche « ticket téléphone » selon le demandeur (hors agents DSI), tant que l'utilisateur n'a pas choisi lui-même
+  useEffect(() => {
+    if (phoneTouched || !dsiAgents) return;
+    const email = (form.requester_email || user?.email || '').toLowerCase();
+    const local = email.split('@')[0] || String(user?.username || '').toLowerCase();
+    const isDsi = (!!email && dsiAgents.emails.has(email)) || (!!local && dsiAgents.usernames.has(local));
+    setIsPhone(!isDsi);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.requester_email, dsiAgents, phoneTouched]);
 
   async function fetchSavedPhone() {
     try {
@@ -226,6 +255,7 @@ export default function TicketCreate() {
         requester_phone: form.requester_phone,
         location: form.location,
         is_vip: form.is_vip,
+        is_phone: isPhone,
         observer_ids: observers.map(o => ({ user_id: o.id, name: o.name, email: o.email, username: o.username }))
       };
       const res = await axios.post('/api/tickets', submitData, { headers: { Authorization: `Bearer ${token}` } });
@@ -515,6 +545,15 @@ export default function TicketCreate() {
               type="tel"
               style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
           </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', border: `1px solid ${isPhone ? '#fde68a' : '#e2e8f0'}`, background: isPhone ? '#fffbeb' : '#fff', borderRadius: 8, fontSize: 14, color: '#374151' }}>
+            <input type="checkbox" checked={isPhone} onChange={e => { setPhoneTouched(true); setIsPhone(e.target.checked); }} style={{ width: 18, height: 18, cursor: 'pointer' }} />
+            <Phone size={15} color={isPhone ? '#b45309' : '#64748b'} />
+            <span>
+              <b>Ticket téléphone</b> — le demandeur a appelé la DSI
+              <span style={{ display: 'block', fontSize: 12, color: '#64748b' }}>Décoché : ticket saisi directement dans DSI Hub (par un agent DSI). Pré-coché si le demandeur n'est pas un agent DSI.</span>
+            </span>
+          </label>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: 20, marginTop: 8 }}>
             <a href="/tickets" style={{ padding: '10px 24px', border: '1px solid #e2e8f0', borderRadius: 8, textDecoration: 'none', color: '#475569', fontWeight: 500, fontSize: 14 }}>Annuler</a>

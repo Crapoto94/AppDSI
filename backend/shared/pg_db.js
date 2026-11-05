@@ -4585,6 +4585,26 @@ async function setupPgDb() {
       );
     `);
 
+    // Migration UNIQUE (marqueur hub_tickets.data_migrations) : les tickets saisis dans le Hub (source « hub ») dont le demandeur n'est
+    // PAS un agent DSI (hub_calendrier.agents_dsi, par e-mail ou identifiant) sont en réalité des appels téléphoniques → source « Téléphone ».
+    // La source d'origine est conservée dans hub_tickets.tickets.source_origine (retour arrière possible).
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub_tickets.data_migrations (name TEXT PRIMARY KEY, done_at TIMESTAMPTZ DEFAULT NOW(), details TEXT)`);
+      const done = await client.query(`SELECT 1 FROM hub_tickets.data_migrations WHERE name = 'source_hub_vers_telephone'`);
+      if (!done.rowCount) {
+        await client.query(`ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS source_origine TEXT`);
+        const upd = await client.query(`
+          UPDATE hub_tickets.tickets t SET source_origine = t.source, source = 'Téléphone'
+           WHERE t.source = 'hub'
+             AND NOT EXISTS (
+               SELECT 1 FROM hub_calendrier.agents_dsi a
+                WHERE LOWER(a.email) IN (LOWER(COALESCE(t.requester_email, '')), LOWER(COALESCE(t.requester_email_22, '')), LOWER(COALESCE(t.email_alt, '')))
+                   OR LOWER(a.username) = LOWER(SPLIT_PART(COALESCE(NULLIF(t.requester_email_22, ''), NULLIF(t.requester_email, ''), ''), '@', 1)))`);
+        await client.query(`INSERT INTO hub_tickets.data_migrations (name, details) VALUES ('source_hub_vers_telephone', $1)`, [`${upd.rowCount} ticket(s) passés de « hub » à « Téléphone »`]);
+        console.log(`[MIGRATION] source hub → Téléphone : ${upd.rowCount} ticket(s) (demandeur hors agents DSI)`);
+      }
+    } catch (e) { console.error('[MIGRATION] source hub → Téléphone :', e.message); }
+
     // TT fixed days (multiple per agent)
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_calendrier.agents_tt_days (

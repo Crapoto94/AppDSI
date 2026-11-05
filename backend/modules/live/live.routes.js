@@ -5,6 +5,7 @@ const fs = require('fs');
 const router = express.Router();
 const { authenticateJWT } = require('../../shared/middleware');
 const controller = require('./live.controller');
+const analysis = require('./live.analysis');
 
 // ── Multer for live attachments (en memory, sauvegarde via storage service) ────
 const uploadLive = multer({
@@ -25,6 +26,9 @@ router.put('/config',              authenticateJWT, (req, res) => controller.set
 router.get('/calendars',           authenticateJWT, (req, res) => controller.getCalendars(req, res));
 router.get('/count',               authenticateJWT, (req, res) => controller.getWaitingCount(req, res));
 router.get('/stats',               authenticateJWT, (req, res) => controller.getStats(req, res));
+// Analyse fine des chats (par chat : réponses, délais, messages) — réservé aux techniciens
+router.get('/analysis',            authenticateJWT, (req, res) => analysis.getAnalysis(req, res));
+router.get('/analysis/:id',        authenticateJWT, (req, res) => analysis.getAnalysisDetail(req, res));
 router.get('/sessions',            authenticateJWT, (req, res) => controller.getSessions(req, res));
 router.post('/sessions',           authenticateJWT, (req, res) => controller.createSession(req, res));
 router.get('/sessions/:id',        authenticateJWT, (req, res) => controller.getSession(req, res));
