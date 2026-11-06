@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle, LayoutDashboard } from 'lucide-react';
+import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle, LayoutDashboard, Lightbulb } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { isAdminLike } from '../utils/roles';
 import ThemeToggle from './ThemeToggle';
@@ -303,6 +303,14 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                   {user.role === 'admin' && <span style={{ marginLeft: '4px', fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d', verticalAlign: 'middle' }}>ADMIN</span>}
                 </span>
                 <User size={18} />
+              </Link>
+              {/* Boîte à idées (ouverte à tous les agents connectés) */}
+              <Link
+                to="/boite-a-idees"
+                title="Boîte à idées"
+                style={{ display: 'flex', alignItems: 'center', padding: '8px', borderRadius: 8, color: '#f59e0b', background: location.pathname.startsWith('/boite-a-idees') ? '#fef3c7' : 'transparent' }}
+              >
+                <Lightbulb size={20} />
               </Link>
               {/* Navigation rapide */}
               <div ref={navDropdownRef} style={{ position: 'relative' }}>

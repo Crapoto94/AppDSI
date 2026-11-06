@@ -72,6 +72,7 @@ import ServiceFaitVisa from './pages/ServiceFaitVisa';
 import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
+import BoiteIdees from './pages/BoiteIdees';
 import ParapheurCertificats from './pages/Admin/ParapheurCertificats';
 import HubSettings from './pages/Admin/HubSettings';
 import AidesAdmin from './pages/Admin/AidesAdmin';
@@ -154,7 +155,7 @@ const PrivateRoute = ({ children, allowedRoles, allowPmo, path }: { children: Re
   if (path && user.authorized_urls && !user.authorized_urls.includes('*')) {
     // Basic prefix matching or exact matching
     const isAuthorized = user.authorized_urls.some((url: string) => path === url || path.startsWith(url + '/'));
-    if (!isAuthorized && path !== '/' && path !== '/profile' && path !== '/request-access' && path !== '/request-feature') {
+    if (!isAuthorized && path !== '/' && path !== '/profile' && path !== '/request-access' && path !== '/request-feature' && path !== '/boite-a-idees') {
        return <Navigate to="/" />;
     }
   }
@@ -184,6 +185,7 @@ function App() {
         <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
         <Route path="/parapheur/partage/:token" element={<ParapheurShare />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
+        <Route path="/boite-a-idees" element={<PrivateRoute path="/boite-a-idees"><BoiteIdees /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
         <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />

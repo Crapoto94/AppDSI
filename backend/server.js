@@ -2227,6 +2227,7 @@ app.use('/api/finance/mandatement', require('./modules/finance/mandatement.route
 app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
+app.use('/api/boite-idees', require('./modules/boite-idees/boite-idees.routes'));
 app.use('/api/commande-envoi', require('./modules/commande-envoi/commande-envoi.routes'));
 require('./modules/commande-envoi/commande-envoi.controller').setSendMail(sendMail);
 
@@ -2249,6 +2250,8 @@ app.post('/api/magapp/ideas', async (req, res) => {
             [title, description || '', author_email || '', author_name || '']
         );
         
+        // Mail aux agents désignés dans /admin/backlog
+        try { void backlogController.notifyNewRequest({ kind: 'Idée MagApp', title, author: [author_name, author_email].filter(Boolean).join(' · '), description, path: '/admin/backlog?tab=magapp' }); } catch (e) { /* meilleur effort */ }
         res.json({ success: true, id: result.lastID, message: 'Idée créée avec succès' });
     } catch (error) {
         console.error('[Ideas] Erreur création idée:', error.message);
@@ -6170,6 +6173,10 @@ app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
 app.post('/api/backlog', authenticateJWT, backlogUpload.array('attachments', 5), backlogController.createBacklogItem);
 app.put('/api/backlog/:id', authenticateAdmin, backlogController.updateBacklogItem);
 app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklogItem);
+// Agents qui reçoivent un mail à chaque nouvelle demande (backlog Hub + idées MagApp)
+app.get('/api/admin/backlog-recipients', authenticateAdmin, backlogController.listRecipients);
+app.post('/api/admin/backlog-recipients', authenticateAdmin, backlogController.addRecipient);
+app.delete('/api/admin/backlog-recipients/:id', authenticateAdmin, backlogController.removeRecipient);
 
 // ============================================
 // DOCTRINES - Notes de service et doctrines

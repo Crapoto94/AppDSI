@@ -3726,6 +3726,46 @@ async function setupPgDb() {
     // Commande déjà envoyée au fournisseur hors du circuit Sedit / Hub : marquage manuel (qui, quand).
     await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_par TEXT`);
     await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_at TIMESTAMPTZ`);
+    // Agents qui reçoivent un e-mail à chaque nouvelle demande du backlog (/admin/backlog) et à chaque nouvelle idée MagApp.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.backlog_recipients (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          email TEXT NOT NULL,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_backlog_recipients_email ON hub.backlog_recipients(LOWER(email))`);
+    } catch (e) { console.error('[PG DB] backlog_recipients:', e.message); }
+    // Boîte à idées (remplace la boîte physique). Une idée anonyme n'a AUCUNE information sur son auteur (auteur_* = NULL).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.boite_idees (
+          id SERIAL PRIMARY KEY,
+          categorie TEXT NOT NULL,
+          titre TEXT NOT NULL,
+          contenu TEXT NOT NULL,
+          anonyme BOOLEAN NOT NULL DEFAULT FALSE,
+          auteur_username TEXT,
+          auteur_nom TEXT,
+          statut TEXT NOT NULL DEFAULT 'nouvelle',
+          reponse TEXT,
+          reponse_par TEXT,
+          reponse_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.boite_idees_votes (
+          idee_id INTEGER NOT NULL REFERENCES hub.boite_idees(id) ON DELETE CASCADE,
+          username TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          PRIMARY KEY (idee_id, username)
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_boite_idees_created ON hub.boite_idees(created_at DESC)`);
+    } catch (e) { console.error('[PG DB] boite_idees:', e.message); }
     // Catégorie de la pièce : « devis » (création) ou, une fois la commande envoyée, bon_livraison / facture / autre.
     await client.query(`ALTER TABLE finance.demandes_commande_pj ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT 'devis'`);
     // Fil de commentaires d'une demande (dès le devis pris en compte) : réponses (parent_id) et @mentions.

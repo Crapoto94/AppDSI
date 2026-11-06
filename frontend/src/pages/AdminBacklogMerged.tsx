@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import AdminBacklog from './AdminBacklog';
 import AdminIdeas from './AdminIdeas';
 import AdminWhatsNew from './AdminWhatsNew';
+import BacklogRecipients from '../components/BacklogRecipients';
 
 type BacklogTab = 'backlog' | 'magapp' | 'whatsnew';
 
@@ -29,6 +30,8 @@ const AdminBacklogMerged: React.FC = () => {
           <p className="abm-desc">Demandes de fonctionnalités et idées d'améliorations DSI Hub et MagApp</p>
         </div>
       </div>
+
+      <BacklogRecipients />
 
       <nav className="abm-tabs">
         {TABS.map(({ id, label, Icon }) => (
