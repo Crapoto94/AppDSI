@@ -218,16 +218,24 @@ async function getDgpStats(opts = {}) {
  * réception → paiement. Pour chaque semaine : DGP moyen des factures payées cette semaine-là, et DGP moyen CUMULÉ depuis
  * janvier. Les semaines sans paiement sont présentes (valeurs nulles) pour une courbe continue.
  * @param {object} [opts]
- * @param {number|string} [opts.fiscalYear] année de paiement (défaut : année en cours)
+ * @param {number|string} [opts.fiscalYear] année (défaut : année en cours)
+ * @param {'global'|'ville'} [opts.mode] « global » (défaut) : réception → PAIEMENT (inclut le délai du comptable public / DGFiP), seuil 30 j,
+ *        facture classée dans la semaine de son paiement ; « ville » : réception → MANDATEMENT (délai de la collectivité seule),
+ *        seuil 20 j (part de l'ordonnateur), facture classée dans la semaine de son mandatement.
  */
 async function getDgpWeekly(opts = {}) {
     const year = Number(opts.fiscalYear) || new Date().getFullYear();
+    const mode = opts.mode === 'ville' ? 'ville' : 'global';
+    const seuil = mode === 'ville' ? 20 : 30;
+    // Date de fin du délai et durée en jours selon le mode (dates du cache : réception, mandatement, paiement)
+    const endCol = mode === 'ville' ? 'mandate_date' : 'paiement_date';
+    const dureeExpr = mode === 'ville' ? '(mandate_date::date - reception_date::date)' : 'dgp';
     const { rows } = await pool.query(
-        `SELECT to_char(date_trunc('week', paiement_date), 'YYYY-MM-DD') AS semaine,
-                COUNT(*)::int AS nb, SUM(dgp)::int AS somme, COUNT(*) FILTER (WHERE dgp > 30)::int AS nb_hors
+        `SELECT to_char(date_trunc('week', ${endCol}), 'YYYY-MM-DD') AS semaine,
+                COUNT(*)::int AS nb, SUM(${dureeExpr})::int AS somme, COUNT(*) FILTER (WHERE ${dureeExpr} > ${seuil})::int AS nb_hors
            FROM finance.facture_dgp
-          WHERE NOT refused AND paiement_date IS NOT NULL AND dgp IS NOT NULL
-            AND EXTRACT(YEAR FROM paiement_date) = $1
+          WHERE NOT refused AND ${endCol} IS NOT NULL AND reception_date IS NOT NULL AND ${dureeExpr} IS NOT NULL
+            AND EXTRACT(YEAR FROM ${endCol}) = $1
           GROUP BY 1 ORDER BY 1`,
         [year]
     );
@@ -257,7 +265,7 @@ async function getDgpWeekly(opts = {}) {
             nb_hors_cumule: cumHors,
         });
     }
-    return { year, weeks, dgp_moyen: cumNb ? Math.round((cumSum / cumNb) * 10) / 10 : null, nb_payees: cumNb, nb_hors_delai: cumHors };
+    return { year, mode, seuil, weeks, dgp_moyen: cumNb ? Math.round((cumSum / cumNb) * 10) / 10 : null, nb_payees: cumNb, nb_hors_delai: cumHors };
 }
 
 /**
