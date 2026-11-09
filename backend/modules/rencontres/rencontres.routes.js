@@ -42,7 +42,9 @@ router.post('/', authenticateAdminOrFinances, rencontresCtrl.create);
 // suivi, participants), déjà ouverte à authenticateJWT.
 router.put('/:id', authenticateJWT, rencontresCtrl.update);
 router.delete('/delete-all', authenticateAdmin, rencontresCtrl.deleteAll);
-router.delete('/:id', authenticateAdmin, rencontresCtrl.deleteOne);
+// Suppression d'une demande (ex: doublon) : alignée sur la création/édition, ouverte à tout
+// utilisateur ayant accès à la page ; seule la suppression globale reste superadmin.
+router.delete('/:id', authenticateJWT, rencontresCtrl.deleteOne);
 
 // Participants
 router.post('/:id/participants', authenticateJWT, rencontresCtrl.addParticipant);

@@ -262,7 +262,8 @@ const RencontresBudgetaires: React.FC = () => {
         fetchRencontres();
         if (selectedRencontre?.id === id) setShowDetailModal(false);
       } else {
-        alert('Erreur suppression');
+        const err = await res.json().catch(() => ({}));
+        alert(`Erreur suppression : ${err.message || err.error || res.status}`);
       }
     } catch (err) {
       console.error('Error:', err);
