@@ -1,18 +1,27 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sparkles, FileText, MessageCircleQuestion, Languages, X, Loader2, Copy } from 'lucide-react';
 
 type Mode = 'summary' | 'ask' | 'translate';
 
 const LANGUAGES = ['français', 'anglais', 'espagnol', 'allemand', 'italien', 'portugais', 'arabe'];
 
+interface PdfAiAssistantProps {
+  onClose: () => void;
+  /** Récupère le PDF ouvert dans l'éditeur (pont PdfCraft). Absent : seul le choix d'un fichier est proposé. */
+  getPdf?: () => Promise<File | null>;
+  /** Demande venue du menu natif « Assistant IA » de PdfCraft (nonce change à chaque clic). */
+  request?: { mode: Mode; nonce: number };
+}
+
 /**
  * « Mon assistant IA » : Résumer / Interroger / Traduire un PDF via l'API IA Ville (APM).
  * Remplace l'« Assistant IA » de PdfCraft, dont les commandes sont désactivées dans le build web
  * (voir docs/PDFCRAFT-INTEGRATION.md). Le PDF est envoyé au backend (POST /api/pdf-tools/ai).
+ * Source : le document ouvert dans l'éditeur (par défaut) ou un autre fichier choisi.
  */
-export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [mode, setMode] = useState<Mode>('summary');
+export default function PdfAiAssistant({ onClose, getPdf, request }: PdfAiAssistantProps) {
+  const [otherFile, setOtherFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<Mode>(request?.mode ?? 'summary');
   const [question, setQuestion] = useState('');
   const [language, setLanguage] = useState('français');
   const [loading, setLoading] = useState(false);
@@ -20,16 +29,18 @@ export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const useOpenDoc = !!getPdf && !otherFile;
 
-  const run = async () => {
-    if (!file) return;
+  const run = async (m: Mode = mode) => {
     setLoading(true); setError(''); setAnswer(''); setNote('');
     try {
+      const file = useOpenDoc ? await getPdf!() : otherFile;
+      if (!file) throw new Error("Aucun PDF ouvert dans l'éditeur : ouvrez un document, ou choisissez un fichier ci-dessous.");
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('action', mode);
-      if (mode === 'ask') fd.append('question', question);
-      if (mode === 'translate') fd.append('language', language);
+      fd.append('action', m);
+      if (m === 'ask') fd.append('question', question);
+      if (m === 'translate') fd.append('language', language);
       const token = localStorage.getItem('token');
       const res = await fetch('/api/pdf-tools/ai', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: fd });
       const data = await res.json().catch(() => ({}));
@@ -43,6 +54,18 @@ export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Clic sur Résumer / Interroger / Traduire dans le menu natif de PdfCraft : on bascule le mode,
+  // et « Résumer » se lance directement sur le document ouvert.
+  const lastNonce = useRef(0);
+  useEffect(() => {
+    if (!request || request.nonce === lastNonce.current) return;
+    lastNonce.current = request.nonce;
+    setMode(request.mode);
+    setAnswer(''); setError(''); setNote('');
+    if (request.mode === 'summary' && getPdf && !otherFile) void run('summary');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.nonce]);
+
   const tab = (m: Mode, icon: React.ReactNode, label: string) => (
     <button
       onClick={() => setMode(m)}
@@ -50,7 +73,8 @@ export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
     >{icon}{label}</button>
   );
 
-  const canRun = !!file && !loading && (mode !== 'ask' || question.trim().length > 0);
+  const hasSource = useOpenDoc || !!otherFile;
+  const canRun = hasSource && !loading && (mode !== 'ask' || question.trim().length > 0);
 
   return (
     <div style={{ position: 'absolute', top: 49, right: 0, bottom: 0, width: 'min(460px, 100%)', background: '#fff', borderLeft: '1px solid #e2e8f0', boxShadow: '-8px 0 24px -12px rgba(0,0,0,0.25)', zIndex: 5, display: 'flex', flexDirection: 'column' }}>
@@ -62,14 +86,19 @@ export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
         <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>Propulsé par l'API IA de la Ville. Le PDF est analysé sur nos serveurs, rien n'est envoyé à l'extérieur.</p>
 
-        <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { setFile(e.target.files?.[0] || null); setAnswer(''); setError(''); }} />
-        <button
-          onClick={() => inputRef.current?.click()}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px dashed #94a3b8', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', color: '#334155', fontWeight: 600, textAlign: 'left' }}
-        >
+        <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { setOtherFile(e.target.files?.[0] || null); setAnswer(''); setError(''); }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', color: '#334155', fontWeight: 600 }}>
           <FileText size={18} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file ? file.name : 'Choisir le PDF à analyser…'}</span>
-        </button>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {useOpenDoc ? "Document ouvert dans l'éditeur" : (otherFile ? otherFile.name : 'Aucun fichier choisi')}
+          </span>
+          <button onClick={() => inputRef.current?.click()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem' }}>
+            {otherFile ? 'Changer' : 'Autre fichier…'}
+          </button>
+          {otherFile && getPdf && (
+            <button onClick={() => setOtherFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '0.8rem' }}>Document ouvert</button>
+          )}
+        </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
           {tab('summary', <Sparkles size={14} />, 'Résumer')}
@@ -96,7 +125,7 @@ export default function PdfAiAssistant({ onClose }: { onClose: () => void }) {
         )}
 
         <button
-          onClick={run}
+          onClick={() => run()}
           disabled={!canRun}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 14px', border: 'none', borderRadius: 10, background: canRun ? '#2563eb' : '#94a3b8', color: '#fff', fontWeight: 700, cursor: canRun ? 'pointer' : 'not-allowed' }}
         >

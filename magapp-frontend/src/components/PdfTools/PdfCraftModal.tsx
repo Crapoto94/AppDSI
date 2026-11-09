@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, ArrowLeft, Sparkles } from 'lucide-react';
 import PdfAiAssistant from './PdfAiAssistant';
+import { installPdfCraftBridge, type AiMode, type PdfCraftBridge } from './pdfCraftBridge';
 
 interface PdfCraftModalProps {
   /** Ferme l'éditeur (retour à l'écran précédent). */
@@ -53,6 +54,19 @@ function dismissCommunityBanner(frame: HTMLIFrameElement | null, author?: string
 export default function PdfCraftModal({ onClose, onHome, author }: PdfCraftModalProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [showAi, setShowAi] = useState(false);
+  const [aiRequest, setAiRequest] = useState<{ mode: AiMode; nonce: number }>({ mode: 'summary', nonce: 0 });
+  const bridgeRef = useRef<PdfCraftBridge | null>(null);
+  useEffect(() => () => bridgeRef.current?.dispose(), []);
+
+  const handleFrameLoad = () => {
+    dismissCommunityBanner(frameRef.current, author);
+    bridgeRef.current?.dispose();
+    // Clic sur Résumer / Interroger / Traduire dans le menu natif « Assistant IA » → Mon assistant IA, sur le document ouvert.
+    bridgeRef.current = installPdfCraftBridge(frameRef.current, (mode) => {
+      setAiRequest((r) => ({ mode, nonce: r.nonce + 1 }));
+      setShowAi(true);
+    });
+  };
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2100, display: 'flex' }}>
       <div style={{ background: 'white', width: '100%', height: '100%', overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -86,12 +100,12 @@ export default function PdfCraftModal({ onClose, onHome, author }: PdfCraftModal
             </button>
           </div>
         </div>
-        {showAi && <PdfAiAssistant onClose={() => setShowAi(false)} />}
+        {showAi && <PdfAiAssistant onClose={() => setShowAi(false)} getPdf={() => bridgeRef.current?.getPdf() ?? Promise.resolve(null)} request={aiRequest} />}
         <iframe
           ref={frameRef}
           title="Modifier un PDF (PdfCraft)"
           src="/pdfcraft/index.html?control"
-          onLoad={() => dismissCommunityBanner(frameRef.current, author)}
+          onLoad={handleFrameLoad}
           allow="clipboard-read; clipboard-write; fullscreen"
           style={{ flex: 1, width: '100%', border: 'none' }}
         />
