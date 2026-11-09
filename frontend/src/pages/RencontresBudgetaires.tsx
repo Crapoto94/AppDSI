@@ -764,7 +764,19 @@ const RencontresBudgetaires: React.FC = () => {
                           setIsEditMode(true);
                           setShowDetailModal(true);
                         }}
-                        title="Cliquer pour éditer"
+                        title={[
+                          r.titre,
+                          `Direction : ${r.direction || '-'}${r.service ? ` / ${r.service}` : ''}`,
+                          `Type : ${r.type || '-'}`,
+                          `Date : ${r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
+                          `Coût TTC : ${Number(r.cout_ttc) > 0 ? `${Number(r.cout_ttc).toFixed(2)} €` : '-'}`,
+                          `Arbitrage : ${r.arbitrage || '-'}`,
+                          `Statut : ${r.statut || '-'}`,
+                          r.responsable_dsi ? `Responsable DSI : ${r.responsable_dsi}` : '',
+                          r.description ? `\nDescription : ${r.description.length > 400 ? r.description.slice(0, 400) + '…' : r.description}` : '',
+                          r.commentaires ? `\nCommentaires : ${r.commentaires.length > 300 ? r.commentaires.slice(0, 300) + '…' : r.commentaires}` : '',
+                          '\n(Cliquer pour éditer)'
+                        ].filter(Boolean).join('\n')}
                       >
                         {r.titre.substring(0, 60)}
                       </td>
