@@ -115,6 +115,17 @@ const RencontresBudgetaires: React.FC = () => {
   const [handledInitialReunionId, setHandledInitialReunionId] = useState(false);
 
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
+
+  // Directions proposées dans le filtre : uniquement celles liées à l'année sélectionnée
+  const directionsFiltrees = selectedAnnee
+    ? [...new Set(rencontres.filter(r => r.annee === selectedAnnee).map(r => r.direction))]
+        .filter((d): d is string => !!d)
+        .sort((a, b) => a.localeCompare(b))
+    : directions;
+
+  useEffect(() => {
+    if (selectedDirection && !directionsFiltrees.includes(selectedDirection)) setSelectedDirection('');
+  }, [selectedAnnee, rencontres]); // eslint-disable-line react-hooks/exhaustive-deps
   const statuts = ['demandée', 'planifiée', 'effectuée'];
   const arbitrageList = [...new Set(rencontres.map(r => r.arbitrage).filter(Boolean))].sort();
   const types = ['incident', 'demande', 'projet', 'autre'];
@@ -654,7 +665,7 @@ const RencontresBudgetaires: React.FC = () => {
             style={styles.filterSelect}
           >
             <option value="">Toutes directions</option>
-            {directions.map(d => (
+            {directionsFiltrees.map(d => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
