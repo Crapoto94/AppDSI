@@ -841,7 +841,7 @@ ${ligne}` : ligne;
                             color: 'white',
                             cursor: 'pointer'
                           }}
-                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutAnnee(r.annee_validation || ''); setStatutComment(''); }}
+                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutAnnee(r.annee_validation || new Date().getFullYear()); setStatutComment(''); }}
                           title="Cliquer pour changer le statut"
                         >
                           {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
@@ -1079,7 +1079,10 @@ ${ligne}` : ligne;
                         <select
                           style={styles.editInput}
                           value={editedData?.statut || ''}
-                          onChange={(e) => handleEditFieldChange('statut', e.target.value)}
+                          onChange={(e) => {
+                            handleEditFieldChange('statut', e.target.value);
+                            if (e.target.value === 'Validé' && !editedData?.annee_validation) handleEditFieldChange('annee_validation', new Date().getFullYear());
+                          }}
                         >
                           <option value="">-- Sélectionner --</option>
                           {statuts.map(s => (
