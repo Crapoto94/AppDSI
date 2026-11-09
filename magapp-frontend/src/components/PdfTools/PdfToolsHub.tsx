@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Combine, Scissors, Minimize2, Images, Stamp, Hash, ScanText, GitCompare, Wrench, ChevronRight, X, FileSpreadsheet, Library, Lock, PenLine } from 'lucide-react';
+import { FileText, Combine, Scissors, Minimize2, Images, Stamp, Hash, ScanText, GitCompare, Wrench, ChevronRight, X, FileSpreadsheet, Library, Lock, PenLine, FilePen } from 'lucide-react';
 import MergeTool from './MergeTool';
 import PageEditorTool from './PageEditorTool';
 import CompressTool from './CompressTool';
@@ -13,8 +13,9 @@ import MailMergeTool from './MailMergeTool';
 import ProtectTool from './ProtectTool';
 import EditTool from './EditTool';
 import PdfLibrary from './PdfLibrary';
+import PdfCraftModal from './PdfCraftModal';
 
-interface PdfToolsHubProps { onClose: () => void }
+interface PdfToolsHubProps { onClose: () => void; author?: string }
 
 type ToolKey = 'merge' | 'pages' | 'compress' | 'images' | 'watermark' | 'numbers' | 'ocr' | 'compare' | 'repair' | 'mailmerge' | 'protect' | 'edit';
 
@@ -36,9 +37,10 @@ function PdfToolCard({ icon, bg, title, description, onClick }: { icon: React.Re
   );
 }
 
-export default function PdfToolsHub({ onClose }: PdfToolsHubProps) {
+export default function PdfToolsHub({ onClose, author }: PdfToolsHubProps) {
   const [activeTool, setActiveTool] = useState<ToolKey | null>(null);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showPdfCraft, setShowPdfCraft] = useState(false);
 
   const tools: { key: ToolKey; icon: React.ReactNode; bg: string; title: string; description: string }[] = [
     { key: 'merge', icon: <Combine size={22} color="#0369a1" />, bg: '#dbeafe', title: 'Fusionner des PDF', description: 'Combiner plusieurs PDF/images en un seul' },
@@ -86,6 +88,17 @@ export default function PdfToolsHub({ onClose }: PdfToolsHubProps) {
               </div>
               <ChevronRight size={18} style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.85 }} />
             </button>
+            <button
+              onClick={() => setShowPdfCraft(true)}
+              style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', border: 'none', borderRadius: '12px', padding: '11px 16px', cursor: 'pointer', color: '#fff', minWidth: 0 }}
+            >
+              <div style={{ width: 36, height: 36, minWidth: 36, borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FilePen size={20} /></div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 800 }}>Modifier un PDF</div>
+                <div style={{ fontSize: '0.72rem', opacity: 0.92 }}>Éditeur complet (PdfCraft) : lire, annoter, organiser, sécuriser — directement dans votre navigateur</div>
+              </div>
+              <ChevronRight size={18} style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.85 }} />
+            </button>
             {tools.map((t) => (
               <PdfToolCard key={t.key} icon={t.icon} bg={t.bg} title={t.title} description={t.description} onClick={() => setActiveTool(t.key)} />
             ))}
@@ -106,6 +119,7 @@ export default function PdfToolsHub({ onClose }: PdfToolsHubProps) {
       {activeTool === 'edit' && <EditTool onClose={() => setActiveTool(null)} />}
       {activeTool === 'mailmerge' && <MailMergeTool onClose={() => setActiveTool(null)} />}
       {showLibrary && <PdfLibrary onClose={() => setShowLibrary(false)} />}
+      {showPdfCraft && <PdfCraftModal author={author} onClose={() => setShowPdfCraft(false)} onHome={() => { setShowPdfCraft(false); onClose(); }} />}
     </>
   );
 }
