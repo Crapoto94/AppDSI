@@ -1044,16 +1044,16 @@ ${ligne}` : ligne;
                     </div>
                   );
                   const sel = (key: string, options: string[]) => (
-                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)}>
+                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)}>
                       <option value="">-- Sélectionner --</option>
                       {options.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                   );
                   const input = (key: string, props: any = {}) => (
-                    <input style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)} {...props} />
+                    <input style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)} {...props} />
                   );
                   const area = (key: string, rows: number) => (
-                    <textarea style={{ ...styles.editInput, minHeight: `${rows * 24}px`, fontFamily: 'inherit' }} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)} />
+                    <textarea style={{ ...styles.editInput, minHeight: `${rows * 24}px`, fontFamily: 'inherit' }} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)} />
                   );
                   const multi = (v?: string) => <p style={{ ...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{v || '-'}</p>;
                   return (
