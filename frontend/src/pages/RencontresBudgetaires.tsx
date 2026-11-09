@@ -928,7 +928,7 @@ ${ligne}` : ligne;
             <div style={{...styles.modal, maxWidth: '800px', maxHeight: '90vh'}} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
                 <h3 style={styles.modalTitle}>
-                  {isEditMode ? '✏️ Édition' : selectedRencontre.titre}
+                  {isEditMode ? 'Modifier la demande' : selectedRencontre.titre}
                 </h3>
                 <div style={{display: 'flex', gap: '8px'}}>
                   {!isEditMode && (
@@ -953,288 +953,84 @@ ${ligne}` : ligne;
               </div>
 
               <div style={{...styles.modalContent, overflowY: 'auto', maxHeight: 'calc(90vh - 180px)'}}>
-                {/* Première section - Informations principales */}
-                <div style={styles.modalSection}>
-                  <h4 style={styles.sectionTitle}>📋 Informations Principales</h4>
-                  <div style={styles.detailGrid2}>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Direction</label>
-                      {isEditMode ? (
-                        <select
-                          style={styles.editInput}
-                          value={editedData?.direction || ''}
-                          onChange={(e) => handleEditFieldChange('direction', e.target.value)}
-                        >
-                          <option value="">-- Sélectionner --</option>
-                          {directions.map(d => (
-                            <option key={d} value={d}>{d}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p style={styles.value}>{selectedRencontre.direction}</p>
+                {(() => {
+                  const e = editedData;
+                  const sr = selectedRencontre;
+                  const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px 16px', marginBottom: '12px' };
+                  const full: React.CSSProperties = { gridColumn: '1 / -1' };
+                  const txt = (v: any) => <p style={styles.value}>{v || '-'}</p>;
+                  const field = (label: string, edit: React.ReactNode, view: React.ReactNode, wide = false) => (
+                    <div style={wide ? full : undefined}>
+                      <label style={styles.label}>{label}</label>
+                      {isEditMode ? edit : view}
+                    </div>
+                  );
+                  const sel = (key: string, options: string[]) => (
+                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)}>
+                      <option value="">-- Sélectionner --</option>
+                      {options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  );
+                  const input = (key: string, props: any = {}) => (
+                    <input style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)} {...props} />
+                  );
+                  const area = (key: string, rows: number) => (
+                    <textarea style={{ ...styles.editInput, minHeight: `${rows * 24}px`, fontFamily: 'inherit' }} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key, ev.target.value)} />
+                  );
+                  const multi = (v?: string) => <p style={{ ...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{v || '-'}</p>;
+                  return (
+                    <>
+                      <div style={grid}>
+                        {field('Titre', input('titre'), txt(sr.titre), true)}
+                        {field('Direction', sel('direction', directions), txt(sr.direction))}
+                        {field('Service', sel('service', services), txt(sr.service))}
+                        {field('Date', input('date_reunion', { type: 'date', value: e?.date_reunion ? e.date_reunion.split('T')[0] : '' }), txt(sr.date_reunion ? new Date(sr.date_reunion).toLocaleDateString('fr-FR') : ''))}
+                        {field('Type', sel('type', [...new Set([...types, 'Demande', 'Investissement'])]), txt(sr.type))}
+                        {field('Montant TTC', (
+                          <input type="number" step="0.01" style={styles.editInput} value={e?.cout_ttc || ''} onChange={(ev) => handleEditFieldChange('cout_ttc', parseFloat(ev.target.value))} />
+                        ), <p style={{ ...styles.value, fontWeight: 'bold', color: '#10b981' }}>{Number(sr.cout_ttc) > 0 ? `${Number(sr.cout_ttc).toFixed(2)} €` : '-'}</p>)}
+                        {field('Arbitrage', sel('arbitrage', arbitrageList), <p style={{ ...styles.value, fontWeight: 'bold', color: getArbitrageColor(sr.arbitrage) }}>{sr.arbitrage || '-'}</p>)}
+                        {field('Statut', (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <select
+                              style={{ ...styles.editInput, flex: 1 }}
+                              value={e?.statut || ''}
+                              onChange={(ev) => {
+                                handleEditFieldChange('statut', ev.target.value);
+                                if (ev.target.value === 'Validé' && !e?.annee_validation) handleEditFieldChange('annee_validation', new Date().getFullYear());
+                              }}
+                            >
+                              <option value="">-- Sélectionner --</option>
+                              {statuts.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            {e?.statut === 'Validé' && (
+                              <select
+                                style={{ ...styles.editInput, width: '110px' }}
+                                value={e?.annee_validation || ''}
+                                onChange={(ev) => handleEditFieldChange('annee_validation', ev.target.value ? parseInt(ev.target.value) : null)}
+                              >
+                                <option value="">Année</option>
+                                {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                            )}
+                          </div>
+                        ), (
+                          <span style={{ ...styles.badge, backgroundColor: getStatutColor(sr.statut), color: 'white', display: 'inline-block' }}>
+                            {sr.statut}{sr.statut === 'Validé' && sr.annee_validation ? ` ${sr.annee_validation}` : ''}
+                          </span>
+                        ))}
+                        {field('Responsable DSI', input('responsable_dsi', { placeholder: 'ex: IRS, SSD' }), txt(sr.responsable_dsi))}
+                        {field('Description', area('description', 4), multi(sr.description), true)}
+                        {field('Commentaires', area('commentaires', 3), multi(sr.commentaires), true)}
+                        {field('Suivi', area('suivi', 3), multi(sr.suivi), true)}
+                        {(isEditMode || sr.lien_reference) && field('Lien', input('lien_reference', { placeholder: 'https://...' }), txt(sr.lien_reference), true)}
+                      </div>
+                      {!isEditMode && sr.created_at && (
+                        <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>Créée le {new Date(sr.created_at).toLocaleDateString('fr-FR')}</p>
                       )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Service</label>
-                      {isEditMode ? (
-                        <select
-                          style={styles.editInput}
-                          value={editedData?.service || ''}
-                          onChange={(e) => handleEditFieldChange('service', e.target.value)}
-                        >
-                          <option value="">-- Sélectionner --</option>
-                          {services.map(s => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p style={styles.value}>{selectedRencontre.service || '-'}</p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Date</label>
-                      {isEditMode ? (
-                        <input
-                          type="date"
-                          style={styles.editInput}
-                          value={editedData?.date_reunion ? editedData.date_reunion.split('T')[0] : ''}
-                          onChange={(e) => handleEditFieldChange('date_reunion', e.target.value)}
-                        />
-                      ) : (
-                        <p style={styles.value}>
-                          {selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}
-                        </p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Type</label>
-                      {isEditMode ? (
-                        <select
-                          style={styles.editInput}
-                          value={editedData?.type || ''}
-                          onChange={(e) => handleEditFieldChange('type', e.target.value)}
-                        >
-                          <option value="">-- Sélectionner --</option>
-                          {types.map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                          <option value="Demande">Demande</option>
-                          <option value="Investissement">Investissement</option>
-                        </select>
-                      ) : (
-                        <p style={styles.value}>{selectedRencontre.type || '-'}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Deuxième section - Finances */}
-                <div style={styles.modalSection}>
-                  <h4 style={styles.sectionTitle}>💰 Informations Financières</h4>
-                  <div style={styles.detailGrid2}>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Montant TTC</label>
-                      {isEditMode ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          style={styles.editInput}
-                          value={editedData?.cout_ttc || ''}
-                          onChange={(e) => handleEditFieldChange('cout_ttc', parseFloat(e.target.value))}
-                        />
-                      ) : (
-                        <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
-                          {Number(selectedRencontre.cout_ttc) > 0 ? `${Number(selectedRencontre.cout_ttc).toFixed(2)}€` : '-'}
-                        </p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Arbitrage</label>
-                      {isEditMode ? (
-                        <select
-                          style={styles.editInput}
-                          value={editedData?.arbitrage || ''}
-                          onChange={(e) => handleEditFieldChange('arbitrage', e.target.value)}
-                        >
-                          <option value="">-- Sélectionner --</option>
-                          {arbitrageList.map(a => (
-                            <option key={a} value={a}>{a}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p style={{
-                          ...styles.value,
-                          color: getArbitrageColor(selectedRencontre.arbitrage),
-                          fontWeight: 'bold',
-                          fontSize: '16px'
-                        }}>
-                          {selectedRencontre.arbitrage || '-'}
-                        </p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Statut</label>
-                      {isEditMode ? (
-                        <>
-                        <select
-                          style={styles.editInput}
-                          value={editedData?.statut || ''}
-                          onChange={(e) => {
-                            handleEditFieldChange('statut', e.target.value);
-                            if (e.target.value === 'Validé' && !editedData?.annee_validation) handleEditFieldChange('annee_validation', new Date().getFullYear());
-                          }}
-                        >
-                          <option value="">-- Sélectionner --</option>
-                          {statuts.map(s => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                        {editedData?.statut === 'Validé' && (
-                          <select
-                            style={{ ...styles.editInput, marginTop: '6px' }}
-                            value={editedData?.annee_validation || ''}
-                            onChange={(e) => handleEditFieldChange('annee_validation', e.target.value ? parseInt(e.target.value) : null)}
-                          >
-                            <option value="">-- Année de validation --</option>
-                            {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
-                          </select>
-                        )}
-                        </>
-                      ) : (
-                        <span style={{
-                          ...styles.badge,
-                          backgroundColor: getStatutColor(selectedRencontre.statut),
-                          color: 'white',
-                          display: 'inline-block'
-                        }}>
-                          {selectedRencontre.statut}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Troisième section - Description et Commentaires */}
-                <div style={styles.modalSection}>
-                  <h4 style={styles.sectionTitle}>📝 Description</h4>
-                  <div style={{...styles.detailField, marginBottom: '16px'}}>
-                    <label style={styles.label}>Détails de la demande</label>
-                    {isEditMode ? (
-                      <textarea
-                        style={{...styles.editInput, minHeight: '100px', fontFamily: 'monospace'}}
-                        value={editedData?.description || ''}
-                        onChange={(e) => handleEditFieldChange('description', e.target.value)}
-                      />
-                    ) : (
-                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-                        {selectedRencontre.description || '-'}
-                      </p>
-                    )}
-                  </div>
-
-                  <div style={styles.detailField}>
-                    <label style={styles.label}>Commentaires</label>
-                    {isEditMode ? (
-                      <textarea
-                        style={{...styles.editInput, minHeight: '80px', fontFamily: 'monospace'}}
-                        value={editedData?.commentaires || ''}
-                        onChange={(e) => handleEditFieldChange('commentaires', e.target.value)}
-                      />
-                    ) : (
-                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-                        {selectedRencontre.commentaires || '-'}
-                      </p>
-                    )}
-                  </div>
-
-                  <div style={styles.detailField}>
-                    <label style={styles.label}>Suivi</label>
-                    {isEditMode ? (
-                      <textarea
-                        style={{...styles.editInput, minHeight: '80px', fontFamily: 'monospace'}}
-                        value={editedData?.suivi || ''}
-                        onChange={(e) => handleEditFieldChange('suivi', e.target.value)}
-                      />
-                    ) : (
-                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-                        {selectedRencontre.suivi || '-'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Quatrième section - Suivi et Responsabilité */}
-                <div style={styles.modalSection}>
-                  <h4 style={styles.sectionTitle}>👤 Responsabilité</h4>
-                  <div style={styles.detailGrid2}>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Responsable DSI</label>
-                      {isEditMode ? (
-                        <input
-                          type="text"
-                          style={styles.editInput}
-                          value={editedData?.responsable_dsi || ''}
-                          onChange={(e) => handleEditFieldChange('responsable_dsi', e.target.value)}
-                          placeholder="ex: IRS, SSD"
-                        />
-                      ) : (
-                        <p style={styles.value}>{selectedRencontre.responsable_dsi || '-'}</p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Ticket DSIHUB</label>
-                      {isEditMode ? (
-                        <input
-                          type="text"
-                          style={styles.editInput}
-                          value={editedData?.ticket_glpi || ''}
-                          onChange={(e) => handleEditFieldChange('ticket_glpi', e.target.value)}
-                          placeholder="ex: 43093"
-                        />
-                      ) : (
-                        <p style={{...styles.value, fontFamily: 'monospace'}}>
-                          {selectedRencontre.ticket_glpi || '-'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cinquième section - Références */}
-                {(selectedRencontre.lien_reference || isEditMode) && (
-                  <div style={styles.modalSection}>
-                    <h4 style={styles.sectionTitle}>🔗 Références</h4>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Lien</label>
-                      {isEditMode ? (
-                        <input
-                          type="text"
-                          style={styles.editInput}
-                          value={editedData?.lien_reference || ''}
-                          onChange={(e) => handleEditFieldChange('lien_reference', e.target.value)}
-                          placeholder="ex: https://..."
-                        />
-                      ) : (
-                        <p style={{...styles.value, fontFamily: 'monospace', fontSize: '13px'}}>
-                          {selectedRencontre.lien_reference || '-'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Sixième section - Dates */}
-                <div style={styles.modalSection}>
-                  <h4 style={styles.sectionTitle}>📅 Dates</h4>
-                  <div style={styles.detailGrid2}>
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Créée le</label>
-                      <p style={{...styles.value, fontSize: '12px', color: '#6b7280'}}>
-                        {selectedRencontre.created_at ? new Date(selectedRencontre.created_at).toLocaleDateString('fr-FR') : '-'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                    </>
+                  );
+                })()}
               </div>
 
               <div style={styles.modalFooter}>
@@ -1258,12 +1054,13 @@ ${ligne}` : ligne;
                       <Ticket size={16} />
                       {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer ticket DSIHUB'}
                     </button>
+                    <button style={styles.btn} onClick={handleCancelEdit}>Annuler</button>
                     <button
                       style={{ ...styles.btn, backgroundColor: '#10b981', color: 'white', border: 'none' }}
                       onClick={handleSaveEdit}
                       disabled={isEditSaving}
                     >
-                      {isEditSaving ? '💾 Enregistrement...' : '💾 Enregistrer'}
+                      {isEditSaving ? 'Enregistrement...' : 'Enregistrer'}
                     </button>
                   </>
                 ) : (
