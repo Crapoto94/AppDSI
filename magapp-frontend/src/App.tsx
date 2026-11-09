@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch, FilePen } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,6 +12,7 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
+import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -167,6 +168,7 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPdfTools, setShowPdfTools] = useState(false);
+  const [showPdfCraft, setShowPdfCraft] = useState(false);
   const [showAgentSearch, setShowAgentSearch] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
@@ -1657,6 +1659,17 @@ function App() {
                 />
               )}
 
+              {(settings.show_pdf_tools || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FilePen size={22} color="#1d4ed8" />}
+                  bg="#dbeafe"
+                  title="Modifier un PDF"
+                  description="Éditeur PDF complet (PdfCraft)"
+                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
+                  onClick={() => { setShowTools(false); setShowPdfCraft(true); }}
+                />
+              )}
+
               {windowLogin && (settings.show_agent_search || settings.is_beta_user) && (
                 <ToolCard
                   icon={<UserSearch size={22} color="#b45309" />}
@@ -1708,7 +1721,8 @@ function App() {
         </div>
       )}
 
-      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} />}
+      {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
+      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
       {/* Modal Rencontres */}
@@ -2433,6 +2447,28 @@ function App() {
           </button>
         )}
       </div>
+
+      {/* Tuile double largeur « Modifier un PDF » (PdfCraft) */}
+      {!searchTerm && (settings.show_pdf_tools || settings.is_beta_user) && (
+        <section className="category-section">
+          <div className="apps-grid">
+            <button
+              type="button"
+              className="app-card"
+              onClick={() => setShowPdfCraft(true)}
+              title="Modifier un PDF : lire, annoter, organiser et sécuriser un PDF directement dans votre navigateur"
+              style={{ gridColumn: 'span 2', cursor: 'pointer', textAlign: 'left', font: 'inherit', padding: 0 }}
+            >
+              <div className="app-icon-container">
+                <FilePen size={30} color="#1d4ed8" />
+              </div>
+              <span className="app-name" style={{ color: 'var(--text-blue)' }}>
+                <span>Modifier un PDF</span>
+              </span>
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Mes Favoris Section Dynamique */}
       {favoriteApps.length > 0 && (
