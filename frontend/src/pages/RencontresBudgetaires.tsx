@@ -131,7 +131,7 @@ const RencontresBudgetaires: React.FC = () => {
   useEffect(() => {
     if (selectedDirection && !directionsFiltrees.includes(selectedDirection)) setSelectedDirection('');
   }, [selectedAnnee, rencontres]); // eslint-disable-line react-hooks/exhaustive-deps
-  const statuts = ['demandée', 'planifiée', 'effectuée', 'Validé'];
+  const statuts = ['demandée', 'planifiée', 'effectuée', 'A arbitrer', 'Validé', 'Refusé'];
   const anneesValidation = [new Date().getFullYear(), new Date().getFullYear() + 1];
   const arbitrageList = [...new Set(rencontres.map(r => r.arbitrage).filter(Boolean))].sort();
   const types = ['incident', 'demande', 'projet', 'autre'];
@@ -633,7 +633,9 @@ ${ligne}` : ligne;
       case 'demandée': return '#8b5cf6';
       case 'planifiée': return '#f59e0b';
       case 'effectuée': return '#10b981';
+      case 'A arbitrer': return '#0ea5e9';
       case 'Validé': return '#15803d';
+      case 'Refusé': return '#dc2626';
       default: return '#6b7280';
     }
   };
@@ -734,6 +736,8 @@ ${ligne}` : ligne;
             <option value="demandée">Demandée</option>
             <option value="planifiée">Planifiée</option>
             <option value="effectuée">Effectuée</option>
+            <option value="A arbitrer">A arbitrer</option>
+            <option value="Refusé">Refusé</option>
           </select>
 
           <select

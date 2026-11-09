@@ -871,7 +871,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                     </td>
                     <td style={{padding: '6px 8px'}}>
                       <select style={{width: '100%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.statut || ''} onChange={e => setEditDemandeData((v: any) => ({...v, statut: e.target.value}))}>
-                        {['demandée', 'planifiée', 'effectuée'].map(s => <option key={s} value={s}>{s}</option>)}
+                        {['demandée', 'planifiée', 'effectuée', 'A arbitrer', 'Refusé'].map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </td>
                     <td style={{padding: '6px 8px', whiteSpace: 'nowrap', textAlign: 'right'}}>
