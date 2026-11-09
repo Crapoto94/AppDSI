@@ -242,10 +242,12 @@ module.exports = {
     update: async (req, res) => {
         try {
             const { id } = req.params;
-            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
+            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, annee_validation } = req.body;
+            const validee = statut === 'Validé';
+            if (validee && annee_validation !== undefined && annee_validation !== null && !Number.isInteger(Number(annee_validation))) return res.status(400).json({ error: 'Année de validation invalide' });
             await pgDb.run(
-                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, id]
+                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, annee_validation=${validee ? 'COALESCE(?, annee_validation)' : '?'}, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, validee && annee_validation != null ? Number(annee_validation) : null, id]
             );
             res.json({ message: 'Rencontre mise à jour' });
         } catch (error) {

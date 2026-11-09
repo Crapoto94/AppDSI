@@ -2160,6 +2160,7 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_revue ON hub_rencontres.revue_projets(revue_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_projet ON hub_rencontres.revue_projets(projet_id);`);
 
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS annee_validation INTEGER`); } catch (e) {}
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON hub_rencontres.rencontres_budgetaires(direction);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON hub_rencontres.rencontres_budgetaires(statut);`);

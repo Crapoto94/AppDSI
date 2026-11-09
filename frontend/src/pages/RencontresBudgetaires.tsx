@@ -29,6 +29,7 @@ interface Rencontre {
   ticket_glpi: string;
   lien_reference: string;
   statut: string;
+  annee_validation?: number | null;
   commentaires: string;
   suivi?: string;
   created_at: string;
@@ -130,7 +131,8 @@ const RencontresBudgetaires: React.FC = () => {
   useEffect(() => {
     if (selectedDirection && !directionsFiltrees.includes(selectedDirection)) setSelectedDirection('');
   }, [selectedAnnee, rencontres]); // eslint-disable-line react-hooks/exhaustive-deps
-  const statuts = ['demandée', 'planifiée', 'effectuée'];
+  const statuts = ['demandée', 'planifiée', 'effectuée', 'Validé'];
+  const anneesValidation = [new Date().getFullYear(), new Date().getFullYear() + 1];
   const arbitrageList = [...new Set(rencontres.map(r => r.arbitrage).filter(Boolean))].sort();
   const types = ['incident', 'demande', 'projet', 'autre'];
 
@@ -287,6 +289,7 @@ const RencontresBudgetaires: React.FC = () => {
 
   const handleSaveEdit = async () => {
     if (!selectedRencontre || !editedData) return;
+    if (editedData.statut === 'Validé' && !editedData.annee_validation) { alert("Veuillez saisir l'année de validation"); return; }
 
     try {
       setIsEditSaving(true);
@@ -400,9 +403,11 @@ const RencontresBudgetaires: React.FC = () => {
   const [statutNew, setStatutNew] = useState('');
   const [statutComment, setStatutComment] = useState('');
   const [statutSaving, setStatutSaving] = useState(false);
+  const [statutAnnee, setStatutAnnee] = useState<number | ''>('');
 
   const saveStatut = async () => {
     if (!statutTarget) return;
+    if (statutNew === 'Validé' && !statutAnnee) { alert("Veuillez saisir l'année de validation"); return; }
     setStatutSaving(true);
     try {
       let commentaires = statutTarget.commentaires || '';
@@ -411,7 +416,7 @@ const RencontresBudgetaires: React.FC = () => {
         commentaires = commentaires ? `${commentaires}
 ${ligne}` : ligne;
       }
-      const updated = { ...statutTarget, statut: statutNew, commentaires };
+      const updated = { ...statutTarget, statut: statutNew, commentaires, annee_validation: statutNew === 'Validé' ? Number(statutAnnee) : null };
       const res = await fetch(`/api/rencontres-budgetaires/${statutTarget.id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -627,6 +632,7 @@ ${ligne}` : ligne;
       case 'demandée': return '#8b5cf6';
       case 'planifiée': return '#f59e0b';
       case 'effectuée': return '#10b981';
+      case 'Validé': return '#15803d';
       default: return '#6b7280';
     }
   };
@@ -835,10 +841,10 @@ ${ligne}` : ligne;
                             color: 'white',
                             cursor: 'pointer'
                           }}
-                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutComment(''); }}
+                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutAnnee(r.annee_validation || ''); setStatutComment(''); }}
                           title="Cliquer pour changer le statut"
                         >
-                          {r.statut}
+                          {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
                         </span>
                         {statutTarget?.id === r.id && (
                           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setStatutTarget(null)}>
@@ -848,6 +854,12 @@ ${ligne}` : ligne;
                               <select value={statutNew} onChange={(e) => setStatutNew(e.target.value)} style={{ ...styles.filterSelect, width: '100%', marginBottom: '10px' }}>
                                 {statuts.map(st => <option key={st} value={st}>{st}</option>)}
                               </select>
+                              {statutNew === 'Validé' && (
+                                <select value={statutAnnee} onChange={(e) => setStatutAnnee(e.target.value ? parseInt(e.target.value) : '')} style={{ ...styles.filterSelect, width: '100%', marginBottom: '10px' }}>
+                                  <option value="">-- Année de validation (obligatoire) --</option>
+                                  {anneesValidation.map(a => <option key={a} value={a}>{a}{a === anneesValidation[0] ? ' (année en cours)' : ' (année +1)'}</option>)}
+                                </select>
+                              )}
                               <textarea
                                 value={statutComment}
                                 onChange={(e) => setStatutComment(e.target.value)}
@@ -975,6 +987,16 @@ ${ligne}` : ligne;
                             <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
+                        {editedData?.statut === 'Validé' && (
+                          <select
+                            style={{ ...styles.editInput, marginTop: '6px' }}
+                            value={editedData?.annee_validation || ''}
+                            onChange={(e) => handleEditFieldChange('annee_validation', e.target.value ? parseInt(e.target.value) : null)}
+                          >
+                            <option value="">-- Année de validation --</option>
+                            {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                        )}
                       ) : (
                         <p style={styles.value}>{selectedRencontre.service || '-'}</p>
                       )}
@@ -1063,6 +1085,7 @@ ${ligne}` : ligne;
                     <div style={styles.detailField}>
                       <label style={styles.label}>Statut</label>
                       {isEditMode ? (
+                        <>
                         <select
                           style={styles.editInput}
                           value={editedData?.statut || ''}
