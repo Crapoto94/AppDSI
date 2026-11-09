@@ -987,16 +987,6 @@ ${ligne}` : ligne;
                             <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
-                        {editedData?.statut === 'Validé' && (
-                          <select
-                            style={{ ...styles.editInput, marginTop: '6px' }}
-                            value={editedData?.annee_validation || ''}
-                            onChange={(e) => handleEditFieldChange('annee_validation', e.target.value ? parseInt(e.target.value) : null)}
-                          >
-                            <option value="">-- Année de validation --</option>
-                            {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
-                          </select>
-                        )}
                       ) : (
                         <p style={styles.value}>{selectedRencontre.service || '-'}</p>
                       )}
@@ -1096,6 +1086,17 @@ ${ligne}` : ligne;
                             <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
+                        {editedData?.statut === 'Validé' && (
+                          <select
+                            style={{ ...styles.editInput, marginTop: '6px' }}
+                            value={editedData?.annee_validation || ''}
+                            onChange={(e) => handleEditFieldChange('annee_validation', e.target.value ? parseInt(e.target.value) : null)}
+                          >
+                            <option value="">-- Année de validation --</option>
+                            {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                        )}
+                        </>
                       ) : (
                         <span style={{
                           ...styles.badge,
