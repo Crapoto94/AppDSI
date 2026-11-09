@@ -395,6 +395,38 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
+  const [statutTarget, setStatutTarget] = useState<Rencontre | null>(null);
+  const [statutNew, setStatutNew] = useState('');
+  const [statutComment, setStatutComment] = useState('');
+  const [statutSaving, setStatutSaving] = useState(false);
+
+  const saveStatut = async () => {
+    if (!statutTarget) return;
+    setStatutSaving(true);
+    try {
+      let commentaires = statutTarget.commentaires || '';
+      if (statutComment.trim()) {
+        const ligne = `[${new Date().toLocaleDateString('fr-FR')} - ${user?.username || ''}] ${statutTarget.statut || '-'} → ${statutNew} : ${statutComment.trim()}`;
+        commentaires = commentaires ? `${commentaires}
+${ligne}` : ligne;
+      }
+      const updated = { ...statutTarget, statut: statutNew, commentaires };
+      const res = await fetch(`/api/rencontres-budgetaires/${statutTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      if (!res.ok) { alert('Erreur lors du changement de statut'); return; }
+      setRencontres(prev => prev.map(r => r.id === updated.id ? updated : r));
+      setStatutTarget(null);
+    } catch (e) {
+      console.error('Erreur changement statut:', e);
+      alert('Erreur lors du changement de statut');
+    } finally {
+      setStatutSaving(false);
+    }
+  };
+
   const handleSort = (key: string) => {
     setSortConfig(current => ({
       key,
@@ -799,11 +831,36 @@ const RencontresBudgetaires: React.FC = () => {
                           style={{
                             ...styles.badge,
                             backgroundColor: getStatutColor(r.statut),
-                            color: 'white'
+                            color: 'white',
+                            cursor: 'pointer'
                           }}
+                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutComment(''); }}
+                          title="Cliquer pour changer le statut"
                         >
                           {r.statut}
                         </span>
+                        {statutTarget?.id === r.id && (
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setStatutTarget(null)}>
+                            <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '420px', maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
+                              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>Changer le statut</h3>
+                              <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b' }}>{r.titre.substring(0, 80)}</p>
+                              <select value={statutNew} onChange={(e) => setStatutNew(e.target.value)} style={{ ...styles.filterSelect, width: '100%', marginBottom: '10px' }}>
+                                {statuts.map(st => <option key={st} value={st}>{st}</option>)}
+                              </select>
+                              <textarea
+                                value={statutComment}
+                                onChange={(e) => setStatutComment(e.target.value)}
+                                placeholder="Commentaire (facultatif)"
+                                rows={3}
+                                style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px' }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                                <button onClick={() => setStatutTarget(null)} style={{ padding: '8px 14px', border: '1px solid #cbd5e1', background: 'white', borderRadius: '8px', cursor: 'pointer' }}>Annuler</button>
+                                <button onClick={saveStatut} disabled={statutSaving} style={{ padding: '8px 14px', border: 'none', background: '#2563eb', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>{statutSaving ? 'Enregistrement…' : 'Valider'}</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td style={styles.td}>
                         <button
