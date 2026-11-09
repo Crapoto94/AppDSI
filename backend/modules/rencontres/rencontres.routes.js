@@ -28,6 +28,7 @@ const uploadReunion = multer({ storage: multer.memoryStorage() });
 
 // ===== RENCONTRES BUDGÉTAIRES =====
 router.get('/', authenticateJWT, rencontresCtrl.getAll);
+router.get('/chefs-projets', authenticateJWT, rencontresCtrl.listChefsProjets);
 router.get('/stats/directions', authenticateJWT, rencontresCtrl.statsDirections);
 router.get('/stats/annees', authenticateJWT, rencontresCtrl.statsAnnees);
 router.get('/:id', authenticateJWT, rencontresCtrl.getById);

@@ -114,6 +114,15 @@ function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React
   );
 }
 
+// Dernière entrée du suivi (« [date - user] ancien → nouveau : texte »), en 2 lignes : en-tête puis texte.
+const lastSuivi = (suivi?: string | null): { header: string; text: string } | null => {
+  const entries = String(suivi || '').split(/\n(?=\[\d{2}\/\d{2}\/\d{4})/).map(e => e.trim()).filter(Boolean);
+  if (entries.length === 0) return null;
+  const e = entries[entries.length - 1];
+  const m = e.match(/^(\[[^\]]+\]\s*(?:[^\n:]*→[^\n:]*)?)(?::\s*|\s+)?([\s\S]*)$/);
+  return m ? { header: m[1].trim(), text: m[2].trim() } : { header: '', text: e };
+};
+
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
@@ -1767,15 +1776,14 @@ function App() {
                         <thead>
                           <tr style={{ background: '#f1f5f9' }}>
                             <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Demande</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Suivi</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Arbitrage</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Statut</th>
                           </tr>
                         </thead>
                         <tbody>
                           {Object.entries(byDir).map(([dir, services]) => (
                             <React.Fragment key={`my-dir-${dir}`}>
                               <tr>
-                                <td colSpan={3} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                                <td colSpan={2} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                                   {dir}
                                 </td>
                               </tr>
@@ -1783,13 +1791,14 @@ function App() {
                                 <React.Fragment key={`my-svc-${dir}-${svc}`}>
                                   {svc !== '—' && (
                                     <tr>
-                                      <td colSpan={3} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                      <td colSpan={2} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                         {svc}
                                       </td>
                                     </tr>
                                   )}
                                   {items.map((r: any) => (
-                                    <tr key={`my-${r.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
+                                    <React.Fragment key={`my-${r.id}`}>
+                                    <tr style={{ borderBottom: r.suivi ? 'none' : '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
                                       <td style={{ padding: '8px 10px', color: '#1e293b' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                           {r.statut === 'effectuée'
@@ -1805,42 +1814,28 @@ function App() {
                                               <Ticket size={11} /> #{r.ticket_glpi}
                                             </button>
                                           )}
-                                          {r.commentaires && (
-                                            <span
-                                              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
-                                              onMouseEnter={e => {
-                                                const el = document.getElementById('comment-tooltip'); if (el) el.remove();
-                                                const tip = document.createElement('div');
-                                                tip.id = 'comment-tooltip';
-                                                tip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;white-space:pre-wrap;border:1px solid #e2e8f0;';
-                                                tip.textContent = r.commentaires;
-                                                document.body.appendChild(tip);
-                                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                                const tipH = tip.getBoundingClientRect().height;
-                                                const top = rect.bottom + 6 + tipH > window.innerHeight ? rect.top - tipH - 6 : rect.bottom + 6;
-                                                tip.style.top = top + 'px';
-                                                tip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
-                                              }}
-                                              onMouseLeave={() => { const el = document.getElementById('comment-tooltip'); if (el) el.remove(); }}
-                                            >
-                                              <MessageSquare size={13} />
-                                            </span>
-                                          )}
                                         </div>
                                       </td>
-                                      <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
                                       <td style={{ padding: '8px 10px' }}>
-                                        {r.arbitrage ? (
+                                        {r.statut ? (
                                           <span style={{
                                             display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700,
-                                            background: r.arbitrage.includes('OK') ? '#dcfce7' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#fef2f2' : r.arbitrage.includes('DG') ? '#fef3c7' : r.arbitrage === '?' ? '#f1f5f9' : '#f0f9ff',
-                                            color: r.arbitrage.includes('OK') ? '#166534' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#991b1b' : r.arbitrage.includes('DG') ? '#92400e' : r.arbitrage === '?' ? '#64748b' : '#0369a1'
+                                            background: r.statut === 'Validé' || r.statut === 'effectuée' || r.statut === 'terminé' ? '#dcfce7' : r.statut === 'Refusé' ? '#fef2f2' : r.statut === 'A arbitrer' ? '#e0f2fe' : r.statut === 'planifiée' ? '#fef3c7' : '#ede9fe',
+                                            color: r.statut === 'Validé' || r.statut === 'effectuée' || r.statut === 'terminé' ? '#166534' : r.statut === 'Refusé' ? '#991b1b' : r.statut === 'A arbitrer' ? '#0369a1' : r.statut === 'planifiée' ? '#92400e' : '#6d28d9'
                                           }}>
-                                            {r.arbitrage}
+                                            {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
                                           </span>
                                         ) : '—'}
                                       </td>
                                     </tr>
+                                    {lastSuivi(r.suivi)?.text && (
+                                      <tr style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
+                                        <td colSpan={2} style={{ padding: '0 10px 8px 30px', color: '#475569', fontSize: '0.78rem', wordBreak: 'break-word' }}>
+                                          <div style={{ whiteSpace: 'pre-wrap' }}>{lastSuivi(r.suivi)!.text}</div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    </React.Fragment>
                                   ))}
                                 </React.Fragment>
                               ))}

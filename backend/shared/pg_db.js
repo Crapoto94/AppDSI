@@ -2161,6 +2161,17 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_projet ON hub_rencontres.revue_projets(projet_id);`);
 
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS annee_validation INTEGER`); } catch (e) {}
+    // Charge CP (chef de projet) : faible (1-3 j) / moyenne (4-10 j) / forte (> 10 j)
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS charge_cp TEXT`); } catch (e) {}
+    // Chef de projet pressenti (username, parmi projets.chef_projet_services)
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS cp_presenti TEXT`); } catch (e) {}
+    // Fusion « commentaires » → « suivi » (idempotent : commentaires est vidé après report)
+    try {
+      await client.query(`UPDATE hub_rencontres.rencontres_budgetaires
+        SET suivi = CASE WHEN COALESCE(TRIM(suivi), '') = '' THEN commentaires ELSE suivi || E'\\n' || commentaires END,
+            commentaires = NULL
+        WHERE COALESCE(TRIM(commentaires), '') <> ''`);
+    } catch (e) { console.error('Migration commentaires→suivi (rencontres):', e.message); }
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON hub_rencontres.rencontres_budgetaires(direction);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON hub_rencontres.rencontres_budgetaires(statut);`);

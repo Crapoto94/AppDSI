@@ -153,9 +153,11 @@ module.exports = {
                     if (!dateReunion) { errors.push(`Ligne ${i + 2}: Format de date invalide (${row.Date})`); continue; }
 
                     const annee = parseInt(dateReunion.split('-')[0]);
-                    let coutTTC = 0;
-                    if (row['Cout TTC'] && row['Cout TTC'] !== '') {
-                        coutTTC = parseFloat(String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.')) || 0;
+                    // Montant vide = inconnu (NULL) ; 0 explicite = gratuit
+                    let coutTTC = null;
+                    if (row['Cout TTC'] !== undefined && String(row['Cout TTC']).trim() !== '') {
+                        const parsed = parseFloat(String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.'));
+                        coutTTC = Number.isNaN(parsed) ? null : parsed;
                     }
 
                     const titre = row['Quoi ?'] ? String(row['Quoi ?']).trim().substring(0, 255) : '';
@@ -175,7 +177,9 @@ module.exports = {
                     const lienReference = row['LIEN'] && String(row['LIEN']).trim() !== '' ? String(row['LIEN']).trim() : '';
                     const commentaires = row['Commentaire ?'] && String(row['Commentaire ?']).trim() !== '' ? String(row['Commentaire ?']).trim() : '';
                     const suiviRaw = row['__suivi'] ? String(row['__suivi']).trim() : '';
-                    const suivi = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
+                    const suiviSeul = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
+                    // Commentaire et suivi fusionnés : tout est stocké dans « suivi »
+                    const suivi = [suiviSeul, commentaires].filter(Boolean).join('\n');
 
                     const dateReunionObj = new Date(dateReunion + 'T00:00:00');
                     const rowStatut = dateReunionObj > new Date() ? 'planifiée' : '';
@@ -185,7 +189,7 @@ module.exports = {
                         (direction, service, date_reunion, annee, type, titre, description, cout_ttc,
                          arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, statut)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires, suivi, rowStatut]
+                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, '', suivi, rowStatut]
                     );
                     imported++;
                 } catch (lineError) {
@@ -209,12 +213,12 @@ module.exports = {
     // POST: Créer une rencontre manuelle
     create: async (req, res) => {
         try {
-            const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
+            const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, charge_cp, cp_presenti } = req.body;
             if (!titre || !direction) return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
 
             const result = await pgDb.run(
-                `INSERT INTO rencontres_budgetaires (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-                [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
+                `INSERT INTO rencontres_budgetaires (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, suivi, charge_cp, cp_presenti, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+                [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, [suivi, commentaires].filter(Boolean).join('\n') || null, charge_cp || null, cp_presenti || null]
             );
             res.json({ id: result.lastID, message: 'Rencontre créée' });
         } catch (error) {
@@ -242,12 +246,12 @@ module.exports = {
     update: async (req, res) => {
         try {
             const { id } = req.params;
-            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, annee_validation } = req.body;
+            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, charge_cp, cp_presenti, statut, annee_validation } = req.body;
             const validee = statut === 'Validé';
             if (validee && annee_validation !== undefined && annee_validation !== null && !Number.isInteger(Number(annee_validation))) return res.status(400).json({ error: 'Année de validation invalide' });
             await pgDb.run(
-                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, annee_validation=${validee ? 'COALESCE(?, annee_validation)' : '?'}, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, validee && annee_validation != null ? Number(annee_validation) : null, id]
+                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, suivi=COALESCE(?, suivi), charge_cp=?, cp_presenti=?, statut=?, annee_validation=${validee ? 'COALESCE(?, annee_validation)' : '?'}, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, suivi ?? null, charge_cp || null, cp_presenti || null, statut, validee && annee_validation != null ? Number(annee_validation) : null, id]
             );
             res.json({ message: 'Rencontre mise à jour' });
         } catch (error) {
@@ -288,6 +292,58 @@ module.exports = {
     },
 
     // Stats
+    // Chefs de projet du module Projets (candidats au « CP pressenti ») : ceux déclarés dans
+    // chef_projet_services + ceux désignés sur au moins un projet. Nom affiché en « Prénom Nom ».
+    listChefsProjets: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`
+                WITH cps AS (
+                    SELECT chef_projet_username AS username FROM projets.chef_projet_services
+                    UNION
+                    SELECT chef_projet_username FROM projets.projets WHERE COALESCE(chef_projet_username, '') <> ''
+                )
+                SELECT DISTINCT ON (LOWER(c.username)) c.username, u.displayName AS display_name,
+                    (SELECT p.chef_projet_display_name FROM projets.projets p
+                      WHERE LOWER(p.chef_projet_username) = LOWER(c.username) AND COALESCE(p.chef_projet_display_name, '') <> ''
+                      LIMIT 1) AS projet_name
+                FROM cps c
+                LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(c.username)
+                WHERE COALESCE(c.username, '') <> ''
+                ORDER BY LOWER(c.username)
+            `);
+            const formatPrenomNom = (name) => {
+                const tokens = String(name || '').trim().split(/\s+/);
+                if (tokens.length < 2) return name;
+                const isUpper = (t) => t.replace(/[-']/g, '').length >= 2 && t === t.toLocaleUpperCase('fr') && /[A-ZÀ-Þ]/.test(t);
+                const nom = tokens.filter(isUpper), prenom = tokens.filter(t => !isUpper(t));
+                return nom.length && prenom.length ? [...prenom, ...nom].join(' ') : name;
+            };
+            const list = [];
+            for (const r of rows || []) {
+                const u = String(r.username);
+                // Un « nom » identique au login (ex. « MMasson ») n'est pas un vrai nom
+                const real = [r.display_name, r.projet_name].find(n => n && String(n).trim().toLowerCase() !== u.toLowerCase());
+                let name = real || null;
+                if (!name) {
+                    // Absent de l'annuaire local : recherche dans RH Studio (nom de famille = login sans 1re lettre)
+                    try {
+                        const studio = require('../infra/studio-onboarding');
+                        const found = await studio.searchAgents(u.slice(1));
+                        const agents = Array.isArray(found?.data) ? found.data : [];
+                        const hit = agents.find(a => String(a.email || '').split('@')[0].toLowerCase() === u.toLowerCase())
+                            || (agents.filter(a => String(a.prenom || '').toLowerCase().startsWith(u[0].toLowerCase()) && String(a.nom || '').toLowerCase() === u.slice(1).toLowerCase()).length === 1
+                                ? agents.find(a => String(a.prenom || '').toLowerCase().startsWith(u[0].toLowerCase()) && String(a.nom || '').toLowerCase() === u.slice(1).toLowerCase())
+                                : null);
+                        if (hit) name = `${hit.prenom || ''} ${hit.nom || ''}`.trim();
+                    } catch (e) { /* RH Studio indisponible : on garde le login */ }
+                }
+                list.push({ username: u, display_name: name ? formatPrenomNom(name) : u });
+            }
+            list.sort((a, b) => a.display_name.localeCompare(b.display_name, 'fr'));
+            res.json(list);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
     statsDirections: async (req, res) => {
         try {
             const stats = await pgDb.all(`SELECT direction, COUNT(*) as count, SUM(cout_ttc) as montant_total FROM rencontres_budgetaires GROUP BY direction ORDER BY count DESC`);

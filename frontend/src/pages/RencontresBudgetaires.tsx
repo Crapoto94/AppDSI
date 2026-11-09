@@ -24,6 +24,8 @@ interface Rencontre {
   type: string;
   description: string;
   cout_ttc: number | string;
+  charge_cp?: string | null;
+  cp_presenti?: string | null;
   arbitrage: string;
   responsable_dsi: string;
   ticket_glpi: string;
@@ -70,6 +72,30 @@ interface ReunionParticipant {
   ad_username?: string;
 }
 
+// Découpe le suivi en entrées (« [date - user] ancien → nouveau : texte ») ;
+// chaque entrée s'affiche sur 2 lignes : l'en-tête puis le texte du suivi.
+const parseSuivi = (suivi?: string | null): { header: string; text: string }[] =>
+  String(suivi || '').split(/\n(?=\[\d{2}\/\d{2}\/\d{4})/).map(e => e.trim()).filter(Boolean).map(e => {
+    const m = e.match(/^(\[[^\]]+\]\s*(?:[^\n:]*→[^\n:]*)?)(?::\s*|\s+)?([\s\S]*)$/);
+    return m ? { header: m[1].trim(), text: m[2].trim() } : { header: '', text: e };
+  });
+
+// Montant : vide/null = non renseigné ; 0 = gratuit
+const formatCout = (v: number | string | null | undefined, compact = false): string => {
+  if (v === null || v === undefined || String(v).trim() === '') return '-';
+  const n = Number(v);
+  if (Number.isNaN(n)) return '-';
+  if (n === 0) return 'Gratuit';
+  return compact ? `${n.toFixed(2)}€` : `${n.toFixed(2)} €`;
+};
+
+// Charge pour le chef de projet (CP)
+const CHARGES_CP = [
+  { value: 'faible', label: 'Faible (1 à 3 j)', short: 'Faible', color: '#16a34a', bg: '#dcfce7' },
+  { value: 'moyenne', label: 'Moyenne (4 à 10 j)', short: 'Moyenne', color: '#b45309', bg: '#fef3c7' },
+  { value: 'forte', label: 'Forte (+ de 10 j)', short: 'Forte', color: '#b91c1c', bg: '#fee2e2' },
+];
+
 const RencontresBudgetaires: React.FC = () => {
   const { token, user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -85,7 +111,9 @@ const RencontresBudgetaires: React.FC = () => {
   const [selectedAnnee, setSelectedAnnee] = useState<number | ''>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStatut, setSelectedStatut] = useState<string>('');
-  const [selectedArbitrage, setSelectedArbitrage] = useState<string>('');
+  const [selectedTicket, setSelectedTicket] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<string>('');
+  const [selectedCp, setSelectedCp] = useState<string>('');
 
   // UI
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -131,10 +159,21 @@ const RencontresBudgetaires: React.FC = () => {
   useEffect(() => {
     if (selectedDirection && !directionsFiltrees.includes(selectedDirection)) setSelectedDirection('');
   }, [selectedAnnee, rencontres]); // eslint-disable-line react-hooks/exhaustive-deps
-  const statuts = ['demandée', 'planifiée', 'effectuée', 'A arbitrer', 'Validé', 'Refusé'];
+  const statuts = ['demandée', 'planifiée', 'effectuée', 'A arbitrer', 'Validé', 'Refusé', 'terminé'];
   const anneesValidation = [new Date().getFullYear(), new Date().getFullYear() + 1];
-  const arbitrageList = [...new Set(rencontres.map(r => r.arbitrage).filter(Boolean))].sort();
   const types = ['incident', 'demande', 'projet', 'autre'];
+
+  // Chefs de projet du module Projets (pour le « CP pressenti »)
+  const [chefsProjets, setChefsProjets] = useState<{ username: string; display_name: string }[]>([]);
+  const cpName = (username?: string | null) =>
+    username ? (chefsProjets.find(c => c.username.toLowerCase() === username.toLowerCase())?.display_name || username) : '';
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/rencontres-budgetaires/chefs-projets', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setChefsProjets(Array.isArray(d) ? d : []))
+      .catch(() => setChefsProjets([]));
+  }, [token]);
 
   useEffect(() => {
     if (token) {
@@ -167,8 +206,17 @@ const RencontresBudgetaires: React.FC = () => {
     if (selectedStatut) {
       filtered = filtered.filter(r => r.statut === selectedStatut);
     }
-    if (selectedArbitrage) {
-      filtered = filtered.filter(r => r.arbitrage === selectedArbitrage);
+    if (selectedCp) {
+      filtered = filtered.filter(r => selectedCp === '__none__' ? !r.cp_presenti : (r.cp_presenti || '').toLowerCase() === selectedCp.toLowerCase());
+    }
+    if (selectedType) {
+      filtered = filtered.filter(r => (r.type || '').toLowerCase() === selectedType.toLowerCase());
+    }
+    if (selectedTicket) {
+      filtered = filtered.filter(r => {
+        const aTicket = !!String(r.ticket_glpi || '').trim();
+        return selectedTicket === 'avec' ? aTicket : !aTicket;
+      });
     }
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -192,7 +240,7 @@ const RencontresBudgetaires: React.FC = () => {
     }
 
     setFilteredRencontres(filtered);
-  }, [rencontres, selectedDirection, selectedAnnee, selectedStatut, selectedArbitrage, searchTerm, sortConfig]);
+  }, [rencontres, selectedDirection, selectedAnnee, selectedStatut, selectedTicket, selectedType, selectedCp, searchTerm, sortConfig]);
 
   const fetchRencontres = async () => {
     try {
@@ -356,9 +404,8 @@ const RencontresBudgetaires: React.FC = () => {
         `Description :`,
         target.description || '',
         '',
-        target.commentaires ? `Commentaires :\n${target.commentaires}` : '',
-        target.cout_ttc ? `Montant TTC : ${Number(target.cout_ttc).toFixed(2)}€` : '',
-        target.arbitrage ? `Arbitrage : ${target.arbitrage}` : '',
+        target.suivi ? `Suivi :\n${target.suivi}` : '',
+        formatCout(target.cout_ttc) !== '-' ? `Montant TTC : ${formatCout(target.cout_ttc, true)}` : '',
         target.responsable_dsi ? `Responsable DSI : ${target.responsable_dsi}` : '',
       ].filter(Boolean).join('\n');
 
@@ -411,13 +458,13 @@ const RencontresBudgetaires: React.FC = () => {
     if (statutNew === 'Validé' && !statutAnnee) { alert("Veuillez saisir l'année de validation"); return; }
     setStatutSaving(true);
     try {
-      let commentaires = statutTarget.commentaires || '';
+      let suivi = statutTarget.suivi || '';
       if (statutComment.trim()) {
         const ligne = `[${new Date().toLocaleDateString('fr-FR')} - ${user?.username || ''}] ${statutTarget.statut || '-'} → ${statutNew} : ${statutComment.trim()}`;
-        commentaires = commentaires ? `${commentaires}
+        suivi = suivi ? `${suivi}
 ${ligne}` : ligne;
       }
-      const updated = { ...statutTarget, statut: statutNew, commentaires, annee_validation: statutNew === 'Validé' ? Number(statutAnnee) : null };
+      const updated = { ...statutTarget, statut: statutNew, suivi, annee_validation: statutNew === 'Validé' ? Number(statutAnnee) : null };
       const res = await fetch(`/api/rencontres-budgetaires/${statutTarget.id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -636,17 +683,11 @@ ${ligne}` : ligne;
       case 'A arbitrer': return '#0ea5e9';
       case 'Validé': return '#15803d';
       case 'Refusé': return '#dc2626';
+      case 'terminé': return '#0f766e';
       default: return '#6b7280';
     }
   };
 
-  const getArbitrageColor = (arbitrage: string | null | undefined) => {
-    if (!arbitrage) return '#6b7280';
-    if (arbitrage.includes('OK')) return '#10b981';
-    if (arbitrage.includes('En attente')) return '#f59e0b';
-    if (arbitrage.includes('Refusé')) return '#ef4444';
-    return '#6b7280';
-  };
 
   return (
     <div style={styles.container}>
@@ -738,17 +779,38 @@ ${ligne}` : ligne;
             <option value="effectuée">Effectuée</option>
             <option value="A arbitrer">A arbitrer</option>
             <option value="Refusé">Refusé</option>
+            <option value="terminé">Terminé</option>
           </select>
 
           <select
-            value={selectedArbitrage}
-            onChange={(e) => setSelectedArbitrage(e.target.value)}
+            value={selectedTicket}
+            onChange={(e) => setSelectedTicket(e.target.value)}
             style={styles.filterSelect}
           >
-            <option value="">Tous arbitrages</option>
-            {arbitrageList.map(a => (
-              <option key={a} value={a}>{a}</option>
+            <option value="">Avec / sans ticket</option>
+            <option value="avec">Avec ticket</option>
+            <option value="sans">Sans ticket</option>
+          </select>
+
+          <select
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+            style={styles.filterSelect}
+          >
+            <option value="">Tous types</option>
+            {[...new Set([...types, ...rencontres.map(r => (r.type || '').toLowerCase()).filter(Boolean)])].map(t => (
+              <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
             ))}
+          </select>
+
+          <select
+            value={selectedCp}
+            onChange={(e) => setSelectedCp(e.target.value)}
+            style={styles.filterSelect}
+          >
+            <option value="">Tous chefs de projet</option>
+            <option value="__none__">Sans CP pressenti</option>
+            {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
           </select>
 
           <button
@@ -757,7 +819,9 @@ ${ligne}` : ligne;
               setSelectedDirection('');
               setSelectedAnnee('');
               setSelectedStatut('');
-              setSelectedArbitrage('');
+              setSelectedTicket('');
+              setSelectedType('');
+              setSelectedCp('');
               setSearchTerm('');
             }}
           >
@@ -785,8 +849,9 @@ ${ligne}` : ligne;
                     Date {sortConfig?.key === 'date_reunion' && (sortConfig.direction === 'asc' ? '▲' : '▼')}
                   </th>
                   <th style={styles.th}>Montant TTC</th>
+                  <th style={styles.th}>Charge CP</th>
+                  <th style={styles.th}>CP pressenti</th>
                   <th style={styles.th}>Suivi</th>
-                  <th style={styles.th}>Arbitrage</th>
                   <th style={styles.th}>Statut</th>
                   <th style={styles.th}>Actions</th>
                 </tr>
@@ -817,26 +882,34 @@ ${ligne}` : ligne;
                           `Direction : ${r.direction || '-'}${r.service ? ` / ${r.service}` : ''}`,
                           `Type : ${r.type || '-'}`,
                           `Date : ${r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
-                          `Coût TTC : ${Number(r.cout_ttc) > 0 ? `${Number(r.cout_ttc).toFixed(2)} €` : '-'}`,
-                          `Arbitrage : ${r.arbitrage || '-'}`,
+                          `Coût TTC : ${formatCout(r.cout_ttc)}`,
                           `Statut : ${r.statut || '-'}`,
                           r.responsable_dsi ? `Responsable DSI : ${r.responsable_dsi}` : '',
                           r.description ? `\nDescription : ${r.description.length > 400 ? r.description.slice(0, 400) + '…' : r.description}` : '',
-                          r.commentaires ? `\nCommentaires : ${r.commentaires.length > 300 ? r.commentaires.slice(0, 300) + '…' : r.commentaires}` : '',
+                          r.suivi ? `\nSuivi : ${r.suivi.length > 300 ? r.suivi.slice(0, 300) + '…' : r.suivi}` : '',
                           '\n(Cliquer pour éditer)'
                         ].filter(Boolean).join('\n')}
                       >
-                        {r.titre.substring(0, 60)}
+                        {r.titre}
                       </td>
                       <td style={styles.td}>
                         {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
                       </td>
-                      <td style={styles.td}>{Number(r.cout_ttc) > 0 ? `${Number(r.cout_ttc).toFixed(2)}€` : '-'}</td>
-                      <td style={{...styles.td, maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={r.suivi || ''}>
-                        {r.suivi || '-'}
+                      <td style={styles.td}>{formatCout(r.cout_ttc, true)}</td>
+                      <td style={styles.td}>
+                        {(() => {
+                          const c = CHARGES_CP.find(x => x.value === r.charge_cp);
+                          return c ? <span style={{ ...styles.badge, background: c.bg, color: c.color }} title={c.label}>{c.short}</span> : '-';
+                        })()}
                       </td>
-                      <td style={{ ...styles.td, color: getArbitrageColor(r.arbitrage) }}>
-                        <strong>{r.arbitrage || '-'}</strong>
+                      <td style={styles.td}>{cpName(r.cp_presenti) || '-'}</td>
+                      <td style={{...styles.td, maxWidth: '320px', wordBreak: 'break-word'}} title={r.suivi || ''}>
+                        {parseSuivi(r.suivi).length === 0 ? '-' : parseSuivi(r.suivi).map((s, i) => (
+                          <div key={i} style={{ marginBottom: '4px' }}>
+                            {s.header && <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{s.header}</div>}
+                            {s.text && <div style={{ whiteSpace: 'pre-wrap' }}>{s.text}</div>}
+                          </div>
+                        ))}
                       </td>
                       <td style={styles.td}>
                         <span
@@ -868,7 +941,7 @@ ${ligne}` : ligne;
                               <textarea
                                 value={statutComment}
                                 onChange={(e) => setStatutComment(e.target.value)}
-                                placeholder="Commentaire (facultatif)"
+                                placeholder="Suivi (facultatif)"
                                 rows={3}
                                 style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px' }}
                               />
@@ -992,9 +1065,23 @@ ${ligne}` : ligne;
                         {field('Date', input('date_reunion', { type: 'date', value: e?.date_reunion ? e.date_reunion.split('T')[0] : '' }), txt(sr.date_reunion ? new Date(sr.date_reunion).toLocaleDateString('fr-FR') : ''))}
                         {field('Type', sel('type', [...new Set([...types, 'Demande', 'Investissement'])]), txt(sr.type))}
                         {field('Montant TTC', (
-                          <input type="number" step="0.01" style={styles.editInput} value={e?.cout_ttc || ''} onChange={(ev) => handleEditFieldChange('cout_ttc', parseFloat(ev.target.value))} />
-                        ), <p style={{ ...styles.value, fontWeight: 'bold', color: '#10b981' }}>{Number(sr.cout_ttc) > 0 ? `${Number(sr.cout_ttc).toFixed(2)} €` : '-'}</p>)}
-                        {field('Arbitrage', sel('arbitrage', arbitrageList), <p style={{ ...styles.value, fontWeight: 'bold', color: getArbitrageColor(sr.arbitrage) }}>{sr.arbitrage || '-'}</p>)}
+                          <input type="number" step="0.01" style={styles.editInput} value={e?.cout_ttc ?? ''} onChange={(ev) => handleEditFieldChange('cout_ttc', ev.target.value === '' ? null : parseFloat(ev.target.value))} />
+                        ), <p style={{ ...styles.value, fontWeight: 'bold', color: '#10b981' }}>{formatCout(sr.cout_ttc)}</p>)}
+                        {field('Charge CP', (
+                          <select style={styles.editInput} value={e?.charge_cp || ''} onChange={(ev) => handleEditFieldChange('charge_cp', ev.target.value || null)}>
+                            <option value="">-- Non renseignée --</option>
+                            {CHARGES_CP.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                        ), txt(CHARGES_CP.find(c => c.value === sr.charge_cp)?.label || ''))}
+                        {field('CP pressenti', (
+                          <select style={styles.editInput} value={e?.cp_presenti || ''} onChange={(ev) => handleEditFieldChange('cp_presenti', ev.target.value || null)}>
+                            <option value="">-- Non défini --</option>
+                            {e?.cp_presenti && !chefsProjets.some(c => c.username.toLowerCase() === String(e.cp_presenti).toLowerCase()) && (
+                              <option value={e.cp_presenti}>{e.cp_presenti}</option>
+                            )}
+                            {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
+                          </select>
+                        ), txt(cpName(sr.cp_presenti)))}
                         {field('Statut', (
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <select
@@ -1026,7 +1113,6 @@ ${ligne}` : ligne;
                         ))}
                         {field('Responsable DSI', input('responsable_dsi', { placeholder: 'ex: IRS, SSD' }), txt(sr.responsable_dsi))}
                         {field('Description', area('description', 4), multi(sr.description), true)}
-                        {field('Commentaires', area('commentaires', 3), multi(sr.commentaires), true)}
                         {field('Suivi', area('suivi', 3), multi(sr.suivi), true)}
                         {(isEditMode || sr.lien_reference) && field('Lien', input('lien_reference', { placeholder: 'https://...' }), txt(sr.lien_reference), true)}
                       </div>

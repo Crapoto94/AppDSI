@@ -707,6 +707,13 @@ module.exports = {
             `UPDATE hub_tickets.tickets SET ${fields.join(', ')} WHERE glpi_id = $${idx}`,
             params
         );
+
+        // Ticket résolu/clos → demande liée (rencontres budgétaires) en « terminé »
+        // + commentaire de clôture reporté dans son suivi. Jamais bloquant.
+        if (data.status === 5 || data.status === 6) {
+            try { await require('../../rencontres/ticket-sync').syncDemandeFromTicket(id); }
+            catch (e) { console.error('[TICKET] sync demande rencontres:', e.message); }
+        }
     },
 
     async softDelete(id) {
