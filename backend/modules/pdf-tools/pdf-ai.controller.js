@@ -10,6 +10,41 @@
 const pdfParse = require('pdf-parse');
 const apmAi = require('../../shared/apm_ai');
 
+// pdfjs-dist (>=4.x, ESM uniquement) : import() dynamique, comme pdf-tools.service.js.
+let _pdfjsPromise = null;
+const loadPdfjs = () => (_pdfjsPromise ||= import('pdfjs-dist/legacy/build/pdf.mjs'));
+
+/**
+ * Extrait le texte d'un PDF. pdf-parse (pdf.js 1.x, très ancien) échoue sur les PDF réenregistrés par
+ * PdfCraft (« bad XRef entry », « Illegal character »…) : on utilise pdfjs-dist, et pdf-parse en repli.
+ */
+async function extractText(buffer) {
+    try {
+        const pdfjs = await loadPdfjs();
+        const task = pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true, isEvalSupported: false, verbosity: 0 });
+        const doc = await task.promise;
+        const parts = [];
+        for (let p = 1; p <= doc.numPages; p++) {
+            const page = await doc.getPage(p);
+            const content = await page.getTextContent();
+            let line = '';
+            for (const it of content.items) {
+                line += it.str;
+                line += it.hasEOL ? '\n' : (it.str && !it.str.endsWith(' ') ? ' ' : '');
+            }
+            parts.push(line.trim());
+            page.cleanup();
+        }
+        const numpages = doc.numPages;
+        await doc.destroy();
+        return { text: parts.join('\n\n'), numpages };
+    } catch (primaryErr) {
+        console.warn('[pdf-ai] pdfjs-dist a échoué, repli sur pdf-parse :', primaryErr.message);
+        const parsed = await pdfParse(buffer);
+        return { text: parsed.text || '', numpages: parsed.numpages };
+    }
+}
+
 // Garde-fou : on borne le texte envoyé à l'APM (fenêtre de contexte limitée).
 const MAX_CHARS = 60000;
 
@@ -27,7 +62,7 @@ exports.assist = async (req, res) => {
         const question = String(req.body.question || '').trim();
         if (action === 'ask' && !question) return res.status(400).json({ message: 'La question est vide.' });
 
-        const parsed = await pdfParse(req.file.buffer);
+        const parsed = await extractText(req.file.buffer);
         const fullText = (parsed.text || '').replace(/\n{3,}/g, '\n\n').trim();
         if (fullText.length < 20) {
             return res.status(422).json({ message: "Ce PDF ne contient pas de texte exploitable (document scanné ?). Utilisez d'abord « Numérisation et OCR »." });
