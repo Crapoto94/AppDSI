@@ -335,33 +335,34 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const handleCreateTicket = async () => {
-    if (!selectedRencontre) return;
-    if (selectedRencontre.ticket_glpi) {
-      if (!window.confirm(`Un ticket existe déjà (#${selectedRencontre.ticket_glpi}). Créer quand même un nouveau ticket ?`)) return;
+  const handleCreateTicket = async (rencontre?: Rencontre) => {
+    const target = rencontre || selectedRencontre;
+    if (!target) return;
+    if (target.ticket_glpi) {
+      if (!window.confirm(`Un ticket existe déjà (#${target.ticket_glpi}). Créer quand même un nouveau ticket ?`)) return;
     }
     try {
       setIsCreatingTicket(true);
       const content = [
-        `Direction : ${selectedRencontre.direction}`,
-        selectedRencontre.service ? `Service : ${selectedRencontre.service}` : '',
-        `Date réunion : ${selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
-        selectedRencontre.type ? `Type : ${selectedRencontre.type}` : '',
+        `Direction : ${target.direction}`,
+        target.service ? `Service : ${target.service}` : '',
+        `Date réunion : ${target.date_reunion ? new Date(target.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
+        target.type ? `Type : ${target.type}` : '',
         '',
         `Description :`,
-        selectedRencontre.description || '',
+        target.description || '',
         '',
-        selectedRencontre.commentaires ? `Commentaires :\n${selectedRencontre.commentaires}` : '',
-        selectedRencontre.cout_ttc ? `Montant TTC : ${Number(selectedRencontre.cout_ttc).toFixed(2)}€` : '',
-        selectedRencontre.arbitrage ? `Arbitrage : ${selectedRencontre.arbitrage}` : '',
-        selectedRencontre.responsable_dsi ? `Responsable DSI : ${selectedRencontre.responsable_dsi}` : '',
+        target.commentaires ? `Commentaires :\n${target.commentaires}` : '',
+        target.cout_ttc ? `Montant TTC : ${Number(target.cout_ttc).toFixed(2)}€` : '',
+        target.arbitrage ? `Arbitrage : ${target.arbitrage}` : '',
+        target.responsable_dsi ? `Responsable DSI : ${target.responsable_dsi}` : '',
       ].filter(Boolean).join('\n');
 
       const res = await fetch('/api/tickets', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `[Rencontres ${selectedRencontre.annee || new Date(selectedRencontre.date_reunion).getFullYear() || ''}] ${selectedRencontre.titre || selectedRencontre.description?.substring(0, 80) || 'Rencontre budgétaire'}`,
+          title: `[Rencontres ${target.annee || new Date(target.date_reunion).getFullYear() || ''}] ${target.titre || target.description?.substring(0, 80) || 'Rencontre budgétaire'}`,
           content,
           type: 2,
           urgency: 3,
@@ -374,14 +375,14 @@ const RencontresBudgetaires: React.FC = () => {
       const ticketId = result.id;
       if (!ticketId) { alert('Ticket créé mais numéro non récupéré'); return; }
 
-      const updateRes = await fetch(`/api/rencontres-budgetaires/${selectedRencontre.id}`, {
+      const updateRes = await fetch(`/api/rencontres-budgetaires/${target.id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...selectedRencontre, ticket_glpi: String(ticketId) })
+        body: JSON.stringify({ ...target, ticket_glpi: String(ticketId) })
       });
       if (updateRes.ok) {
-        const updated = { ...selectedRencontre, ticket_glpi: String(ticketId) };
-        setSelectedRencontre(updated);
+        const updated = { ...target, ticket_glpi: String(ticketId) };
+        setSelectedRencontre(prev => (prev && prev.id === updated.id ? updated : prev));
         setRencontres(prev => prev.map(r => r.id === updated.id ? updated : r));
         alert(`Ticket DSIHUB #${ticketId} créé avec succès`);
       } else {
@@ -873,6 +874,16 @@ ${ligne}` : ligne;
                         >
                           <Info size={16} />
                         </button>
+                        {!r.ticket_glpi && (
+                          <button
+                            style={{ ...styles.iconBtn, marginRight: '8px', background: '#f5f3ff', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', display: 'inline-flex', alignItems: 'center', opacity: isCreatingTicket ? 0.5 : 1 }}
+                            disabled={isCreatingTicket}
+                            onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
+                            title="Créer un ticket DSIHUB à partir de cette demande"
+                          >
+                            + Ticket
+                          </button>
+                        )}
                         {r.ticket_glpi && (
                           <button
                             style={{ ...styles.iconBtn, marginRight: '8px', background: '#ede9fe', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
@@ -1213,7 +1224,7 @@ ${ligne}` : ligne;
                         gap: '6px',
                         cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
                       }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : handleCreateTicket}
+                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : () => handleCreateTicket()}
                       disabled={isCreatingTicket}
                       title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
                     >
@@ -1247,7 +1258,7 @@ ${ligne}` : ligne;
                         gap: '6px',
                         cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
                       }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : handleCreateTicket}
+                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : () => handleCreateTicket()}
                       disabled={isCreatingTicket}
                       title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
                     >
