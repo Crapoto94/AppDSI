@@ -21,8 +21,8 @@ module.exports = {
             if (directions && typeof directions === 'string') {
                 const dirList = directions.split(',').map(d => d.trim()).filter(d => d);
                 if (dirList.length > 0) {
-                    sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
-                    params.push(...dirList);
+                    sql += ` AND UPPER(TRIM(direction)) IN (${dirList.map(() => '?').join(',')})`;
+                    params.push(...dirList.map(d => d.toUpperCase()));
                 }
             } else if (!direction) {
                 try {
@@ -31,16 +31,16 @@ module.exports = {
                         const userDirections = await pgDb.all('SELECT direction FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${username}@%`, `${username}%`]);
                         if (userDirections && userDirections.length > 0) {
                             const dirList = userDirections.map(d => d.direction);
-                            sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
-                            params.push(...dirList);
+                            sql += ` AND UPPER(TRIM(direction)) IN (${dirList.map(() => '?').join(',')})`;
+                            params.push(...dirList.map(d => String(d || '').trim().toUpperCase()));
                         }
                     }
                 } catch (e) {
                     console.warn('Impossible de récupérer les directions:', e.message);
                 }
             } else if (direction) {
-                sql += ' AND direction = ?';
-                params.push(direction);
+                sql += ' AND UPPER(TRIM(direction)) = ?';
+                params.push(String(direction).trim().toUpperCase());
             }
 
             if (annee) { sql += ' AND annee = ?'; params.push(parseInt(annee)); }
@@ -373,9 +373,10 @@ module.exports = {
 
             for (const row of all) {
                 if (row.direction) {
-                    dirSet.add(row.direction);
-                    if (!dirServicesMap[row.direction]) dirServicesMap[row.direction] = new Set();
-                    if (row.service) { svcSet.add(row.service); dirServicesMap[row.direction].add(row.service); }
+                    const dir = String(row.direction).trim().replace(/\s+/g, ' ').toUpperCase();
+                    dirSet.add(dir);
+                    if (!dirServicesMap[dir]) dirServicesMap[dir] = new Set();
+                    if (row.service) { svcSet.add(row.service); dirServicesMap[dir].add(row.service); }
                 }
             }
 

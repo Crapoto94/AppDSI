@@ -10,6 +10,10 @@ import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
+// Affichage uniforme des directions : espaces nettoyés, tout en majuscules
+const normDir = (d?: string | null) => (d ? d.trim().replace(/\s+/g, ' ').toUpperCase() : (d as any));
+const withDir = <T extends { direction?: string }>(r: T): T => (r && r.direction ? { ...r, direction: normDir(r.direction) } : r);
+
 interface Rencontre {
   id: number;
   titre: string;
@@ -195,7 +199,7 @@ const RencontresBudgetaires: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setRencontres(data || []);
+      setRencontres(Array.isArray(data) ? data.map(withDir) : []);
     } catch (error) {
       console.error('Erreur chargement:', error);
       alert('Erreur lors du chargement des données');
@@ -406,7 +410,7 @@ const RencontresBudgetaires: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setDirectionEmails(data || []);
+      setDirectionEmails(Array.isArray(data) ? data.map(withDir) : []);
     } catch (error) {
       console.error('Erreur chargement emails:', error);
       alert('Erreur lors du chargement des emails');
@@ -488,7 +492,7 @@ const RencontresBudgetaires: React.FC = () => {
     try {
       const res = await fetch('/api/rencontres-reunions?source=rencontres_budgetaires', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
-      setReunions(data || []);
+      setReunions(Array.isArray(data) ? data.map((re: any) => ({ ...re, participants: re.participants?.map(withDir), demandes: re.demandes?.map(withDir) })) : []);
     } catch (e) { console.error('Erreur chargement réunions:', e); }
   };
 
