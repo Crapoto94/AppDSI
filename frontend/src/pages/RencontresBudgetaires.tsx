@@ -26,6 +26,9 @@ interface Rencontre {
   cout_ttc: number | string;
   charge_cp?: string | null;
   cp_presenti?: string | null;
+  user_ref_username?: string | null;
+  user_ref_name?: string | null;
+  user_ref_email?: string | null;
   arbitrage: string;
   responsable_dsi: string;
   ticket_glpi: string;
@@ -192,6 +195,9 @@ const RencontresBudgetaires: React.FC = () => {
   const statuts = ['demandée', 'planifiée', 'effectuée', 'A arbitrer', 'Validé', 'Refusé', 'terminé'];
   const anneesValidation = [new Date().getFullYear(), new Date().getFullYear() + 1];
   const types = ['incident', 'demande', 'projet', 'autre'];
+
+  // Recherche AD de l'utilisateur de référence (demandeur des tickets créés depuis la demande)
+  const adRef = useADSearch(token);
 
   // Chefs de projet du module Projets (pour le « CP pressenti »)
   const [chefsProjets, setChefsProjets] = useState<{ username: string; display_name: string }[]>([]);
@@ -382,7 +388,8 @@ const RencontresBudgetaires: React.FC = () => {
       });
 
       if (res.ok) {
-        alert('Enregistrée avec succès');
+        const saved = await res.json().catch(() => ({}));
+        alert(saved?.ticket_updated ? `Enregistrée avec succès (demandeur du ticket #${saved.ticket_updated} mis à jour)` : 'Enregistrée avec succès');
         setIsEditMode(false);
         setEditedData(null);
         fetchRencontres();
@@ -433,6 +440,7 @@ const RencontresBudgetaires: React.FC = () => {
         body: JSON.stringify({
           title: `[Rencontres ${target.annee || new Date(target.date_reunion).getFullYear() || ''}] ${target.titre || target.description?.substring(0, 80) || 'Rencontre budgétaire'}`,
           content,
+          ...(target.user_ref_email ? { requester_name: target.user_ref_name || target.user_ref_email, requester_email: target.user_ref_email } : {}),
           type: ticketTypeCode(target.type), // 1 = incident, 2 = demande
           urgency: 3,
           priority: 3,
@@ -869,6 +877,7 @@ ${ligne}` : ligne;
                   <th style={styles.th}>Montant TTC</th>
                   <th style={styles.th}>Charge CP</th>
                   <th style={styles.th}>CP pressenti</th>
+                  <th style={styles.th}>Utilisateur de référence</th>
                   <th style={styles.th}>Suivi</th>
                   <th style={styles.th}>Statut</th>
                   <th style={styles.th}>Actions</th>
@@ -921,6 +930,22 @@ ${ligne}` : ligne;
                         })()}
                       </td>
                       <td style={styles.td}>{cpName(r.cp_presenti) || '-'}</td>
+                      <td style={styles.td}>
+                        {r.user_ref_name || r.user_ref_email ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                            title="Cliquer pour modifier"
+                            onClick={() => { setSelectedRencontre(r); setEditedData({ ...r }); setIsEditMode(true); setShowDetailModal(true); }}>
+                            {r.user_ref_name || r.user_ref_email}
+                            <AgentPresenceBadge email={r.user_ref_email || ''} name={r.user_ref_name || ''} size={11} />
+                          </span>
+                        ) : (
+                          <button
+                            style={{ background: 'none', border: '1px dashed #94a3b8', color: '#475569', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                            title="Assigner un utilisateur de référence"
+                            onClick={() => { setSelectedRencontre(r); setEditedData({ ...r }); setIsEditMode(true); setShowDetailModal(true); }}
+                          >+ Assigner</button>
+                        )}
+                      </td>
                       <td style={{...styles.td, maxWidth: '320px', wordBreak: 'break-word'}} title={r.suivi || ''}>
                         {parseSuivi(r.suivi).length === 0 ? '-' : parseSuivi(r.suivi).map((s, i) => (
                           <div key={i} style={{ marginBottom: '4px' }}>
@@ -1091,6 +1116,37 @@ ${ligne}` : ligne;
                             {CHARGES_CP.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                           </select>
                         ), txt(CHARGES_CP.find(c => c.value === sr.charge_cp)?.label || ''))}
+                        {field('Utilisateur de référence', (
+                          <div style={{ position: 'relative' }}>
+                            {(e?.user_ref_name || e?.user_ref_email) ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#f8fafc' }}>
+                                <span style={{ flex: 1 }}>{e?.user_ref_name || e?.user_ref_email}{e?.user_ref_email && e?.user_ref_name ? ` (${e.user_ref_email})` : ''}</span>
+                                <button type="button" title="Retirer" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: '#64748b' }}
+                                  onClick={() => setEditedData(prev => prev ? { ...prev, user_ref_username: null, user_ref_name: null, user_ref_email: null } : prev)}>×</button>
+                              </div>
+                            ) : (
+                              <>
+                                <input style={styles.editInput} placeholder="Rechercher dans l'AD (nom, prénom, login)…" value={adRef.query} onChange={(ev) => adRef.setQuery(ev.target.value)} />
+                                {adRef.searching && <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '12px', color: '#64748b' }}>...</span>}
+                                {adRef.results.length > 0 && (
+                                  <div style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.12)' }}>
+                                    {adRef.results.map(u => (
+                                      <div key={`${u.username}-${u.email}`} style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}
+                                        onClick={() => {
+                                          setEditedData(prev => prev ? { ...prev, user_ref_username: u.username, user_ref_name: u.displayName, user_ref_email: u.email } : prev);
+                                          adRef.setQuery(''); adRef.clearResults();
+                                        }}>
+                                        <strong>{u.displayName}</strong> <span style={{ color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ), (sr.user_ref_name || sr.user_ref_email) ? (
+                          <p style={styles.value}>{sr.user_ref_name || sr.user_ref_email} <AgentPresenceBadge email={sr.user_ref_email || ''} name={sr.user_ref_name || ''} size={11} /></p>
+                        ) : txt(''), true)}
                         {field('CP pressenti', (
                           <select style={styles.editInput} value={e?.cp_presenti || ''} onChange={(ev) => handleEditFieldChange('cp_presenti', ev.target.value || null)}>
                             <option value="">-- Non défini --</option>

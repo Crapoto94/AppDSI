@@ -2165,6 +2165,10 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS charge_cp TEXT`); } catch (e) {}
     // Chef de projet pressenti (username, parmi projets.chef_projet_services)
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS cp_presenti TEXT`); } catch (e) {}
+    // Utilisateur de référence (recherché dans l'AD) : demandeur des tickets créés depuis la demande
+    for (const col of ['user_ref_username', 'user_ref_name', 'user_ref_email']) {
+      try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS ${col} TEXT`); } catch (e) {}
+    }
     // Fusion « commentaires » → « suivi » (idempotent : commentaires est vidé après report)
     try {
       await client.query(`UPDATE hub_rencontres.rencontres_budgetaires

@@ -253,7 +253,25 @@ module.exports = {
                 `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, suivi=COALESCE(?, suivi), charge_cp=?, cp_presenti=?, statut=?, annee_validation=${validee ? 'COALESCE(?, annee_validation)' : '?'}, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
                 [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, suivi ?? null, charge_cp || null, cp_presenti || null, statut, validee && annee_validation != null ? Number(annee_validation) : null, id]
             );
-            res.json({ message: 'Rencontre mise à jour' });
+
+            // Utilisateur de référence : enregistré seulement s'il est fourni (null = effacé).
+            // S'il change et qu'un ticket est déjà lié, le demandeur du ticket est mis à jour.
+            let ticketUpdated = null;
+            if (Object.prototype.hasOwnProperty.call(req.body, 'user_ref_email')) {
+                const { user_ref_username, user_ref_name, user_ref_email } = req.body;
+                const before = await pgDb.get('SELECT user_ref_email, user_ref_name, ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
+                await pgDb.run('UPDATE rencontres_budgetaires SET user_ref_username=?, user_ref_name=?, user_ref_email=? WHERE id=?',
+                    [user_ref_username || null, user_ref_name || null, user_ref_email || null, id]);
+                const ticketId = parseInt(before?.ticket_glpi, 10);
+                const changed = (before?.user_ref_email || '') !== (user_ref_email || '') || (before?.user_ref_name || '') !== (user_ref_name || '');
+                if (changed && user_ref_email && Number.isInteger(ticketId)) {
+                    try {
+                        await require('../tickets/services/ticket.service').update(ticketId, { requester_name: user_ref_name || user_ref_email, requester_email_22: user_ref_email }, req.user);
+                        ticketUpdated = ticketId;
+                    } catch (e) { console.error('[RENCONTRES] maj demandeur ticket #%s échouée:', ticketId, e.message); }
+                }
+            }
+            res.json({ message: 'Rencontre mise à jour', ticket_updated: ticketUpdated });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
