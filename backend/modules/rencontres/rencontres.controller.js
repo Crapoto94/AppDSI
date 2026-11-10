@@ -571,7 +571,17 @@ module.exports = {
 
             const dirServicesFinal = {};
             for (const [dir, svcs] of Object.entries(dirServicesMap)) {
-                dirServicesFinal[dir] = [...svcs].filter(Boolean).sort();
+                // Dédoublonnage insensible à la casse/accents ; on garde la forme en majuscules (celle de l'organigramme) ;
+                // un « service » identique à sa direction n'en est pas un.
+                const key = (v) => String(v).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+                const byKey = new Map();
+                for (const sv of [...svcs].filter(Boolean)) {
+                    const k = key(sv);
+                    if (!k || k === key(dir)) continue;
+                    const cur = byKey.get(k);
+                    if (!cur || (sv === sv.toUpperCase() && cur !== cur.toUpperCase())) byKey.set(k, sv);
+                }
+                dirServicesFinal[dir] = [...byKey.values()].sort((x, y) => x.localeCompare(y, 'fr'));
             }
 
             res.json({ directions: [...dirSet].sort(), services: [...svcSet].sort(), dirServicesMap: dirServicesFinal });

@@ -216,7 +216,6 @@ const RencontresBudgetaires: React.FC = () => {
       if (!res.ok) { const err = await res.json().catch(() => ({})); alert(`Erreur : ${err.error || "Échec de l'assignation"}`); return; }
       const saved = await res.json().catch(() => ({}));
       setRencontres(prev => prev.map(x => x.id === r.id ? updated : x));
-      if (saved?.ticket_updated) alert(`Demandeur du ticket #${saved.ticket_updated} mis à jour`);
     } catch { alert("Erreur lors de l'assignation"); }
     finally { closeAssign(); }
   };
@@ -270,7 +269,6 @@ const RencontresBudgetaires: React.FC = () => {
       if (!res.ok) { alert(`Erreur : ${out.error || 'Création du projet impossible'}`); return; }
       setRencontres(prev => prev.map(x => x.id === projetTarget.id ? { ...x, projet_id: out.id, cp_presenti: projetForm.cp || x.cp_presenti } : x));
       fetchProjets();
-      alert(`Projet ${out.code || '#' + out.id} créé et lié à la demande`);
       setProjetTarget(null);
     } catch { alert('Erreur lors de la création du projet'); }
     finally { setCreatingProjet(false); }
@@ -390,7 +388,6 @@ const RencontresBudgetaires: React.FC = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        alert('Supprimée avec succès');
         fetchRencontres();
         if (selectedRencontre?.id === id) setShowDetailModal(false);
       } else {
@@ -437,7 +434,6 @@ const RencontresBudgetaires: React.FC = () => {
 
       if (res.ok) {
         const saved = await res.json().catch(() => ({}));
-        alert(saved?.ticket_updated ? `Enregistrée avec succès (demandeur du ticket #${saved.ticket_updated} mis à jour)` : 'Enregistrée avec succès');
         setShowDetailModal(false);
         setEditedData(null);
         fetchRencontres();
@@ -509,7 +505,6 @@ const RencontresBudgetaires: React.FC = () => {
         const updated = { ...target, ticket_glpi: String(ticketId) };
         setSelectedRencontre(prev => (prev && prev.id === updated.id ? updated : prev));
         setRencontres(prev => prev.map(r => r.id === updated.id ? updated : r));
-        alert(`Ticket DSIHUB #${ticketId} créé avec succès`);
       } else {
         alert(`Ticket DSIHUB #${ticketId} créé mais erreur lors de la mise à jour en base`);
       }
