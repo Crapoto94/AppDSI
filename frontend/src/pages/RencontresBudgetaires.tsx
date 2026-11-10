@@ -979,7 +979,10 @@ ${ligne}` : ligne;
                     <tr
                       style={styles.row}
                     >
-                      <td style={styles.td}>{fmtNom(r.direction)}</td>
+                      <td style={styles.td}>
+                        <div>{fmtNom(r.direction)}</div>
+                        {r.service && <div style={{ fontStyle: 'italic', fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{fmtNom(r.service)}</div>}
+                      </td>
                       <td
                         style={{
                           ...styles.td,
@@ -1059,7 +1062,7 @@ ${ligne}` : ligne;
                             style={{ background: 'none', border: '1px dashed #94a3b8', color: '#475569', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                             title="Assigner un utilisateur de référence"
                             onClick={() => { adRow.setQuery(''); adRow.clearResults(); setAssignRowId(r.id); }}
-                          >+ Assigner</button>
+                          >+ Demandeur</button>
                           )
                         )}
                       </td>
@@ -1254,8 +1257,19 @@ ${ligne}` : ligne;
                       {isEditMode ? edit : view}
                     </div>
                   );
+                  const servicesDeLaDirection = (dir?: string | null): string[] => {
+                    const list = dirServicesMap[normDir(dir || '')] || [];
+                    const courant = e?.service ? [e.service] : [];
+                    return [...new Set([...list, ...courant])].sort((a, b) => a.localeCompare(b, 'fr'));
+                  };
                   const sel = (key: string, options: string[]) => (
-                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)}>
+                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => {
+                      if (key === 'direction') {
+                        const v = ev.target.value;
+                        const autorises = dirServicesMap[normDir(v)] || [];
+                        setEditedData(prev => prev ? { ...prev, direction: v, service: prev.service && autorises.includes(prev.service) ? prev.service : '' } : prev);
+                      } else handleEditFieldChange(key as keyof Rencontre, ev.target.value);
+                    }}>
                       <option value="">-- Sélectionner --</option>
                       {options.map(o => <option key={o} value={o}>{key === 'direction' || key === 'service' ? fmtNom(o) : o}</option>)}
                     </select>
@@ -1272,7 +1286,7 @@ ${ligne}` : ligne;
                       <div style={grid}>
                         {field('Titre', input('titre'), txt(sr.titre), true)}
                         {field('Direction', sel('direction', directions), txt(fmtNom(sr.direction)))}
-                        {field('Service', sel('service', services), txt(fmtNom(sr.service)))}
+                        {field('Service', sel('service', servicesDeLaDirection(e?.direction)), txt(fmtNom(sr.service)))}
                         {field('Date', input('date_reunion', { type: 'date', value: e?.date_reunion ? e.date_reunion.split('T')[0] : '' }), txt(sr.date_reunion ? new Date(sr.date_reunion).toLocaleDateString('fr-FR') : ''))}
                         {field('Type', sel('type', [...new Set([...types, 'Demande', 'Investissement'])]), txt(sr.type))}
                         {field('Montant TTC', (

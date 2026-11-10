@@ -555,6 +555,20 @@ module.exports = {
                 }
             }
 
+            // Services réels de l'organigramme, rattachés à leur direction
+            try {
+                const org = await pgDb.all(`SELECT DISTINCT "DIRECTION_L" AS dir, "SERVICE_L" AS svc FROM oracle.rh_siim_organigramme WHERE "SERVICE_L" IS NOT NULL AND "DIRECTION_L" IS NOT NULL`);
+                for (const o of org) {
+                    const dir = String(o.dir).trim().replace(/\s+/g, ' ').toUpperCase();
+                    const svc = String(o.svc).trim();
+                    if (!svc || svc.toUpperCase() === dir) continue; // le « service » égal à la direction n'en est pas un
+                    dirSet.add(dir);
+                    svcSet.add(svc);
+                    if (!dirServicesMap[dir]) dirServicesMap[dir] = new Set();
+                    dirServicesMap[dir].add(svc);
+                }
+            } catch (e) { /* organigramme indisponible : on garde les données des demandes */ }
+
             const dirServicesFinal = {};
             for (const [dir, svcs] of Object.entries(dirServicesMap)) {
                 dirServicesFinal[dir] = [...svcs].filter(Boolean).sort();
