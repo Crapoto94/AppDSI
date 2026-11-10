@@ -50,4 +50,23 @@ async function syncDemandeFromTicket(ticketId) {
     }
 }
 
-module.exports = { syncDemandeFromTicket, STATUT_TERMINE };
+// Tâche de projet issue d'une demande budgétaire : sa validation termine la demande.
+async function syncDemandeFromTask(taskId) {
+    try {
+        const t = await pgDb.get('SELECT id, statut, rencontre_id, tache FROM projets.projet_taches_standalone WHERE id = $1', [taskId]);
+        if (!t || !t.rencontre_id) return;
+        if (!['terminé', 'terminee', 'terminée', 'termine'].includes(String(t.statut || '').toLowerCase())) return;
+        const d = await pgDb.get('SELECT id, statut, suivi FROM hub_rencontres.rencontres_budgetaires WHERE id = $1', [t.rencontre_id]);
+        if (!d || d.statut === STATUT_TERMINE) return;
+        const ligne = `[${new Date().toLocaleDateString('fr-FR')} - Tâche du projet terminée]`;
+        const suivi = d.suivi ? `${d.suivi}\n${ligne}` : ligne;
+        await pgDb.run(
+            'UPDATE hub_rencontres.rencontres_budgetaires SET statut = $1, suivi = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+            [STATUT_TERMINE, suivi, d.id]
+        );
+    } catch (e) {
+        console.error('[RENCONTRES] sync tâche → demande échouée:', e.message);
+    }
+}
+
+module.exports = { syncDemandeFromTicket, syncDemandeFromTask, STATUT_TERMINE };

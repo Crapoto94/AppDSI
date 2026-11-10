@@ -30,6 +30,43 @@ async function syncChefProjet(demandeId, byUsername) {
     return true;
 }
 
+// La demande devient une tâche du projet, attribuée au chef de projet (visible dans « Mes tâches »),
+// qui en est averti par mail. Sans doublon : une seule tâche par demande et par projet.
+async function creerTacheProjet(demandeId, projetId, byUsername) {
+    const d = await pgDb.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [demandeId]);
+    if (!d) return false;
+    const deja = await pgDb.get('SELECT id FROM projets.projet_taches_standalone WHERE rencontre_id = $1 AND projet_id = $2', [demandeId, projetId]);
+    if (deja) return false;
+    const p = await pgDb.get('SELECT id, titre, chef_projet_username, chef_projet_display_name FROM projets.projets WHERE id = $1', [projetId]);
+    if (!p) return false;
+    const cp = p.chef_projet_username || '';
+    const texte = `[Demande budgétaire] ${d.titre || ''}${d.direction ? ` — ${d.direction}` : ''}`.trim();
+    await pgDb.run(
+        `INSERT INTO projets.projet_taches_standalone (projet_id, tache, responsable, responsable_username, statut, created_by_username, rencontre_id)
+         VALUES ($1, $2, $3, $4, 'a_faire', $5, $6)`,
+        [projetId, texte, p.chef_projet_display_name || cp, cp, byUsername || '', demandeId]
+    );
+    if (!cp || !sendMailFn) return true;
+    if (byUsername && byUsername.toLowerCase() === cp.toLowerCase()) return true; // pas de mail à soi-même
+    try {
+        const u = await pgDb.get('SELECT email FROM hub.users WHERE LOWER(username) = LOWER($1)', [cp]);
+        if (!u || !u.email) return true;
+        const esc = (s) => String(s || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+        const { getAppBaseUrl } = require('../../shared/app_url');
+        const base = await getAppBaseUrl();
+        const html = `
+            <h2 style="margin:0 0 8px;">Nouvelle tâche issue des demandes budgétaires</h2>
+            <p>Une demande des <strong>rencontres budgétaires</strong> a été rattachée au projet <strong>${esc(p.titre)}</strong> et vous a été attribuée comme tâche :</p>
+            <blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #6366f1;background:#eef2ff;">
+              <strong>${esc(d.titre)}</strong>${d.direction ? `<br/>Direction : ${esc(d.direction)}` : ''}${d.description ? `<br/>${esc(d.description)}` : ''}
+            </blockquote>
+            <p><a href="${base}/projets/${projetId}" style="background:#6366f1;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">Voir le projet</a></p>
+            <p style="color:#64748b;font-size:13px;">Retrouvez-la dans <em>Mes Tâches</em>. Sa validation clôturera automatiquement la demande budgétaire.</p>`;
+        await sendMailFn(u.email, '📋 Nouvelle tâche (demande budgétaire) — DSI Hub', html, [], 'task_alert');
+    } catch (e) { console.error('[RENCONTRES] mail tâche projet échoué:', e.message); }
+    return true;
+}
+
 module.exports.setSendMail = (fn) => { sendMailFn = fn; };
 
 module.exports = {
@@ -403,7 +440,12 @@ module.exports = {
             }
             await pgDb.run('UPDATE rencontres_budgetaires SET projet_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [projetId, id]);
             const chefMaj = projetId !== null ? await syncChefProjet(id, req.user?.username) : false;
-            res.json({ message: projetId === null ? 'Projet délié' : 'Projet lié', projet_id: projetId, chef_projet_updated: chefMaj });
+            let tacheCreee = false;
+            if (projetId !== null) {
+                try { tacheCreee = await creerTacheProjet(id, projetId, req.user?.username); }
+                catch (e) { console.error('[RENCONTRES] création tâche projet échouée:', e.message); }
+            }
+            res.json({ message: projetId === null ? 'Projet délié' : 'Projet lié', projet_id: projetId, chef_projet_updated: chefMaj, tache_creee: tacheCreee });
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 

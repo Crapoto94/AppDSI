@@ -6021,6 +6021,7 @@ contractsCtrl.setSendMail(sendMail);
 // ============================================
 const { rencontresRouter, reunionRouter, directionsRouter, dirEmailsRouter } = require('./modules/rencontres/rencontres.routes');
 const rencontresCtrl = require('./modules/rencontres/rencontres.controller');
+rencontresCtrl.setSendMail(sendMail);
 const reunionsCtrl = require('./modules/rencontres/reunions.controller');
 // Inject sendMail into reunions controller
 reunionsCtrl.setSendMail(sendMail);

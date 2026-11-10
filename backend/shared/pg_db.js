@@ -2935,6 +2935,7 @@ async function setupPgDb() {
     // Add notes column if missing (migration)
     try {
       await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '[]'`);
+      await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS rencontre_id INTEGER`);
     } catch (e) {}
 
     // Seed default scoring config

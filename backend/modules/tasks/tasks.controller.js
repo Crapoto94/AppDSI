@@ -1114,6 +1114,7 @@ module.exports = {
                             'UPDATE projets.projet_taches_standalone SET statut = $1 WHERE id = $2',
                             [dbStatut, id]
                         );
+                        await require('../rencontres/ticket-sync').syncDemandeFromTask(Number(id));
                     }
                     break;
                 case 'rencontre':
