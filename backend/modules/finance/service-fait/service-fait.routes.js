@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('./service-fait.controller');
-const { authenticateJWT, authenticateAdmin } = require('../../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminOrFinances } = require('../../../shared/middleware');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Internal API (requires JWT)
-router.post('/', authenticateJWT, controller.createWorkflow);
+// Opérations de modification du service fait : superadmin / finances / compta uniquement
+router.post('/', authenticateAdminOrFinances, controller.createWorkflow);
 // Déclaration directe du service fait (sans circuit de validation) — PJ obligatoire
-router.post('/self', authenticateJWT, upload.array('files', 10), controller.createSelfWorkflow);
+router.post('/self', authenticateAdminOrFinances, upload.array('files', 10), controller.createSelfWorkflow);
 router.post('/statuses', authenticateJWT, controller.getStatuses);
 // Directeurs paramétrés (générique) — AVANT /:id.
 router.get('/directors', authenticateJWT, controller.getDirectors);
@@ -18,9 +19,9 @@ router.post('/commande-statuses', authenticateJWT, controller.getCommandeFacture
 router.get('/sedit-writes', authenticateAdmin, controller.listSeditWrites);
 router.post('/sedit-writes/:logId/undo', authenticateAdmin, controller.undoSeditWrite);
 router.get('/:id', authenticateJWT, controller.getWorkflow);
-router.post('/:id/cancel', authenticateJWT, controller.cancelWorkflow);
-router.post('/:id/pieces-jointes', authenticateJWT, upload.array('files', 10), controller.addPiecesJointes);
-router.delete('/pieces-jointes/:pjId', authenticateJWT, controller.deletePieceJointe);
+router.post('/:id/cancel', authenticateAdminOrFinances, controller.cancelWorkflow);
+router.post('/:id/pieces-jointes', authenticateAdminOrFinances, upload.array('files', 10), controller.addPiecesJointes);
+router.delete('/pieces-jointes/:pjId', authenticateAdminOrFinances, controller.deletePieceJointe);
 
 // Public API (no JWT — token-based)
 router.get('/public/:token', controller.getPublicByToken);
