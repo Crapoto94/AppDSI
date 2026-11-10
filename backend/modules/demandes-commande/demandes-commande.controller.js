@@ -7,7 +7,8 @@ const MODULE = 'demandes_commande';
 const STATUT_DEVIS = 'devis_pris_en_compte';
 const STATUT_VALIDEE = 'validee';
 
-const isManager = (user) => ['superadmin', 'admin', 'finances'].includes(user?.role);
+// Gestionnaires : opérations de modification du module compta (rôle « compta » inclus)
+const isManager = (user) => ['superadmin', 'admin', 'finances', 'compta'].includes(user?.role);
 
 // Les validateurs (directeur / RAF) sont désignés par username dans finance.demandes_commande_validateurs.
 async function getValidateurRole(user) {
@@ -130,9 +131,8 @@ module.exports = {
             const id = parseInt(req.params.id, 10);
             const d = (await pool.query('SELECT * FROM finance.demandes_commande WHERE id = $1', [id])).rows[0];
             if (!d) return res.status(404).json({ message: 'Demande introuvable' });
-            if (!(isManager(req.user) || (await getValidateurRole(req.user)) || d.demandeur_username === req.user.username)) {
-                return res.status(403).json({ message: "Vous ne pouvez pas ajouter de document à cette commande" });
-            }
+            // Les demandes de commande sont accessibles à tous : tout utilisateur connecté peut y ajouter un document
+            // (les autres opérations de modification restent réservées aux gestionnaires / validateurs).
             let envoyee = !!d.envoye_manuel_at;
             if (!envoyee && d.commande_roo) {
                 const etat = (await loadCommandeEtats([d.commande_roo]))[String(d.commande_roo).trim()];

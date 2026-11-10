@@ -432,7 +432,7 @@ const DemandesCommandeTab: React.FC = () => {
                       )}
                     </div>
                   ))}
-                  {(me.can_manage || me.can_validate || d.demandeur_username === user?.username) && (
+                  {(
                     <button type="button" onClick={() => openDocs(d)} title="Ajouter un bon de livraison ou un autre document"
                       style={{ ...s.btn, background: '#0ea5e9', padding: '0.3rem 0.6rem', fontSize: '0.78rem' }}>
                       <Plus size={13} /> Ajouter un document
