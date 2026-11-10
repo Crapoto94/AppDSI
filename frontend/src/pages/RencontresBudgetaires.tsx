@@ -1115,27 +1115,27 @@ ${ligne}` : ligne;
                               <Trash2 size={16} color="#ef4444" />
                             </button>
                           </div>
-                          {!r.ticket_glpi ? (
+                          {!r.ticket_glpi ? (r.projet_id ? null : (
                             <button
                               style={{ ...styles.iconBtn, background: '#f5f3ff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', opacity: isCreatingTicket ? 0.5 : 1 }}
                               disabled={isCreatingTicket}
                               onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
                               title="Créer un ticket DSIHUB à partir de cette demande"
                             >+ Ticket</button>
-                          ) : (
+                          )) : (
                             <button
                               style={{ ...styles.iconBtn, background: '#ede9fe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
                               onClick={() => handleOpenTicket(r.id)}
                               title={`Ouvrir ticket DSIHUB #${r.ticket_glpi}`}
                             ><Ticket size={13} />#{r.ticket_glpi}</button>
                           )}
-                          {!r.projet_id ? (
+                          {!r.projet_id ? (r.ticket_glpi ? null : (
                             <button
                               style={{ ...styles.iconBtn, background: '#ecfeff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490' }}
                               onClick={() => openProjetModal(r)}
                               title="Créer un projet simple lié à cette demande"
                             >+ Projet</button>
-                          ) : (
+                          )) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               <button
                                 style={{ ...styles.iconBtn, background: '#cffafe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
