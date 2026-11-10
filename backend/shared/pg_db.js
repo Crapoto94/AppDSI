@@ -1802,6 +1802,27 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_agent_search BOOLEAN DEFAULT false`);
     } catch (e) {}
 
+    // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.promotion (
+          id INTEGER PRIMARY KEY,
+          enabled BOOLEAN DEFAULT false,
+          url TEXT DEFAULT '',
+          badge TEXT DEFAULT '',
+          title TEXT DEFAULT '',
+          text TEXT DEFAULT '',
+          cta TEXT DEFAULT 'Découvrir',
+          until_date DATE,
+          logo_b64 TEXT,
+          logo_mime VARCHAR(100),
+          logo_version BIGINT DEFAULT 0
+        )
+      `);
+      await client.query(`ALTER TABLE magapp.promotion ADD COLUMN IF NOT EXISTS logo_b64 TEXT`);
+      await client.query(`INSERT INTO magapp.promotion (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    } catch (e) { console.error('[MAGAPP] promotion schema:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
         id SERIAL PRIMARY KEY,

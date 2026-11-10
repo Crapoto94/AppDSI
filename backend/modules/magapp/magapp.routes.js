@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const MagAppController = require('./magapp.controller');
+const PromotionController = require('./promotion.controller');
 const { authenticateJWT, tryAuthenticateJWT, authenticateMagappControl, authenticateAdmin } = require('../../shared/middleware');
 const { getSqlite } = require('../../shared/database');
 
@@ -46,6 +47,10 @@ magappBaseRouter.get('/apps/:id/orders', tryAuthenticateJWT, MagAppController.ge
 magappBaseRouter.post('/docs/:id/interaction', authenticateJWT, MagAppController.recordDocInteraction);
 
 // Admin routes under /api/magapp
+// Application mise en avant (bannière du magasin) — lecture publique, écriture admin
+magappBaseRouter.get('/promotion', PromotionController.get);
+magappBaseRouter.get('/promotion/logo', PromotionController.logo);
+magappBaseRouter.post('/promotion', authenticateMagappControl, uploadMemory.single('logo'), PromotionController.save);
 magappBaseRouter.get('/settings', tryAuthenticateJWT, MagAppController.getSettings);
 magappBaseRouter.post('/settings', authenticateMagappControl, MagAppController.updateSettings);
 magappBaseRouter.get('/apps/:id/users', authenticateMagappControl, MagAppController.getAppUsers);

@@ -93,11 +93,11 @@ function normalizeReleaseNotesHtml(html: string): string {
 }
 
 /** Carte d'outil de la modale « Mes outils DSI ». */
-function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void }) {
+function ToolCard({ icon, bg, title, description, beta, onClick, wide }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void; wide?: boolean }) {
   return (
     <button
       onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
+      style={{ gridColumn: wide ? '1 / -1' : undefined, display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
       onMouseOver={(e) => { e.currentTarget.style.borderColor = '#0078a455'; e.currentTarget.style.boxShadow = '0 6px 16px -6px rgba(0,120,164,0.25)'; }}
       onMouseOut={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
     >
@@ -234,6 +234,11 @@ function App() {
 
   const { isDark, toggleTheme } = useTheme();
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
+  // Application mise en avant (bannière), configurée dans DSI Hub /admin/magapp > Paramètres
+  const [promo, setPromo] = useState<{ enabled: boolean; url: string; badge: string; title: string; text: string; cta: string; logo_url: string } | null>(null);
+  useEffect(() => {
+    fetch('/api/magapp/promotion').then(r => r.ok ? r.json() : null).then(d => setPromo(d && d.enabled ? d : null)).catch(() => setPromo(null));
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -1674,6 +1679,7 @@ function App() {
                   bg="#dbeafe"
                   title="Modifier un PDF"
                   description="Éditeur PDF complet (PdfCraft)"
+                  wide
                   beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
                   onClick={() => { setShowTools(false); setShowPdfCraft(true); }}
                 />
@@ -2443,25 +2449,27 @@ function App() {
         )}
       </div>
 
-      {/* Tuile double largeur « Modifier un PDF » (PdfCraft) */}
-      {!searchTerm && (settings.show_pdf_tools || settings.is_beta_user) && (
+      {/* Application mise en avant (promotion) : configurée dans DSI Hub /admin/magapp > Paramètres */}
+      {!searchTerm && promo && promo.url && (
         <section className="category-section">
-          <div className="apps-grid">
-            <button
-              type="button"
-              className="app-card"
-              onClick={() => setShowPdfCraft(true)}
-              title="Modifier un PDF : lire, annoter, organiser et sécuriser un PDF directement dans votre navigateur"
-              style={{ gridColumn: 'span 2', cursor: 'pointer', textAlign: 'left', font: 'inherit', padding: 0 }}
-            >
-              <div className="app-icon-container">
-                <FilePen size={30} color="#1d4ed8" />
-              </div>
-              <span className="app-name" style={{ color: 'var(--text-blue)' }}>
-                <span>Modifier un PDF</span>
-              </span>
-            </button>
-          </div>
+          <a
+            href={promo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', gap: '22px', textDecoration: 'none', color: '#fff', borderRadius: '16px', padding: '18px 26px', background: 'linear-gradient(110deg, #b91c1c 0%, #7e22ce 55%, #1d4ed8 100%)', boxShadow: '0 10px 25px -8px rgba(76,29,149,0.45)', transition: 'transform 0.2s' }}
+            onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.transform = 'none'; }}
+          >
+            {promo.logo_url && <img src={promo.logo_url} alt="" style={{ width: 96, height: 96, objectFit: 'contain', flexShrink: 0, background: '#fff', borderRadius: '20px', padding: 6 }} />}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.12em', opacity: 0.85 }}>{promo.badge}</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, margin: '2px 0 6px' }}>{promo.title}</div>
+              <div style={{ fontSize: '0.92rem', lineHeight: 1.5, opacity: 0.95 }}>{promo.text}</div>
+            </div>
+            <span style={{ background: '#fff', color: '#6d28d9', fontWeight: 800, fontSize: '0.95rem', padding: '12px 22px', borderRadius: '12px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {promo.cta} →
+            </span>
+          </a>
         </section>
       )}
 
