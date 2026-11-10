@@ -382,7 +382,7 @@ module.exports = {
             mentionsSvc.notifyMentions({
                 content, actor: req.user, source: 'demande_commande', entityId: id,
                 title: `Demande de commande « ${demande.designation} »`,
-                link: `/budget?view=demandes&demande=${id}`,
+                link: `/budget/demandes?demande=${id}`,
             });
             res.status(201).json(ins.rows[0]);
         } catch (e) {
@@ -414,7 +414,7 @@ module.exports = {
             mentionsSvc.notifyMentions({
                 content, actor: req.user, source: 'demande_commande', entityId: id, exclude: before,
                 title: `Demande de commande « ${demande?.designation || id} »`,
-                link: `/budget?view=demandes&demande=${id}`,
+                link: `/budget/demandes?demande=${id}`,
             });
             res.json(r.rows[0]);
         } catch (e) {

@@ -194,6 +194,7 @@ function App() {
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
+        <Route path="/budget/:section" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
         <Route path="/tiers" element={<PrivateRoute path="/tiers"><Tiers /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
         <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
