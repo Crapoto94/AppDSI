@@ -12,6 +12,12 @@ import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 // Affichage uniforme des directions : espaces nettoyés, tout en majuscules
 const normDir = (d?: string | null) => (d ? d.trim().replace(/\s+/g, ' ').toUpperCase() : (d as any));
+// Affichage : « DIRECTION DE LA COMMUNICATION » → « Direction de la communication » (première lettre en majuscule)
+const fmtNom = (v?: string | null): string => {
+  const t = String(v ?? '').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
+};
+
 const withDir = <T extends { direction?: string }>(r: T): T => (r && r.direction ? { ...r, direction: normDir(r.direction) } : r);
 
 interface Rencontre {
@@ -864,7 +870,7 @@ ${ligne}` : ligne;
           >
             <option value="">Toutes directions</option>
             {directionsFiltrees.map(d => (
-              <option key={d} value={d}>{d}</option>
+              <option key={d} value={d}>{fmtNom(d)}</option>
             ))}
           </select>
 
@@ -973,7 +979,7 @@ ${ligne}` : ligne;
                     <tr
                       style={styles.row}
                     >
-                      <td style={styles.td}>{r.direction}</td>
+                      <td style={styles.td}>{fmtNom(r.direction)}</td>
                       <td
                         style={{
                           ...styles.td,
@@ -992,7 +998,7 @@ ${ligne}` : ligne;
                         }}
                         title={[
                           r.titre,
-                          `Direction : ${r.direction || '-'}${r.service ? ` / ${r.service}` : ''}`,
+                          `Direction : ${fmtNom(r.direction) || '-'}${r.service ? ` / ${fmtNom(r.service)}` : ''}`,
                           `Type : ${r.type || '-'}`,
                           `Date : ${r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
                           `Coût TTC : ${formatCout(r.cout_ttc)}`,
@@ -1251,7 +1257,7 @@ ${ligne}` : ligne;
                   const sel = (key: string, options: string[]) => (
                     <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)}>
                       <option value="">-- Sélectionner --</option>
-                      {options.map(o => <option key={o} value={o}>{o}</option>)}
+                      {options.map(o => <option key={o} value={o}>{key === 'direction' || key === 'service' ? fmtNom(o) : o}</option>)}
                     </select>
                   );
                   const input = (key: string, props: any = {}) => (
@@ -1265,8 +1271,8 @@ ${ligne}` : ligne;
                     <>
                       <div style={grid}>
                         {field('Titre', input('titre'), txt(sr.titre), true)}
-                        {field('Direction', sel('direction', directions), txt(sr.direction))}
-                        {field('Service', sel('service', services), txt(sr.service))}
+                        {field('Direction', sel('direction', directions), txt(fmtNom(sr.direction)))}
+                        {field('Service', sel('service', services), txt(fmtNom(sr.service)))}
                         {field('Date', input('date_reunion', { type: 'date', value: e?.date_reunion ? e.date_reunion.split('T')[0] : '' }), txt(sr.date_reunion ? new Date(sr.date_reunion).toLocaleDateString('fr-FR') : ''))}
                         {field('Type', sel('type', [...new Set([...types, 'Demande', 'Investissement'])]), txt(sr.type))}
                         {field('Montant TTC', (
