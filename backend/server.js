@@ -3929,12 +3929,14 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
         const demandes = await pgDb.all(
             `SELECT * FROM rencontres_budgetaires
              WHERE reunion_id IN (${placeholders})
-               AND annee = (SELECT MAX(annee) FROM rencontres_budgetaires)
              ORDER BY date_reunion DESC`,
             reunionIds
         );
 
-        res.json(demandes || []);
+        // Seules les demandes de la dernière année saisie POUR CET UTILISATEUR (ex. 2025 si rien en 2026)
+        const annees = (demandes || []).map(d => Number(d.annee)).filter(a => Number.isFinite(a) && a > 0);
+        const derniere = annees.length ? Math.max(...annees) : null;
+        res.json(derniere === null ? (demandes || []) : demandes.filter(d => Number(d.annee) === derniere));
     } catch (error) {
         console.error('Erreur my-demandes:', error);
         res.status(500).json({ error: error.message });
