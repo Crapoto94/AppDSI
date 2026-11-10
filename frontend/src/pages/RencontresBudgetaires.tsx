@@ -198,6 +198,25 @@ const RencontresBudgetaires: React.FC = () => {
 
   // Recherche AD de l'utilisateur de référence (demandeur des tickets créés depuis la demande)
   const adRef = useADSearch(token);
+  // Assignation rapide depuis la liste : recherche AD seule, enregistrement immédiat
+  const adRow = useADSearch(token);
+  const [assignRowId, setAssignRowId] = useState<number | null>(null);
+  const closeAssign = () => { setAssignRowId(null); adRow.setQuery(''); adRow.clearResults(); };
+  const assignUserRef = async (r: Rencontre, u: { username: string; displayName: string; email: string }) => {
+    try {
+      const updated = { ...r, user_ref_username: u.username, user_ref_name: u.displayName, user_ref_email: u.email };
+      const res = await fetch(`/api/rencontres-budgetaires/${r.id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(`Erreur : ${err.error || "Échec de l'assignation"}`); return; }
+      const saved = await res.json().catch(() => ({}));
+      setRencontres(prev => prev.map(x => x.id === r.id ? updated : x));
+      if (saved?.ticket_updated) alert(`Demandeur du ticket #${saved.ticket_updated} mis à jour`);
+    } catch { alert("Erreur lors de l'assignation"); }
+    finally { closeAssign(); }
+  };
 
   // Chefs de projet du module Projets (pour le « CP pressenti »)
   const [chefsProjets, setChefsProjets] = useState<{ username: string; display_name: string }[]>([]);
@@ -939,11 +958,36 @@ ${ligne}` : ligne;
                             <AgentPresenceBadge email={r.user_ref_email || ''} name={r.user_ref_name || ''} size={11} />
                           </span>
                         ) : (
+                          assignRowId === r.id ? (
+                            <div style={{ position: 'relative', minWidth: '220px' }}>
+                              <input
+                                autoFocus
+                                style={{ width: '100%', padding: '4px 8px', border: '1px solid #94a3b8', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
+                                placeholder="Rechercher un agent (AD)…"
+                                value={adRow.query}
+                                onChange={(ev) => adRow.setQuery(ev.target.value)}
+                                onKeyDown={(ev) => { if (ev.key === 'Escape') closeAssign(); }}
+                                onBlur={() => setTimeout(closeAssign, 200)}
+                              />
+                              {adRow.results.length > 0 && (
+                                <div style={{ position: 'absolute', zIndex: 30, left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.12)' }}>
+                                  {adRow.results.map(u => (
+                                    <div key={`${u.username}-${u.email}`}
+                                      style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }}
+                                      onMouseDown={(ev) => { ev.preventDefault(); assignUserRef(r, u); }}>
+                                      <strong>{u.displayName}</strong> <span style={{ color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
                           <button
                             style={{ background: 'none', border: '1px dashed #94a3b8', color: '#475569', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                             title="Assigner un utilisateur de référence"
-                            onClick={() => { setSelectedRencontre(r); setEditedData({ ...r }); setIsEditMode(true); setShowDetailModal(true); }}
+                            onClick={() => { adRow.setQuery(''); adRow.clearResults(); setAssignRowId(r.id); }}
                           >+ Assigner</button>
+                          )
                         )}
                       </td>
                       <td style={{...styles.td, maxWidth: '320px', wordBreak: 'break-word'}} title={r.suivi || ''}>
