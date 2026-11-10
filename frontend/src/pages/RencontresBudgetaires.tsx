@@ -227,6 +227,9 @@ const RencontresBudgetaires: React.FC = () => {
   const [projetForm, setProjetForm] = useState({ titre: '', description: '', cp: '', sousProjet: false, parentId: '' });
   const [maitres, setMaitres] = useState<ProjetLite[]>([]);
   const [creatingProjet, setCreatingProjet] = useState(false);
+  const [projetMode, setProjetMode] = useState<'create' | 'link'>('create');
+  const [projetSearch, setProjetSearch] = useState('');
+  const [projetLinkId, setProjetLinkId] = useState<number | null>(null);
   const fetchProjets = () => {
     if (!token) return;
     fetch('/api/rencontres-budgetaires/projets', { headers: { Authorization: `Bearer ${token}` } })
@@ -238,6 +241,7 @@ const RencontresBudgetaires: React.FC = () => {
   const projetOf = (id?: number | null) => (id ? projets.find(p => p.id === id) : undefined);
   const openProjetModal = (r: Rencontre) => {
     setProjetTarget(r);
+    setProjetMode('create'); setProjetSearch(''); setProjetLinkId(null);
     setProjetForm({ titre: r.titre || '', description: r.description || '', cp: r.cp_presenti || '', sousProjet: false, parentId: '' });
     setMaitres([]);
   };
@@ -271,6 +275,22 @@ const RencontresBudgetaires: React.FC = () => {
       fetchProjets();
       setProjetTarget(null);
     } catch { alert('Erreur lors de la création du projet'); }
+    finally { setCreatingProjet(false); }
+  };
+  const associerProjet = async () => {
+    if (!projetTarget || !projetLinkId) { alert('Choisissez un projet'); return; }
+    setCreatingProjet(true);
+    try {
+      const res = await fetch(`/api/rencontres-budgetaires/${projetTarget.id}/projet`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projet_id: projetLinkId })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(`Erreur : ${out.error || 'Association impossible'}`); return; }
+      setRencontres(prev => prev.map(x => x.id === projetTarget.id ? { ...x, projet_id: projetLinkId } : x));
+      setProjetTarget(null);
+    } catch { alert('Erreur lors de l\'association du projet'); }
     finally { setCreatingProjet(false); }
   };
   const delierProjet = async (r: Rencontre) => {
@@ -1032,7 +1052,37 @@ ${ligne}` : ligne;
         {projetTarget && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setProjetTarget(null)}>
             <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '560px', maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 4px' }}>Créer un projet simple</h3>
+              <h3 style={{ margin: '0 0 10px' }}>Projet</h3>
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '14px', fontSize: '14px' }}>
+                <label style={{ cursor: 'pointer' }}><input type="radio" checked={projetMode === 'create'} onChange={() => setProjetMode('create')} /> Créer un projet</label>
+                <label style={{ cursor: 'pointer' }}><input type="radio" checked={projetMode === 'link'} onChange={() => setProjetMode('link')} /> Associer à un projet existant</label>
+              </div>
+
+              {projetMode === 'link' ? (
+                <>
+                  <input style={{ ...styles.editInput, marginBottom: '8px' }} placeholder="Rechercher un projet (code, titre, chef de projet)…" value={projetSearch} onChange={(e) => setProjetSearch(e.target.value)} />
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {(() => {
+                      const q = projetSearch.trim().toLowerCase();
+                      const list = (projets as any[]).filter(p => !q || `${p.code || ''} ${p.titre || ''} ${p.chef_projet_display_name || ''} ${p.chef_projet_username || ''}`.toLowerCase().includes(q));
+                      if (list.length === 0) return <div style={{ padding: '12px', fontSize: '13px', color: '#94a3b8' }}>Aucun projet.</div>;
+                      return list.map(p => (
+                        <div key={p.id} onClick={() => setProjetLinkId(p.id)}
+                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9', background: projetLinkId === p.id ? '#dbeafe' : 'white' }}>
+                          <div style={{ fontWeight: 600, color: '#0f172a' }}>{p.code ? `${p.code} · ` : ''}{p.titre}</div>
+                          {(p.chef_projet_display_name || p.chef_projet_username) && <div style={{ fontSize: '11px', color: '#64748b' }}>CdP : {p.chef_projet_display_name || p.chef_projet_username}</div>}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                    <button style={styles.resetBtn} onClick={() => setProjetTarget(null)}>Annuler</button>
+                    <button style={{ ...styles.resetBtn, background: '#2563eb', color: 'white', border: 'none', opacity: creatingProjet || !projetLinkId ? 0.6 : 1 }} disabled={creatingProjet || !projetLinkId} onClick={associerProjet}>
+                      Associer
+                    </button>
+                  </div>
+                </>
+              ) : (<>
               <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>Mini-projet (sans planning Gantt, étapes de workflow ni comités), lié à cette demande.</p>
 
               <label style={styles.label}>Titre *</label>
@@ -1072,6 +1122,7 @@ ${ligne}` : ligne;
                   {creatingProjet ? 'Création...' : 'Créer le projet'}
                 </button>
               </div>
+              </>)}
             </div>
           </div>
         )}
