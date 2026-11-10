@@ -3929,6 +3929,7 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
         const demandes = await pgDb.all(
             `SELECT * FROM rencontres_budgetaires
              WHERE reunion_id IN (${placeholders})
+               AND annee = (SELECT MAX(annee) FROM rencontres_budgetaires)
              ORDER BY date_reunion DESC`,
             reunionIds
         );
