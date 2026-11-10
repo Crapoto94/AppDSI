@@ -6,6 +6,30 @@ const { excelDateToISO, parseOracleDate } = require('../../shared/utils');
 
 // Forward declaration - sendMail will be injected
 let sendMailFn = null;
+// Reformate « NOM Prénom » en « Prénom Nom » (tokens tout en majuscules = nom de famille)
+function formatPrenomNom(name) {
+    const tokens = String(name || '').trim().split(/\s+/);
+    if (tokens.length < 2) return name;
+    const isUpper = (t) => t.replace(/[-']/g, '').length >= 2 && t === t.toLocaleUpperCase('fr') && /[A-ZÀ-Þ]/.test(t);
+    const nom = tokens.filter(isUpper), prenom = tokens.filter(t => !isUpper(t));
+    return nom.length && prenom.length ? [...prenom, ...nom].join(' ') : name;
+}
+
+// Le CP pressenti de la demande devient le chef de projet du projet lié.
+async function syncChefProjet(demandeId, byUsername) {
+    const d = await pgDb.get('SELECT projet_id, cp_presenti FROM rencontres_budgetaires WHERE id = ?', [demandeId]);
+    if (!d || !d.projet_id || !d.cp_presenti) return false;
+    const actuel = await pgDb.get('SELECT chef_projet_username FROM projets.projets WHERE id = $1', [d.projet_id]);
+    if (actuel && String(actuel.chef_projet_username || '').toLowerCase() === String(d.cp_presenti).toLowerCase()) return false;
+    const u = await pgDb.get('SELECT displayName AS dn FROM hub.users WHERE LOWER(username) = LOWER($1)', [d.cp_presenti]);
+    const display = formatPrenomNom((u && u.dn) || d.cp_presenti);
+    await pgDb.run(
+        'UPDATE projets.projets SET chef_projet_username = $1, chef_projet_display_name = $2, date_modification = CURRENT_TIMESTAMP, modified_by_username = $3 WHERE id = $4',
+        [d.cp_presenti, display, byUsername || null, d.projet_id]
+    );
+    return true;
+}
+
 module.exports.setSendMail = (fn) => { sendMailFn = fn; };
 
 module.exports = {
@@ -271,7 +295,10 @@ module.exports = {
                     } catch (e) { console.error('[RENCONTRES] maj demandeur ticket #%s échouée:', ticketId, e.message); }
                 }
             }
-            res.json({ message: 'Rencontre mise à jour', ticket_updated: ticketUpdated });
+            // CP pressenti modifié → chef de projet du projet lié
+            let chefMaj = false;
+            try { chefMaj = await syncChefProjet(id, req.user?.username); } catch (e) { console.error('[RENCONTRES] maj chef de projet échouée:', e.message); }
+            res.json({ message: 'Rencontre mise à jour', ticket_updated: ticketUpdated, chef_projet_updated: chefMaj });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -329,13 +356,6 @@ module.exports = {
                 WHERE COALESCE(c.username, '') <> ''
                 ORDER BY LOWER(c.username)
             `);
-            const formatPrenomNom = (name) => {
-                const tokens = String(name || '').trim().split(/\s+/);
-                if (tokens.length < 2) return name;
-                const isUpper = (t) => t.replace(/[-']/g, '').length >= 2 && t === t.toLocaleUpperCase('fr') && /[A-ZÀ-Þ]/.test(t);
-                const nom = tokens.filter(isUpper), prenom = tokens.filter(t => !isUpper(t));
-                return nom.length && prenom.length ? [...prenom, ...nom].join(' ') : name;
-            };
             const list = [];
             for (const r of rows || []) {
                 const u = String(r.username);
@@ -359,6 +379,85 @@ module.exports = {
             }
             list.sort((a, b) => a.display_name.localeCompare(b.display_name, 'fr'));
             res.json(list);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Projets du portefeuille (pour lier une demande à un projet)
+    listProjets: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`SELECT id, code, titre, statut, chef_projet_username, chef_projet_display_name
+                FROM projets.projets ORDER BY titre`);
+            res.json(rows || []);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Lie (ou délie avec projet_id = null) une demande à un projet ; le CP pressenti devient chef de projet
+    linkProjet: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const projetId = req.body.projet_id == null || req.body.projet_id === '' ? null : parseInt(req.body.projet_id, 10);
+            if (projetId !== null) {
+                if (!Number.isInteger(projetId)) return res.status(400).json({ error: 'Projet invalide' });
+                const p = await pgDb.get('SELECT id FROM projets.projets WHERE id = $1', [projetId]);
+                if (!p) return res.status(404).json({ error: 'Projet introuvable' });
+            }
+            await pgDb.run('UPDATE rencontres_budgetaires SET projet_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [projetId, id]);
+            const chefMaj = projetId !== null ? await syncChefProjet(id, req.user?.username) : false;
+            res.json({ message: projetId === null ? 'Projet délié' : 'Projet lié', projet_id: projetId, chef_projet_updated: chefMaj });
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Projets « maîtres » (sans projet parent) d'un chef de projet : candidats au « sous-projet de »
+    listProjetsMaitres: async (req, res) => {
+        try {
+            const cp = String(req.query.cp || '').trim();
+            if (!cp) return res.json([]);
+            const rows = await pgDb.all(`SELECT id, code, titre, statut, service_pilote FROM projets.projets
+                WHERE LOWER(chef_projet_username) = LOWER($1) AND projet_parent_id IS NULL ORDER BY titre`, [cp]);
+            res.json(rows || []);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Crée un projet simple (mini-projet) depuis une demande, éventuellement sous un projet maître,
+    // avec le CP pressenti comme chef de projet, puis le lie à la demande.
+    createProjetFromDemande: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const d = await pgDb.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [id]);
+            if (!d) return res.status(404).json({ error: 'Demande introuvable' });
+            if (d.projet_id) return res.status(409).json({ error: 'Cette demande est déjà liée à un projet' });
+
+            const titre = String(req.body.titre || d.titre || '').trim();
+            if (!titre) return res.status(400).json({ error: 'Titre obligatoire' });
+            const description = req.body.description !== undefined ? req.body.description : (d.description || '');
+            const chef = String(req.body.chef_projet_username || d.cp_presenti || '').trim() || null;
+            const parentId = req.body.projet_parent_id ? parseInt(req.body.projet_parent_id, 10) : null;
+
+            // Service pilote : celui du projet maître, sinon un service du chef de projet, sinon celui de la demande
+            let servicePilote = null;
+            if (parentId) {
+                const parent = await pgDb.get('SELECT service_pilote FROM projets.projets WHERE id = $1', [parentId]);
+                if (!parent) return res.status(404).json({ error: 'Projet maître introuvable' });
+                servicePilote = parent.service_pilote;
+            }
+            if (!servicePilote && chef) {
+                const svc = await pgDb.get('SELECT service_code FROM projets.chef_projet_services WHERE LOWER(chef_projet_username) = LOWER($1) AND service_code IS NOT NULL ORDER BY id LIMIT 1', [chef]);
+                servicePilote = svc && svc.service_code;
+            }
+            if (!servicePilote) servicePilote = d.service || d.direction;
+            if (!servicePilote) return res.status(400).json({ error: 'Service pilote introuvable : renseignez la direction/le service de la demande' });
+
+            // Réutilise la création standard du module Projets (code, journal…)
+            const out = { code: 200, body: null };
+            const fakeRes = { status(c) { out.code = c; return this; }, json(b) { out.body = b; return this; } };
+            await require('../projets/projets.controller').create({
+                body: { titre, description, niveau_projet: 'mineur', is_mini_projet: true, service_pilote: servicePilote, chef_projet_username: chef, projet_parent_id: parentId },
+                user: req.user,
+            }, fakeRes);
+            if (out.code >= 400 || !out.body || !out.body.id) return res.status(out.code >= 400 ? out.code : 500).json({ error: (out.body && out.body.error) || 'Création du projet impossible' });
+
+            await pgDb.run('UPDATE rencontres_budgetaires SET projet_id = ?, cp_presenti = COALESCE(?, cp_presenti), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [out.body.id, chef, id]);
+            res.status(201).json({ id: out.body.id, code: out.body.code, message: 'Projet créé et lié à la demande' });
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 

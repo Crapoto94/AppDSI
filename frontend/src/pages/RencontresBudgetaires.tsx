@@ -26,6 +26,7 @@ interface Rencontre {
   cout_ttc: number | string;
   charge_cp?: string | null;
   cp_presenti?: string | null;
+  projet_id?: number | null;
   user_ref_username?: string | null;
   user_ref_name?: string | null;
   user_ref_email?: string | null;
@@ -216,6 +217,71 @@ const RencontresBudgetaires: React.FC = () => {
       if (saved?.ticket_updated) alert(`Demandeur du ticket #${saved.ticket_updated} mis à jour`);
     } catch { alert("Erreur lors de l'assignation"); }
     finally { closeAssign(); }
+  };
+
+  // Projets : « + Projet » crée un projet simple (mini-projet) lié à la demande, éventuellement sous un projet maître
+  type ProjetLite = { id: number; code?: string | null; titre: string; statut?: string | null };
+  const [projets, setProjets] = useState<ProjetLite[]>([]);
+  const [projetTarget, setProjetTarget] = useState<Rencontre | null>(null);
+  const [projetForm, setProjetForm] = useState({ titre: '', description: '', cp: '', sousProjet: false, parentId: '' });
+  const [maitres, setMaitres] = useState<ProjetLite[]>([]);
+  const [creatingProjet, setCreatingProjet] = useState(false);
+  const fetchProjets = () => {
+    if (!token) return;
+    fetch('/api/rencontres-budgetaires/projets', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setProjets(Array.isArray(d) ? d : []))
+      .catch(() => setProjets([]));
+  };
+  useEffect(() => { fetchProjets(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  const projetOf = (id?: number | null) => (id ? projets.find(p => p.id === id) : undefined);
+  const openProjetModal = (r: Rencontre) => {
+    setProjetTarget(r);
+    setProjetForm({ titre: r.titre || '', description: r.description || '', cp: r.cp_presenti || '', sousProjet: false, parentId: '' });
+    setMaitres([]);
+  };
+  // Projets « maîtres » du chef de projet choisi
+  useEffect(() => {
+    if (!projetTarget || !projetForm.cp) { setMaitres([]); return; }
+    fetch(`/api/rencontres-budgetaires/projets-maitres?cp=${encodeURIComponent(projetForm.cp)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setMaitres(Array.isArray(d) ? d : []))
+      .catch(() => setMaitres([]));
+  }, [projetTarget, projetForm.cp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const creerProjet = async () => {
+    if (!projetTarget) return;
+    if (!projetForm.titre.trim()) { alert('Le titre du projet est obligatoire'); return; }
+    if (projetForm.sousProjet && !projetForm.parentId) { alert('Choisissez le projet maître'); return; }
+    setCreatingProjet(true);
+    try {
+      const res = await fetch(`/api/rencontres-budgetaires/${projetTarget.id}/projet/create`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titre: projetForm.titre.trim(),
+          description: projetForm.description,
+          chef_projet_username: projetForm.cp || null,
+          projet_parent_id: projetForm.sousProjet ? Number(projetForm.parentId) : null,
+        })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(`Erreur : ${out.error || 'Création du projet impossible'}`); return; }
+      setRencontres(prev => prev.map(x => x.id === projetTarget.id ? { ...x, projet_id: out.id, cp_presenti: projetForm.cp || x.cp_presenti } : x));
+      fetchProjets();
+      alert(`Projet ${out.code || '#' + out.id} créé et lié à la demande`);
+      setProjetTarget(null);
+    } catch { alert('Erreur lors de la création du projet'); }
+    finally { setCreatingProjet(false); }
+  };
+  const delierProjet = async (r: Rencontre) => {
+    if (!window.confirm('Délier cette demande de son projet ? (le projet n\'est pas supprimé)')) return;
+    const res = await fetch(`/api/rencontres-budgetaires/${r.id}/projet`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projet_id: null })
+    });
+    if (res.ok) setRencontres(prev => prev.map(x => x.id === r.id ? { ...x, projet_id: null } : x));
+    else alert('Échec du déliement du projet');
   };
 
   // Chefs de projet du module Projets (pour le « CP pressenti »)
@@ -894,9 +960,8 @@ ${ligne}` : ligne;
                     Date {sortConfig?.key === 'date_reunion' && (sortConfig.direction === 'asc' ? '▲' : '▼')}
                   </th>
                   <th style={styles.th}>Montant TTC</th>
-                  <th style={styles.th}>Charge CP</th>
-                  <th style={styles.th}>CP pressenti</th>
-                  <th style={styles.th}>Utilisateur de référence</th>
+                  <th style={styles.th}>Chef de projet</th>
+                  <th style={styles.th}>Utilisateur de réf.</th>
                   <th style={styles.th}>Suivi</th>
                   <th style={styles.th}>Statut</th>
                   <th style={styles.th}>Actions</th>
@@ -943,12 +1008,12 @@ ${ligne}` : ligne;
                       </td>
                       <td style={styles.td}>{formatCout(r.cout_ttc, true)}</td>
                       <td style={styles.td}>
+                        <div>{cpName(r.cp_presenti) || '-'}</div>
                         {(() => {
                           const c = CHARGES_CP.find(x => x.value === r.charge_cp);
-                          return c ? <span style={{ ...styles.badge, background: c.bg, color: c.color }} title={c.label}>{c.short}</span> : '-';
+                          return c ? <span style={{ ...styles.badge, background: c.bg, color: c.color, marginTop: '3px', padding: '1px 6px', fontSize: '11px' }} title={c.label}>Charge {c.short.toLowerCase()}</span> : null;
                         })()}
                       </td>
-                      <td style={styles.td}>{cpName(r.cp_presenti) || '-'}</td>
                       <td style={styles.td}>
                         {r.user_ref_name || r.user_ref_email ? (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
@@ -1040,44 +1105,47 @@ ${ligne}` : ligne;
                           </div>
                         )}
                       </td>
-                      <td style={styles.td}>
-                        <button
-                          style={{ ...styles.iconBtn, marginRight: '8px' }}
-                          onClick={() => {
-                            setSelectedRencontre(r);
-                            setShowDetailModal(true);
-                          }}
-                          title="Détails"
-                        >
-                          <Info size={16} />
-                        </button>
-                        {!r.ticket_glpi && (
-                          <button
-                            style={{ ...styles.iconBtn, marginRight: '8px', background: '#f5f3ff', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', display: 'inline-flex', alignItems: 'center', opacity: isCreatingTicket ? 0.5 : 1 }}
-                            disabled={isCreatingTicket}
-                            onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
-                            title="Créer un ticket DSIHUB à partir de cette demande"
-                          >
-                            + Ticket
-                          </button>
-                        )}
-                        {r.ticket_glpi && (
-                          <button
-                            style={{ ...styles.iconBtn, marginRight: '8px', background: '#ede9fe', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
-                            onClick={() => handleOpenTicket(r.id)}
-                            title={`Ouvrir ticket DSIHUB #${r.ticket_glpi}`}
-                          >
-                            <Ticket size={13} />
-                            #{r.ticket_glpi}
-                          </button>
-                        )}
-                        <button
-                          style={styles.iconBtn}
-                          onClick={() => handleDeleteRencontre(r.id)}
-                          title="Supprimer"
-                        >
-                          <Trash2 size={16} color="#ef4444" />
-                        </button>
+                      <td style={{ ...styles.td, minWidth: '120px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button style={styles.iconBtn} onClick={() => { setSelectedRencontre(r); setShowDetailModal(true); }} title="Détails">
+                              <Info size={16} />
+                            </button>
+                            <button style={styles.iconBtn} onClick={() => handleDeleteRencontre(r.id)} title="Supprimer">
+                              <Trash2 size={16} color="#ef4444" />
+                            </button>
+                          </div>
+                          {!r.ticket_glpi ? (
+                            <button
+                              style={{ ...styles.iconBtn, background: '#f5f3ff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', opacity: isCreatingTicket ? 0.5 : 1 }}
+                              disabled={isCreatingTicket}
+                              onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
+                              title="Créer un ticket DSIHUB à partir de cette demande"
+                            >+ Ticket</button>
+                          ) : (
+                            <button
+                              style={{ ...styles.iconBtn, background: '#ede9fe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
+                              onClick={() => handleOpenTicket(r.id)}
+                              title={`Ouvrir ticket DSIHUB #${r.ticket_glpi}`}
+                            ><Ticket size={13} />#{r.ticket_glpi}</button>
+                          )}
+                          {!r.projet_id ? (
+                            <button
+                              style={{ ...styles.iconBtn, background: '#ecfeff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490' }}
+                              onClick={() => openProjetModal(r)}
+                              title="Créer un projet simple lié à cette demande"
+                            >+ Projet</button>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <button
+                                style={{ ...styles.iconBtn, background: '#cffafe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                onClick={() => window.open(`/projets/${r.projet_id}`, '_blank')}
+                                title={`Ouvrir le projet : ${projetOf(r.projet_id)?.titre || '#' + r.projet_id}`}
+                              >{projetOf(r.projet_id)?.code || `Projet #${r.projet_id}`}</button>
+                              <button style={{ ...styles.iconBtn, fontSize: '12px', color: '#94a3b8' }} onClick={() => delierProjet(r)} title="Délier du projet">×</button>
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   </React.Fragment>
@@ -1086,6 +1154,54 @@ ${ligne}` : ligne;
             </table>
           )}
         </div>
+
+        {/* Modal : créer un projet simple lié à la demande */}
+        {projetTarget && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setProjetTarget(null)}>
+            <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '560px', maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 4px' }}>Créer un projet simple</h3>
+              <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>Mini-projet (sans planning Gantt, étapes de workflow ni comités), lié à cette demande.</p>
+
+              <label style={styles.label}>Titre *</label>
+              <input style={{ ...styles.editInput, marginBottom: '10px' }} value={projetForm.titre} onChange={(e) => setProjetForm(f => ({ ...f, titre: e.target.value }))} />
+
+              <label style={styles.label}>Description</label>
+              <textarea style={{ ...styles.editInput, minHeight: '70px', fontFamily: 'inherit', marginBottom: '10px' }} value={projetForm.description} onChange={(e) => setProjetForm(f => ({ ...f, description: e.target.value }))} />
+
+              <label style={styles.label}>Chef de projet</label>
+              <select style={{ ...styles.editInput, marginBottom: '10px' }} value={projetForm.cp} onChange={(e) => setProjetForm(f => ({ ...f, cp: e.target.value, parentId: '' }))}>
+                <option value="">-- Non défini --</option>
+                {projetForm.cp && !chefsProjets.some(c => c.username.toLowerCase() === projetForm.cp.toLowerCase()) && <option value={projetForm.cp}>{projetForm.cp}</option>}
+                {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
+              </select>
+
+              <label style={styles.label}>Est-ce un sous-projet ?</label>
+              <div style={{ display: 'flex', gap: '16px', marginBottom: '8px', fontSize: '14px' }}>
+                <label style={{ cursor: 'pointer' }}><input type="radio" checked={!projetForm.sousProjet} onChange={() => setProjetForm(f => ({ ...f, sousProjet: false, parentId: '' }))} /> Non, projet autonome</label>
+                <label style={{ cursor: 'pointer' }}><input type="radio" checked={projetForm.sousProjet} onChange={() => setProjetForm(f => ({ ...f, sousProjet: true }))} /> Oui, sous-projet de…</label>
+              </div>
+              {projetForm.sousProjet && (
+                !projetForm.cp ? (
+                  <p style={{ fontSize: '13px', color: '#b45309', margin: '0 0 10px' }}>Choisissez d'abord un chef de projet pour afficher ses projets maîtres.</p>
+                ) : maitres.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#b45309', margin: '0 0 10px' }}>Ce chef de projet n'a aucun projet maître.</p>
+                ) : (
+                  <select style={{ ...styles.editInput, marginBottom: '10px' }} value={projetForm.parentId} onChange={(e) => setProjetForm(f => ({ ...f, parentId: e.target.value }))}>
+                    <option value="">-- Choisir le projet maître --</option>
+                    {maitres.map(m => <option key={m.id} value={m.id}>{m.code ? `${m.code} · ` : ''}{m.titre}</option>)}
+                  </select>
+                )
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                <button style={styles.resetBtn} onClick={() => setProjetTarget(null)}>Annuler</button>
+                <button style={{ ...styles.resetBtn, background: '#0e7490', color: 'white', border: 'none', opacity: creatingProjet ? 0.6 : 1 }} disabled={creatingProjet} onClick={creerProjet}>
+                  {creatingProjet ? 'Création...' : 'Créer le projet'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal Détail - Complète avec tous les champs */}
         {showDetailModal && selectedRencontre && (
@@ -1686,7 +1802,7 @@ const styles = {
   } as React.CSSProperties,
   filterBar: {
     display: 'flex',
-    gap: '12px',
+    gap: '8px',
     marginBottom: '20px',
     flexWrap: 'wrap',
     alignItems: 'center',
@@ -1709,11 +1825,12 @@ const styles = {
     width: '100%',
   } as React.CSSProperties,
   filterSelect: {
-    padding: '8px 12px',
+    padding: '6px 8px',
     backgroundColor: 'white',
     borderRadius: '6px',
     border: '1px solid #e5e7eb',
-    fontSize: '14px',
+    fontSize: '13px',
+    maxWidth: '190px',
     cursor: 'pointer',
   } as React.CSSProperties,
   resetBtn: {
@@ -1739,9 +1856,10 @@ const styles = {
     borderBottom: '1px solid #e5e7eb',
   } as React.CSSProperties,
   th: {
-    padding: '10px 12px',
+    padding: '8px 10px',
     textAlign: 'left',
-    fontSize: '13px',
+    verticalAlign: 'bottom',
+    fontSize: '12px',
     fontWeight: '600',
     color: '#6b7280',
     userSelect: 'none',
@@ -1751,8 +1869,9 @@ const styles = {
     transition: 'background-color 0.2s',
   } as React.CSSProperties,
   td: {
-    padding: '10px 12px',
-    fontSize: '14px',
+    padding: '8px 10px',
+    fontSize: '13px',
+    verticalAlign: 'top',
     color: '#1f2937',
   } as React.CSSProperties,
   badge: {
