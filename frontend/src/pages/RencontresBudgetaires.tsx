@@ -89,6 +89,27 @@ const formatCout = (v: number | string | null | undefined, compact = false): str
   return compact ? `${n.toFixed(2)}€` : `${n.toFixed(2)} €`;
 };
 
+// Contenu du ticket DSIHUB créé depuis une demande : un élément par ligne, libellés en gras (HTML)
+const escHtml = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const ligneHtml = (label: string, value: unknown) => `<strong>${label} :</strong> ${escHtml(value).replace(/\n/g, '<br>')}`;
+const buildTicketContentHtml = (r: Rencontre): string => {
+  const bloc1 = [
+    ligneHtml('Direction', r.direction),
+    r.service ? ligneHtml('Service', r.service) : '',
+    ligneHtml('Date réunion', r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'),
+  ].filter(Boolean).join('<br>');
+  const bloc2 = [
+    r.type ? ligneHtml('Type', r.type) : '',
+    r.description ? ligneHtml('Description', r.description) : '',
+    r.suivi ? ligneHtml('Suivi', r.suivi) : '',
+    formatCout(r.cout_ttc) !== '-' ? ligneHtml('Montant TTC', formatCout(r.cout_ttc, true)) : '',
+    r.responsable_dsi ? ligneHtml('Responsable DSI', r.responsable_dsi) : '',
+  ].filter(Boolean).join('<br>');
+  return `<p>${bloc1}</p><p>${bloc2}</p>`;
+};
+// Type de ticket DSIHUB : 1 = incident, 2 = demande
+const ticketTypeCode = (type?: string | null): number => (String(type || '').toLowerCase().includes('incident') ? 1 : 2);
+
 // Charge pour le chef de projet (CP)
 const CHARGES_CP = [
   { value: 'faible', label: 'Faible (1 à 3 j)', short: 'Faible', color: '#16a34a', bg: '#dcfce7' },
@@ -150,6 +171,15 @@ const RencontresBudgetaires: React.FC = () => {
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
 
   // Directions proposées dans le filtre : uniquement celles liées à l'année sélectionnée
+  // À l'arrivée : filtre par défaut sur la dernière année qui contient des demandes (une seule fois)
+  const anneeParDefautAppliquee = useRef(false);
+  useEffect(() => {
+    if (anneeParDefautAppliquee.current || rencontres.length === 0) return;
+    anneeParDefautAppliquee.current = true;
+    const annees = rencontres.map(r => Number(r.annee)).filter(a => Number.isFinite(a) && a > 0);
+    if (annees.length) setSelectedAnnee(Math.max(...annees));
+  }, [rencontres]);
+
   const directionsFiltrees = selectedAnnee
     ? [...new Set(rencontres.filter(r => r.annee === selectedAnnee).map(r => r.direction))]
         .filter((d): d is string => !!d)
@@ -395,19 +425,7 @@ const RencontresBudgetaires: React.FC = () => {
     }
     try {
       setIsCreatingTicket(true);
-      const content = [
-        `Direction : ${target.direction}`,
-        target.service ? `Service : ${target.service}` : '',
-        `Date réunion : ${target.date_reunion ? new Date(target.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
-        target.type ? `Type : ${target.type}` : '',
-        '',
-        `Description :`,
-        target.description || '',
-        '',
-        target.suivi ? `Suivi :\n${target.suivi}` : '',
-        formatCout(target.cout_ttc) !== '-' ? `Montant TTC : ${formatCout(target.cout_ttc, true)}` : '',
-        target.responsable_dsi ? `Responsable DSI : ${target.responsable_dsi}` : '',
-      ].filter(Boolean).join('\n');
+      const content = buildTicketContentHtml(target);
 
       const res = await fetch('/api/tickets', {
         method: 'POST',
@@ -415,7 +433,7 @@ const RencontresBudgetaires: React.FC = () => {
         body: JSON.stringify({
           title: `[Rencontres ${target.annee || new Date(target.date_reunion).getFullYear() || ''}] ${target.titre || target.description?.substring(0, 80) || 'Rencontre budgétaire'}`,
           content,
-          type: 2,
+          type: ticketTypeCode(target.type), // 1 = incident, 2 = demande
           urgency: 3,
           priority: 3,
         })
