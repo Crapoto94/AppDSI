@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
 import {
-  Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket
+  Search, X, Eye, Plus, Trash2, Mail, Ticket
 } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import { useAuth } from '../contexts/AuthContext';
@@ -130,12 +130,10 @@ const CHARGES_CP = [
 const RencontresBudgetaires: React.FC = () => {
   const { token, user } = useAuth();
   const [searchParams] = useSearchParams();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [rencontres, setRencontres] = useState<Rencontre[]>([]);
   const [filteredRencontres, setFilteredRencontres] = useState<Rencontre[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isImporting, setIsImporting] = useState(false);
 
   // Filtres
   const [selectedDirection, setSelectedDirection] = useState<string>('');
@@ -148,12 +146,10 @@ const RencontresBudgetaires: React.FC = () => {
 
   // UI
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
-  const [showColumnConfig, setShowColumnConfig] = useState(false);
 
   // Detail modal
   const [selectedRencontre, setSelectedRencontre] = useState<Rencontre | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
   const [editedData, setEditedData] = useState<Partial<Rencontre> | null>(null);
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [isCreatingTicket, setIsCreatingTicket] = useState(false);
@@ -385,45 +381,6 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      setIsImporting(true);
-      const res = await fetch('/api/rencontres-budgetaires/import', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      const result = await res.json();
-      if (res.ok) {
-        let msg = `Import réussi : ${result.imported} importée(s)`;
-        if (result.errors?.length > 0) {
-          msg += `\n\n⚠️ ${result.errors.length} erreur(s) :\n` + result.errors.slice(0, 20).join('\n');
-          if (result.errors.length > 20) msg += `\n... et ${result.errors.length - 20} autres`;
-        }
-        alert(msg);
-        fetchRencontres();
-      } else {
-        alert(`Erreur : ${result.error || result.message}`);
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      alert('Erreur lors de l\'import');
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
   const handleDeleteRencontre = async (id: number) => {
     if (!window.confirm('Êtes-vous sûr ?')) return;
 
@@ -445,15 +402,15 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const handleEditClick = () => {
-    if (selectedRencontre) {
-      setEditedData({ ...selectedRencontre });
-      setIsEditMode(true);
-    }
+  // Ouvre directement la fiche d'édition (plus de fiche intermédiaire en lecture)
+  const openEdit = (r: Rencontre) => {
+    setSelectedRencontre(r);
+    setEditedData({ ...r });
+    setShowDetailModal(true);
   };
 
-  const handleCancelEdit = () => {
-    setIsEditMode(false);
+  const closeEdit = () => {
+    setShowDetailModal(false);
     setEditedData(null);
   };
 
@@ -481,7 +438,7 @@ const RencontresBudgetaires: React.FC = () => {
       if (res.ok) {
         const saved = await res.json().catch(() => ({}));
         alert(saved?.ticket_updated ? `Enregistrée avec succès (demandeur du ticket #${saved.ticket_updated} mis à jour)` : 'Enregistrée avec succès');
-        setIsEditMode(false);
+        setShowDetailModal(false);
         setEditedData(null);
         fetchRencontres();
         setSelectedRencontre(editedData as Rencontre);
@@ -792,6 +749,17 @@ ${ligne}` : ligne;
     }
   };
 
+  const STATUT_STYLE: Record<string, { bg: string; fg: string }> = {
+    'demandée': { bg: '#ede9fe', fg: '#5b21b6' },
+    'planifiée': { bg: '#fef3c7', fg: '#92400e' },
+    'effectuée': { bg: '#d1fae5', fg: '#065f46' },
+    'A arbitrer': { bg: '#e0f2fe', fg: '#075985' },
+    'Validé': { bg: '#dcfce7', fg: '#166534' },
+    'Refusé': { bg: '#fee2e2', fg: '#991b1b' },
+    'terminé': { bg: '#ccfbf1', fg: '#115e59' },
+  };
+  const statutStyle = (statut: string | null | undefined) => STATUT_STYLE[statut || ''] || { bg: '#f3f4f6', fg: '#374151' };
+
   const getStatutColor = (statut: string | null | undefined) => {
     switch (statut) {
       case 'demandée': return '#8b5cf6';
@@ -806,45 +774,25 @@ ${ligne}` : ligne;
   };
 
 
+  // Styles sobres partagés
+  const chip: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 9px', border: '1px solid #e5e7eb', borderRadius: '999px', fontSize: '12px', color: '#374151', background: 'white', cursor: 'pointer', whiteSpace: 'nowrap' };
+  const linkBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', color: '#374151', cursor: 'pointer', whiteSpace: 'nowrap' };
+
   return (
     <div style={styles.container}>
       <Header />
 
       <main style={styles.mainContent}>
-        {/* Toolbar */}
+        {/* Barre d'outils */}
         <div style={styles.toolbar}>
-          <h2 style={styles.title}>Rencontres Budgétaires</h2>
+          <h2 style={styles.title}>Rencontres budgétaires</h2>
           <div style={styles.toolbarActions}>
-            <button
-              style={styles.toolbarBtn}
-              onClick={handleImportClick}
-              disabled={isImporting}
-              title="Importer un fichier Excel"
-            >
-              <Upload size={18} />
-              <span>{isImporting ? 'Import...' : 'Importer'}</span>
-            </button>
-            <button
-              style={styles.toolbarBtn}
-              onClick={() => setShowManageReunions(v => !v)}
-              title="Gérer les réunions"
-            >
-              <Plus size={18} />
+            <button style={{ ...styles.toolbarBtn, background: '#2563eb', borderColor: '#2563eb', color: 'white' }} onClick={() => setShowManageReunions(v => !v)} title="Gérer les réunions">
+              <Plus size={16} />
               <span>Réunions{reunions.length > 0 ? ` (${reunions.length})` : ''}</span>
             </button>
-            <button
-              style={styles.toolbarBtn}
-              onClick={() => setShowColumnConfig(!showColumnConfig)}
-              title="Paramètres colonnes"
-            >
-              <Columns size={18} />
-            </button>
-            <button
-              style={{...styles.toolbarBtn, backgroundColor: '#ef4444'}}
-              onClick={handleDeleteAll}
-              title="Supprimer TOUTES les demandes (Admin only)"
-            >
-              <AlertCircle size={18} />
+            <button style={{ ...styles.toolbarBtn, color: '#b91c1c', borderColor: '#fecaca' }} onClick={handleDeleteAll} title="Supprimer toutes les demandes (admin)">
+              <Trash2 size={16} />
               <span>Supprimer tout</span>
             </button>
           </div>
@@ -853,78 +801,39 @@ ${ligne}` : ligne;
         {/* Filtres */}
         <div style={styles.filterBar}>
           <div style={styles.searchBox}>
-            <Search size={16} style={{ opacity: 0.5 }} />
-            <input
-              type="text"
-              placeholder="Rechercher..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={styles.searchInput}
-            />
+            <Search size={15} style={{ opacity: 0.45 }} />
+            <input type="text" placeholder="Rechercher…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={styles.searchInput} />
           </div>
 
-          <select
-            value={selectedDirection}
-            onChange={(e) => setSelectedDirection(e.target.value)}
-            style={styles.filterSelect}
-          >
+          <select value={selectedDirection} onChange={(e) => setSelectedDirection(e.target.value)} style={styles.filterSelect}>
             <option value="">Toutes directions</option>
-            {directionsFiltrees.map(d => (
-              <option key={d} value={d}>{fmtNom(d)}</option>
-            ))}
+            {directionsFiltrees.map(d => (<option key={d} value={d}>{fmtNom(d)}</option>))}
           </select>
 
-          <select
-            value={selectedAnnee}
-            onChange={(e) => setSelectedAnnee(e.target.value ? parseInt(e.target.value) : '')}
-            style={styles.filterSelect}
-          >
+          <select value={selectedAnnee} onChange={(e) => setSelectedAnnee(e.target.value ? parseInt(e.target.value) : '')} style={styles.filterSelect}>
             <option value="">Toutes années</option>
-            {annees.map(a => (
-              <option key={a} value={a}>{a}</option>
-            ))}
+            {annees.map(a => (<option key={a} value={a}>{a}</option>))}
           </select>
 
-          <select
-            value={selectedStatut}
-            onChange={(e) => setSelectedStatut(e.target.value)}
-            style={styles.filterSelect}
-          >
+          <select value={selectedStatut} onChange={(e) => setSelectedStatut(e.target.value)} style={styles.filterSelect}>
             <option value="">Tous statuts</option>
-            <option value="demandée">Demandée</option>
-            <option value="planifiée">Planifiée</option>
-            <option value="effectuée">Effectuée</option>
-            <option value="A arbitrer">A arbitrer</option>
-            <option value="Refusé">Refusé</option>
-            <option value="terminé">Terminé</option>
+            {statuts.map(st => (<option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>))}
           </select>
 
-          <select
-            value={selectedTicket}
-            onChange={(e) => setSelectedTicket(e.target.value)}
-            style={styles.filterSelect}
-          >
+          <select value={selectedTicket} onChange={(e) => setSelectedTicket(e.target.value)} style={styles.filterSelect}>
             <option value="">Avec / sans ticket</option>
             <option value="avec">Avec ticket</option>
             <option value="sans">Sans ticket</option>
           </select>
 
-          <select
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-            style={styles.filterSelect}
-          >
+          <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} style={styles.filterSelect}>
             <option value="">Tous types</option>
             {[...new Set([...types, ...rencontres.map(r => (r.type || '').toLowerCase()).filter(Boolean)])].map(t => (
               <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
             ))}
           </select>
 
-          <select
-            value={selectedCp}
-            onChange={(e) => setSelectedCp(e.target.value)}
-            style={styles.filterSelect}
-          >
+          <select value={selectedCp} onChange={(e) => setSelectedCp(e.target.value)} style={styles.filterSelect}>
             <option value="">Tous chefs de projet</option>
             <option value="__none__">Sans CP pressenti</option>
             {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
@@ -933,13 +842,8 @@ ${ligne}` : ligne;
           <button
             style={styles.resetBtn}
             onClick={() => {
-              setSelectedDirection('');
-              setSelectedAnnee('');
-              setSelectedStatut('');
-              setSelectedTicket('');
-              setSelectedType('');
-              setSelectedCp('');
-              setSearchTerm('');
+              setSelectedDirection(''); setSelectedAnnee(''); setSelectedStatut(''); setSelectedTicket('');
+              setSelectedType(''); setSelectedCp(''); setSearchTerm('');
             }}
           >
             Réinitialiser
@@ -949,7 +853,7 @@ ${ligne}` : ligne;
         {/* Tableau */}
         <div style={styles.tableContainer}>
           {loading ? (
-            <div style={styles.loading}>Chargement...</div>
+            <div style={styles.loading}>Chargement…</div>
           ) : filteredRencontres.length === 0 ? (
             <div style={styles.empty}>Aucune donnée</div>
           ) : (
@@ -967,199 +871,162 @@ ${ligne}` : ligne;
                   </th>
                   <th style={styles.th}>Montant TTC</th>
                   <th style={styles.th}>Chef de projet</th>
-                  <th style={styles.th}>Utilisateur de réf.</th>
+                  <th style={styles.th}>Demandeur</th>
                   <th style={styles.th}>Suivi</th>
                   <th style={styles.th}>Statut</th>
-                  <th style={styles.th}>Actions</th>
+                  <th style={styles.th}></th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRencontres.map(r => (
-                  <React.Fragment key={r.id}>
-                    <tr
-                      style={styles.row}
+                  <tr
+                    key={r.id}
+                    style={styles.row}
+                    onMouseEnter={(ev) => { ev.currentTarget.style.background = '#f5f8ff'; }}
+                    onMouseLeave={(ev) => { ev.currentTarget.style.background = ''; }}
+                  >
+                    <td style={{ ...styles.td, minWidth: '150px' }}>
+                      <div style={{ color: '#111827', fontWeight: 600 }}>{fmtNom(r.direction)}</div>
+                      {r.service && <div style={{ fontStyle: 'italic', fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>{fmtNom(r.service)}</div>}
+                    </td>
+                    <td
+                      style={{ ...styles.td, cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, fontSize: '14px', minWidth: '260px' }}
+                      onClick={() => openEdit(r)}
+                      onMouseEnter={(ev) => { ev.currentTarget.style.textDecoration = 'underline'; }}
+                      onMouseLeave={(ev) => { ev.currentTarget.style.textDecoration = 'none'; }}
+                      title={[
+                        r.titre,
+                        `Direction : ${fmtNom(r.direction) || '-'}${r.service ? ` / ${fmtNom(r.service)}` : ''}`,
+                        `Type : ${r.type || '-'}`,
+                        r.description ? `\nDescription : ${r.description.length > 400 ? r.description.slice(0, 400) + '…' : r.description}` : '',
+                        '\n(Cliquer pour modifier)'
+                      ].filter(Boolean).join('\n')}
                     >
-                      <td style={styles.td}>
-                        <div>{fmtNom(r.direction)}</div>
-                        {r.service && <div style={{ fontStyle: 'italic', fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{fmtNom(r.service)}</div>}
-                      </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          cursor: 'pointer',
-                          color: '#2563eb',
-                          textDecoration: 'underline',
-                          fontWeight: '500',
-                          fontSize: '15px',
-                          minWidth: '260px'
-                        }}
-                        onClick={() => {
-                          setSelectedRencontre(r);
-                          setEditedData({ ...r });
-                          setIsEditMode(true);
-                          setShowDetailModal(true);
-                        }}
-                        title={[
-                          r.titre,
-                          `Direction : ${fmtNom(r.direction) || '-'}${r.service ? ` / ${fmtNom(r.service)}` : ''}`,
-                          `Type : ${r.type || '-'}`,
-                          `Date : ${r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}`,
-                          `Coût TTC : ${formatCout(r.cout_ttc)}`,
-                          `Statut : ${r.statut || '-'}`,
-                          r.responsable_dsi ? `Responsable DSI : ${r.responsable_dsi}` : '',
-                          r.description ? `\nDescription : ${r.description.length > 400 ? r.description.slice(0, 400) + '…' : r.description}` : '',
-                          r.suivi ? `\nSuivi : ${r.suivi.length > 300 ? r.suivi.slice(0, 300) + '…' : r.suivi}` : '',
-                          '\n(Cliquer pour éditer)'
-                        ].filter(Boolean).join('\n')}
-                      >
-                        {r.titre}
-                      </td>
-                      <td style={styles.td}>
-                        {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
-                      </td>
-                      <td style={styles.td}>{formatCout(r.cout_ttc, true)}</td>
-                      <td style={styles.td}>
-                        <div>{cpName(r.cp_presenti) || '-'}</div>
-                        {(() => {
-                          const c = CHARGES_CP.find(x => x.value === r.charge_cp);
-                          return c ? <span style={{ ...styles.badge, background: c.bg, color: c.color, marginTop: '3px', padding: '1px 6px', fontSize: '11px' }} title={c.label}>Charge {c.short.toLowerCase()}</span> : null;
-                        })()}
-                      </td>
-                      <td style={styles.td}>
-                        {r.user_ref_name || r.user_ref_email ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
-                            title="Cliquer pour modifier"
-                            onClick={() => { setSelectedRencontre(r); setEditedData({ ...r }); setIsEditMode(true); setShowDetailModal(true); }}>
-                            {r.user_ref_name || r.user_ref_email}
-                            <AgentPresenceBadge email={r.user_ref_email || ''} name={r.user_ref_name || ''} size={11} />
-                          </span>
-                        ) : (
-                          assignRowId === r.id ? (
-                            <div style={{ position: 'relative', minWidth: '220px' }}>
-                              <input
-                                autoFocus
-                                style={{ width: '100%', padding: '4px 8px', border: '1px solid #94a3b8', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
-                                placeholder="Rechercher un agent (AD)…"
-                                value={adRow.query}
-                                onChange={(ev) => adRow.setQuery(ev.target.value)}
-                                onKeyDown={(ev) => { if (ev.key === 'Escape') closeAssign(); }}
-                                onBlur={() => setTimeout(closeAssign, 200)}
-                              />
-                              {adRow.results.length > 0 && (
-                                <div style={{ position: 'absolute', zIndex: 30, left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.12)' }}>
-                                  {adRow.results.map(u => (
-                                    <div key={`${u.username}-${u.email}`}
-                                      style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }}
-                                      onMouseDown={(ev) => { ev.preventDefault(); assignUserRef(r, u); }}>
-                                      <strong>{u.displayName}</strong> <span style={{ color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                          <button
-                            style={{ background: 'none', border: '1px dashed #94a3b8', color: '#475569', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
-                            title="Assigner un utilisateur de référence"
-                            onClick={() => { adRow.setQuery(''); adRow.clearResults(); setAssignRowId(r.id); }}
-                          >+ Demandeur</button>
-                          )
-                        )}
-                      </td>
-                      <td style={{...styles.td, maxWidth: '320px', wordBreak: 'break-word'}} title={r.suivi || ''}>
-                        {parseSuivi(r.suivi).length === 0 ? '-' : parseSuivi(r.suivi).map((s, i) => (
-                          <div key={i} style={{ marginBottom: '4px' }}>
-                            {s.header && <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{s.header}</div>}
-                            {s.text && <div style={{ whiteSpace: 'pre-wrap' }}>{s.text}</div>}
-                          </div>
-                        ))}
-                      </td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            ...styles.badge,
-                            backgroundColor: getStatutColor(r.statut),
-                            color: 'white',
-                            cursor: 'pointer'
-                          }}
-                          onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutAnnee(r.annee_validation || new Date().getFullYear()); setStatutComment(''); }}
-                          title="Cliquer pour changer le statut"
-                        >
-                          {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
+                      {r.titre}
+                      {r.type && <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 400, color: '#9ca3af' }}>{r.type}</span>}
+                    </td>
+                    <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                      {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
+                    </td>
+                    <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{formatCout(r.cout_ttc, true)}</td>
+                    <td style={styles.td}>
+                      <div>{cpName(r.cp_presenti) || '-'}</div>
+                      {(() => {
+                        const c = CHARGES_CP.find(x => x.value === r.charge_cp);
+                        return c ? <span style={{ display: 'inline-block', marginTop: '3px', padding: '1px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, background: c.bg, color: c.color }} title={c.label}>Charge {c.short.toLowerCase()}</span> : null;
+                      })()}
+                    </td>
+                    <td style={styles.td}>
+                      {r.user_ref_name || r.user_ref_email ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} title="Cliquer pour modifier" onClick={() => openEdit(r)}>
+                          {r.user_ref_name || r.user_ref_email}
+                          <AgentPresenceBadge email={r.user_ref_email || ''} name={r.user_ref_name || ''} size={11} />
                         </span>
-                        {statutTarget?.id === r.id && (
-                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setStatutTarget(null)}>
-                            <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '420px', maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
-                              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px' }}>Changer le statut</h3>
-                              <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b' }}>{r.titre.substring(0, 80)}</p>
-                              <select value={statutNew} onChange={(e) => setStatutNew(e.target.value)} style={{ ...styles.filterSelect, width: '100%', marginBottom: '10px' }}>
-                                {statuts.map(st => <option key={st} value={st}>{st}</option>)}
-                              </select>
-                              {statutNew === 'Validé' && (
-                                <select value={statutAnnee} onChange={(e) => setStatutAnnee(e.target.value ? parseInt(e.target.value) : '')} style={{ ...styles.filterSelect, width: '100%', marginBottom: '10px' }}>
-                                  <option value="">-- Année de validation (obligatoire) --</option>
-                                  {anneesValidation.map(a => <option key={a} value={a}>{a}{a === anneesValidation[0] ? ' (année en cours)' : ' (année +1)'}</option>)}
-                                </select>
-                              )}
-                              <textarea
-                                value={statutComment}
-                                onChange={(e) => setStatutComment(e.target.value)}
-                                placeholder="Suivi (facultatif)"
-                                rows={3}
-                                style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px' }}
-                              />
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                                <button onClick={() => setStatutTarget(null)} style={{ padding: '8px 14px', border: '1px solid #cbd5e1', background: 'white', borderRadius: '8px', cursor: 'pointer' }}>Annuler</button>
-                                <button onClick={saveStatut} disabled={statutSaving} style={{ padding: '8px 14px', border: 'none', background: '#2563eb', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>{statutSaving ? 'Enregistrement…' : 'Valider'}</button>
-                              </div>
+                      ) : assignRowId === r.id ? (
+                        <div style={{ position: 'relative', minWidth: '220px' }}>
+                          <input
+                            autoFocus
+                            style={{ width: '100%', padding: '4px 8px', border: '1px solid #9ca3af', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
+                            placeholder="Rechercher un agent (AD)…"
+                            value={adRow.query}
+                            onChange={(ev) => adRow.setQuery(ev.target.value)}
+                            onKeyDown={(ev) => { if (ev.key === 'Escape') closeAssign(); }}
+                            onBlur={() => setTimeout(closeAssign, 200)}
+                          />
+                          {adRow.results.length > 0 && (
+                            <div style={{ position: 'absolute', zIndex: 30, left: 0, right: 0, background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.10)' }}>
+                              {adRow.results.map(u => (
+                                <div key={`${u.username}-${u.email}`}
+                                  style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f3f5', fontSize: '12px' }}
+                                  onMouseDown={(ev) => { ev.preventDefault(); assignUserRef(r, u); }}>
+                                  <strong>{u.displayName}</strong> <span style={{ color: '#6b7280' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
+                                </div>
+                              ))}
                             </div>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ ...styles.td, minWidth: '120px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <button style={styles.iconBtn} onClick={() => { setSelectedRencontre(r); setShowDetailModal(true); }} title="Détails">
-                              <Info size={16} />
-                            </button>
-                            <button style={styles.iconBtn} onClick={() => handleDeleteRencontre(r.id)} title="Supprimer">
-                              <Trash2 size={16} color="#ef4444" />
-                            </button>
-                          </div>
-                          {!r.ticket_glpi ? (r.projet_id ? null : (
-                            <button
-                              style={{ ...styles.iconBtn, background: '#f5f3ff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', opacity: isCreatingTicket ? 0.5 : 1 }}
-                              disabled={isCreatingTicket}
-                              onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
-                              title="Créer un ticket DSIHUB à partir de cette demande"
-                            >+ Ticket</button>
-                          )) : (
-                            <button
-                              style={{ ...styles.iconBtn, background: '#ede9fe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
-                              onClick={() => handleOpenTicket(r.id)}
-                              title={`Ouvrir ticket DSIHUB #${r.ticket_glpi}`}
-                            ><Ticket size={13} />#{r.ticket_glpi}</button>
-                          )}
-                          {!r.projet_id ? (r.ticket_glpi ? null : (
-                            <button
-                              style={{ ...styles.iconBtn, background: '#ecfeff', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490' }}
-                              onClick={() => openProjetModal(r)}
-                              title="Créer un projet simple lié à cette demande"
-                            >+ Projet</button>
-                          )) : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <button
-                                style={{ ...styles.iconBtn, background: '#cffafe', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#0e7490', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                                onClick={() => window.open(`/projets/${r.projet_id}`, '_blank')}
-                                title={`Ouvrir le projet : ${projetOf(r.projet_id)?.titre || '#' + r.projet_id}`}
-                              >{projetOf(r.projet_id)?.code || `Projet #${r.projet_id}`}</button>
-                              <button style={{ ...styles.iconBtn, fontSize: '12px', color: '#94a3b8' }} onClick={() => delierProjet(r)} title="Délier du projet">×</button>
-                            </span>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  </React.Fragment>
+                      ) : (
+                        <button style={linkBtn} title="Assigner un demandeur" onClick={() => { adRow.setQuery(''); adRow.clearResults(); setAssignRowId(r.id); }}>+ Demandeur</button>
+                      )}
+                    </td>
+                    <td style={{ ...styles.td, maxWidth: '320px', wordBreak: 'break-word' }} title={r.suivi || ''}>
+                      {parseSuivi(r.suivi).length === 0 ? <span style={{ color: '#9ca3af' }}>-</span> : parseSuivi(r.suivi).map((s, i) => (
+                        <div key={i} style={{ marginBottom: '4px' }}>
+                          {s.header && <div style={{ fontSize: '11px', color: '#6b7280' }}>{s.header}</div>}
+                          {s.text && <div style={{ whiteSpace: 'pre-wrap' }}>{s.text}</div>}
+                        </div>
+                      ))}
+                    </td>
+                    <td style={styles.td}>
+                      <span
+                        style={{ ...chip, background: statutStyle(r.statut).bg, color: statutStyle(r.statut).fg, borderColor: statutStyle(r.statut).bg, fontWeight: 600 }}
+                        onClick={() => { setStatutTarget(r); setStatutNew(r.statut || statuts[0]); setStatutAnnee(r.annee_validation || new Date().getFullYear()); setStatutComment(''); }}
+                        title="Cliquer pour changer le statut"
+                      >
+                        {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
+                      </span>
+                      {statutTarget?.id === r.id && (
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setStatutTarget(null)}>
+                          <div style={{ background: 'white', borderRadius: '10px', padding: '20px', width: '420px', maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
+                            <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600 }}>Changer le statut</h3>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>{r.titre.substring(0, 80)}</p>
+                            <select value={statutNew} onChange={(e) => setStatutNew(e.target.value)} style={{ ...styles.filterSelect, width: '100%', maxWidth: 'none', marginBottom: '10px' }}>
+                              {statuts.map(st => <option key={st} value={st}>{st}</option>)}
+                            </select>
+                            {statutNew === 'Validé' && (
+                              <select value={statutAnnee} onChange={(e) => setStatutAnnee(e.target.value ? parseInt(e.target.value) : '')} style={{ ...styles.filterSelect, width: '100%', maxWidth: 'none', marginBottom: '10px' }}>
+                                <option value="">-- Année de validation (obligatoire) --</option>
+                                {anneesValidation.map(a => <option key={a} value={a}>{a}{a === anneesValidation[0] ? ' (année en cours)' : ' (année +1)'}</option>)}
+                              </select>
+                            )}
+                            <textarea
+                              value={statutComment}
+                              onChange={(e) => setStatutComment(e.target.value)}
+                              placeholder="Suivi (facultatif)"
+                              rows={3}
+                              style={{ width: '100%', boxSizing: 'border-box', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontFamily: 'inherit', fontSize: '13px' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                              <button onClick={() => setStatutTarget(null)} style={{ padding: '7px 14px', border: '1px solid #d1d5db', background: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Annuler</button>
+                              <button onClick={saveStatut} disabled={statutSaving} style={{ padding: '7px 14px', border: 'none', background: '#2563eb', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{statutSaving ? 'Enregistrement…' : 'Valider'}</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...styles.td, minWidth: '110px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
+                        {r.ticket_glpi ? (
+                          <button style={{ ...linkBtn, background: '#ede9fe', borderColor: '#c4b5fd', color: '#5b21b6', fontWeight: 600 }} onClick={() => handleOpenTicket(r.id)} title={`Ouvrir le ticket DSIHUB #${r.ticket_glpi}`}>
+                            <Ticket size={12} />#{r.ticket_glpi}
+                          </button>
+                        ) : !r.projet_id ? (
+                          <button
+                            style={{ ...linkBtn, opacity: isCreatingTicket ? 0.5 : 1 }}
+                            disabled={isCreatingTicket}
+                            onClick={() => { if (window.confirm(`Créer un ticket DSIHUB pour « ${r.titre.substring(0, 80)} » ?`)) handleCreateTicket(r); }}
+                            title="Créer un ticket DSIHUB à partir de cette demande"
+                          >+ Ticket</button>
+                        ) : null}
+                        {r.projet_id ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                              style={{ ...linkBtn, background: '#cffafe', borderColor: '#67e8f9', color: '#155e75', fontWeight: 600, maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                              onClick={() => window.open(`/projets/${r.projet_id}`, '_blank')}
+                              title={`Ouvrir le projet : ${projetOf(r.projet_id)?.titre || '#' + r.projet_id}`}
+                            >{projetOf(r.projet_id)?.code || `Projet #${r.projet_id}`}</button>
+                            <button style={{ ...styles.iconBtn, fontSize: '13px', color: '#9ca3af' }} onClick={() => delierProjet(r)} title="Délier du projet">×</button>
+                          </span>
+                        ) : !r.ticket_glpi ? (
+                          <button style={linkBtn} onClick={() => openProjetModal(r)} title="Créer un projet simple lié à cette demande">+ Projet</button>
+                        ) : null}
+                        <button style={{ ...styles.iconBtn, color: '#9ca3af', padding: '2px' }} onClick={() => handleDeleteRencontre(r.id)} title="Supprimer"
+                          onMouseEnter={(ev) => { ev.currentTarget.style.color = '#b91c1c'; }} onMouseLeave={(ev) => { ev.currentTarget.style.color = '#9ca3af'; }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -1168,7 +1035,7 @@ ${ligne}` : ligne;
 
         {/* Modal : créer un projet simple lié à la demande */}
         {projetTarget && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setProjetTarget(null)}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setProjetTarget(null)}>
             <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '560px', maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ margin: '0 0 4px' }}>Créer un projet simple</h3>
               <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>Mini-projet (sans planning Gantt, étapes de workflow ni comités), lié à cette demande.</p>
@@ -1206,7 +1073,7 @@ ${ligne}` : ligne;
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
                 <button style={styles.resetBtn} onClick={() => setProjetTarget(null)}>Annuler</button>
-                <button style={{ ...styles.resetBtn, background: '#0e7490', color: 'white', border: 'none', opacity: creatingProjet ? 0.6 : 1 }} disabled={creatingProjet} onClick={creerProjet}>
+                <button style={{ ...styles.resetBtn, background: '#2563eb', color: 'white', border: 'none', opacity: creatingProjet ? 0.6 : 1 }} disabled={creatingProjet} onClick={creerProjet}>
                   {creatingProjet ? 'Création...' : 'Créer le projet'}
                 </button>
               </div>
@@ -1214,240 +1081,193 @@ ${ligne}` : ligne;
           </div>
         )}
 
-        {/* Modal Détail - Complète avec tous les champs */}
-        {showDetailModal && selectedRencontre && (
-          <div style={styles.modalOverlay} onClick={() => setShowDetailModal(false)}>
-            <div style={{...styles.modal, maxWidth: '800px', maxHeight: '90vh'}} onClick={(e) => e.stopPropagation()}>
-              <div style={styles.modalHeader}>
-                <h3 style={styles.modalTitle}>
-                  {isEditMode ? 'Modifier la demande' : selectedRencontre.titre}
-                </h3>
-                <div style={{display: 'flex', gap: '8px'}}>
-                  {!isEditMode && (
-                    <button
-                      style={{...styles.modalCloseBtn, padding: '8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer'}}
-                      onClick={handleEditClick}
-                      title="Éditer"
-                    >
-                      ✏️ Éditer
-                    </button>
-                  )}
-                  <button style={styles.modalCloseBtn} onClick={() => {
-                    if (isEditMode) {
-                      handleCancelEdit();
-                    } else {
-                      setShowDetailModal(false);
-                    }
-                  }}>
-                    <X size={24} />
-                  </button>
-                </div>
-              </div>
-
-              <div style={{...styles.modalContent, overflowY: 'auto', maxHeight: 'calc(90vh - 180px)'}}>
-                {(() => {
-                  const e = editedData;
-                  const sr = selectedRencontre;
-                  const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px 16px', marginBottom: '12px' };
-                  const full: React.CSSProperties = { gridColumn: '1 / -1' };
-                  const txt = (v: any) => <p style={styles.value}>{v || '-'}</p>;
-                  const field = (label: string, edit: React.ReactNode, view: React.ReactNode, wide = false) => (
-                    <div style={wide ? full : undefined}>
-                      <label style={styles.label}>{label}</label>
-                      {isEditMode ? edit : view}
+        {/* Fiche d'édition (ouverture directe, plus de fiche en lecture) */}
+        {showDetailModal && selectedRencontre && editedData && (() => {
+          const e = editedData;
+          const input: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', color: '#111827', background: 'white', fontFamily: 'inherit' };
+          const lab: React.CSSProperties = { display: 'block', fontSize: '12px', fontWeight: 500, color: '#4b5563', marginBottom: '4px' };
+          const sect: React.CSSProperties = { fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#2563eb', margin: '0 0 10px' };
+          const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px 16px', marginBottom: '12px' };
+          const full: React.CSSProperties = { gridColumn: '1 / -1' };
+          const block: React.CSSProperties = { padding: '16px 0', borderTop: '1px solid #f1f3f5' };
+          const set = (k: keyof Rencontre, v: any) => handleEditFieldChange(k, v);
+          const servicesDeLaDirection = (dir?: string | null): string[] => {
+            const list = dirServicesMap[normDir(dir || '')] || [];
+            return [...new Set([...list, ...(e.service ? [e.service] : [])])].sort((a, b) => a.localeCompare(b, 'fr'));
+          };
+          return (
+            <div style={{ ...styles.modalOverlay, background: 'rgba(17,24,39,0.45)' }} onClick={closeEdit}>
+              <div style={{ background: 'white', borderRadius: '10px', width: 'min(760px, 94vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.18)' }} onClick={(ev) => ev.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc', borderRadius: '10px 10px 0 0' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#111827' }}>Modifier la demande</h3>
+                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                      {[fmtNom(selectedRencontre.direction), selectedRencontre.created_at ? `créée le ${new Date(selectedRencontre.created_at).toLocaleDateString('fr-FR')}` : ''].filter(Boolean).join(' · ')}
                     </div>
-                  );
-                  const servicesDeLaDirection = (dir?: string | null): string[] => {
-                    const list = dirServicesMap[normDir(dir || '')] || [];
-                    const courant = e?.service ? [e.service] : [];
-                    return [...new Set([...list, ...courant])].sort((a, b) => a.localeCompare(b, 'fr'));
-                  };
-                  const sel = (key: string, options: string[]) => (
-                    <select style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => {
-                      if (key === 'direction') {
-                        const v = ev.target.value;
-                        const autorises = dirServicesMap[normDir(v)] || [];
-                        setEditedData(prev => prev ? { ...prev, direction: v, service: prev.service && autorises.includes(prev.service) ? prev.service : '' } : prev);
-                      } else handleEditFieldChange(key as keyof Rencontre, ev.target.value);
-                    }}>
-                      <option value="">-- Sélectionner --</option>
-                      {options.map(o => <option key={o} value={o}>{key === 'direction' || key === 'service' ? fmtNom(o) : o}</option>)}
-                    </select>
-                  );
-                  const input = (key: string, props: any = {}) => (
-                    <input style={styles.editInput} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)} {...props} />
-                  );
-                  const area = (key: string, rows: number) => (
-                    <textarea style={{ ...styles.editInput, minHeight: `${rows * 24}px`, fontFamily: 'inherit' }} value={(e as any)?.[key] || ''} onChange={(ev) => handleEditFieldChange(key as keyof Rencontre, ev.target.value)} />
-                  );
-                  const multi = (v?: string) => <p style={{ ...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{v || '-'}</p>;
-                  return (
-                    <>
-                      <div style={grid}>
-                        {field('Titre', input('titre'), txt(sr.titre), true)}
-                        {field('Direction', sel('direction', directions), txt(fmtNom(sr.direction)))}
-                        {field('Service', sel('service', servicesDeLaDirection(e?.direction)), txt(fmtNom(sr.service)))}
-                        {field('Date', input('date_reunion', { type: 'date', value: e?.date_reunion ? e.date_reunion.split('T')[0] : '' }), txt(sr.date_reunion ? new Date(sr.date_reunion).toLocaleDateString('fr-FR') : ''))}
-                        {field('Type', sel('type', [...new Set([...types, 'Demande', 'Investissement'])]), txt(sr.type))}
-                        {field('Montant TTC', (
-                          <input type="number" step="0.01" style={styles.editInput} value={e?.cout_ttc ?? ''} onChange={(ev) => handleEditFieldChange('cout_ttc', ev.target.value === '' ? null : parseFloat(ev.target.value))} />
-                        ), <p style={{ ...styles.value, fontWeight: 'bold', color: '#10b981' }}>{formatCout(sr.cout_ttc)}</p>)}
-                        {field('Charge CP', (
-                          <select style={styles.editInput} value={e?.charge_cp || ''} onChange={(ev) => handleEditFieldChange('charge_cp', ev.target.value || null)}>
-                            <option value="">-- Non renseignée --</option>
-                            {CHARGES_CP.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                        ), txt(CHARGES_CP.find(c => c.value === sr.charge_cp)?.label || ''))}
-                        {field('Utilisateur de référence', (
-                          <div style={{ position: 'relative' }}>
-                            {(e?.user_ref_name || e?.user_ref_email) ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#f8fafc' }}>
-                                <span style={{ flex: 1 }}>{e?.user_ref_name || e?.user_ref_email}{e?.user_ref_email && e?.user_ref_name ? ` (${e.user_ref_email})` : ''}</span>
-                                <button type="button" title="Retirer" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: '#64748b' }}
-                                  onClick={() => setEditedData(prev => prev ? { ...prev, user_ref_username: null, user_ref_name: null, user_ref_email: null } : prev)}>×</button>
-                              </div>
-                            ) : (
-                              <>
-                                <input style={styles.editInput} placeholder="Rechercher dans l'AD (nom, prénom, login)…" value={adRef.query} onChange={(ev) => adRef.setQuery(ev.target.value)} />
-                                {adRef.searching && <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '12px', color: '#64748b' }}>...</span>}
-                                {adRef.results.length > 0 && (
-                                  <div style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.12)' }}>
-                                    {adRef.results.map(u => (
-                                      <div key={`${u.username}-${u.email}`} style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}
-                                        onClick={() => {
-                                          setEditedData(prev => prev ? { ...prev, user_ref_username: u.username, user_ref_name: u.displayName, user_ref_email: u.email } : prev);
-                                          adRef.setQuery(''); adRef.clearResults();
-                                        }}>
-                                        <strong>{u.displayName}</strong> <span style={{ color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ), (sr.user_ref_name || sr.user_ref_email) ? (
-                          <p style={styles.value}>{sr.user_ref_name || sr.user_ref_email} <AgentPresenceBadge email={sr.user_ref_email || ''} name={sr.user_ref_name || ''} size={11} /></p>
-                        ) : txt(''), true)}
-                        {field('CP pressenti', (
-                          <select style={styles.editInput} value={e?.cp_presenti || ''} onChange={(ev) => handleEditFieldChange('cp_presenti', ev.target.value || null)}>
-                            <option value="">-- Non défini --</option>
-                            {e?.cp_presenti && !chefsProjets.some(c => c.username.toLowerCase() === String(e.cp_presenti).toLowerCase()) && (
-                              <option value={e.cp_presenti}>{e.cp_presenti}</option>
-                            )}
-                            {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
-                          </select>
-                        ), txt(cpName(sr.cp_presenti)))}
-                        {field('Statut', (
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <select
-                              style={{ ...styles.editInput, flex: 1 }}
-                              value={e?.statut || ''}
-                              onChange={(ev) => {
-                                handleEditFieldChange('statut', ev.target.value);
-                                if (ev.target.value === 'Validé' && !e?.annee_validation) handleEditFieldChange('annee_validation', new Date().getFullYear());
-                              }}
-                            >
-                              <option value="">-- Sélectionner --</option>
-                              {statuts.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                            {e?.statut === 'Validé' && (
-                              <select
-                                style={{ ...styles.editInput, width: '110px' }}
-                                value={e?.annee_validation || ''}
-                                onChange={(ev) => handleEditFieldChange('annee_validation', ev.target.value ? parseInt(ev.target.value) : null)}
-                              >
-                                <option value="">Année</option>
-                                {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
-                              </select>
-                            )}
-                          </div>
-                        ), (
-                          <span style={{ ...styles.badge, backgroundColor: getStatutColor(sr.statut), color: 'white', display: 'inline-block' }}>
-                            {sr.statut}{sr.statut === 'Validé' && sr.annee_validation ? ` ${sr.annee_validation}` : ''}
-                          </span>
-                        ))}
-                        {field('Responsable DSI', input('responsable_dsi', { placeholder: 'ex: IRS, SSD' }), txt(sr.responsable_dsi))}
-                        {field('Description', area('description', 4), multi(sr.description), true)}
-                        {field('Suivi', area('suivi', 3), multi(sr.suivi), true)}
-                        {(isEditMode || sr.lien_reference) && field('Lien', input('lien_reference', { placeholder: 'https://...' }), txt(sr.lien_reference), true)}
-                      </div>
-                      {!isEditMode && sr.created_at && (
-                        <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>Créée le {new Date(sr.created_at).toLocaleDateString('fr-FR')}</p>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
+                  </div>
+                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: '2px' }} onClick={closeEdit} title="Fermer"><X size={20} /></button>
+                </div>
 
-              <div style={styles.modalFooter}>
-                {isEditMode ? (
-                  <>
+                <div style={{ padding: '4px 20px', overflowY: 'auto' }}>
+                  <div style={{ padding: '16px 0' }}>
+                    <p style={sect}>Demande</p>
+                    <div style={grid2}>
+                      <div style={full}><label style={lab}>Titre</label><input style={input} value={e.titre || ''} onChange={(ev) => set('titre', ev.target.value)} /></div>
+                      <div style={full}><label style={lab}>Description</label><textarea style={{ ...input, minHeight: '84px', resize: 'vertical' }} value={e.description || ''} onChange={(ev) => set('description', ev.target.value)} /></div>
+                      <div>
+                        <label style={lab}>Type</label>
+                        <select style={input} value={e.type || ''} onChange={(ev) => set('type', ev.target.value)}>
+                          <option value="">-- Sélectionner --</option>
+                          {[...new Set([...types, ...(e.type ? [e.type] : [])])].map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lab}>Date</label>
+                        <input type="date" style={input} value={e.date_reunion ? e.date_reunion.split('T')[0] : ''} onChange={(ev) => set('date_reunion', ev.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={block}>
+                    <p style={sect}>Rattachement</p>
+                    <div style={grid2}>
+                      <div>
+                        <label style={lab}>Direction</label>
+                        <select style={input} value={e.direction || ''} onChange={(ev) => {
+                          const v = ev.target.value;
+                          const autorises = dirServicesMap[normDir(v)] || [];
+                          setEditedData(prev => prev ? { ...prev, direction: v, service: prev.service && autorises.includes(prev.service) ? prev.service : '' } : prev);
+                        }}>
+                          <option value="">-- Sélectionner --</option>
+                          {[...new Set([...directions, ...(e.direction ? [e.direction] : [])])].map(d => <option key={d} value={d}>{fmtNom(d)}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lab}>Service</label>
+                        <select style={input} value={e.service || ''} onChange={(ev) => set('service', ev.target.value)}>
+                          <option value="">-- Aucun --</option>
+                          {servicesDeLaDirection(e.direction).map(sv => <option key={sv} value={sv}>{fmtNom(sv)}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ ...full, position: 'relative' }}>
+                        <label style={lab}>Demandeur (annuaire AD)</label>
+                        {(e.user_ref_name || e.user_ref_email) ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#f9fafb', fontSize: '13px' }}>
+                            <span style={{ flex: 1 }}>{e.user_ref_name || e.user_ref_email}{e.user_ref_email && e.user_ref_name ? <span style={{ color: '#6b7280' }}> · {e.user_ref_email}</span> : null}</span>
+                            <button type="button" title="Retirer" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '16px', color: '#6b7280' }}
+                              onClick={() => setEditedData(prev => prev ? { ...prev, user_ref_username: null, user_ref_name: null, user_ref_email: null } : prev)}>×</button>
+                          </div>
+                        ) : (
+                          <>
+                            <input style={input} placeholder="Rechercher un agent (nom, prénom, login)…" value={adRef.query} onChange={(ev) => adRef.setQuery(ev.target.value)} />
+                            {adRef.searching && <span style={{ position: 'absolute', right: '10px', top: '30px', fontSize: '12px', color: '#6b7280' }}>…</span>}
+                            {adRef.results.length > 0 && (
+                              <div style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 20px rgba(0,0,0,0.10)' }}>
+                                {adRef.results.map(u => (
+                                  <div key={`${u.username}-${u.email}`} style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f3f5', fontSize: '13px' }}
+                                    onClick={() => {
+                                      setEditedData(prev => prev ? { ...prev, user_ref_username: u.username, user_ref_name: u.displayName, user_ref_email: u.email } : prev);
+                                      adRef.setQuery(''); adRef.clearResults();
+                                    }}>
+                                    <strong>{u.displayName}</strong> <span style={{ color: '#6b7280' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={block}>
+                    <p style={sect}>Pilotage</p>
+                    <div style={grid2}>
+                      <div>
+                        <label style={lab}>Statut</label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <select style={{ ...input, flex: 1 }} value={e.statut || ''} onChange={(ev) => {
+                            set('statut', ev.target.value);
+                            if (ev.target.value === 'Validé' && !e.annee_validation) set('annee_validation', new Date().getFullYear());
+                          }}>
+                            <option value="">-- Sélectionner --</option>
+                            {statuts.map(st => <option key={st} value={st}>{st}</option>)}
+                          </select>
+                          {e.statut === 'Validé' && (
+                            <select style={{ ...input, width: '96px' }} value={e.annee_validation || ''} onChange={(ev) => set('annee_validation', ev.target.value ? parseInt(ev.target.value) : null)}>
+                              <option value="">Année</option>
+                              {anneesValidation.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label style={lab}>Montant TTC (0 = gratuit)</label>
+                        <input type="number" step="0.01" style={input} value={e.cout_ttc ?? ''} onChange={(ev) => set('cout_ttc', ev.target.value === '' ? null : parseFloat(ev.target.value))} />
+                      </div>
+                      <div>
+                        <label style={lab}>Chef de projet pressenti</label>
+                        <select style={input} value={e.cp_presenti || ''} onChange={(ev) => set('cp_presenti', ev.target.value || null)}>
+                          <option value="">-- Non défini --</option>
+                          {e.cp_presenti && !chefsProjets.some(c => c.username.toLowerCase() === String(e.cp_presenti).toLowerCase()) && <option value={e.cp_presenti}>{e.cp_presenti}</option>}
+                          {chefsProjets.map(c => <option key={c.username} value={c.username}>{c.display_name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lab}>Charge CP</label>
+                        <select style={input} value={e.charge_cp || ''} onChange={(ev) => set('charge_cp', ev.target.value || null)}>
+                          <option value="">-- Non renseignée --</option>
+                          {CHARGES_CP.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lab}>Responsable DSI</label>
+                        <input style={input} placeholder="ex : IRS, SSD" value={e.responsable_dsi || ''} onChange={(ev) => set('responsable_dsi', ev.target.value)} />
+                      </div>
+                      <div>
+                        <label style={lab}>Lien</label>
+                        <input style={input} placeholder="https://…" value={e.lien_reference || ''} onChange={(ev) => set('lien_reference', ev.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ ...block, paddingBottom: '20px' }}>
+                    <p style={sect}>Suivi</p>
+                    <textarea style={{ ...input, minHeight: '110px', resize: 'vertical' }} value={e.suivi || ''} onChange={(ev) => set('suivi', ev.target.value)} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '12px 20px', borderTop: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                      style={{
-                        ...styles.btn,
-                        backgroundColor: isCreatingTicket ? '#94a3b8' : '#7c3aed',
-                        color: 'white',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
-                      }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : () => handleCreateTicket()}
-                      disabled={isCreatingTicket}
-                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
-                    >
-                      <Ticket size={16} />
-                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer ticket DSIHUB'}
-                    </button>
-                    <button style={styles.btn} onClick={handleCancelEdit}>Annuler</button>
+                      style={{ ...linkBtn, padding: '7px 12px', fontSize: '13px', color: '#b91c1c', borderColor: '#fecaca' }}
+                      onClick={() => handleDeleteRencontre(selectedRencontre.id)}
+                    >Supprimer</button>
+                    {!selectedRencontre.projet_id && (
+                      <button
+                        style={{ ...linkBtn, padding: '7px 12px', fontSize: '13px', opacity: isCreatingTicket ? 0.5 : 1, ...(selectedRencontre.ticket_glpi ? { background: '#ede9fe', borderColor: '#c4b5fd', color: '#5b21b6', fontWeight: 600 } : {}) }}
+                        disabled={isCreatingTicket}
+                        onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : () => handleCreateTicket()}
+                        title={selectedRencontre.ticket_glpi ? `Ouvrir le ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
+                      >
+                        <Ticket size={14} />
+                        {isCreatingTicket ? 'Création…' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer un ticket'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button style={{ ...linkBtn, padding: '7px 14px', fontSize: '13px' }} onClick={closeEdit}>Annuler</button>
                     <button
-                      style={{ ...styles.btn, backgroundColor: '#10b981', color: 'white', border: 'none' }}
+                      style={{ padding: '7px 16px', border: 'none', background: '#2563eb', color: 'white', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: isEditSaving ? 'default' : 'pointer', opacity: isEditSaving ? 0.7 : 1 }}
                       onClick={handleSaveEdit}
                       disabled={isEditSaving}
-                    >
-                      {isEditSaving ? 'Enregistrement...' : 'Enregistrer'}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      style={{ ...styles.btn, ...styles.btnDanger }}
-                      onClick={() => handleDeleteRencontre(selectedRencontre.id)}
-                    >
-                      🗑️ Supprimer
-                    </button>
-                    <button
-                      style={{
-                        ...styles.btn,
-                        backgroundColor: isCreatingTicket ? '#94a3b8' : '#7c3aed',
-                        color: 'white',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
-                      }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : () => handleCreateTicket()}
-                      disabled={isCreatingTicket}
-                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
-                    >
-                      <Ticket size={16} />
-                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer ticket DSIHUB'}
-                    </button>
-                    <button
-                      style={styles.btn}
-                      onClick={() => setShowDetailModal(false)}
-                    >
-                      Fermer
-                    </button>
-                  </>
-                )}
+                    >{isEditSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Modal Gestion des emails */}
         {showEmailsModal && (() => {
@@ -1765,13 +1585,6 @@ ${ligne}` : ligne;
           onDeleted={() => { fetchReunions(); setDetailReunionId(null); }}
         />
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          accept=".csv,text/csv"
-          style={{ display: 'none' }}
-        />
       </main>
 
       <style>{`
@@ -1786,7 +1599,7 @@ ${ligne}` : ligne;
 const styles = {
   container: {
     minHeight: '100vh',
-    backgroundColor: '#f4f4f4',
+    backgroundColor: '#f7f7f8',
   },
   mainContent: {
     padding: '24px 12px',
@@ -1800,10 +1613,10 @@ const styles = {
     marginBottom: '24px',
   } as React.CSSProperties,
   title: {
-    fontSize: '28px',
-    fontWeight: 'bold',
+    fontSize: '22px',
+    fontWeight: '600',
     margin: 0,
-    color: '#1d1d1b',
+    color: '#111827',
   } as React.CSSProperties,
   toolbarActions: {
     display: 'flex',
@@ -1813,13 +1626,13 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    padding: '10px 16px',
-    backgroundColor: '#2563eb',
-    color: 'white',
-    border: 'none',
+    padding: '7px 12px',
+    backgroundColor: 'white',
+    color: '#374151',
+    border: '1px solid #d1d5db',
     borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: '13px',
     fontWeight: '500',
   } as React.CSSProperties,
   filterBar: {
@@ -1874,27 +1687,29 @@ const styles = {
     borderCollapse: 'collapse',
   } as React.CSSProperties,
   headerRow: {
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
     borderBottom: '1px solid #e5e7eb',
   } as React.CSSProperties,
   th: {
     padding: '8px 10px',
     textAlign: 'left',
     verticalAlign: 'bottom',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: '600',
-    color: '#6b7280',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: '#4b5563',
     userSelect: 'none',
   } as React.CSSProperties,
   row: {
-    borderBottom: '1px solid #e5e7eb',
-    transition: 'background-color 0.2s',
+    borderBottom: '1px solid #f1f3f5',
+    transition: 'background-color 0.15s',
   } as React.CSSProperties,
   td: {
     padding: '8px 10px',
     fontSize: '13px',
     verticalAlign: 'top',
-    color: '#1f2937',
+    color: '#374151',
   } as React.CSSProperties,
   badge: {
     display: 'inline-block',
