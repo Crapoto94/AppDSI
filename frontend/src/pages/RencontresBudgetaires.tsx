@@ -980,7 +980,9 @@ ${ligne}` : ligne;
                           cursor: 'pointer',
                           color: '#2563eb',
                           textDecoration: 'underline',
-                          fontWeight: '500'
+                          fontWeight: '500',
+                          fontSize: '15px',
+                          minWidth: '260px'
                         }}
                         onClick={() => {
                           setSelectedRencontre(r);
