@@ -399,6 +399,8 @@ export default function TicketDetail() {
   const [observerSearch, setObserverSearch] = useState('');
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
+  // Agents DSI (pour distinguer les commentaires "tech/DSI" des réponses demandeur)
+  const [dsiAgents, setDsiAgents] = useState<{ emails: Set<string>; usernames: Set<string> } | null>(null);
   const [requesterSearch, setRequesterSearch] = useState('');
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
@@ -521,6 +523,23 @@ export default function TicketDetail() {
       .then(r => setCanChangeTypePerm(r.data.allowed !== false))
       .catch(() => {});
   }, [id]);
+
+  // Chargement de la liste des agents DSI (pour distinguer les commentaires "tech/DSI" des réponses demandeur)
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/api/calendrier-dsi/agents', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const list: any[] = Array.isArray(res.data) ? res.data : [];
+        setDsiAgents({
+          emails: new Set(list.map(a => String(a.email || '').toLowerCase()).filter(Boolean)),
+          usernames: new Set(list.map(a => String(a.username || '').toLowerCase()).filter(Boolean)),
+        });
+      } catch {
+        /* silencieux */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!ticket) return;
@@ -2464,8 +2483,16 @@ export default function TicketDetail() {
                     observerIds.has(authorEmail) ||
                     (!!authorLogin && observerIds.has(authorLogin))
                   );
-                  // Réponse du demandeur à un message des techniciens (ex. formulaire "répondre" par mail)
-                  const isRequesterReply = !!(c.is_reply_to_tech === 1 || c.is_reply_to_tech === true);
+                  // Auteur membre de l'équipe DSI / technicien (calendrier DSI)
+                  const isAuthorDsi = !!authorEmail && !!dsiAgents && (
+                    dsiAgents.emails.has(authorEmail) ||
+                    (!!authorLogin && dsiAgents.usernames.has(authorLogin))
+                  );
+                  // "Réponse" : tag explicite (formulaire / collecteur) OU, par compromis temporaire,
+                  // tout commentaire du demandeur non membre de l'équipe DSI/tech.
+                  // (plus tard : seuls les commentaires avec le tag seront affichés comme réponse)
+                  const isReplyToTechTag = !!(c.is_reply_to_tech === 1 || c.is_reply_to_tech === true);
+                  const isRequesterReply = isReplyToTechTag || (isFromRequester && !isAuthorDsi);
                   const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
                   // Commentaire retenu comme solution du ticket (fond distinct)
                   const isSolution = !!ticket?.solution && !!c.content && c.content === ticket.solution;
