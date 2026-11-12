@@ -1295,7 +1295,9 @@ async assign(req, res) {
         if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
 
         const fakeUser = { displayName: ticket.requester_name || info.email, username: info.email, email: info.email, id: null };
-        await commentRepo.create(info.ticketId, { content, is_private: 0 }, fakeUser);
+        // Réponse via le formulaire envoyé par email aux techniciens : marquée
+        // comme réponse au message des techs (bulle « Réponse » côté détail).
+        await commentRepo.create(info.ticketId, { content, is_private: 0, is_reply_to_tech: 1 }, fakeUser);
         res.json({ message: 'Réponse envoyée avec succès' });
     },
 

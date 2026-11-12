@@ -496,9 +496,30 @@ class MailCollectorService {
                 displayName: from.name,
                 email: from.email
               };
+              // Un commentaire du demandeur n'est marqué « réponse aux techniciens »
+              // que s'il répond à un message envoyé par les techs (ex. formulaire mail),
+              // c.-à-d. si le ticket a déjà reçu au moins un message envoyé au demandeur.
+              let isReplyToTech = 0;
+              try {
+                const t = await pgDb.get(
+                  'SELECT email_alt, requester_email_22 FROM hub_tickets.tickets WHERE glpi_id = $1',
+                  [existingTicket]
+                );
+                const sender = (from.email || '').toLowerCase();
+                const reqEmails = [t?.email_alt, t?.requester_email_22]
+                  .filter(Boolean).map(e => String(e).toLowerCase());
+                if (sender && reqEmails.includes(sender)) {
+                  const sent = await pgDb.get(
+                    'SELECT 1 FROM hub_tickets.ticket_followups WHERE ticket_id = $1 AND sent_to_user = 1 LIMIT 1',
+                    [existingTicket]
+                  );
+                  if (sent) isReplyToTech = 1;
+                }
+              } catch (e) { /* non bloquant : restera commentaire « demandeur » */ }
               createdComment = await commentRepo.create(existingTicket, {
                 content,
-                is_private: 0
+                is_private: 0,
+                is_reply_to_tech: isReplyToTech
               }, systemUser);
               log.comments_added++;
             }

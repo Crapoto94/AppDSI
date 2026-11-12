@@ -2444,28 +2444,32 @@ export default function TicketDetail() {
                     ticket?.email_alt,
                     ticket?.requester_email_22,
                   ].filter(Boolean).map((e: string) => e.toLowerCase());
-                  const isFromRequester = c.author_email && requesterEmails.includes(c.author_email.toLowerCase());
+                  const isFromRequester = !!(c.author_email && requesterEmails.includes(c.author_email.toLowerCase()));
+                  // Réponse du demandeur à un message des techniciens (ex. formulaire "répondre" par mail)
+                  const isRequesterReply = !!(c.is_reply_to_tech === 1 || c.is_reply_to_tech === true);
                   const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
                   // Commentaire retenu comme solution du ticket (fond distinct)
                   const isSolution = !!ticket?.solution && !!c.content && c.content === ticket.solution;
 
-                  // Solution: vert émeraude marqué; sent-to-user: violet; requester: vert clair; privé: jaune; normal: gris
-                  const bgColor = isSolution ? '#dcfce7' : isSentToUser ? '#f3e8ff' : isFromRequester ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
-                  const borderColor = isSolution ? '#16a34a' : isSentToUser ? '#d8b4fe' : isFromRequester ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
+                  // Couleur de bulle selon le type de commentaire (pas selon l'auteur).
+                  // Solution: vert émeraude; envoyé: violet; privé/interne: jaune; sinon: gris.
+                  const bgColor = isSolution ? '#dcfce7' : isSentToUser ? '#f3e8ff' : c.is_private ? '#fffbeb' : '#f9f9fb';
+                  const borderColor = isSolution ? '#16a34a' : isSentToUser ? '#d8b4fe' : c.is_private ? '#fde68a' : '#f4f4f5';
 
                   return (
-                    <div key={c.id || i} style={{ display: 'flex', gap: 10, marginLeft: isFromRequester ? 20 : 0 }}>
+                    <div key={c.id || i} style={{ display: 'flex', gap: 10, marginLeft: isRequesterReply ? 20 : 0 }}>
                       <div style={{
                         flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
-                        background: isFromRequester ? '#16a34a' : isSentToUser ? '#2563eb' : avatarColor(c.author_name || ''),
+                        background: isRequesterReply ? '#16a34a' : isSentToUser ? '#2563eb' : avatarColor(c.author_name || ''),
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700, color: '#fff'
-                      }}>{isFromRequester ? '↩' : getInitials(c.author_name || '')}</div>
+                      }}>{isRequesterReply ? '↩' : getInitials(c.author_name || '')}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
+                          {isFromRequester && <span style={{ fontSize: 10, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>👤 Demandeur</span>}
+                          {isRequesterReply && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
                           {isSentToUser && <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>✉️ Envoyé</span>}
-                          {isFromRequester && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
                           {!!c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
                           {isSolution && <span style={{ fontSize: 10, color: '#15803d', background: '#bbf7d0', padding: '1px 6px', borderRadius: 8, fontWeight: 700 }}>✅ Solution</span>}
                           <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
