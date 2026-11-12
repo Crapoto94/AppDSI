@@ -67,7 +67,13 @@ function buildAgeTooltip(ticket: any): string {
 // décodage des entités, normalisation des liens sans schéma (cf. ticketEditor)
 // puis réécriture des images GLPI / cid:.
 function renderTicketHtml(raw: string, cidMap?: Record<string, number>): string {
-  return rewriteGlpiImages(normalizeLinksHtml(decodeHtml(raw || '')), cidMap);
+  let s = decodeHtml(raw || '');
+  // Les commentaires texte brut (ex. réponses mail/formulaire sans HTML) contiennent
+  // des retours à la ligne qui seraient ignorés en HTML : on les convertit en <br>.
+  if (s && !/<[a-z][\s\S]*>/i.test(s)) {
+    s = s.replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+  }
+  return rewriteGlpiImages(normalizeLinksHtml(s), cidMap);
 }
 
 // Réécrit les liens d'images GLPI (document.send.php + cid:) vers notre proxy authentifié.
