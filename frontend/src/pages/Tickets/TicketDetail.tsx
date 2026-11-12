@@ -2452,10 +2452,18 @@ export default function TicketDetail() {
                   ].filter(Boolean).map((e: string) => e.toLowerCase());
                   const isFromRequester = !!(c.author_email && requesterEmails.includes(c.author_email.toLowerCase()));
                   // Commentaire rédigé par un observateur du ticket
-                  const observerEmails = (observers || [])
-                    .map((o: any) => o.email || o.login || o.username)
-                    .filter(Boolean).map((e: string) => String(e).toLowerCase());
-                  const isFromObserver = !!(c.author_email && observerEmails.includes(c.author_email.toLowerCase()));
+                  const observerIds = new Set<string>();
+                  for (const o of (observers || [])) {
+                    [o.email, o.login, o.username, o.name]
+                      .filter(Boolean)
+                      .forEach((v: any) => observerIds.add(String(v).toLowerCase()));
+                  }
+                  const authorEmail = (c.author_email || '').toLowerCase();
+                  const authorLogin = authorEmail.includes('@') ? authorEmail.split('@')[0] : authorEmail;
+                  const isFromObserver = !!authorEmail && (
+                    observerIds.has(authorEmail) ||
+                    (!!authorLogin && observerIds.has(authorLogin))
+                  );
                   // Réponse du demandeur à un message des techniciens (ex. formulaire "répondre" par mail)
                   const isRequesterReply = !!(c.is_reply_to_tech === 1 || c.is_reply_to_tech === true);
                   const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
