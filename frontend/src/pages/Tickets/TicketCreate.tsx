@@ -343,6 +343,25 @@ export default function TicketCreate() {
                 {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
               </div>
             )}
+            {!!form.requester_name && !form.requester_email?.trim() && (
+              <div style={{
+                marginTop: 8, padding: '10px 12px', borderRadius: 8, fontSize: 13,
+                background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412',
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Aucune adresse email associée à ce demandeur</div>
+                <div style={{ lineHeight: 1.45 }}>
+                  Complétez l’objet AD de l’utilisateur avec la bonne adresse email (ou demandez à un administrateur système de le faire), puis{' '}
+                  <button type="button" onClick={() => window.location.reload()}
+                    style={{ background: 'none', border: 'none', padding: 0, color: '#c2410c', textDecoration: 'underline', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>
+                    rechargez cette page
+                  </button>{' '}
+                  après modification.
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#7c2d12' }}>
+                  Sans modification, l’adresse email associée à la demande sera <strong>celle du technicien</strong>. Vous pouvez tout de même créer le ticket maintenant.
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
