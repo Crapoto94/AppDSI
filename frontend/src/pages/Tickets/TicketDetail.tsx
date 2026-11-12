@@ -2445,6 +2445,11 @@ export default function TicketDetail() {
                     ticket?.requester_email_22,
                   ].filter(Boolean).map((e: string) => e.toLowerCase());
                   const isFromRequester = !!(c.author_email && requesterEmails.includes(c.author_email.toLowerCase()));
+                  // Commentaire rédigé par un observateur du ticket
+                  const observerEmails = (observers || [])
+                    .map((o: any) => o.email || o.login || o.username)
+                    .filter(Boolean).map((e: string) => String(e).toLowerCase());
+                  const isFromObserver = !!(c.author_email && observerEmails.includes(c.author_email.toLowerCase()));
                   // Réponse du demandeur à un message des techniciens (ex. formulaire "répondre" par mail)
                   const isRequesterReply = !!(c.is_reply_to_tech === 1 || c.is_reply_to_tech === true);
                   const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
@@ -2468,6 +2473,7 @@ export default function TicketDetail() {
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
                           {isFromRequester && <span style={{ fontSize: 10, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>👤 Demandeur</span>}
+                          {isFromObserver && <span style={{ fontSize: 10, color: '#7c3aed', background: '#ede9fe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>👁️ Observateur</span>}
                           {isRequesterReply && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
                           {isSentToUser && <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>✉️ Envoyé</span>}
                           {!!c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
