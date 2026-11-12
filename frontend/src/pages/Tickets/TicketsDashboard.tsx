@@ -162,6 +162,7 @@ export default function TicketsDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
   const [dailyMetrics, setDailyMetrics] = useState<any>(null);
+  const [durationBuckets, setDurationBuckets] = useState<{ age: number[]; waiting: number[] } | null>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(_initSnap?.activeFilter ?? null);
   const [activeUserFilter, setActiveUserFilter] = useState<string | null>(_initSnap?.activeUserFilter ?? null);
   const [page, setPage] = useState(1);
@@ -613,6 +614,14 @@ export default function TicketsDashboard() {
       .catch(() => {});
   }, []);
 
+  const loadDurationBuckets = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get('/api/tickets/dashboard/duration-buckets', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setDurationBuckets(r.data))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     showResolvedRef.current = showResolved;
     loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
@@ -792,7 +801,7 @@ export default function TicketsDashboard() {
   useEffect(() => () => stopResetPolling(), []);
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
-  useEffect(() => { loadDailyMetrics(); }, []);
+  useEffect(() => { loadDailyMetrics(); loadDurationBuckets(); }, []);
 
   // Live sessions socket listener — notif en temps réel pour les techs
   useEffect(() => {
@@ -816,6 +825,7 @@ export default function TicketsDashboard() {
       const args = lastLoadArgsRef.current;
       if (args && args.length) loadDataRef.current(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], true);
       else loadDataRef.current(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, true);
+      loadDurationBuckets();
     };
     socket.on('ticket_created', (payload: any) => {
       setLiveTickerMsg(`🎫 Nouveau ticket #${payload?.glpi_id ?? ''} : ${payload?.title || ''}`.trim());
@@ -1610,10 +1620,35 @@ export default function TicketsDashboard() {
                   ? `${(card as any).flowLabel || `${card.label} par jour ouvré`} (${flowRange})`
                   : (dFirst && dLast ? `Évolution sur les ${nbJours} derniers jours (${dFirst} → ${dLast})` : undefined);
 
+                // Tuiles « durée » (Âge moy. ouverts / Attente moy.) : la
+                // sparkline est remplacée par la répartition en 5 tranches.
+                // L'âge porte sur les tickets ouverts (1,2,3) ; l'attente sur
+                // les tickets actifs ayant déjà attendu (1-4, attente cumulée),
+                // soit exactement la population de la moyenne affichée.
+                const isBucketCard = card.key === 'age' || card.key === 'wait_time';
+                const bucketValues = isBucketCard
+                  ? (card.key === 'age' ? durationBuckets?.age : durationBuckets?.waiting)
+                  : null;
+                const bucketData = bucketValues
+                  ? [
+                      { label: '0-1j',   v: bucketValues[0] || 0, color: '#22c55e' },
+                      { label: '1-7j',   v: bucketValues[1] || 0, color: '#84cc16' },
+                      { label: '7-30j',  v: bucketValues[2] || 0, color: '#f59e0b' },
+                      { label: '1-3m',   v: bucketValues[3] || 0, color: '#f97316' },
+                      { label: '>3m',    v: bucketValues[4] || 0, color: '#ef4444' },
+                    ]
+                  : [];
+                const bucketTotal = bucketData.reduce((sum, b) => sum + b.v, 0);
+                const bucketTitle = bucketData.length
+                  ? `${card.key === 'age' ? 'Âge des tickets ouverts' : 'Attente cumulée des tickets ayant attendu'} — `
+                    + bucketData.map(b => `${b.label}: ${b.v}`).join(' · ')
+                    + ` (${bucketTotal} ticket${bucketTotal > 1 ? 's' : ''})`
+                  : undefined;
+
                 return (
                   <div key={card.key}
                     onClick={card.onClick || (card.filterKey ? () => handleFilterClick(card.filterKey as string) : undefined)}
-                    title={sparkTitle}
+                    title={isBucketCard ? bucketTitle : sparkTitle}
                     style={{
                       background: '#fff', border: `1px solid ${isActive ? card.color : '#e2e8f0'}`,
                       borderRadius: 12, padding: '12px 14px',
@@ -1622,8 +1657,8 @@ export default function TicketsDashboard() {
                       display: 'flex', flexDirection: 'column', gap: 0,
                       position: 'relative', overflow: 'hidden',
                     }}>
-                    {/* Sparkline en fond */}
-                    {sparkData.length >= 2 && (
+                    {/* Sparkline en fond (tuiles hors durée) */}
+                    {!isBucketCard && sparkData.length >= 2 && (
                       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 44, opacity: 0.18, pointerEvents: 'none' }}>
                         <ResponsiveContainer width="100%" height={44}>
                           <LineChart data={sparkData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
@@ -1704,6 +1739,22 @@ export default function TicketsDashboard() {
                           </div>
                         );
                       })()}
+                      {/* Répartition en 5 tranches (tuiles durée) */}
+                      {isBucketCard && bucketData.length > 0 && (
+                        <div style={{ marginTop: 8, height: 54, display: 'flex', alignItems: 'flex-end', gap: 3 }} title={bucketTitle}>
+                          {bucketData.map((b, i) => {
+                            const total = bucketTotal || 1;
+                            const h = Math.max(b.v > 0 ? 4 : 2, Math.round((b.v / total) * 36));
+                            return (
+                              <div key={i} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                <div style={{ fontSize: 7, fontWeight: 700, color: '#475569', lineHeight: 1 }}>{b.v}</div>
+                                <div style={{ width: '100%', height: h, background: b.color, borderRadius: '2px 2px 0 0', opacity: 0.9 }} />
+                                <div style={{ fontSize: 6, color: '#94a3b8', lineHeight: 1, whiteSpace: 'nowrap' }}>{b.label}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

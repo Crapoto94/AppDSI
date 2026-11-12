@@ -131,6 +131,7 @@ router.get('/stats', authenticateJWT, (req, res) => controller.getTicketsStats(r
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));
 router.get('/dashboard/my-stats', authenticateJWT, (req, res) => controller.getMyStats(req, res));
 router.get('/dashboard/daily-metrics', authenticateJWT, (req, res) => controller.getDailyMetrics(req, res));
+router.get('/dashboard/duration-buckets', authenticateJWT, (req, res) => controller.getDurationBuckets(req, res));
 router.get('/dashboard/kpi-history', authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
 router.post('/dashboard/kpi-snapshot/run', authenticateAdmin, (req, res) => controller.runKpiSnapshot(req, res));
 router.post('/dashboard/kpi-backfill', authenticateAdmin, (req, res) => controller.backfillKpiHistory(req, res));

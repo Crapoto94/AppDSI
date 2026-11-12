@@ -1026,6 +1026,15 @@ async assign(req, res) {
         }
     },
 
+    async getDurationBuckets(req, res) {
+        try {
+            const buckets = await ticketService.getDurationBuckets();
+            res.json(buckets);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     async getKpiHistory(req, res) {
         try {
             const days = Math.min(parseInt(req.query.days) || 30, 365);

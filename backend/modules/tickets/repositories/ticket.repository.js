@@ -248,6 +248,35 @@ const DAILY_SERIES_WINDOW = 60;
 const DAILY_SERIES_TTL_MS = 60 * 1000;
 let dailySeriesCache = null;
 
+// ── Attente cumulée par ticket ──────────────────────────────────────────────
+// CTE partagée par la tuile « Attente moy. » et sa répartition en barres :
+// somme des intervalles passés en statut 4, reconstruits depuis l'historique
+// (l'intervalle en cours est borné à maintenant). Toute évolution du calcul
+// doit rester alignée avec wait_iv/wait_days de DAILY_SERIES_SQL.
+const WAITING_TOTALS_CTE = `
+    h AS (
+        SELECT ticket_id,
+               (created_at AT TIME ZONE 'Europe/Paris')::timestamp AS ts,
+               new_value,
+               LEAD((created_at AT TIME ZONE 'Europe/Paris')::timestamp)
+                   OVER (PARTITION BY ticket_id ORDER BY created_at) AS next_ts
+        FROM hub_tickets.ticket_history
+        WHERE action = 'status_changed' AND new_value IS NOT NULL
+    ),
+    waits AS (
+        SELECT ticket_id,
+               SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+                   LEAST(
+                       COALESCE(next_ts, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp),
+                       (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
+                   ) - ts
+               ))))::double precision AS wait_s
+        FROM h
+        WHERE new_value = '4'
+        GROUP BY ticket_id
+    )
+`;
+
 // ── Expressions SQL réutilisées pour le filtre « demandeur » ─────────────────
 // e-mail résolu (email_alt fait foi, sinon GLPI champ 22) — de chaque côté
 // de la comparaison on TRIM pour tolérer les espaces résiduels.
@@ -977,27 +1006,7 @@ module.exports = {
         // n'est renseignée que pour une poignée de tickets (à la sortie du
         // statut 4) et ignore l'attente en cours.
         return pgDb.get(`
-            WITH h AS (
-                SELECT ticket_id,
-                       (created_at AT TIME ZONE 'Europe/Paris')::timestamp AS ts,
-                       new_value,
-                       LEAD((created_at AT TIME ZONE 'Europe/Paris')::timestamp)
-                           OVER (PARTITION BY ticket_id ORDER BY created_at) AS next_ts
-                FROM hub_tickets.ticket_history
-                WHERE action = 'status_changed' AND new_value IS NOT NULL
-            ),
-            waits AS (
-                SELECT ticket_id,
-                       SUM(GREATEST(0, EXTRACT(EPOCH FROM (
-                           LEAST(
-                               COALESCE(next_ts, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp),
-                               (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
-                           ) - ts
-                       ))))::double precision AS wait_s
-                FROM h
-                WHERE new_value = '4'
-                GROUP BY ticket_id
-            )
+            WITH ${WAITING_TOTALS_CTE}
             SELECT
                 COALESCE(AVG(w.wait_s)
                          FILTER (WHERE t.status IN (1,2,3,4)
@@ -1216,6 +1225,45 @@ module.exports = {
             // compte de jours ouvrés.
             window_days: DAILY_SERIES_WINDOW,
         };
+    },
+
+    // ── Répartition par ancienneté / attente (barres des tuiles) ─────────────
+    // 5 tranches identiques pour les deux tuiles : < 1 j, 1 j - 1 sem,
+    // 1 sem - 1 mois, 1 mois - 3 mois, > 3 mois (1 mois = 30 j, 3 mois = 90 j).
+    async getDurationBuckets() {
+        const bucketSelect = `
+                COUNT(*) FILTER (WHERE s < 86400)::int AS lt_1d,
+                COUNT(*) FILTER (WHERE s >= 86400 AND s < 604800)::int AS d1_1w,
+                COUNT(*) FILTER (WHERE s >= 604800 AND s < 2592000)::int AS w1_1m,
+                COUNT(*) FILTER (WHERE s >= 2592000 AND s < 7776000)::int AS m1_3m,
+                COUNT(*) FILTER (WHERE s >= 7776000)::int AS gt_3m`;
+        const [age, waiting] = await Promise.all([
+            // Âge des tickets ouverts : même périmètre que avg_age_open_seconds.
+            pgDb.get(`
+                SELECT ${bucketSelect}
+                FROM (
+                    SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - date_creation)) AS s
+                    FROM hub_tickets.tickets
+                    WHERE status IN (1,2,3) AND date_creation IS NOT NULL
+                ) x
+            `),
+            // Attente cumulée : même périmètre que la moyenne de la tuile
+            // (tickets actifs ayant déjà attendu).
+            pgDb.get(`
+                WITH ${WAITING_TOTALS_CTE}
+                SELECT ${bucketSelect}
+                FROM (
+                    SELECT w.wait_s AS s
+                    FROM hub_tickets.tickets t
+                    JOIN waits w ON w.ticket_id = t.glpi_id
+                    WHERE t.status IN (1,2,3,4)
+                ) x
+            `),
+        ]);
+        const toArray = (r) => [
+            r?.lt_1d || 0, r?.d1_1w || 0, r?.w1_1m || 0, r?.m1_3m || 0, r?.gt_3m || 0,
+        ];
+        return { age: toArray(age), waiting: toArray(waiting) };
     },
 
     // ── Stats pilotage ────────────────────────────────────────

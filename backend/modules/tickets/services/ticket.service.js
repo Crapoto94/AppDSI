@@ -376,4 +376,8 @@ module.exports = {
     async getDailyMetrics() {
         return ticketRepo.getDailyMetricsWithRollingAverage();
     },
+
+    async getDurationBuckets() {
+        return ticketRepo.getDurationBuckets();
+    },
 };
