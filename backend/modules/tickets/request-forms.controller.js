@@ -10,6 +10,7 @@ const { pgDb, getSqlite } = require('../../shared/database');
 const rhStudio = require('../../shared/rh_studio');
 const ticketService = require('./services/ticket.service');
 const notificationService = require('./services/notification.service');
+const assignmentService = require('./services/assignment.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
 const studioOnboarding = require('../infra/studio-onboarding');
@@ -291,6 +292,48 @@ function buildTicketTitleHint(fields, answers) {
     // l'unicité entre deux soumissions distinctes, même à quelques
     // secondes d'écart.
     return null;
+}
+
+/**
+ * Titre d'un ticket « Arrivée d'agent » : le nom de l'ARRIVANT d'abord, puis son N+1 —
+ * « Arrivée d'agent — Nathalie CALANDO (N+1 : Frédéric PORCHEUR) ». Renvoie null si l'arrivant est introuvable
+ * (le titre standard est alors conservé).
+ */
+function buildOnboardingTitle(formName, answers, submitter) {
+    const dejaArrive = answers.deja_arrive === true || answers.deja_arrive === 'true';
+    let arrivant = '';
+    if (dejaArrive) arrivant = (answers.agent_arrive && answers.agent_arrive.displayName) || '';
+    else if (answers.futurs_agent) arrivant = `${answers.futurs_agent.prenom || ''} ${answers.futurs_agent.nom || ''}`.trim();
+    if (!arrivant) return null;
+    const n1 = (answers.manager && answers.manager.displayName) || (submitter && (submitter.displayName || submitter.username)) || '';
+    return `${formName} — ${arrivant}${n1 ? ` (N+1 : ${n1})` : ''}`;
+}
+
+/**
+ * Les tickets « Arrivée d'agent » sont affectés d'office au groupe « Support et Déploiement » (sans technicien individuel).
+ * Meilleur effort : un échec est journalisé dans l'historique du ticket mais n'annule jamais sa création.
+ */
+async function assignOnboardingGroup(ticketId, user) {
+    const logHistory = async (action, comment) => {
+        try {
+            await pgDb.run(
+                `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, ?, ?, NULL, NULL, NULL, ?)`,
+                [ticketId, user?.id || null, action, comment]
+            );
+        } catch (e) { console.error('[request-forms] onboarding group history log failed:', e.message); }
+    };
+    try {
+        const group = await pgDb.get(
+            `SELECT id, name FROM hub_tickets.technician_groups WHERE is_active = true AND name ILIKE '%Support et D_ploiement%' ORDER BY id LIMIT 1`
+        );
+        if (!group) throw new Error('groupe « Support et Déploiement » introuvable ou inactif');
+        await assignmentService.assign(ticketId, { group_id: group.id }, user);
+        return group;
+    } catch (e) {
+        console.error('[request-forms] affectation au groupe Support et Déploiement échouée:', e.message);
+        await logHistory('onboarding_group_failed', `Affectation automatique au groupe « Support et Déploiement » impossible : ${e.message}`);
+        return null;
+    }
 }
 
 /**
@@ -741,7 +784,9 @@ module.exports = {
             // même l'unicité entre deux soumissions distinctes, même
             // proches dans le temps — cf. buildTicketTitleHint ci-dessus.
             const titleHint = buildTicketTitleHint(fields, answers) || new Date().toLocaleTimeString('fr-FR');
-            const ticketTitle = `${form.name} — ${user.displayName || user.username} (${titleHint})`;
+            const isOnboardingTitle = form.special_action === 'onboarding_rhstudio';
+            const ticketTitle = (isOnboardingTitle && buildOnboardingTitle(form.name, answers, user))
+                || `${form.name} — ${user.displayName || user.username} (${titleHint})`;
             // Formulaire "Arrivée d'agent" : on diffère l'email de confirmation
             // au demandeur (déclenché normalement ici même par
             // ticketService.create) tant que triggerOnboardingRhStudio n'a pas
@@ -765,6 +810,7 @@ module.exports = {
 
             let onboarding = null;
             if (isOnboardingForm) {
+                await assignOnboardingGroup(ticketId, user);
                 onboarding = await triggerOnboardingRhStudio(answers, ticketId, user);
                 try { await notificationService.trigger('ticket.created', { ticket_id: ticketId, user }); }
                 catch (e) { console.error('[request-forms] deferred ticket.created notification failed:', e.message); }

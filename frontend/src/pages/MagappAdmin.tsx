@@ -4,6 +4,8 @@ import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
 import BetaUsersAdmin from '../components/BetaUsersAdmin';
+import PromotionAdmin from '../components/PromotionAdmin';
+import { FeatureUsersProvider, FeatureAgents } from '../components/FeatureUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -185,7 +187,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -203,6 +205,7 @@ const MagappAdmin: React.FC = () => {
     show_tasks: false,
     show_notes: false,
     show_reunions: false,
+    show_agent_search: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -324,6 +327,7 @@ const MagappAdmin: React.FC = () => {
           show_tasks: data.show_tasks_original ?? data.show_tasks ?? false,
           show_notes: data.show_notes_original ?? data.show_notes ?? false,
           show_reunions: data.show_reunions_original ?? data.show_reunions ?? false,
+          show_agent_search: data.show_agent_search_original ?? data.show_agent_search ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2403,6 +2407,7 @@ const MagappAdmin: React.FC = () => {
                 <h2>Paramètres MagApp</h2>
                 <div className="header-icon-v2"><Settings size={20} /></div>
               </div>
+              <FeatureUsersProvider token={token}>
               <div className="form-grid-v2">
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2415,6 +2420,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.</p>
+                  <FeatureAgents feature="tickets" published={magappSettings.show_tickets} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2427,6 +2433,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le badge d'état global du système (Health Check) en haut de la page.</p>
+                  <FeatureAgents feature="health_check" published={magappSettings.show_health_check} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2439,6 +2446,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche les boutons pour créer des incidents ou demandes GLPI.</p>
+                  <FeatureAgents feature="create_buttons" published={magappSettings.show_create_buttons} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2451,10 +2459,11 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Mes Idées" et le formulaire de soumission.</p>
+                  <FeatureAgents feature="ideas" published={magappSettings.show_ideas} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la Bibliothèque (BETA)</span>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la Bibliothèque{!magappSettings.show_library && ' (BETA)'}</span>
                     <input 
                       type="checkbox" 
                       checked={magappSettings.show_library} 
@@ -2463,6 +2472,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'accès à la bibliothèque de documentation pour les utilisateurs.</p>
+                  <FeatureAgents feature="library" published={magappSettings.show_library} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2477,12 +2487,13 @@ const MagappAdmin: React.FC = () => {
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
                     Si décoché, le bouton "Consommables" ne sera visible que pour les administrateurs ou les personnes associées à la tuile "Demandes de consommables".
                   </p>
+                  <FeatureAgents feature="consommables" published={magappSettings.show_consommables} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Chat Live
-                      <span style={{ marginLeft: 8, background: '#6366f1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_chat_live && (<span style={{ marginLeft: 8, background: '#6366f1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2494,6 +2505,7 @@ const MagappAdmin: React.FC = () => {
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
                     Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.
                   </p>
+                  <FeatureAgents feature="chat_live" published={magappSettings.show_chat_live} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
                   <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2514,12 +2526,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Rencontres annuelles" (demandes budgétaires des directions).</p>
+                  <FeatureAgents feature="rencontres" published={magappSettings.show_rencontres} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Transcript manager
-                      <span style={{ marginLeft: 8, background: '#0078a4', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_transcript_manager && (<span style={{ marginLeft: 8, background: '#0078a4', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2529,12 +2542,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Transcript manager" (réunions, comptes rendus, résumés IA).</p>
+                  <FeatureAgents feature="transcript_manager" published={magappSettings.show_transcript_manager} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Parapheur
-                      <span style={{ marginLeft: 8, background: '#0e7490', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_parapheur && (<span style={{ marginLeft: 8, background: '#0e7490', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2544,12 +2558,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.</p>
+                  <FeatureAgents feature="parapheur" published={magappSettings.show_parapheur} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Outils PDF
-                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_pdf_tools && (<span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2559,6 +2574,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Fusionner, découper, compresser, filigraner, comparer et réparer des PDF directement en ligne.</p>
+                  <FeatureAgents feature="pdf_tools" published={magappSettings.show_pdf_tools} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2571,6 +2587,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Mes abonnements" (abonnement aux notifications d'état d'un service).</p>
+                  <FeatureAgents feature="subscriptions" published={magappSettings.show_subscriptions} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2583,6 +2600,7 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Déclarer un incident » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
+                  <FeatureAgents feature="tool_incident" published={magappSettings.show_tool_incident} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2595,12 +2613,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
+                  <FeatureAgents feature="tool_demande" published={magappSettings.show_tool_demande} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Mes tâches
-                      <span style={{ marginLeft: 8, background: '#2563eb', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_tasks && (<span style={{ marginLeft: 8, background: '#2563eb', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2610,12 +2629,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes tâches » du DSI Hub depuis le Magasin d'applications (suivi et organisation des tâches personnelles).</p>
+                  <FeatureAgents feature="tasks" published={magappSettings.show_tasks} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Mes notes IA
-                      <span style={{ marginLeft: 8, background: '#059669', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_notes && (<span style={{ marginLeft: 8, background: '#059669', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2625,12 +2645,13 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).</p>
+                  <FeatureAgents feature="notes" published={magappSettings.show_notes} />
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
                       Mes réunions
-                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                      {!magappSettings.show_reunions && (<span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
                     </span>
                     <input
                       type="checkbox"
@@ -2640,13 +2661,33 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).</p>
+                  <FeatureAgents feature="reunions" published={magappSettings.show_reunions} />
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Recherche d'agent
+                      {!magappSettings.show_agent_search && (<span style={{ marginLeft: 8, background: '#b45309', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_agent_search}
+                      onChange={e => setMagappSettings({...magappSettings, show_agent_search: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#b45309' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.</p>
+                  <FeatureAgents feature="agent_search" published={magappSettings.show_agent_search} />
                 </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
 
+                <PromotionAdmin token={token} />
+
                 <BetaUsersAdmin token={token} />
               </div>
+              </FeatureUsersProvider>
             </section>
           )}
 

@@ -695,6 +695,7 @@ export default function TicketList({
                           if (src === 'email' || src === 'mail') return <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>;
                           if (src === 'magapp') return <span style={{ color: '#d946ef', fontWeight: 600 }}>Magapp</span>;
                           if (src === 'hub') return <span style={{ color: '#64748b', fontWeight: 600 }}>Hub</span>;
+                          if (/^t[ée]l[ée]phone$/i.test(src)) return <span style={{ color: '#b45309', fontWeight: 600 }}>Téléphone</span>;
                           if (src) return <span>{src}</span>;
                           return <span style={{ color: '#94a3b8' }}>—</span>;
                         })()

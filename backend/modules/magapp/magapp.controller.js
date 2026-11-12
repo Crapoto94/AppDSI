@@ -41,7 +41,127 @@ async function isMagappAdmin(req) {
     return false;
 }
 
+// Annuaire AD des agents trouvés dans RH Studio : téléphone (poste) et mobile, une seule recherche LDAP pour tous.
+// Rapprochement par e-mail, sinon matricule (employeeID), sinon nom complet. Meilleur effort : {} si AD injoignable.
+const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+async function adContactsFor(agents) {
+    const ad = await (async () => { try { const db = getSqlite(); const r = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null; return r && r.is_enabled ? r : null; } catch (e) { return null; } })();
+    if (!ad || !agents.length) return [];
+    const esc = (s) => String(s).replace(/[*()\\\x00]/g, '\\$&');
+    const clauses = [];
+    for (const a of agents) {
+        if (a.email) clauses.push(`(mail=${esc(a.email)})`, `(userPrincipalName=${esc(a.email)})`);
+        if (a.matricule) clauses.push(`(employeeID=${esc(a.matricule)})`);
+        if (a.nom && a.prenom) clauses.push(`(&(displayName=*${esc(a.prenom)}*)(displayName=*${esc(a.nom)}*))`);
+    }
+    if (!clauses.length) return [];
+    const pick = (v) => String(Array.isArray(v) ? (v[0] || '') : (v || '')).trim();
+    return new Promise((resolve) => {
+        const found = [];
+        let settled = false;
+        const client = ldap.createClient({ url: `ldap://${ad.host}:${ad.port || 389}`, connectTimeout: 5000, timeout: 8000 });
+        const finish = () => { if (settled) return; settled = true; clearTimeout(guard); try { client.destroy(); } catch (e) { /* ignore */ } resolve(found); };
+        const guard = setTimeout(finish, 10000);
+        client.on('error', finish);
+        client.bind(ad.bind_dn, ad.bind_password, (err) => {
+            if (err) return finish();
+            const opts = { filter: `(&(objectClass=user)(|${clauses.join('')}))`, scope: 'sub', sizeLimit: 100, attributes: ['displayName', 'mail', 'userPrincipalName', 'employeeID', 'telephoneNumber', 'mobile'] };
+            try {
+                client.search(ad.base_dn, opts, (e2, sr) => {
+                    if (e2) return finish();
+                    sr.on('searchEntry', (entry) => {
+                        const u = flattenLDAPEntry(entry);
+                        found.push({
+                            displayName: decodeLDAPString(pick(u.displayName)), mail: pick(u.mail).toLowerCase(), upn: pick(u.userPrincipalName).toLowerCase(),
+                            employeeID: pick(u.employeeID), telephone: pick(u.telephoneNumber), mobile: pick(u.mobile),
+                        });
+                    });
+                    sr.on('error', finish);
+                    sr.on('end', finish);
+                });
+            } catch (e3) { finish(); }
+        });
+    });
+}
+
+// Codes de service (ex. « BF8 ») par libellé, d'après l'organigramme RH (caché 30 min) : RH Studio ne renvoie que les libellés.
+let serviceCodeCache = { ts: 0, map: new Map() };
+async function serviceCodesByLabel() {
+    if (Date.now() - serviceCodeCache.ts < 30 * 60 * 1000 && serviceCodeCache.map.size) return serviceCodeCache.map;
+    const map = new Map();
+    try {
+        const v2 = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
+        const table = Number(v2.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
+        const rows = await pgDb.all(`SELECT DISTINCT "SERVICE" AS scode, "SERVICE_L" AS slabel FROM ${table} WHERE "SERVICE" IS NOT NULL AND "SERVICE" NOT LIKE '$%' AND "SERVICE" != ''`);
+        for (const r of rows) { const k = normName(r.slabel), c = String(r.scode || '').trim(); if (k && c && !map.has(k)) map.set(k, c); }
+        serviceCodeCache = { ts: Date.now(), map };
+    } catch (e) { /* codes indisponibles : on n'affiche simplement pas le code */ }
+    return map;
+}
+
+// Fonctionnalités (colonnes magapp.settings.show_*) pouvant être réservées à quelques agents
+const FEATURE_KEYS = ['tickets', 'subscriptions', 'health_check', 'create_buttons', 'ideas', 'rencontres', 'library', 'consommables', 'chat_live',
+    'transcript_manager', 'parapheur', 'pdf_tools', 'tool_incident', 'tool_demande', 'tasks', 'notes', 'reunions', 'agent_search'];
+
 const MagAppController = {
+    // GET /api/magapp/agent-search?q= — BETA « Recherche d'agent » : annuaire RH Studio (lecture seule).
+    // Renvoie prénom, nom, matricule, service, direction, et e-mail / téléphone quand RH Studio les connaît.
+    searchRhAgents: async (req, res) => {
+        try {
+            const q = String(req.query.q || '').trim();
+            if (q.length < 2) return res.json({ agents: [], configured: true });
+            const rhStudio = require('../../shared/rh_studio');
+            if (!(await rhStudio.getConfig())) return res.status(503).json({ message: "RH Studio n'est pas configuré." });
+            const pick = (a, keys) => { for (const k of keys) { const v = a[k]; if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim(); } return ''; };
+            const list = await rhStudio.searchAgents(q);
+            const agents = (list || []).map(a => ({
+                matricule: pick(a, ['matricule']),
+                prenom: pick(a, ['prenom']),
+                nom: pick(a, ['nom']),
+                service: pick(a, ['service']),
+                service_code: pick(a, ['service_code', 'code_service', 'serviceCode', 'codeService']),
+                direction: pick(a, ['direction']),
+                fonction: pick(a, ['fonction']),
+                email: pick(a, ['email', 'mail']),
+                telephone: pick(a, ['telephone', 'telephone_pro', 'tel', 'phone']),
+                mobile: pick(a, ['mobile', 'portable']),
+            }));
+            // Référentiel RH de la Ville (extrait Oracle) : intitulé du poste (POSTE_L, ex. « Directeur·trice des Systèmes d'Information »)
+            // et code du service. RH Studio n'envoie que la « fonction » (FONCTION_L, plus générique) : on la garde en repli.
+            const codes = await serviceCodesByLabel();
+            const refs = new Map();
+            try {
+                const mats = [...new Set(agents.map(a => a.matricule).filter(m => /^[0-9A-Za-z]+$/.test(m)))];
+                if (mats.length) {
+                    const rows = await pgDb.all(`SELECT "MATRICULE", "POSTE_L", "SERVICE" FROM oracle.rh_v_extract_dsi WHERE "MATRICULE" IN (${mats.map(m => `'${m}'`).join(',')})`);
+                    for (const r of rows) if (!refs.has(String(r.MATRICULE).trim())) refs.set(String(r.MATRICULE).trim(), r);
+                }
+            } catch (e) { /* référentiel indisponible : repli sur les données RH Studio */ }
+            for (const a of agents) {
+                const ref = refs.get(a.matricule);
+                a.poste = (ref && String(ref.POSTE_L || '').trim()) || '';
+                if (!a.service_code && ref && String(ref.SERVICE || '').trim()) a.service_code = String(ref.SERVICE).trim();
+                if (!a.service_code && a.service) a.service_code = codes.get(normName(a.service)) || '';
+            }
+            // Téléphone / mobile (et e-mail manquant) lus dans l'AD, source de référence pour les numéros
+            const contacts = await adContactsFor(agents);
+            for (const a of agents) {
+                const email = a.email.toLowerCase();
+                const full = normName(`${a.prenom} ${a.nom}`), full2 = normName(`${a.nom} ${a.prenom}`);
+                const c = contacts.find(x => email && (x.mail === email || x.upn === email))
+                    || contacts.find(x => a.matricule && x.employeeID === a.matricule)
+                    || contacts.find(x => { const n = normName(x.displayName); return n && (n === full || n === full2); });
+                if (!c) continue;
+                if (c.telephone) a.telephone = c.telephone;
+                if (c.mobile) a.mobile = c.mobile;
+                if (!a.email && c.mail) a.email = c.mail;
+            }
+            res.json({ agents, configured: true });
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
+
     // Categories
     getCategories: async (req, res) => {
         try {
@@ -783,6 +903,7 @@ const MagAppController = {
                 result.show_tasks_original = result.show_tasks;
                 result.show_notes_original = result.show_notes;
                 result.show_reunions_original = result.show_reunions;
+                result.show_agent_search_original = result.show_agent_search;
 
                 result.show_tickets = true;
                 result.show_subscriptions = true;
@@ -807,6 +928,7 @@ const MagAppController = {
                 result.show_tasks = true;
                 result.show_notes = true;
                 result.show_reunions = true;
+                result.show_agent_search = true;
                 // Chat : le toggle admin l'active pour TOUT LE MONDE ; désactivé, il reste visible pour les
                 // beta testeurs (show_chat_live_original conserve la valeur publiée, pour le badge BETA).
                 result.show_chat_live = true;
@@ -828,6 +950,28 @@ const MagAppController = {
                 result.show_tasks_original = result.show_tasks;
                 result.show_notes_original = result.show_notes;
                 result.show_reunions_original = result.show_reunions;
+                result.show_agent_search_original = result.show_agent_search;
+
+                // Fonctionnalités BETA attribuées nommément à cet agent (/admin/magapp, « Accès par fonctionnalité ») :
+                // non publiées pour tous (show_X_original = false) mais visibles pour lui, avec le badge BETA.
+                try {
+                    const uname = (req.user && req.user.username) || req.query.username || '';
+                    const email = (req.user && req.user.email) || req.query.email || '';
+                    if (uname || email) {
+                        const rows = await pgDb.all(
+                            `SELECT DISTINCT feature FROM magapp.feature_users
+                             WHERE (email IS NOT NULL AND email <> '' AND LOWER(email) = LOWER(?))
+                                OR (username IS NOT NULL AND username <> '' AND LOWER(username) = LOWER(?))`,
+                            [email, uname]
+                        );
+                        result.beta_features = [];
+                        for (const r of rows) {
+                            if (!FEATURE_KEYS.includes(r.feature)) continue;
+                            result[`show_${r.feature}`] = true;
+                            result.beta_features.push(r.feature);
+                        }
+                    }
+                } catch (e) { console.error('[MAGAPP SETTINGS] feature users check:', e.message); }
             }
 
             let hasRencontresAccess = false;
@@ -889,10 +1033,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande, show_tasks, show_notes, show_reunions } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande, show_tasks, show_notes, show_reunions, show_agent_search } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ?, show_tasks = ?, show_notes = ?, show_reunions = ? WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande, !!show_tasks, !!show_notes, !!show_reunions]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ?, show_tasks = ?, show_notes = ?, show_reunions = ?, show_agent_search = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande, !!show_tasks, !!show_notes, !!show_reunions, !!show_agent_search]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);
@@ -1103,7 +1247,8 @@ const MagAppController = {
                 const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
                 client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                     if (err) { client.destroy(); return reject(err); }
-                    const filter = `(&(objectClass=user)(|(sAMAccountName=*${query}*)(displayName=*${query}*)(cn=*${query}*)))`;
+                    const q = String(query).replace(/[*()\\\x00]/g, '\\$&'); // valeur littérale (pas de jokers ni d'injection LDAP)
+                    const filter = `(&(objectClass=user)(|(sAMAccountName=*${q}*)(displayName=*${q}*)(cn=*${q}*)))`;
                     const entries = [];
                     client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn', 'mail'], sizeLimit: 20 }, (err, searchRes) => {
                         if (err) { client.destroy(); return reject(err); }
@@ -1112,7 +1257,8 @@ const MagAppController = {
                             if (obj && obj.sAMAccountName) entries.push(obj);
                         });
                         searchRes.on('end', () => { client.destroy(); resolve(entries); });
-                        searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                        // Trop de résultats (limite de 20) : l'AD signale une erreur mais les premiers résultats sont valides
+                        searchRes.on('error', (err) => { client.destroy(); if (/size ?limit/i.test(`${err.name} ${err.message}`)) resolve(entries); else reject(err); });
                     });
                 });
             });
@@ -1147,6 +1293,35 @@ const MagAppController = {
                  VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
                 [username || null, email || null, displayName || null, (req.user && req.user.username) || null]
             );
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    // ─── Accès par fonctionnalité : quelques agents nommés quand la fonctionnalité n'est pas publiée pour tous ───
+    listFeatureUsers: async (req, res) => {
+        try {
+            const rows = await pgDb.all('SELECT id, feature, username, email, display_name, added_by, created_at FROM magapp.feature_users ORDER BY created_at DESC');
+            res.json(rows);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    addFeatureUser: async (req, res) => {
+        try {
+            const { feature, username, email, displayName } = req.body || {};
+            if (!FEATURE_KEYS.includes(feature)) return res.status(400).json({ message: 'Fonctionnalité inconnue' });
+            if (!username && !email) return res.status(400).json({ message: 'username ou email requis' });
+            await pgDb.run(
+                `INSERT INTO magapp.feature_users (feature, username, email, display_name, added_by)
+                 VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+                [feature, username || null, email || null, displayName || null, (req.user && req.user.username) || null]
+            );
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    removeFeatureUser: async (req, res) => {
+        try {
+            await pgDb.run('DELETE FROM magapp.feature_users WHERE id = ?', [req.params.id]);
             res.json({ ok: true });
         } catch (e) { res.status(500).json({ message: e.message }); }
     },

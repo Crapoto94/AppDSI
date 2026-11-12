@@ -96,52 +96,12 @@ seg_anchor AS (
     ) a
     WHERE a.st IN (1,2,3,4,5)
 ),
-wait_iv AS (
-    -- Intervalles passés en statut « En attente » (4) : début = passage en 4,
-    -- fin = changement de statut suivant. L'intervalle en cours n'a pas de fin :
-    -- on le borne à maintenant (sinon l'attente d'un ticket toujours en attente
-    -- ne compterait pas).
-    SELECT ticket_id, start_ts, end_ts
-    FROM (
-        SELECT h.ticket_id,
-               (h.created_at AT TIME ZONE 'Europe/Paris')::timestamp AS start_ts,
-               h.new_value,
-               LEAST(
-                   COALESCE(
-                       LEAD((h.created_at AT TIME ZONE 'Europe/Paris')::timestamp)
-                           OVER (PARTITION BY h.ticket_id ORDER BY h.created_at),
-                       (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
-                   ),
-                   (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
-               ) AS end_ts
-        FROM hub_tickets.ticket_history h
-        WHERE h.action = 'status_changed' AND h.new_value IS NOT NULL
-    ) x
-    WHERE x.new_value = '4'
-),
-wait_days AS (
-    -- Attente cumulée par ticket à la fin de chaque jour : on additionne, pour
-    -- chaque intervalle commencé, le chevauchement avec [début intervalle, fin
-    -- du jour]. Une fois l'intervalle terminé, son temps reste compté les jours
-    -- suivants (cumul), comme la colonne total_waiting_seconds mais en incluant
-    -- l'attente en cours.
-    SELECT w.ticket_id, d.d AS snapshot_date,
-           SUM(GREATEST(0, EXTRACT(EPOCH FROM (
-               LEAST(w.end_ts, (d.d + 1)::timestamp) - w.start_ts
-           ))))::int AS wait_s
-    FROM wait_iv w
-    JOIN days d
-      ON w.start_ts < (d.d + 1)::timestamp
-    GROUP BY w.ticket_id, d.d
-),
 state AS (
     SELECT dd.d AS snapshot_date, s.ticket_id, s.st,
-           t.priority, t.type, t.is_vip, t.date_creation,
-           wd.wait_s AS waiting_seconds
+           t.priority, t.type, t.is_vip, t.date_creation, t.total_waiting_seconds
     FROM days dd
     JOIN seg_anchor s ON s.from_d <= dd.d AND (s.to_d IS NULL OR dd.d < s.to_d)
     JOIN tk_win t ON t.glpi_id = s.ticket_id
-    LEFT JOIN wait_days wd ON wd.ticket_id = s.ticket_id AND wd.snapshot_date = dd.d
     WHERE s.st IN (1,2,3,4,5)
 ),
 stocks AS (
@@ -157,9 +117,8 @@ stocks AS (
            COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.is_vip = true)::int AS vip_total,
            COALESCE(AVG(EXTRACT(EPOCH FROM (d.d::timestamp - st.date_creation)))
                     FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_age_open_seconds,
-           COALESCE(AVG(st.waiting_seconds)
-                    FILTER (WHERE st.st IN (1,2,3,4)
-                              AND st.waiting_seconds IS NOT NULL), 0)::int AS avg_waiting_seconds_active
+           COALESCE(AVG(COALESCE(st.total_waiting_seconds, 0))
+                    FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_waiting_seconds_active
     FROM days d
     LEFT JOIN state st ON st.snapshot_date = d.d
     GROUP BY d.d
@@ -777,6 +736,13 @@ module.exports = {
             `UPDATE hub_tickets.tickets SET ${fields.join(', ')} WHERE glpi_id = $${idx}`,
             params
         );
+
+        // Ticket résolu/clos → demande liée (rencontres budgétaires) en « terminé »
+        // + commentaire de clôture reporté dans son suivi. Jamais bloquant.
+        if (data.status === 5 || data.status === 6) {
+            try { await require('../../rencontres/ticket-sync').syncDemandeFromTicket(id); }
+            catch (e) { console.error('[TICKET] sync demande rencontres:', e.message); }
+        }
     },
 
     async softDelete(id) {
@@ -1227,9 +1193,60 @@ module.exports = {
         };
     },
 
-    // ── Répartition par ancienneté / attente (barres des tuiles) ─────────────
-    // 5 tranches identiques pour les deux tuiles : < 1 j, 1 j - 1 sem,
-    // 1 sem - 1 mois, 1 mois - 3 mois, > 3 mois (1 mois = 30 j, 3 mois = 90 j).
+    // ── Évolution mensuelle des modes de soumission (champ « source ») ──────────
+    // Les sources historiques de GLPI (texte libre) et celles de l'application (mail, hub, magapp, live) sont regroupées
+    // en catégories lisibles. Tickets rejetés (statut 8) exclus ; mois sans ticket présents (valeur 0).
+    async getSourceEvolution({ months = 12, group_id } = {}) {
+        const n = Math.max(1, Math.min(parseInt(months, 10) || 12, 60));
+        const groupId = /^\d+$/.test(String(group_id ?? '')) ? parseInt(group_id, 10) : null;
+        const grpAnd = groupId ? ` AND t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${groupId})` : '';
+        const CATS = [
+            { key: 'mail_collecteur', label: 'E-mail (collecteur)', color: '#4f46e5' },
+            { key: 'mail_utilisateur', label: 'E-mail (utilisateur)', color: '#a5b4fc' },
+            { key: 'telephone', label: 'Téléphone', color: '#f59e0b' },
+            { key: 'hub', label: 'DSI Hub', color: '#16a34a' },
+            { key: 'magapp', label: 'MagApp', color: '#d946ef' },
+            { key: 'chat', label: 'Chat en direct', color: '#0891b2' },
+            { key: 'formulaire', label: 'Formulaire', color: '#3b82f6' },
+            { key: 'direct', label: 'En direct (oral)', color: '#92400e' },
+            { key: 'autres', label: 'Autres / inconnu', color: '#94a3b8' },
+        ];
+        const rows = await pgDb.all(`
+            SELECT TO_CHAR(DATE_TRUNC('month', t.date_creation), 'YYYY-MM') AS month,
+                   CASE
+                     WHEN LOWER(TRIM(COALESCE(t.source, ''))) IN ('par messagerie collecteur', 'mail') THEN 'mail_collecteur'
+                     WHEN LOWER(TRIM(t.source)) = 'par messagerie utilisateur' THEN 'mail_utilisateur'
+                     WHEN LOWER(TRIM(t.source)) IN ('téléphone', 'telephone') THEN 'telephone'
+                     WHEN LOWER(TRIM(t.source)) = 'hub' THEN 'hub'
+                     WHEN LOWER(TRIM(t.source)) = 'magapp' THEN 'magapp'
+                     WHEN LOWER(TRIM(t.source)) = 'live' THEN 'chat'
+                     WHEN LOWER(TRIM(t.source)) IN ('formulaire', 'formcreator') THEN 'formulaire'
+                     WHEN LOWER(TRIM(t.source)) = 'direct (oral)' THEN 'direct'
+                     ELSE 'autres'
+                   END AS cat,
+                   COUNT(*)::int AS n
+              FROM hub_tickets.tickets t
+             WHERE t.status::int <> 8
+               AND t.date_creation >= DATE_TRUNC('month', CURRENT_DATE) - ($1::int - 1) * INTERVAL '1 month'${grpAnd}
+             GROUP BY 1, 2`, [n]);
+        const monthList = await pgDb.all(`
+            SELECT TO_CHAR(d, 'YYYY-MM') AS month, TO_CHAR(d, 'TMmon YYYY') AS label
+              FROM generate_series(DATE_TRUNC('month', CURRENT_DATE) - ($1::int - 1) * INTERVAL '1 month', DATE_TRUNC('month', CURRENT_DATE), INTERVAL '1 month') d
+             ORDER BY d`, [n]);
+        const byMonth = new Map(monthList.map(m => [m.month, { month: m.month, label: m.label, total: 0 }]));
+        const totals = {};
+        for (const r of rows) {
+            const m = byMonth.get(r.month);
+            if (!m) continue;
+            m[r.cat] = (m[r.cat] || 0) + r.n;
+            m.total += r.n;
+            totals[r.cat] = (totals[r.cat] || 0) + r.n;
+        }
+        const categories = CATS.filter(c => totals[c.key]).map(c => ({ ...c, total: totals[c.key] }));
+        const data = [...byMonth.values()].map(m => { for (const c of categories) m[c.key] = m[c.key] || 0; return m; });
+        return { months: n, categories, data };
+    },
+
     async getDurationBuckets() {
         const bucketSelect = `
                 COUNT(*) FILTER (WHERE s < 86400)::int AS lt_1d,

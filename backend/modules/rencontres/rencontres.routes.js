@@ -28,6 +28,11 @@ const uploadReunion = multer({ storage: multer.memoryStorage() });
 
 // ===== RENCONTRES BUDGÉTAIRES =====
 router.get('/', authenticateJWT, rencontresCtrl.getAll);
+router.get('/chefs-projets', authenticateJWT, rencontresCtrl.listChefsProjets);
+router.get('/projets', authenticateJWT, rencontresCtrl.listProjets);
+router.get('/projets-maitres', authenticateJWT, rencontresCtrl.listProjetsMaitres);
+router.put('/:id/projet', authenticateJWT, rencontresCtrl.linkProjet);
+router.post('/:id/projet/create', authenticateJWT, rencontresCtrl.createProjetFromDemande);
 router.get('/stats/directions', authenticateJWT, rencontresCtrl.statsDirections);
 router.get('/stats/annees', authenticateJWT, rencontresCtrl.statsAnnees);
 router.get('/:id', authenticateJWT, rencontresCtrl.getById);
@@ -42,7 +47,9 @@ router.post('/', authenticateAdminOrFinances, rencontresCtrl.create);
 // suivi, participants), déjà ouverte à authenticateJWT.
 router.put('/:id', authenticateJWT, rencontresCtrl.update);
 router.delete('/delete-all', authenticateAdmin, rencontresCtrl.deleteAll);
-router.delete('/:id', authenticateAdmin, rencontresCtrl.deleteOne);
+// Suppression d'une demande (ex: doublon) : alignée sur la création/édition, ouverte à tout
+// utilisateur ayant accès à la page ; seule la suppression globale reste superadmin.
+router.delete('/:id', authenticateJWT, rencontresCtrl.deleteOne);
 
 // Participants
 router.post('/:id/participants', authenticateJWT, rencontresCtrl.addParticipant);

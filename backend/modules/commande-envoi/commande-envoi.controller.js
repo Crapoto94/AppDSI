@@ -38,7 +38,7 @@ const VARIABLES = [
     ['destinataires', 'Noms des destinataires'],
 ].map(([name, label]) => ({ name, label }));
 
-const isManager = (user) => ['superadmin', 'admin', 'finances'].includes(user?.role);
+const isManager = (user) => ['superadmin', 'admin', 'finances', 'compta'].includes(user?.role);
 
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const money = (n) => (n == null ? '' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }).replace(/[  ]/g, ' '));

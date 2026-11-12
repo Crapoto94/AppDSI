@@ -127,6 +127,7 @@ router.get('/escalade/targets', authenticateJWT, async (req, res) => {
 
 // ─── Dashboard & Stats ───────────────────────────────────────────
 router.get('/ticket-stats', authenticateJWT, (req, res) => controller.getTicketCountsBySoftware(req, res));
+router.get('/stats/sources', authenticateJWT, (req, res) => controller.getSourceEvolution(req, res));
 router.get('/stats', authenticateJWT, (req, res) => controller.getTicketsStats(req, res));
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));
 router.get('/dashboard/my-stats', authenticateJWT, (req, res) => controller.getMyStats(req, res));

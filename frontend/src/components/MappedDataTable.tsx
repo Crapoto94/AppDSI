@@ -41,7 +41,9 @@ interface MappedDataTableProps {
 }
 
 const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter, dataSource = 'pg' }) => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  // Service fait : opérations de modification réservées aux rôles compta / finances / admin
+  const canModifySF = ['superadmin', 'admin', 'finances', 'compta'].includes((user as any)?.role);
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
   const pageStorageKey = `mdt_pagesize_${rubriqueName}`;
@@ -814,7 +816,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                           {sfInfo.label}
                                         </span>
                                       )}
-                                      {sfInfo.relaunchable && !st?.sedit_service_fait && (
+                                      {canModifySF && sfInfo.relaunchable && !st?.sedit_service_fait && (
                                         <button title="Relancer une nouvelle demande de validation"
                                           onClick={() => setSfModalRow({ row, mode: 'circuit' })}
                                           style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -827,7 +829,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                               )}
                               {/* Boutons d'action : seulement si ni SF Sedit ni workflow AppDSI
                                   (sinon la pastille SF compacte suffit, plus de texte « Déjà fait »). */}
-                              {!sfInfo && !st?.sedit_service_fait && (
+                              {canModifySF && !sfInfo && !st?.sedit_service_fait && (
                                 <>
                                   <button title="Lancer la validation du service fait (avec un vérificateur)"
                                     onClick={() => setSfModalRow({ row, mode: 'circuit' })}

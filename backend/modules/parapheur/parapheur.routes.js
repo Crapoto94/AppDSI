@@ -20,6 +20,9 @@ router.post('/public/:token/certificate', controller.requireSigner, upload.singl
 router.get('/public/:token/doc/:docId', controller.requireSigner, controller.getPublicDocument);
 router.post('/public/:token/otp/request', controller.requireSigner, controller.requestOtp);
 router.post('/public/:token/sign', controller.requireSigner, controller.sign);
+router.post('/public/:token/rgs/start', controller.requireSigner, controller.rgsStart);
+router.get('/public/:token/rgs/:jobId', controller.requireSigner, controller.rgsPoll);
+router.post('/public/:token/rgs/:jobId/answer', controller.requireSigner, controller.rgsAnswer);
 router.post('/public/:token/reject', controller.requireSigner, controller.reject);
 
 // ─── Vérification publique (QR code intégré aux PDF signés, sans auth) ────────
@@ -45,6 +48,12 @@ router.post('/delegations', authenticateJWT, controller.saveDelegation);
 router.delete('/delegations/:id', authenticateJWT, controller.deleteDelegation);
 
 router.get('/my-certificate', authenticateJWT, controller.getMyCertificate);
+router.post('/my-certificate/test', authenticateJWT, controller.testMyCertificate);
+router.post('/my-key-test/start', authenticateJWT, controller.myKeyTestStart);
+router.get('/my-key-test/:jobId', authenticateJWT, controller.myKeyTestPoll);
+router.post('/my-key-test/:jobId/answer', authenticateJWT, controller.myKeyTestAnswer);
+router.get('/agent/info', authenticateJWT, controller.agentInfo);
+router.get('/agent/download', authenticateJWT, controller.agentDownload);
 router.post('/my-certificate', authenticateJWT, upload.single('file'), controller.saveMyCertificate);
 router.delete('/my-certificate', authenticateJWT, controller.deleteMyCertificate);
 
@@ -53,6 +62,9 @@ router.get('/certificates', authenticateJWT, controller.listCertificates);
 router.delete('/certificates/:id', authenticateJWT, controller.deleteCertificateAdmin);
 router.get('/admin/settings', authenticateJWT, controller.getSettings);
 router.put('/admin/settings', authenticateJWT, controller.saveSettings);
+router.post('/admin/rgs-test/start', authenticateJWT, controller.rgsTestStart);
+router.get('/admin/rgs-test/:jobId', authenticateJWT, controller.rgsTestPoll);
+router.post('/admin/rgs-test/:jobId/answer', authenticateJWT, controller.rgsTestAnswer);
 router.get('/admin/ca', authenticateJWT, controller.getCa);
 router.post('/admin/ca', authenticateJWT, controller.generateCa);
 router.get('/admin/ca/cert', authenticateJWT, controller.downloadCa);

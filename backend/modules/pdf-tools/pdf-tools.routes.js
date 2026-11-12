@@ -37,6 +37,9 @@ router.post('/edit/apply', upload.single('file'), controller.editApply);
 
 router.post('/save', upload.single('file'), controller.saveToGed);
 
+// Mon assistant IA (Résumer / Interroger / Traduire) via l'API Ville — cf. docs/PDFCRAFT-INTEGRATION.md
+router.post('/ai', upload.single('file'), require('./pdf-ai.controller').assist);
+
 // Publipostage PDF + Excel
 const mailMergeUpload = upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'excel', maxCount: 1 }]);
 router.post('/mail-merge/analyze', mailMergeUpload, controller.mailMergeAnalyze);

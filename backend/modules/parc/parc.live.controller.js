@@ -809,6 +809,31 @@ async function health(req, res) {
   }
 }
 
+// ── Préchauffage du cache GLPI ───────────────────────────────────────────────
+// Charger tout l'inventaire GLPI à la demande prend longtemps : le serveur le recharge lui-même en tâche de fond
+// (démarrage puis toutes les 5 min), si bien que l'ouverture de /parc en mode Live est quasi instantanée.
+let warming = false;
+async function warmCache() {
+  if (warming) return;
+  warming = true;
+  const t0 = Date.now();
+  try {
+    await glpi.getAll('Infocom', { refresh: true, expand: false }).catch(() => []);
+    await glpi.getAll('Item_OperatingSystem', { refresh: true, expand: false }).catch(() => []);
+    await glpi.getAll('OperatingSystem', { refresh: true }).catch(() => []);
+    await glpi.getAll('Document_Item', { refresh: true }).catch(() => []);
+    for (const key of Object.keys(glpi.ITEM_TYPES)) {
+      await glpi.getAll(glpi.ITEM_TYPES[key].itemtype, { refresh: true }).catch(() => []);
+    }
+    console.log(`[PARC LIVE] cache GLPI préchauffé en ${Math.round((Date.now() - t0) / 1000)} s`);
+  } catch (e) {
+    console.error('[PARC LIVE] préchauffage du cache GLPI :', e.message);
+  } finally { warming = false; }
+}
+if (process.env.PARC_LIVE_WARMUP !== '0') {
+  setTimeout(() => { warmCache(); setInterval(warmCache, 5 * 60 * 1000).unref(); }, 15 * 1000).unref();
+}
+
 module.exports = {
   list, item, kpis, filters, health, usagersEquip,
   // Cœur réutilisé par le module HUB

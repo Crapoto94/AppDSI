@@ -1513,6 +1513,7 @@ const updateTacheStandalone = async (req, res) => {
             [tache || existing.tache, responsable !== undefined ? responsable : existing.responsable, responsable_username !== undefined ? responsable_username : (existing.responsable_username || ''), echeance !== undefined ? echeance : existing.echeance, statut || existing.statut, tid]
         );
         const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [tid]);
+        if (statut) await require('../rencontres/ticket-sync').syncDemandeFromTask(Number(tid));
         if (statut) await journalAuto.journaliserTache({ projetId: parseInt(id, 10), key: `st:${tid}`, statut: updated.statut, description: updated.tache, username: req.user?.username, responsable: updated.responsable, notesRef: { kind: 'standalone', id: Number(tid) } });
         res.json(updated);
     } catch (error) {
@@ -1585,6 +1586,7 @@ const acquitterTacheAgregee = async (req, res) => {
                 );
             }
             const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (statut !== undefined) await require('../rencontres/ticket-sync').syncDemandeFromTask(dbId);
             if (statut !== undefined) await journalAuto.journaliserTache({ projetId: parseInt(id, 10), key: `st:${dbId}`, statut: updated.statut, description: updated.tache, username: req.user?.username, responsable: updated.responsable, notesRef: { kind: 'standalone', id: dbId } });
             return res.json({ message: 'Tâche mise à jour', task: updated });
         } else if (taskId.startsWith('revue-')) {

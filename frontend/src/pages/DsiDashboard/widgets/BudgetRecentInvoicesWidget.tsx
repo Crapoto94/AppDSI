@@ -18,7 +18,9 @@ const etatBadge = (raw: string): { label: string; bg: string; color: string } =>
   const e = String(raw || '').trim();
   if (/mandat/i.test(e)) return { label: 'Mandatée', bg: '#dcfce7', color: '#166534' };
   if (/pay/i.test(e)) return { label: 'Payée', bg: '#dbeafe', color: '#1e40af' };
-  if (!e || e === 'XXXXX') return { label: 'À traiter', bg: '#fef9c3', color: '#854d0e' };
+  if (/refus/i.test(e)) return { label: 'Refusée', bg: '#fee2e2', color: '#991b1b' };
+  if (/service fait/i.test(e)) return { label: 'Service fait', bg: '#e0f2fe', color: '#075985' };
+  if (!e || e === 'XXXXX' || /re[cç]ue/i.test(e)) return { label: 'À traiter', bg: '#fef9c3', color: '#854d0e' };
   return { label: e, bg: '#f1f5f9', color: '#475569' };
 };
 

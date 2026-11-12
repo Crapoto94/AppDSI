@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
-import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, Loader2, Lock, LogOut, Paperclip, PenLine, ShieldCheck, Smartphone, User, Users, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, KeyRound, Loader2, Lock, LogOut, Paperclip, PenLine, ShieldCheck, Smartphone, User, Users, XCircle } from 'lucide-react';
 import PdfPageCanvas from '../../components/parapheur/PdfPageCanvas';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
 import { usePdfDocument, type PageSize } from '../../components/parapheur/pdf';
 import SignaturePad from '../../components/parapheur/SignaturePad';
 import { handwrittenTextDataUrl, signatureDataUrl } from '../../components/parapheur/signatureUtils';
+import { commonName, detectAgent, listCertificates, signWithHardwareKey, type AgentCertificate } from './rgsAgent';
 
 const AUTH_KEY = 'parapheur_sign_auth';
 
@@ -269,6 +270,7 @@ function SignerLogin({ onLogged }: { onLogged: (a: SignerAuth) => void }) {
 
 // ─── Écran de signature ───────────────────────────────────────────────────────
 function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth; onLogout: () => void }) {
+  const navigate = useNavigate();
   const sigRef = useRef<SignatureCanvas | null>(null);
   const [info, setInfo] = useState<PublicInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -297,6 +299,30 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   // Signature « en masse » : documents cochés sans lecture intégrale.
   const [ackDocs, setAckDocs] = useState<Set<number>>(new Set());
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  // Signature avec une clé matérielle RGS** via l'agent local du poste (voir /signature-agent)
+  const [agentUp, setAgentUp] = useState<boolean | null>(null);
+  const [agentCerts, setAgentCerts] = useState<AgentCertificate[]>([]);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [useRgs, setUseRgs] = useState(false);
+  const [rgsThumb, setRgsThumb] = useState('');
+  const [rgsStatus, setRgsStatus] = useState<string | null>(null);
+
+  const refreshAgent = useCallback(async () => {
+    setAgentError(null);
+    setAgentUp(null);
+    const up = await detectAgent();
+    setAgentUp(up);
+    if (!up) { setAgentCerts([]); return; }
+    try {
+      const certs = await listCertificates();
+      setAgentCerts(certs);
+      setRgsThumb(prev => (prev && certs.some(c => c.thumbprint === prev) ? prev : (certs[0]?.thumbprint || '')));
+    } catch (e) {
+      setAgentError(e instanceof Error ? e.message : 'Lecture des certificats impossible');
+    }
+  }, []);
+  const infoLoaded = !!info;
+  useEffect(() => { if (infoLoaded) refreshAgent(); }, [infoLoaded, refreshAgent]);
   const bulkSigningRef = useRef(false);
 
   const toggleAck = (id: number) => setAckDocs(prev => {
@@ -402,7 +428,9 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
         setError('Veuillez consulter chaque document jusqu\'à sa dernière page, ou cocher les documents à signer.');
         return;
       }
-      const isSecure = info.signataire.signature_mode === 'securise';
+      const isSecure = info.signataire.signature_mode === 'securise' && !useRgs;
+      const rgsCert = useRgs ? agentCerts.find(c => c.thumbprint === rgsThumb) : undefined;
+      if (useRgs && !rgsCert) { setError('Sélectionnez le certificat de votre clé.'); return; }
 
       const needDraw = redraw || !info.signataire.has_memorized_signature;
       let drawnDataUrl: string | undefined;
@@ -434,24 +462,35 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       body.documentIds = Array.from(ackDocs);
       if (otpCodeValue) body.otpCode = otpCodeValue;
 
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 120000);
-      let r: Response;
-      try {
-        r = await fetch(`/api/parapheur/public/${token}/sign`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...h },
-          body: JSON.stringify(body),
-          signal: ctrl.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-      const raw = await r.text();
       let d: { message?: string; done?: boolean } = {};
-      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
-      if (!r.ok) throw new Error(d.message || `Signature impossible (${r.status})`);
+      if (rgsCert) {
+        // Clé matérielle : le serveur prépare la signature, la clé (sur ce poste) la réalise via l'agent local
+        d = await signWithHardwareKey(token, h, body, rgsCert, setRgsStatus);
+      } else {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 120000);
+        let r: Response;
+        try {
+          r = await fetch(`/api/parapheur/public/${token}/sign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...h },
+            body: JSON.stringify(body),
+            signal: ctrl.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+        const raw = await r.text();
+        try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+        if (!r.ok) throw new Error(d.message || `Signature impossible (${r.status})`);
+      }
       setSuccess({ done: !!d.done });
+      // Agent identifié dans le Hub : retour à l'accueil du parapheur pour enchaîner sur
+      // les autres documents à signer. Un signataire externe n'a pas de session Hub
+      // (/parapheur exige une connexion) : il reste sur l'écran de confirmation.
+      try {
+        if (localStorage.getItem('token') && localStorage.getItem('user')) navigate('/parapheur', { replace: true });
+      } catch { /* stockage indisponible : on garde l'écran de confirmation */ }
     } catch (e: unknown) {
       const msg = e instanceof Error
         ? (e.name === 'AbortError' ? 'Le serveur met trop de temps à répondre. Réessayez.' : e.message)
@@ -460,6 +499,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       setError(msg);
     } finally {
       bulkSigningRef.current = false;
+      setRgsStatus(null);
       setSubmitting(false);
     }
   };
@@ -779,7 +819,53 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
           </>
         )}
 
-        {info.signataire.signature_mode === 'securise' && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 20, marginTop: 24 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 800, color: '#166534', margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <KeyRound size={16} /> Signature avec ma clé RGS** (carte à puce / clé USB)
+          </h2>
+          {agentUp === null && <p style={{ fontSize: 12, color: '#15803d', margin: 0 }}>Recherche de l'agent de signature sur ce poste…</p>}
+          {agentUp === false && (
+            <p style={{ fontSize: 12, color: '#15803d', margin: 0 }}>
+              Agent de signature non détecté sur ce poste. Pour signer avec votre clé : branchez-la, lancez l'« Agent de signature DSI Hub » (<code>start-agent.bat</code>), puis{' '}
+              <button type="button" onClick={refreshAgent} style={{ background: 'none', border: 'none', color: '#166534', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 12 }}>rechercher à nouveau</button>.
+            </p>
+          )}
+          {agentUp && agentError && <p style={{ fontSize: 12, color: '#b91c1c', margin: 0 }}>{agentError}</p>}
+          {agentUp && !agentError && agentCerts.length === 0 && (
+            <p style={{ fontSize: 12, color: '#15803d', margin: 0 }}>
+              Agent détecté, mais aucun certificat utilisable (clé non branchée ou middleware absent).{' '}
+              <button type="button" onClick={refreshAgent} style={{ background: 'none', border: 'none', color: '#166534', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer', padding: 0, fontSize: 12 }}>Actualiser</button>
+            </p>
+          )}
+          {agentUp && agentCerts.length > 0 && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#166534', fontWeight: 600, cursor: 'pointer' }}>
+                <input type="checkbox" checked={useRgs} onChange={e => setUseRgs(e.target.checked)} />
+                Signer avec ma clé matérielle (certificat RGS**)
+              </label>
+              {useRgs && (
+                <>
+                  <select value={rgsThumb} onChange={e => setRgsThumb(e.target.value)} style={{ width: '100%', marginTop: 10, padding: '10px 12px', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: 'white' }}>
+                    {agentCerts.map(c => (
+                      <option key={c.thumbprint} value={c.thumbprint}>
+                        {commonName(c.subject)} — {commonName(c.issuer)} — valide jusqu'au {new Date(c.notAfter).toLocaleDateString('fr-FR')}{c.nonRepudiation ? '' : ' (authentification)'}
+                      </option>
+                    ))}
+                  </select>
+                  {agentCerts.find(c => c.thumbprint === rgsThumb)?.nonRepudiation === false && (
+                    <p style={{ fontSize: 12, color: '#b45309', margin: '8px 0 0' }}>Ce certificat n'est pas un certificat de signature : choisissez celui dont l'usage est « non-répudiation ».</p>
+                  )}
+                  <p style={{ fontSize: 12, color: '#15803d', margin: '8px 0 0' }}>
+                    Au clic sur « Signer », une fenêtre Windows vous demandera de confirmer, puis votre code PIN. La clé privée ne quitte jamais votre clé.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+          {rgsStatus && <p style={{ fontSize: 13, color: '#166534', fontWeight: 700, margin: '10px 0 0' }}>{rgsStatus}</p>}
+        </div>
+
+        {info.signataire.signature_mode === 'securise' && !useRgs && (
           <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 12, padding: 20, marginTop: 24 }}>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: '#5b21b6', margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ShieldCheck size={16} /> Signature sécurisée (certificat P12)

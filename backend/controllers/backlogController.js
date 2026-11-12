@@ -7,6 +7,62 @@ let dbFn = null; // SQLite database
 const setSendMail = (fn) => { sendMailFn = fn; };
 const setDb = (fn) => { dbFn = fn; };
 
+const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * E-mail aux agents désignés dans /admin/backlog (hub.backlog_recipients) à chaque nouvelle demande.
+ * Meilleur effort : une erreur d'envoi ne bloque jamais le dépôt de la demande.
+ * @param {{ kind: string, title: string, category?: string, author?: string, description?: string, path?: string }} info
+ */
+async function notifyNewRequest(info) {
+  try {
+    if (!sendMailFn) return;
+    const rows = await pgDb.all('SELECT email, display_name FROM hub.backlog_recipients');
+    if (!rows.length) return;
+    let base = '';
+    try { base = await require('../shared/app_url').getAppBaseUrl(); } catch (e) { /* lien relatif seulement */ }
+    const link = `${base}${info.path || '/admin/backlog'}`;
+    const desc = String(info.description || '').trim();
+    const html = `
+      <h2>Nouvelle demande : ${esc(info.title)}</h2>
+      <p><strong>Type :</strong> ${esc(info.kind)}${info.category ? ` · <strong>Catégorie :</strong> ${esc(info.category)}` : ''}</p>
+      ${info.author ? `<p><strong>Déposée par :</strong> ${esc(info.author)}</p>` : ''}
+      ${desc ? `<p style="white-space:pre-wrap;border-left:3px solid #cbd5e1;padding-left:10px;color:#334155">${esc(desc.length > 1200 ? desc.slice(0, 1200) + '…' : desc)}</p>` : ''}
+      <p><a href="${esc(link)}">Ouvrir dans l'administration</a></p>`;
+    for (const r of rows) {
+      try { await sendMailFn(r.email, `[DSI Hub] Nouvelle demande : ${info.title}`, html); }
+      catch (e) { console.error(`[BACKLOG] mail destinataire ${r.email}:`, e.message); }
+    }
+  } catch (e) {
+    console.error('[BACKLOG] notifyNewRequest:', e.message);
+  }
+}
+
+// ── Destinataires des notifications (administrateurs)
+exports.listRecipients = async (req, res) => {
+  try {
+    res.json(await pgDb.all('SELECT id, username, email, display_name, added_by, created_at FROM hub.backlog_recipients ORDER BY LOWER(COALESCE(display_name, email))'));
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+exports.addRecipient = async (req, res) => {
+  try {
+    const email = String((req.body && req.body.email) || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ message: 'Adresse e-mail invalide (cet agent n\'a pas d\'e-mail connu)' });
+    await pgDb.run(
+      `INSERT INTO hub.backlog_recipients (username, email, display_name, added_by) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+      [req.body.username || null, email, req.body.displayName || null, req.user && req.user.username]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+exports.removeRecipient = async (req, res) => {
+  try {
+    await pgDb.run('DELETE FROM hub.backlog_recipients WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+};
+exports.notifyNewRequest = notifyNewRequest;
+
 // Helper to flatten LDAP entries
 function flattenLDAPEntry(entry) {
   if (!entry || !entry.pojo) return null;
@@ -170,6 +226,9 @@ exports.createBacklogItem = async (req, res) => {
         console.error(`[BACKLOG] Error sending AR email:`, emailError);
       }
     }
+
+    // Mail aux agents désignés dans /admin/backlog (sans attendre : ne ralentit pas la réponse)
+    void notifyNewRequest({ kind: 'Demande DSI Hub', title, category, author: `${username}${userEmail ? ` (${userEmail})` : ''}`, description, path: '/admin/backlog' });
 
     res.json({ id: result.lastID, title, description, category, status: 'open', tile_id, attachments });
   } catch (error) {

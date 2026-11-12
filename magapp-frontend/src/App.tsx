@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch, FilePen } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,6 +12,8 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
+import PdfCraftModal from './components/PdfTools/PdfCraftModal';
+import AgentSearch from './components/AgentSearch';
 import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
@@ -91,11 +93,11 @@ function normalizeReleaseNotesHtml(html: string): string {
 }
 
 /** Carte d'outil de la modale « Mes outils DSI ». */
-function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void }) {
+function ToolCard({ icon, bg, title, description, beta, onClick, wide }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void; wide?: boolean }) {
   return (
     <button
       onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
+      style={{ gridColumn: wide ? '1 / -1' : undefined, display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
       onMouseOver={(e) => { e.currentTarget.style.borderColor = '#0078a455'; e.currentTarget.style.boxShadow = '0 6px 16px -6px rgba(0,120,164,0.25)'; }}
       onMouseOut={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
     >
@@ -111,6 +113,15 @@ function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React
     </button>
   );
 }
+
+// Dernière entrée du suivi (« [date - user] ancien → nouveau : texte »), en 2 lignes : en-tête puis texte.
+const lastSuivi = (suivi?: string | null): { header: string; text: string } | null => {
+  const entries = String(suivi || '').split(/\n(?=\[\d{2}\/\d{2}\/\d{4})/).map(e => e.trim()).filter(Boolean);
+  if (entries.length === 0) return null;
+  const e = entries[entries.length - 1];
+  const m = e.match(/^(\[[^\]]+\]\s*(?:[^\n:]*→[^\n:]*)?)(?::\s*|\s+)?([\s\S]*)$/);
+  return m ? { header: m[1].trim(), text: m[2].trim() } : { header: '', text: e };
+};
 
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -139,7 +150,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -166,6 +177,8 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPdfTools, setShowPdfTools] = useState(false);
+  const [showPdfCraft, setShowPdfCraft] = useState(false);
+  const [showAgentSearch, setShowAgentSearch] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -221,6 +234,11 @@ function App() {
 
   const { isDark, toggleTheme } = useTheme();
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
+  // Application mise en avant (bannière), configurée dans DSI Hub /admin/magapp > Paramètres
+  const [promo, setPromo] = useState<{ enabled: boolean; url: string; badge: string; title: string; text: string; cta: string; logo_url: string } | null>(null);
+  useEffect(() => {
+    fetch('/api/magapp/promotion').then(r => r.ok ? r.json() : null).then(d => setPromo(d && d.enabled ? d : null)).catch(() => setPromo(null));
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -413,14 +431,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1509,7 +1527,7 @@ function App() {
               >
                 <LifeBuoy size={18} />
                 Mes tickets ({ticketCount})
-                {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                {settings.show_tickets && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
@@ -1578,13 +1596,13 @@ function App() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
-              {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
+              {((settings.show_rencontres && (hasRencontresAccess || !settings.show_rencontres_original)) || settings.is_beta_user) && (
                 <ToolCard
                   icon={<BarChart3 size={22} color="#0284c7" />}
                   bg="#dbeafe"
                   title="Rencontres annuelles"
                   description="Réunions et demandes budgétaires"
-                  beta={settings.is_beta_user && !settings.show_rencontres_original}
+                  beta={settings.show_rencontres && !settings.show_rencontres_original}
                   onClick={() => { setShowTools(false); setShowRencontres(true); }}
                 />
               )}
@@ -1595,7 +1613,7 @@ function App() {
                   bg="#ede9fe"
                   title="Transcript manager"
                   description="Réunions, comptes rendus et résumés IA"
-                  beta={settings.is_beta_user && !settings.show_transcript_manager_original}
+                  beta={settings.show_transcript_manager && !settings.show_transcript_manager_original}
                   onClick={() => { setShowTools(false); handleOpenTranscript(); }}
                 />
               )}
@@ -1606,7 +1624,7 @@ function App() {
                   bg="#cffafe"
                   title="Parapheur"
                   description="Signer et suivre vos documents"
-                  beta={settings.is_beta_user && !settings.show_parapheur_original}
+                  beta={settings.show_parapheur && !settings.show_parapheur_original}
                   onClick={() => { setShowTools(false); handleOpenParapheur(); }}
                 />
               )}
@@ -1617,7 +1635,7 @@ function App() {
                   bg="#dbeafe"
                   title="Mes tâches"
                   description="Suivre et organiser vos tâches"
-                  beta={settings.is_beta_user && !settings.show_tasks_original}
+                  beta={settings.show_tasks && !settings.show_tasks_original}
                   onClick={() => { setShowTools(false); handleOpenTasks(); }}
                 />
               )}
@@ -1628,7 +1646,7 @@ function App() {
                   bg="#d1fae5"
                   title="Mes notes IA"
                   description="Notes personnelles assistées par IA"
-                  beta={settings.is_beta_user && !settings.show_notes_original}
+                  beta={settings.show_notes && !settings.show_notes_original}
                   onClick={() => { setShowTools(false); handleOpenNotes(); }}
                 />
               )}
@@ -1639,7 +1657,7 @@ function App() {
                   bg="#e0f2fe"
                   title="Mes réunions"
                   description="Vos réunions et comptes-rendus"
-                  beta={settings.is_beta_user && !settings.show_reunions_original}
+                  beta={settings.show_reunions && !settings.show_reunions_original}
                   onClick={() => { setShowTools(false); handleOpenReunions(); }}
                 />
               )}
@@ -1650,8 +1668,31 @@ function App() {
                   bg="#dbeafe"
                   title="Outils PDF"
                   description="Fusionner, découper, compresser vos PDF"
-                  beta={settings.is_beta_user && !settings.show_pdf_tools_original}
+                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
                   onClick={() => { setShowTools(false); setShowPdfTools(true); }}
+                />
+              )}
+
+              {(settings.show_pdf_tools || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FilePen size={22} color="#1d4ed8" />}
+                  bg="#dbeafe"
+                  title="Modifier un PDF"
+                  description="Éditeur PDF complet (PdfCraft)"
+                  wide
+                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
+                  onClick={() => { setShowTools(false); setShowPdfCraft(true); }}
+                />
+              )}
+
+              {windowLogin && (settings.show_agent_search || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<UserSearch size={22} color="#b45309" />}
+                  bg="#fef3c7"
+                  title="Recherche d'agent"
+                  description="Service, direction, matricule, mail et téléphone"
+                  beta={settings.show_agent_search && !settings.show_agent_search_original}
+                  onClick={() => { setShowTools(false); setShowAgentSearch(true); }}
                 />
               )}
 
@@ -1661,7 +1702,7 @@ function App() {
                   bg="#e0e7ff"
                   title="Mes abonnements"
                   description="Suivre l'état des services"
-                  beta={settings.is_beta_user && !settings.show_subscriptions_original}
+                  beta={settings.show_subscriptions && !settings.show_subscriptions_original}
                   onClick={() => { setShowTools(false); setShowSubs(true); }}
                 />
               )}
@@ -1672,7 +1713,7 @@ function App() {
                   bg="#fee2e2"
                   title="Déclarer un incident"
                   description="Signaler un problème à la DSI"
-                  beta={settings.is_beta_user && !settings.show_tool_incident_original}
+                  beta={settings.show_tool_incident && !settings.show_tool_incident_original}
                   onClick={() => { setShowTools(false); handleIncidentClick(); }}
                 />
               )}
@@ -1683,7 +1724,7 @@ function App() {
                   bg="#dbeafe"
                   title="Faire une demande"
                   description="Demander un service à la DSI"
-                  beta={settings.is_beta_user && !settings.show_tool_demande_original}
+                  beta={settings.show_tool_demande && !settings.show_tool_demande_original}
                   onClick={() => {
                     setShowTools(false);
                     if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
@@ -1695,7 +1736,9 @@ function App() {
         </div>
       )}
 
-      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} />}
+      {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
+      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
+      {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
       {/* Modal Rencontres */}
       {showRencontres && (
@@ -1739,15 +1782,14 @@ function App() {
                         <thead>
                           <tr style={{ background: '#f1f5f9' }}>
                             <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Demande</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Suivi</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Arbitrage</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Statut</th>
                           </tr>
                         </thead>
                         <tbody>
                           {Object.entries(byDir).map(([dir, services]) => (
                             <React.Fragment key={`my-dir-${dir}`}>
                               <tr>
-                                <td colSpan={3} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                                <td colSpan={2} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                                   {dir}
                                 </td>
                               </tr>
@@ -1755,13 +1797,14 @@ function App() {
                                 <React.Fragment key={`my-svc-${dir}-${svc}`}>
                                   {svc !== '—' && (
                                     <tr>
-                                      <td colSpan={3} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                      <td colSpan={2} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                         {svc}
                                       </td>
                                     </tr>
                                   )}
                                   {items.map((r: any) => (
-                                    <tr key={`my-${r.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
+                                    <React.Fragment key={`my-${r.id}`}>
+                                    <tr style={{ borderBottom: r.suivi ? 'none' : '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
                                       <td style={{ padding: '8px 10px', color: '#1e293b' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                           {r.statut === 'effectuée'
@@ -1777,42 +1820,28 @@ function App() {
                                               <Ticket size={11} /> #{r.ticket_glpi}
                                             </button>
                                           )}
-                                          {r.commentaires && (
-                                            <span
-                                              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
-                                              onMouseEnter={e => {
-                                                const el = document.getElementById('comment-tooltip'); if (el) el.remove();
-                                                const tip = document.createElement('div');
-                                                tip.id = 'comment-tooltip';
-                                                tip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;white-space:pre-wrap;border:1px solid #e2e8f0;';
-                                                tip.textContent = r.commentaires;
-                                                document.body.appendChild(tip);
-                                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                                const tipH = tip.getBoundingClientRect().height;
-                                                const top = rect.bottom + 6 + tipH > window.innerHeight ? rect.top - tipH - 6 : rect.bottom + 6;
-                                                tip.style.top = top + 'px';
-                                                tip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
-                                              }}
-                                              onMouseLeave={() => { const el = document.getElementById('comment-tooltip'); if (el) el.remove(); }}
-                                            >
-                                              <MessageSquare size={13} />
-                                            </span>
-                                          )}
                                         </div>
                                       </td>
-                                      <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
                                       <td style={{ padding: '8px 10px' }}>
-                                        {r.arbitrage ? (
+                                        {r.statut ? (
                                           <span style={{
                                             display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700,
-                                            background: r.arbitrage.includes('OK') ? '#dcfce7' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#fef2f2' : r.arbitrage.includes('DG') ? '#fef3c7' : r.arbitrage === '?' ? '#f1f5f9' : '#f0f9ff',
-                                            color: r.arbitrage.includes('OK') ? '#166534' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#991b1b' : r.arbitrage.includes('DG') ? '#92400e' : r.arbitrage === '?' ? '#64748b' : '#0369a1'
+                                            background: r.statut === 'Validé' || r.statut === 'effectuée' || r.statut === 'terminé' ? '#dcfce7' : r.statut === 'Refusé' ? '#fef2f2' : r.statut === 'A arbitrer' ? '#e0f2fe' : r.statut === 'planifiée' ? '#fef3c7' : '#ede9fe',
+                                            color: r.statut === 'Validé' || r.statut === 'effectuée' || r.statut === 'terminé' ? '#166534' : r.statut === 'Refusé' ? '#991b1b' : r.statut === 'A arbitrer' ? '#0369a1' : r.statut === 'planifiée' ? '#92400e' : '#6d28d9'
                                           }}>
-                                            {r.arbitrage}
+                                            {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
                                           </span>
                                         ) : '—'}
                                       </td>
                                     </tr>
+                                    {lastSuivi(r.suivi)?.text && (
+                                      <tr style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
+                                        <td colSpan={2} style={{ padding: '0 10px 8px 30px', color: '#475569', fontSize: '0.78rem', wordBreak: 'break-word' }}>
+                                          <div style={{ whiteSpace: 'pre-wrap' }}>{lastSuivi(r.suivi)!.text}</div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    </React.Fragment>
                                   ))}
                                 </React.Fragment>
                               ))}
@@ -2104,7 +2133,7 @@ function App() {
                   >
                     <AlertTriangle size={18} />
                     Déclarer un incident
-                    {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                    {settings.show_create_buttons && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                   <button
                     onClick={() => {
@@ -2114,7 +2143,7 @@ function App() {
                   >
                     <Clock size={18} />
                     Faire une demande
-                    {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                    {settings.show_create_buttons && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                 </>
               )}
@@ -2125,7 +2154,7 @@ function App() {
                 >
                   <Lightbulb size={18} />
                   J'ai une idée !
-                  {settings.is_beta_user && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_ideas && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
               {(settings.show_ideas || settings.is_beta_user) && (
@@ -2135,7 +2164,7 @@ function App() {
                 >
                   <Lightbulb size={18} />
                   Mes Idées
-                  {settings.is_beta_user && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_ideas && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
 {(settings.show_tickets || settings.is_beta_user) && (
@@ -2145,7 +2174,7 @@ function App() {
                 >
                   <Eye size={18} />
                   Tickets observés
-                  {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_tickets && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
             </div>
@@ -2415,10 +2444,34 @@ function App() {
           >
             {isTesting ? <Loader2 className="loading-spinner" size={18} /> : <Activity size={18} />}
             {isTesting ? "Test en cours..." : "Tester les applis"}
-            {settings.is_beta_user && !settings.show_health_check_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+            {settings.show_health_check && !settings.show_health_check_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
           </button>
         )}
       </div>
+
+      {/* Application mise en avant (promotion) : configurée dans DSI Hub /admin/magapp > Paramètres */}
+      {!searchTerm && promo && promo.url && (
+        <section className="category-section">
+          <a
+            href={promo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', gap: '22px', textDecoration: 'none', color: '#fff', borderRadius: '16px', padding: '18px 26px', background: 'linear-gradient(110deg, #b91c1c 0%, #7e22ce 55%, #1d4ed8 100%)', boxShadow: '0 10px 25px -8px rgba(76,29,149,0.45)', transition: 'transform 0.2s' }}
+            onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.transform = 'none'; }}
+          >
+            {promo.logo_url && <img src={promo.logo_url} alt="" style={{ width: 96, height: 96, objectFit: 'contain', flexShrink: 0, background: '#fff', borderRadius: '20px', padding: 6 }} />}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.12em', opacity: 0.85 }}>{promo.badge}</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, margin: '2px 0 6px' }}>{promo.title}</div>
+              <div style={{ fontSize: '0.92rem', lineHeight: 1.5, opacity: 0.95 }}>{promo.text}</div>
+            </div>
+            <span style={{ background: '#fff', color: '#6d28d9', fontWeight: 800, fontSize: '0.95rem', padding: '12px 22px', borderRadius: '12px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {promo.cta} →
+            </span>
+          </a>
+        </section>
+      )}
 
       {/* Mes Favoris Section Dynamique */}
       {favoriteApps.length > 0 && (
@@ -3523,7 +3576,7 @@ Je confirme l'incident
         </div>
       )}
 
-      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.is_beta_user && !(settings as any).show_chat_live_original} />
+      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.show_chat_live && !(settings as any).show_chat_live_original} />
     </div>
   );
 }

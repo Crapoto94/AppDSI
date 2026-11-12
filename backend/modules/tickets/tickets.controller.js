@@ -228,7 +228,9 @@ module.exports = {
             if (errors.length > 0) {
                 return res.status(400).json({ message: errors.join('; ') });
             }
-            const ticketId = await ticketService.create(req.body, req.user);
+            // Case « ticket téléphone » du formulaire de création : source « Téléphone » (sinon source par défaut : « hub »)
+            const body = req.body.is_phone === true || req.body.is_phone === 'true' ? { ...req.body, source: 'Téléphone' } : req.body;
+            const ticketId = await ticketService.create(body, req.user);
             res.status(201).json({ id: ticketId, message: 'Ticket créé' });
             try {
                 const t = await ticketRepo.findById(ticketId);
@@ -956,6 +958,15 @@ async assign(req, res) {
     },
 
     // ─── Dashboard ─────────────────────────────────────────────
+    async getSourceEvolution(req, res) {
+        try {
+            res.json(await ticketService.getSourceEvolution({ months: req.query.months, group_id: req.query.group_id }));
+        } catch (error) {
+            console.error('[Tickets] getSourceEvolution:', error);
+            res.status(500).json({ message: "Erreur lors du calcul de l'évolution des modes de soumission", error: error.message });
+        }
+    },
+
     async getTicketsStats(req, res) {
         try {
             const stats = await ticketService.getTicketsStats({ from: req.query.from, to: req.query.to, group_id: req.query.group_id });

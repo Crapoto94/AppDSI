@@ -257,6 +257,172 @@ async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEma
     });
 }
 
+/**
+ * Fait avancer le circuit Sedit après un service fait validé, comme le fait l'interface Sedit :
+ * l'étape suivante PRE_LIQUIDE passe EN_ATTENTE → EN_COURS (c'est ce qui la rend visible aux
+ * services financiers) et FACTURE.FAC_AVANCEMENT passe de '3' à '13'. Sans cela, l'étape service
+ * fait est VALIDE mais la facture reste bloquée et ne peut être ni préliquidée ni liquidée.
+ *
+ * Gardes : n'agit que si SERVICE_FAIT est VALIDE, PRE_LIQUIDE EN_ATTENTE et FAC_AVANCEMENT = '3'
+ * (idempotent, ne touche jamais une facture déjà avancée). Journalisé et réversible.
+ */
+async function advanceCircuitAfterServiceFaitLogged({ invoiceRef, workflowId, actor }) {
+    return financeShare.withFinanceOracle(async (conn) => {
+        try {
+            const r = await conn.execute(
+                `SELECT TRIM(f.ROO_IMA_REF) AS FACTURE_ROO, f.FAC_AVANCEMENT, f.UPDATOKEN AS F_TOKEN, f.USER_MODIF AS F_UM, f.DATE_MODIF AS F_DM,
+                        TRIM(pl.ROO_IMA_REF) AS PL_ROO, pl.ETAT AS PL_ETAT, pl.UPDATOKEN AS PL_TOKEN, pl.USER_MODIF AS PL_UM, pl.DATE_MODIF AS PL_DM,
+                        TRIM(sf.UTILISATEUR) AS SF_USER
+                 FROM FI.FACTURE f
+                 JOIN FI.FACSUIVI sf ON sf.FACTURE = f.ROO_IMA_REF AND sf.AVANCEMENT = 'SERVICE_FAIT' AND sf.ETAT = 'VALIDE'
+                 JOIN FI.FACSUIVI pl ON pl.FACTURE = f.ROO_IMA_REF AND pl.AVANCEMENT = 'PRE_LIQUIDE'
+                 WHERE TRIM(f.FACTURE) = :numero`,
+                { numero: invoiceRef }
+            );
+            if (r.rows.length !== 1) return { updated: 0, reason: r.rows.length ? 'circuit_ambigu' : 'etape_absente' };
+            const b = r.rows[0];
+            if (trimChar(b.FAC_AVANCEMENT) !== '3' || trimChar(b.PL_ETAT) !== 'EN_ATTENTE') {
+                return { updated: 0, reason: 'deja_avance' };
+            }
+            const user = String(actor || b.SF_USER || APP_USER_SHORT).slice(0, 10);
+
+            const updPl = await conn.execute(
+                `UPDATE FI.FACSUIVI SET ETAT = 'EN_COURS', USER_MODIF = :u, DATE_MODIF = SYSDATE, UPDATOKEN = UPDATOKEN + 1
+                 WHERE TRIM(ROO_IMA_REF) = :roo AND ETAT = 'EN_ATTENTE'`,
+                { u: user, roo: b.PL_ROO }
+            );
+            const updF = await conn.execute(
+                `UPDATE FI.FACTURE SET FAC_AVANCEMENT = '13', USER_MODIF = :u, DATE_MODIF = SYSDATE, UPDATOKEN = UPDATOKEN + 1
+                 WHERE TRIM(ROO_IMA_REF) = :roo AND FAC_AVANCEMENT = '3'`,
+                { u: user, roo: b.FACTURE_ROO }
+            );
+            if (updPl.rowsAffected !== 1 || updF.rowsAffected !== 1) {
+                await conn.rollback();
+                return { updated: 0, reason: 'maj_incomplete' };
+            }
+            await conn.commit();
+
+            const logId = await logWrite({
+                workflowId, invoiceRef, action: 'facture_circuit_advance', actor: user, status: 'applied',
+                before: {
+                    FACTURE_ROO: b.FACTURE_ROO, PL_ROO: b.PL_ROO,
+                    FAC_AVANCEMENT: trimChar(b.FAC_AVANCEMENT), F_UPDATOKEN: Number(b.F_TOKEN) || 0, F_USER_MODIF: trimChar(b.F_UM), F_DATE_MODIF: b.F_DM || null,
+                    PL_ETAT: trimChar(b.PL_ETAT), PL_UPDATOKEN: Number(b.PL_TOKEN) || 0, PL_USER_MODIF: trimChar(b.PL_UM), PL_DATE_MODIF: b.PL_DM || null,
+                },
+                after: { FAC_AVANCEMENT: '13', PL_ETAT: 'EN_COURS', USER_MODIF: user },
+            });
+            return { updated: 1, logId };
+        } catch (e) {
+            try { await conn.rollback(); } catch (e2) { /* ignore */ }
+            throw e;
+        }
+    });
+}
+
+/** Restaure FACTURE.FAC_AVANCEMENT et l'étape PRE_LIQUIDE à leur état précédent (undo). */
+async function restoreCircuitAdvance({ before }) {
+    const b = before || {};
+    if (!b.FACTURE_ROO || !b.PL_ROO) throw new Error('Journal incomplet : FACTURE_ROO / PL_ROO manquant.');
+    await financeShare.withFinanceOracle(async (conn) => {
+        try {
+            const updPl = await conn.execute(
+                `UPDATE FI.FACSUIVI SET ETAT = :etat, USER_MODIF = :um, DATE_MODIF = :dm, UPDATOKEN = :ut
+                 WHERE TRIM(ROO_IMA_REF) = :roo AND AVANCEMENT = 'PRE_LIQUIDE'`,
+                { etat: b.PL_ETAT, um: b.PL_USER_MODIF || null, dm: b.PL_DATE_MODIF ? new Date(b.PL_DATE_MODIF) : null, ut: b.PL_UPDATOKEN, roo: b.PL_ROO }
+            );
+            const updF = await conn.execute(
+                `UPDATE FI.FACTURE SET FAC_AVANCEMENT = :av, USER_MODIF = :um, DATE_MODIF = :dm, UPDATOKEN = :ut
+                 WHERE TRIM(ROO_IMA_REF) = :roo`,
+                { av: b.FAC_AVANCEMENT, um: b.F_USER_MODIF || null, dm: b.F_DATE_MODIF ? new Date(b.F_DATE_MODIF) : null, ut: b.F_UPDATOKEN, roo: b.FACTURE_ROO }
+            );
+            if (updPl.rowsAffected !== 1 || updF.rowsAffected !== 1) throw new Error('Restauration circuit : mise à jour incomplète.');
+            await conn.commit();
+        } catch (e) {
+            try { await conn.rollback(); } catch (e2) { /* ignore */ }
+            throw e;
+        }
+    });
+}
+
+/**
+ * Met à jour la liste de travail de Sedit (FI.FAC_TACHES, « Mes factures à traiter ») après un service
+ * fait validé hors interface Sedit. Sedit, lui, à la validation :
+ *   - crée la tâche « Liquidation en attente » du service des finances (FACSUIVI = étape PRE_LIQUIDE,
+ *     SERVICE = service de l'étape, BUDGET de la facture, TYPE_TACHE = 'FACTURE').
+ * Sans cela la facture n'apparaît pas dans « Mes factures à traiter » des gestionnaires comptables
+ * (ils doivent décocher la case). La tâche « Service fait » existante est volontairement conservée.
+ *
+ * Idempotent : ne crée la tâche PRE_LIQUIDE que si l'étape est EN_COURS et qu'aucune tâche ne la référence. Journalisé
+ * (action `facture_taches_sync`) et réversible via undoSeditWrite.
+ */
+async function syncTachesAfterServiceFaitLogged({ invoiceRef, workflowId, actor }) {
+    return financeShare.withFinanceOracle(async (conn) => {
+        try {
+            const r = await conn.execute(
+                `SELECT f.ROO_IMA_REF AS FACTURE_ROO, TRIM(f.BUDGET) AS BUDGET, f.MONTANTTC_E, f.TIERS,
+                        sf.ROO_IMA_REF AS SF_ROO, pl.ROO_IMA_REF AS PL_ROO, pl.ETAT AS PL_ETAT, pl.SERDEST AS PL_SERVICE
+                 FROM FI.FACTURE f
+                 JOIN FI.FACSUIVI sf ON sf.FACTURE = f.ROO_IMA_REF AND sf.AVANCEMENT = 'SERVICE_FAIT' AND sf.ETAT = 'VALIDE'
+                 JOIN FI.FACSUIVI pl ON pl.FACTURE = f.ROO_IMA_REF AND pl.AVANCEMENT = 'PRE_LIQUIDE'
+                 WHERE TRIM(f.FACTURE) = :numero`,
+                { numero: invoiceRef }
+            );
+            if (r.rows.length !== 1) return { updated: 0, reason: r.rows.length ? 'circuit_ambigu' : 'etape_absente' };
+            const b = r.rows[0];
+
+            // Tâche de l'étape suivante (préliquidation, libellée « Liquidation » dans Sedit).
+            let insertedId = null;
+            if (trimChar(b.PL_ETAT) === 'EN_COURS') {
+                const has = await conn.execute(
+                    `SELECT COUNT(*) AS N FROM FI.FAC_TACHES WHERE TRIM(FACTURE) = TRIM(:f) AND TRIM(FACSUIVI) = TRIM(:pl)`,
+                    { f: b.FACTURE_ROO, pl: b.PL_ROO }
+                );
+                if (!Number(has.rows[0].N)) {
+                    const t = await conn.execute(`SELECT POBJ_EXTRACT FROM FI.TIERS WHERE ROO_IMA_REF = :t`, { t: b.TIERS });
+                    const parts = String((t.rows[0] && t.rows[0].POBJ_EXTRACT) || '').split('\u0001').map(s => s.trim());
+                    const montant = Number(b.MONTANTTC_E || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const libelle = `Facture n° ${invoiceRef}, Montant TTC : ${montant} €, ${parts[1] || ''} (${parts[0] || ''}) : Tâche 'Liquidation' en attente`.slice(0, 200);
+                    const idRes = await conn.execute(`SELECT FI.NRSEQ_HIBERNATE.NEXTVAL AS ID FROM DUAL`);
+                    insertedId = Number(idRes.rows[0].ID);
+                    await conn.execute(
+                        `INSERT INTO FI.FAC_TACHES (IDENTIFIANT, VERSION, LIBELLE, MODULE, PRIORITETACHE, FACTURE, FACSUIVI, BUDGET, SERVICE, TYPE_TACHE)
+                         VALUES (:id, 0, :libelle, 'FAC', 'PRIO', :f, :pl, :budget, :service, 'FACTURE')`,
+                        { id: insertedId, libelle, f: b.FACTURE_ROO, pl: b.PL_ROO, budget: b.BUDGET, service: b.PL_SERVICE }
+                    );
+                }
+            }
+
+            if (insertedId == null) return { updated: 0, reason: 'deja_a_jour' };
+            await conn.commit();
+            const logId = await logWrite({
+                workflowId, invoiceRef, action: 'facture_taches_sync', actor: String(actor || APP_USER_SHORT).slice(0, 10), status: 'applied',
+                before: null,
+                after: { insertedId },
+            });
+            return { updated: 1, insertedId, logId };
+        } catch (e) {
+            try { await conn.rollback(); } catch (e2) { /* ignore */ }
+            throw e;
+        }
+    });
+}
+
+/** Annule syncTachesAfterServiceFaitLogged : retire la tâche créée. */
+async function restoreTachesSync({ after }) {
+    const insertedId = after && after.insertedId;
+    await financeShare.withFinanceOracle(async (conn) => {
+        try {
+            if (insertedId != null) {
+                await conn.execute(`DELETE FROM FI.FAC_TACHES WHERE IDENTIFIANT = :id`, { id: insertedId });
+            }
+            await conn.commit();
+        } catch (e) {
+            try { await conn.rollback(); } catch (e2) { /* ignore */ }
+            throw e;
+        }
+    });
+}
+
 // ─── Construction du PV (page 1 lisible + PDF source en pages suivantes) ─────
 
 function fmtDateFr(value) {
@@ -633,6 +799,10 @@ async function undoSeditWrite(logId, actor) {
         await detachServiceFaitPv({ pjRoo: row.oracle_pj_roo, lnkRoo: row.oracle_lnk_roo, filePath: row.file_path });
     } else if (row.action === 'facsuivi_service_fait') {
         await restoreFacsuivi({ before: row.before_json });
+    } else if (row.action === 'facture_circuit_advance') {
+        await restoreCircuitAdvance({ before: row.before_json });
+    } else if (row.action === 'facture_taches_sync') {
+        await restoreTachesSync({ after: row.after_json });
     } else {
         const e = new Error(`Action inconnue : ${row.action}`); e.status = 400; throw e;
     }
@@ -670,6 +840,8 @@ async function readStorageBuffer(dbPath) {
 
 module.exports = {
     updateServiceFaitDoneLogged,
+    advanceCircuitAfterServiceFaitLogged,
+    syncTachesAfterServiceFaitLogged,
     buildSealedServiceFaitPv,
     attachServiceFaitPv,
     detachServiceFaitPv,

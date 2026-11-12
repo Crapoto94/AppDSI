@@ -296,6 +296,10 @@ module.exports = {
         await historyRepo.log(id, user.id, 'deleted', 'status', null, '8', 'Ticket supprimé', user.username);
     },
 
+    async getSourceEvolution(opts) {
+        return ticketRepo.getSourceEvolution(opts);
+    },
+
     async getTicketsStats(filters) {
         return ticketRepo.getTicketsStats(filters);
     },

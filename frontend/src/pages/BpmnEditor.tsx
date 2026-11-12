@@ -10,7 +10,7 @@ import Header from '../components/Header';
 import frenchTranslation from './bpmnTranslate';
 import AppAssetRenderer, { APP_ASSET_SIZE } from './bpmnAppRenderer';
 import TypeColorRenderer, { TYPE_COLORS } from './bpmnTypeColors';
-import { normalizeBpmn, splitAssetLinks } from './bpmnNormalize';
+import { normalizeBpmn, splitAssetLinks, type AssetLink } from './bpmnNormalize';
 import { layoutWithLanes } from './bpmnLaneLayout';
 import {
   AssetChips, DiagramLibraryDialog, SaveDiagramDialog,
@@ -177,8 +177,9 @@ const BpmnEditor: React.FC = () => {
       () => {
         (modeler.get('canvas') as CanvasApi).zoom('fit-viewport', 'auto');
         setError(null);
+        return true;
       },
-      (e: unknown) => setError('Diagramme invalide : ' + errMsg(e)),
+      (e: unknown) => { setError('Diagramme invalide : ' + errMsg(e)); return false; },
     );
 
   const loadXml = (xml: string) => loadInto(modelerRef.current!, xml);
@@ -317,15 +318,67 @@ const BpmnEditor: React.FC = () => {
     resetDocument(EMPTY_DIAGRAM, null);
   };
 
+  // Titre proposé pour un fichier importé : nom du pool (ou du processus) s'il existe, sinon nom du fichier
+  const titleFromXml = (xml: string, fallback: string) => {
+    const m = xml.match(/<(?:\w+:)?(?:participant|process)\b[^>]*\bname="([^"]+)"/);
+    const name = m?.[1].replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+    return name || fallback;
+  };
+
+  // Importe un fichier .bpmn / .xml (BPMN 2.0) dans l'éditeur. Un fichier sans partie graphique
+  // (produit par un moteur de workflow ou une IA) est mis en page automatiquement.
+  const importFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    if (!/\.(bpmn|xml)$/i.test(file.name)) { setError('Format non pris en charge : choisissez un fichier .bpmn ou .xml (BPMN 2.0).'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('Fichier trop volumineux (5 Mo maximum).'); return; }
+    if (!confirmDiscard()) return;
+    let xml = await file.text();
+    let links: AssetLink[] = [];
+    let autoLayout = false;
+    try {
+      if (!/<(?:\w+:)?BPMNShape[\s>]/.test(xml)) {
+        const split = splitAssetLinks(normalizeBpmn(xml).xml);
+        xml = layoutWithLanes(split.xml, split.links) ?? await layoutProcess(split.xml);
+        links = split.links;
+        autoLayout = true;
+      }
+    } catch (e) {
+      setError('Fichier invalide : ' + errMsg(e));
+      return;
+    }
+    const fallbackTitle = file.name.replace(/\.(bpmn|xml)$/i, '');
+    if (!(await resetDocument(xml, null))) return; // import raté : le message d'erreur est déjà affiché
+    if (autoLayout) {
+      const registry = getRegistry();
+      for (const link of links) {
+        const task = registry.get(link.task);
+        const asset = registry.get(link.asset);
+        if (task && asset) {
+          try { getModeling().connect(link.output ? task : asset, link.output ? asset : task); } catch { /* liaison non autorisée : ignorée */ }
+        }
+      }
+    }
+    const imported = titleFromXml(xml, fallbackTitle);
+    setTitle(imported);
+    markDirty(true);
+    saveDraft(modelerRef.current!);
+    flash(`« ${imported} » importé${autoLayout ? ' (le fichier n\'avait pas de partie graphique : mise en page automatique)' : ''}. Enregistrez-le dans la bibliothèque pour le partager.`);
+  };
+
   const handleOpenFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !confirmDiscard()) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      resetDocument(String(reader.result), null).then(() => setTitle(file.name.replace(/\.(bpmn|xml)$/i, '')));
-    };
-    reader.readAsText(file);
+    importFile(file);
+  };
+
+  // Glisser-déposer d'un fichier depuis l'explorateur sur la page
+  const onDragOverFile = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+  };
+  const onDropFile = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    importFile(e.dataTransfer.files?.[0]);
   };
 
   // --- Bibliothèque serveur ---
@@ -442,7 +495,7 @@ const BpmnEditor: React.FC = () => {
   const filteredApps = apps.filter((a) => `${a.name} ${a.description || ''}`.toLowerCase().includes(appSearch.toLowerCase()));
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }} onDragOver={onDragOverFile} onDrop={onDropFile}>
       <style>{tooltipStyle}</style>
       <Header />
       <main style={{ padding: '60px 20px' }}>
@@ -478,7 +531,7 @@ const BpmnEditor: React.FC = () => {
             <button style={btn} onClick={() => setPickerOpen(true)} data-tip={"Ajouter un logiciel du Magasin d'applications comme actif du diagramme (fenêtre portant son nom).\nReliez-le ensuite à la tâche qui l'utilise avec la flèche du pavé contextuel."}>
               <AppWindow size={16} /> Application
             </button>
-            <button style={btn} onClick={() => fileInputRef.current?.click()} data-tip={"Importer un fichier de diagramme depuis votre poste.\nFormats acceptés : .bpmn ou .xml (BPMN 2.0)."}>
+            <button style={btn} onClick={() => fileInputRef.current?.click()} data-tip={"Importer un fichier de diagramme depuis votre poste (ou le glisser-déposer sur la page).\nFormats acceptés : .bpmn ou .xml (BPMN 2.0). Un fichier sans partie graphique est mis en page automatiquement ; le titre est repris du fichier."}>
               <FolderOpen size={16} /> Importer…
             </button>
             <button style={btn} onClick={exportBpmn} data-tip={"Télécharger le diagramme au format BPMN 2.0 (.bpmn).\nRéutilisable dans d'autres outils de modélisation."}>

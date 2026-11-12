@@ -25,6 +25,8 @@ router.get('/file/document/:id', authenticateJWT, ctrl.downloadDocument);
 router.get('/etiquette/logo', authenticateJWT, etiquette.getLogo);
 router.post('/etiquette/logo', authenticateJWT, uploadLogo.single('file'), etiquette.uploadLogo);
 router.delete('/etiquette/logo', authenticateJWT, etiquette.deleteLogo);
+router.get('/etiquette/texts', authenticateJWT, etiquette.getTexts);
+router.put('/etiquette/texts', authenticateJWT, etiquette.saveTexts);
 
 // ── LIVE (API GLPI 10 directe, sans synchro) ──────────────────────────────────
 // Ordre : routes spécifiques avant les routes paramétrées.

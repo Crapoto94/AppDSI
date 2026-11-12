@@ -32,7 +32,51 @@ interface Props {
   beta?: boolean;
 }
 
-export default function ChatWidget({ liveEnabled, beta = false }: Props) {
+/** Notification du navigateur (si autorisée) : réponse d'un technicien alors que l'onglet est en arrière-plan ou le chat réduit. */
+function showBrowserNotification(title: string, body: string, onClick?: () => void) {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const n = new Notification(title, { body, icon: '/img/Ivry.png', tag: 'dsihub-live-chat', renotify: true } as NotificationOptions);
+    n.onclick = () => { window.focus(); onClick?.(); n.close(); };
+    setTimeout(() => n.close(), 15000);
+  } catch { /* notifications indisponibles */ }
+}
+function requestNotificationPermission() {
+  try { if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission(); } catch { /* ignore */ }
+}
+/** Petit « ding » discret à la réception d'une réponse. */
+function playBeep() {
+  try {
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx(); const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.value = 880; gain.gain.value = 0.06;
+    osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.18);
+    setTimeout(() => ctx.close(), 400);
+  } catch { /* ignore */ }
+}
+const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(name || '');
+const stamp = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
+
+/** Enveloppe : porte la capture d'écran plein écran, rendue en dehors du widget (qui se masque pendant la capture). */
+export default function ChatWidget(props: Props) {
+  const [hidden, setHidden] = useState(false);
+  const [capture, setCapture] = useState<{ src: string; done: (b: Blob) => void } | null>(null);
+  return (
+    <>
+      <ChatWidgetCore {...props} hidden={hidden} setHidden={setHidden} openCapture={(src, done) => setCapture({ src, done })} />
+      {capture && <CaptureOverlay src={capture.src} onCancel={() => setCapture(null)} onDone={b => { capture.done(b); setCapture(null); }} />}
+    </>
+  );
+}
+
+interface CoreProps extends Props {
+  hidden: boolean;
+  setHidden: (v: boolean) => void;
+  openCapture: (src: string, done: (b: Blob) => void) => void;
+}
+
+function ChatWidgetCore({ liveEnabled, beta = false, hidden, setHidden, openCapture }: CoreProps) {
   const [state, setState] = useState<ChatState>('idle');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<LiveMessage[]>([]);
@@ -52,6 +96,12 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [listening, setListening] = useState(false);
+  // Images collées / capturées en attente d'envoi, réponses non lues (chat réduit)
+  const [pending, setPending] = useState<{ id: number; file: File; url: string }[]>([]);
+  const [unread, setUnread] = useState(0);
+  const stateRef = useRef<ChatState>('idle');
+  const techNameRef = useRef('');
+  const seenRef = useRef<Set<number> | null>(null); // identifiants déjà vus (null = historique pas encore chargé : pas de notification)
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -59,6 +109,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
+  stateRef.current = state;
   const token = localStorage.getItem('token');
 
   // Horaires : lecture de l'état réel d'ouverture (calcul serveur, fuseau du calendrier), rafraîchi chaque minute
@@ -104,6 +155,20 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Réponses non lues : remises à zéro dès que le chat est ouvert et visible ; le titre de l'onglet clignote en attendant
+  useEffect(() => { if ((state === 'waiting' || state === 'active') && !document.hidden) setUnread(0); }, [state]);
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden && stateRef.current !== 'idle') setUnread(0); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+  useEffect(() => {
+    if (unread <= 0) return;
+    const base = document.title.replace(/^\(\d+\) 💬 /, '');
+    document.title = `(${unread}) 💬 ${base}`;
+    return () => { document.title = base; };
+  }, [unread]);
+
   // Polling
   const startPolling = useCallback((sid: number) => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -122,15 +187,30 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
           const newOnes = msgRes.data.filter(m => !ids.has(m.id));
           return newOnes.length ? [...prev, ...newOnes] : prev;
         });
+        // Réponse d'un technicien alors que l'onglet est en arrière-plan ou le chat réduit : notification + son + compteur
+        const seen = seenRef.current;
+        if (seen) {
+          const freshTech = msgRes.data.filter(m => !seen.has(m.id) && m.sender_type === 'tech');
+          if (freshTech.length && (document.hidden || stateRef.current === 'idle')) {
+            const last = freshTech[freshTech.length - 1];
+            showBrowserNotification(`Réponse de ${last.sender_name || 'la DSI'}`, last.attachment_url ? `📎 ${last.attachment_name || 'Pièce jointe'}` : (last.content || '').slice(0, 140), () => setState(s => (s === 'idle' ? 'active' : s)));
+            playBeep();
+            setUnread(n => n + freshTech.length);
+          }
+        }
+        seenRef.current = new Set(msgRes.data.map(m => m.id));
         const session = sessionRes.data;
         if (session.status === 'active') {
-          setState(prev => {
-            if (prev === 'waiting') {
-              setTechName(session.tech_display_name || 'Technicien DSI');
-              return 'active';
+          if (!techNameRef.current) {
+            techNameRef.current = session.tech_display_name || 'Technicien DSI';
+            setTechName(techNameRef.current);
+            if (seen && (document.hidden || stateRef.current === 'idle')) {
+              showBrowserNotification('Un technicien a rejoint votre chat', `${techNameRef.current} va vous répondre.`, () => setState(s => (s === 'idle' ? 'active' : s)));
+              playBeep();
+              setUnread(n => n + 1);
             }
-            return prev;
-          });
+          }
+          setState(prev => (prev === 'waiting' ? 'active' : prev));
         } else if (session.status === 'closed') {
           stopPolling();
           setState('rating');
@@ -156,6 +236,8 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const startSession = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim()) return;
+    requestNotificationPermission();
+    seenRef.current = null; techNameRef.current = '';
     setSending(true);
     setState('connecting');
     try {
@@ -174,16 +256,38 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     }
   };
 
+  const uploadFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    await axios.post(`/api/live/sessions/${sessionId}/upload`, formData, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+    });
+  };
+
+  /** Envoie les images en attente puis le texte (possible dès la mise en attente : plusieurs messages d'affilée). */
   const sendMessage = async () => {
-    if (!input.trim() || !sessionId) return;
     const text = input.trim();
-    setInput('');
+    if ((!text && pending.length === 0) || !sessionId || uploading) return;
+    if (pending.length) {
+      setUploading(true);
+      try {
+        for (const p of pending) await uploadFile(p.file);
+        pending.forEach(p => URL.revokeObjectURL(p.url));
+        setPending([]);
+      } catch (err: any) {
+        alert(err.response?.data?.message || 'Erreur lors de l\'envoi de l\'image');
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+    }
+    if (text) {
+      setInput('');
+      try {
+        await axios.post(`/api/live/sessions/${sessionId}/messages`, { content: text }, { headers: { Authorization: `Bearer ${token}` } });
+      } catch { /* ignore */ }
+    }
     textareaRef.current?.focus();
-    try {
-      await axios.post(`/api/live/sessions/${sessionId}/messages`, { content: text }, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch { /* ignore */ }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,16 +296,49 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     e.target.value = '';
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      await axios.post(`/api/live/sessions/${sessionId}/upload`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-      });
+      await uploadFile(file);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur lors de l\'envoi du fichier');
     } finally {
       setUploading(false);
     }
+  };
+
+  // Image en attente d'envoi (collée ou capturée) : aperçu au-dessus du champ de saisie
+  const stageImage = (file: File | Blob, name?: string) => {
+    const f = file instanceof File ? file : new File([file], name || `capture-${stamp()}.png`, { type: file.type || 'image/png' });
+    setPending(prev => [...prev, { id: Date.now() + Math.random(), file: f, url: URL.createObjectURL(f) }]);
+    textareaRef.current?.focus();
+  };
+
+  // Ctrl+V d'une capture d'écran (ou d'une image copiée) directement dans le chat
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const images = items.filter(it => it.kind === 'file' && it.type.startsWith('image/')).map(it => it.getAsFile()).filter(Boolean) as File[];
+    if (!images.length) return;
+    e.preventDefault();
+    images.forEach((f, i) => stageImage(new File([f], `capture-${stamp()}${images.length > 1 ? '-' + (i + 1) : ''}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type })));
+  };
+
+  // Capture d'écran avec sélection d'une zone : le navigateur demande quel écran / fenêtre / onglet partager (obligatoire, pour la sécurité)
+  const startScreenCapture = async () => {
+    if (!navigator.mediaDevices || !(navigator.mediaDevices as any).getDisplayMedia) { alert("La capture d'écran n'est pas disponible sur ce navigateur : collez une image avec Ctrl+V."); return; }
+    let stream: MediaStream;
+    try {
+      stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+    } catch { return; /* partage annulé */ }
+    setHidden(true); // le chat se masque pour ne pas apparaître sur la capture
+    try {
+      const video = document.createElement('video');
+      video.muted = true; video.srcObject = stream;
+      await video.play();
+      await new Promise(r => setTimeout(r, 500));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      canvas.getContext('2d')!.drawImage(video, 0, 0);
+      openCapture(canvas.toDataURL('image/png'), (blob) => stageImage(blob));
+    } catch { alert('La capture a échoué.'); }
+    finally { stream.getTracks().forEach(t => t.stop()); setHidden(false); }
   };
 
   const toggleDictation = () => {
@@ -258,8 +395,14 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (state === 'open') startSession();
-      else if (state === 'active') sendMessage();
+      else if (state === 'active' || state === 'waiting') void sendMessage();
     }
+  };
+
+  // Chat en cours (attente / actif) : la croix RÉDUIT la fenêtre (le chat continue, avec notifications) ; « Terminer le chat » y met fin
+  const closeOrMinimize = () => {
+    if ((state === 'waiting' || state === 'active') && sessionId) { setState('idle'); return; }
+    closeWidget();
   };
 
   const closeWidget = () => {
@@ -268,6 +411,8 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     setMessages([]);
     setSessionId(null);
     setTechName('');
+    techNameRef.current = ''; seenRef.current = null;
+    setUnread(0);
     setInput('');
     setRating(0);
     setRatingComment('');
@@ -275,7 +420,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   };
 
   // ── Guards ───────────────────────────────────────────────────────────
-  if (!liveEnabled || checking) return null;
+  if (!liveEnabled || checking || hidden) return null;
 
   // ── Shared styles ────────────────────────────────────────────────────
   const panelStyle: React.CSSProperties = {
@@ -308,7 +453,58 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
           {subtitle && <div style={{ fontSize: 11, opacity: 0.85 }}>{subtitle}</div>}
         </div>
       </div>
-      <button onClick={closeWidget} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', opacity: 0.7, fontSize: 20, lineHeight: 1, padding: 0 }}>✕</button>
+      <button onClick={closeOrMinimize} title={(state === 'waiting' || state === 'active') ? 'Réduire (le chat continue)' : 'Fermer'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', opacity: 0.7, fontSize: 20, lineHeight: 1, padding: 0 }}>✕</button>
+    </div>
+  );
+
+  // Zone de saisie commune à l'attente et à la conversation active
+  const composer = (
+    <div style={{ padding: '10px 12px', borderTop: '1px solid #e2e8f0', background: '#fff' }} onPaste={handlePaste}>
+      {pending.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          {pending.map(p => (
+            <div key={p.id} style={{ position: 'relative', width: 64, height: 64, borderRadius: 8, overflow: 'hidden', border: '1.5px solid #c7d2fe' }}>
+              <img src={p.url} alt="capture" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button onClick={() => { URL.revokeObjectURL(p.url); setPending(prev => prev.filter(x => x.id !== p.id)); }} title="Retirer"
+                style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'rgba(15,23,42,.75)', color: '#fff', cursor: 'pointer', fontSize: 11, lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: '#64748b', alignSelf: 'center' }}>{pending.length} image{pending.length > 1 ? 's' : ''} à envoyer</div>
+        </div>
+      )}
+      <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileUpload} />
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploading} title="Joindre un fichier"
+          style={{ padding: '7px 9px', background: '#f8fafc', color: '#475569', border: '1.5px solid #e2e8f0', borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0 }}>
+          {uploading ? '⏳' : '📎'}
+        </button>
+        <button onClick={startScreenCapture} disabled={uploading} title="Capturer une zone de l'écran (vous pouvez aussi coller une image avec Ctrl+V)"
+          style={{ padding: '7px 9px', background: '#f8fafc', color: '#475569', border: '1.5px solid #e2e8f0', borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0 }}>
+          ✂️
+        </button>
+        <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
+          style={{ padding: '7px 9px', background: listening ? '#fef2f2' : '#f8fafc', color: listening ? '#dc2626' : '#475569', border: `1.5px solid ${listening ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>
+          🎤
+        </button>
+        <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
+      </div>
+      {/* Ligne de saisie sous les boutons */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', marginBottom: 8 }}>
+        <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKey}
+          placeholder="Votre message… (Ctrl+V pour coller une capture)" rows={3} autoFocus
+          style={{ flex: 1, minWidth: 0, padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', resize: 'none', outline: 'none' }}
+          onFocus={e => e.target.style.borderColor = PC} onBlur={e => e.target.style.borderColor = '#e2e8f0'} />
+        <button onClick={() => void sendMessage()} disabled={(!input.trim() && pending.length === 0) || uploading || sending}
+          style={{ padding: '7px 12px', background: (input.trim() || pending.length) && !uploading ? PC : '#e2e8f0', color: (input.trim() || pending.length) && !uploading ? '#fff' : '#94a3b8', border: 'none', borderRadius: 10, cursor: (input.trim() || pending.length) ? 'pointer' : 'not-allowed', fontSize: 18, flexShrink: 0 }}>
+          ↑
+        </button>
+      </div>
+      <button onClick={closeSession}
+        style={{ width: '100%', padding: '8px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'background 0.15s' }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}>
+        ✕ Terminer le chat
+      </button>
     </div>
   );
 
@@ -341,7 +537,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   if (state === 'idle' || state === 'ended') {
     return (
       <button
-        onClick={() => setState(sessionId ? (state === 'ended' ? 'open' : 'waiting') : 'open')}
+        onClick={() => { requestNotificationPermission(); setUnread(0); setState(sessionId ? (state === 'ended' ? 'open' : (techName ? 'active' : 'waiting')) : 'open'); }}
         title="Contacter le support DSI"
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
@@ -359,6 +555,9 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
       >
         {sessionId ? '🟢' : '💬'}
+        {unread > 0 && (
+          <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 10, background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', border: '2px solid #fff', lineHeight: 1 }}>{unread}</span>
+        )}
         {beta && <span style={{
           position: 'absolute', top: -4, right: -4,
           background: '#f59e0b', color: '#1e293b',
@@ -433,7 +632,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
 
   // ── Waiting ───────────────────────────────────────────────────────────
   if (state === 'waiting') return (
-    <div style={{ ...panelStyle, height: 480 }}>
+    <div style={{ ...panelStyle, height: 540 }}>
       <style>{`@keyframes chatSlideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
       {header('Support DSI', 'En attente d\'un technicien…')}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -446,12 +645,14 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
         {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
         <div ref={bottomRef} />
       </div>
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#fafafa', textAlign: 'center' }}>
+      <div style={{ padding: '8px 16px', borderTop: '1px solid #f1f5f9', background: '#fafafa', textAlign: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: PC, fontSize: 13, fontWeight: 600 }}>
           <span style={{ display: 'inline-block', width: 8, height: 8, background: PC, borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
           Votre demande est en file d'attente
         </div>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Vous pouvez continuer à écrire : vos messages et captures seront transmis au technicien. Vous pouvez réduire cette fenêtre, vous serez prévenu de la réponse.</p>
       </div>
+      {composer}
     </div>
   );
 
@@ -469,79 +670,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
         {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
         <div ref={bottomRef} />
       </div>
-      <div style={{ padding: '10px 12px', borderTop: '1px solid #e2e8f0', background: '#fff' }}>
-        {/* Hidden file input */}
-        <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileUpload} />
-        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', marginBottom: 8 }}>
-          {/* Attach */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            title="Envoyer un fichier"
-            style={{
-              padding: '7px 10px', background: '#f8fafc', color: '#475569',
-              border: '1.5px solid #e2e8f0', borderRadius: 10, cursor: 'pointer',
-              fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0,
-            }}>
-            {uploading ? '⏳' : '📎'}
-          </button>
-          {/* Mic */}
-          <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
-            style={{
-              padding: '7px 10px',
-              background: listening ? '#fef2f2' : '#f8fafc',
-              color: listening ? '#dc2626' : '#475569',
-              border: `1.5px solid ${listening ? '#fca5a5' : '#e2e8f0'}`,
-              borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, flexShrink: 0,
-            }}>
-            🎤
-          </button>
-          <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder="Votre message…"
-            rows={2}
-            autoFocus
-            style={{
-              flex: 1, padding: '7px 10px', border: '1.5px solid #e2e8f0',
-              borderRadius: 10, fontSize: 13, fontFamily: 'inherit',
-              resize: 'none', outline: 'none',
-            }}
-            onFocus={e => e.target.style.borderColor = PC}
-            onBlur={e => e.target.style.borderColor = '#e2e8f0'}
-          />
-          {/* Send */}
-          <button onClick={sendMessage} disabled={!input.trim() || sending}
-            style={{
-              padding: '7px 12px',
-              background: input.trim() && !sending ? PC : '#e2e8f0',
-              color: input.trim() && !sending ? '#fff' : '#94a3b8',
-              border: 'none', borderRadius: 10,
-              cursor: input.trim() ? 'pointer' : 'not-allowed',
-              fontSize: 18, flexShrink: 0,
-            }}>
-            ↑
-          </button>
-        </div>
-        {/* Terminer */}
-        <button
-          onClick={closeSession}
-          style={{
-            width: '100%', padding: '8px',
-            background: '#fef2f2', color: '#dc2626',
-            border: '1px solid #fecaca', borderRadius: 10,
-            fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            transition: 'background 0.15s',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
-          onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}
-        >
-          ✕ Terminer le chat
-        </button>
-      </div>
+      {composer}
     </div>
   );
 
@@ -641,7 +770,11 @@ function MessageBubble({ msg }: { msg: LiveMessage }) {
         {!isSelf && (
           <div style={{ fontSize: 10, fontWeight: 700, color: PC, marginBottom: 2 }}>{msg.sender_name}</div>
         )}
-        {msg.attachment_url ? (
+        {msg.attachment_url && isImageName(msg.attachment_name || msg.attachment_url) ? (
+          <a href={msg.attachment_url} target="_blank" rel="noreferrer" title="Ouvrir l'image">
+            <img src={msg.attachment_url} alt={msg.attachment_name || 'image'} style={{ display: 'block', maxWidth: '100%', maxHeight: 200, borderRadius: 10 }} />
+          </a>
+        ) : msg.attachment_url ? (
           <a href={msg.attachment_url} target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSelf ? '#fff' : PC, textDecoration: 'none' }}>
             <span style={{ fontSize: 18 }}>{getFileIcon(msg.attachment_name || '')}</span>
@@ -664,4 +797,55 @@ function getFileIcon(name: string): string {
   if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
   if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
   return '📎';
+}
+
+
+/** Plein écran : l'utilisateur trace un rectangle sur la capture ; seule la zone choisie est envoyée (Entrée = valider, Échap = annuler). */
+function CaptureOverlay({ src, onCancel, onDone }: { src: string; onCancel: () => void; onDone: (blob: Blob) => void }) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const [sel, setSel] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  const pos = (e: React.PointerEvent) => {
+    const r = imgRef.current!.getBoundingClientRect();
+    return { x: Math.min(Math.max(e.clientX - r.left, 0), r.width), y: Math.min(Math.max(e.clientY - r.top, 0), r.height) };
+  };
+  function validate(whole: boolean) {
+    const img = imgRef.current; if (!img) return;
+    const r = img.getBoundingClientRect();
+    const k = img.naturalWidth / r.width;
+    const area = !whole && sel && sel.w > 8 && sel.h > 8 ? sel : { x: 0, y: 0, w: r.width, h: r.height };
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(area.w * k); canvas.height = Math.round(area.h * k);
+    canvas.getContext('2d')!.drawImage(img, area.x * k, area.y * k, area.w * k, area.h * k, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(b => { if (b) onDone(b); }, 'image/png');
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); else if (e.key === 'Enter') validate(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const btn = (bg: string): React.CSSProperties => ({ padding: '8px 14px', border: 'none', borderRadius: 8, background: bg, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(15,23,42,.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', padding: '10px 14px', color: '#e2e8f0', fontSize: 13 }}>
+        <span>✂️ Tracez un rectangle sur la zone à envoyer.</span>
+        <button onClick={() => validate(false)} style={btn('#22c55e')}>{sel && sel.w > 8 ? 'Envoyer la sélection' : 'Envoyer tout'}</button>
+        <button onClick={() => validate(true)} style={btn('#6366f1')}>Toute la capture</button>
+        <button onClick={onCancel} style={btn('#64748b')}>Annuler</button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 14px 14px', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ position: 'relative', lineHeight: 0, cursor: 'crosshair', userSelect: 'none', touchAction: 'none' }}
+          onPointerDown={e => { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); const p = pos(e); start.current = p; setSel({ x: p.x, y: p.y, w: 0, h: 0 }); }}
+          onPointerMove={e => { if (!start.current) return; const p = pos(e); setSel({ x: Math.min(start.current.x, p.x), y: Math.min(start.current.y, p.y), w: Math.abs(p.x - start.current.x), h: Math.abs(p.y - start.current.y) }); }}
+          onPointerUp={() => { start.current = null; }}>
+          <img ref={imgRef} src={src} alt="capture" draggable={false} style={{ maxWidth: 'calc(100vw - 28px)', maxHeight: 'calc(100vh - 80px)', display: 'block' }} />
+          {sel && sel.w > 0 && sel.h > 0 && (
+            <div style={{ position: 'absolute', left: sel.x, top: sel.y, width: sel.w, height: sel.h, border: '2px solid #22c55e', boxShadow: '0 0 0 9999px rgba(0,0,0,.55)', pointerEvents: 'none' }} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }

@@ -15,7 +15,10 @@ pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
 // JPEG2000 (wasm), profils ICC, cmaps Adobe et polices standard. Sans elles,
 // ces PDF s'affichent en pages blanches.
 const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '/');
-const pdfAssetBase = `${base}pdfjs/`;
+// URL ABSOLUE obligatoire : le worker est inliné (blob:), contexte où une URL relative comme « /pdfjs/wasm/jbig2.wasm »
+// ne peut pas être résolue (« Failed to parse URL »). Sans cela, en production, le décodeur wasm (JBIG2, CCITT des scans)
+// ne s'initialise pas et les PDF scannés s'affichent en pages blanches (alors que tout fonctionne en dev).
+const pdfAssetBase = new URL(`${base}pdfjs/`, window.location.href).href;
 
 export const pdfDocumentOptions = {
   wasmUrl: `${pdfAssetBase}wasm/`,

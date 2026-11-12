@@ -6,6 +6,67 @@ const { excelDateToISO, parseOracleDate } = require('../../shared/utils');
 
 // Forward declaration - sendMail will be injected
 let sendMailFn = null;
+// Reformate « NOM Prénom » en « Prénom Nom » (tokens tout en majuscules = nom de famille)
+function formatPrenomNom(name) {
+    const tokens = String(name || '').trim().split(/\s+/);
+    if (tokens.length < 2) return name;
+    const isUpper = (t) => t.replace(/[-']/g, '').length >= 2 && t === t.toLocaleUpperCase('fr') && /[A-ZÀ-Þ]/.test(t);
+    const nom = tokens.filter(isUpper), prenom = tokens.filter(t => !isUpper(t));
+    return nom.length && prenom.length ? [...prenom, ...nom].join(' ') : name;
+}
+
+// Le CP pressenti de la demande devient le chef de projet du projet lié.
+async function syncChefProjet(demandeId, byUsername) {
+    const d = await pgDb.get('SELECT projet_id, cp_presenti FROM rencontres_budgetaires WHERE id = ?', [demandeId]);
+    if (!d || !d.projet_id || !d.cp_presenti) return false;
+    const actuel = await pgDb.get('SELECT chef_projet_username FROM projets.projets WHERE id = $1', [d.projet_id]);
+    if (actuel && String(actuel.chef_projet_username || '').toLowerCase() === String(d.cp_presenti).toLowerCase()) return false;
+    const u = await pgDb.get('SELECT displayName AS dn FROM hub.users WHERE LOWER(username) = LOWER($1)', [d.cp_presenti]);
+    const display = formatPrenomNom((u && u.dn) || d.cp_presenti);
+    await pgDb.run(
+        'UPDATE projets.projets SET chef_projet_username = $1, chef_projet_display_name = $2, date_modification = CURRENT_TIMESTAMP, modified_by_username = $3 WHERE id = $4',
+        [d.cp_presenti, display, byUsername || null, d.projet_id]
+    );
+    return true;
+}
+
+// La demande devient une tâche du projet, attribuée au chef de projet (visible dans « Mes tâches »),
+// qui en est averti par mail. Sans doublon : une seule tâche par demande et par projet.
+async function creerTacheProjet(demandeId, projetId, byUsername) {
+    const d = await pgDb.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [demandeId]);
+    if (!d) return false;
+    const deja = await pgDb.get('SELECT id FROM projets.projet_taches_standalone WHERE rencontre_id = $1 AND projet_id = $2', [demandeId, projetId]);
+    if (deja) return false;
+    const p = await pgDb.get('SELECT id, titre, chef_projet_username, chef_projet_display_name FROM projets.projets WHERE id = $1', [projetId]);
+    if (!p) return false;
+    const cp = p.chef_projet_username || '';
+    const texte = `[Demande budgétaire] ${d.titre || ''}${d.direction ? ` — ${d.direction}` : ''}`.trim();
+    await pgDb.run(
+        `INSERT INTO projets.projet_taches_standalone (projet_id, tache, responsable, responsable_username, statut, created_by_username, rencontre_id)
+         VALUES ($1, $2, $3, $4, 'a_faire', $5, $6)`,
+        [projetId, texte, p.chef_projet_display_name || cp, cp, byUsername || '', demandeId]
+    );
+    if (!cp || !sendMailFn) return true;
+    if (byUsername && byUsername.toLowerCase() === cp.toLowerCase()) return true; // pas de mail à soi-même
+    try {
+        const u = await pgDb.get('SELECT email FROM hub.users WHERE LOWER(username) = LOWER($1)', [cp]);
+        if (!u || !u.email) return true;
+        const esc = (s) => String(s || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+        const { getAppBaseUrl } = require('../../shared/app_url');
+        const base = await getAppBaseUrl();
+        const html = `
+            <h2 style="margin:0 0 8px;">Nouvelle tâche issue des demandes budgétaires</h2>
+            <p>Une demande des <strong>rencontres budgétaires</strong> a été rattachée au projet <strong>${esc(p.titre)}</strong> et vous a été attribuée comme tâche :</p>
+            <blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #6366f1;background:#eef2ff;">
+              <strong>${esc(d.titre)}</strong>${d.direction ? `<br/>Direction : ${esc(d.direction)}` : ''}${d.description ? `<br/>${esc(d.description)}` : ''}
+            </blockquote>
+            <p><a href="${base}/projets/${projetId}" style="background:#6366f1;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">Voir le projet</a></p>
+            <p style="color:#64748b;font-size:13px;">Retrouvez-la dans <em>Mes Tâches</em>. Sa validation clôturera automatiquement la demande budgétaire.</p>`;
+        await sendMailFn(u.email, '📋 Nouvelle tâche (demande budgétaire) — DSI Hub', html, [], 'task_alert');
+    } catch (e) { console.error('[RENCONTRES] mail tâche projet échoué:', e.message); }
+    return true;
+}
+
 module.exports.setSendMail = (fn) => { sendMailFn = fn; };
 
 module.exports = {
@@ -21,8 +82,8 @@ module.exports = {
             if (directions && typeof directions === 'string') {
                 const dirList = directions.split(',').map(d => d.trim()).filter(d => d);
                 if (dirList.length > 0) {
-                    sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
-                    params.push(...dirList);
+                    sql += ` AND UPPER(TRIM(direction)) IN (${dirList.map(() => '?').join(',')})`;
+                    params.push(...dirList.map(d => d.toUpperCase()));
                 }
             } else if (!direction) {
                 try {
@@ -31,16 +92,16 @@ module.exports = {
                         const userDirections = await pgDb.all('SELECT direction FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${username}@%`, `${username}%`]);
                         if (userDirections && userDirections.length > 0) {
                             const dirList = userDirections.map(d => d.direction);
-                            sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
-                            params.push(...dirList);
+                            sql += ` AND UPPER(TRIM(direction)) IN (${dirList.map(() => '?').join(',')})`;
+                            params.push(...dirList.map(d => String(d || '').trim().toUpperCase()));
                         }
                     }
                 } catch (e) {
                     console.warn('Impossible de récupérer les directions:', e.message);
                 }
             } else if (direction) {
-                sql += ' AND direction = ?';
-                params.push(direction);
+                sql += ' AND UPPER(TRIM(direction)) = ?';
+                params.push(String(direction).trim().toUpperCase());
             }
 
             if (annee) { sql += ' AND annee = ?'; params.push(parseInt(annee)); }
@@ -153,9 +214,11 @@ module.exports = {
                     if (!dateReunion) { errors.push(`Ligne ${i + 2}: Format de date invalide (${row.Date})`); continue; }
 
                     const annee = parseInt(dateReunion.split('-')[0]);
-                    let coutTTC = 0;
-                    if (row['Cout TTC'] && row['Cout TTC'] !== '') {
-                        coutTTC = parseFloat(String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.')) || 0;
+                    // Montant vide = inconnu (NULL) ; 0 explicite = gratuit
+                    let coutTTC = null;
+                    if (row['Cout TTC'] !== undefined && String(row['Cout TTC']).trim() !== '') {
+                        const parsed = parseFloat(String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.'));
+                        coutTTC = Number.isNaN(parsed) ? null : parsed;
                     }
 
                     const titre = row['Quoi ?'] ? String(row['Quoi ?']).trim().substring(0, 255) : '';
@@ -175,7 +238,9 @@ module.exports = {
                     const lienReference = row['LIEN'] && String(row['LIEN']).trim() !== '' ? String(row['LIEN']).trim() : '';
                     const commentaires = row['Commentaire ?'] && String(row['Commentaire ?']).trim() !== '' ? String(row['Commentaire ?']).trim() : '';
                     const suiviRaw = row['__suivi'] ? String(row['__suivi']).trim() : '';
-                    const suivi = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
+                    const suiviSeul = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
+                    // Commentaire et suivi fusionnés : tout est stocké dans « suivi »
+                    const suivi = [suiviSeul, commentaires].filter(Boolean).join('\n');
 
                     const dateReunionObj = new Date(dateReunion + 'T00:00:00');
                     const rowStatut = dateReunionObj > new Date() ? 'planifiée' : '';
@@ -185,7 +250,7 @@ module.exports = {
                         (direction, service, date_reunion, annee, type, titre, description, cout_ttc,
                          arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, statut)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires, suivi, rowStatut]
+                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, '', suivi, rowStatut]
                     );
                     imported++;
                 } catch (lineError) {
@@ -209,12 +274,12 @@ module.exports = {
     // POST: Créer une rencontre manuelle
     create: async (req, res) => {
         try {
-            const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
+            const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, charge_cp, cp_presenti } = req.body;
             if (!titre || !direction) return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
 
             const result = await pgDb.run(
-                `INSERT INTO rencontres_budgetaires (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-                [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
+                `INSERT INTO rencontres_budgetaires (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, suivi, charge_cp, cp_presenti, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+                [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, [suivi, commentaires].filter(Boolean).join('\n') || null, charge_cp || null, cp_presenti || null]
             );
             res.json({ id: result.lastID, message: 'Rencontre créée' });
         } catch (error) {
@@ -242,12 +307,35 @@ module.exports = {
     update: async (req, res) => {
         try {
             const { id } = req.params;
-            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
+            const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, charge_cp, cp_presenti, statut, annee_validation } = req.body;
+            const validee = statut === 'Validé';
+            if (validee && annee_validation !== undefined && annee_validation !== null && !Number.isInteger(Number(annee_validation))) return res.status(400).json({ error: 'Année de validation invalide' });
             await pgDb.run(
-                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, id]
+                `UPDATE rencontres_budgetaires SET titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?, arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, suivi=COALESCE(?, suivi), charge_cp=?, cp_presenti=?, statut=?, annee_validation=${validee ? 'COALESCE(?, annee_validation)' : '?'}, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+                [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, suivi ?? null, charge_cp || null, cp_presenti || null, statut, validee && annee_validation != null ? Number(annee_validation) : null, id]
             );
-            res.json({ message: 'Rencontre mise à jour' });
+
+            // Utilisateur de référence : enregistré seulement s'il est fourni (null = effacé).
+            // S'il change et qu'un ticket est déjà lié, le demandeur du ticket est mis à jour.
+            let ticketUpdated = null;
+            if (Object.prototype.hasOwnProperty.call(req.body, 'user_ref_email')) {
+                const { user_ref_username, user_ref_name, user_ref_email } = req.body;
+                const before = await pgDb.get('SELECT user_ref_email, user_ref_name, ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
+                await pgDb.run('UPDATE rencontres_budgetaires SET user_ref_username=?, user_ref_name=?, user_ref_email=? WHERE id=?',
+                    [user_ref_username || null, user_ref_name || null, user_ref_email || null, id]);
+                const ticketId = parseInt(before?.ticket_glpi, 10);
+                const changed = (before?.user_ref_email || '') !== (user_ref_email || '') || (before?.user_ref_name || '') !== (user_ref_name || '');
+                if (changed && user_ref_email && Number.isInteger(ticketId)) {
+                    try {
+                        await require('../tickets/services/ticket.service').update(ticketId, { requester_name: user_ref_name || user_ref_email, requester_email_22: user_ref_email }, req.user);
+                        ticketUpdated = ticketId;
+                    } catch (e) { console.error('[RENCONTRES] maj demandeur ticket #%s échouée:', ticketId, e.message); }
+                }
+            }
+            // CP pressenti modifié → chef de projet du projet lié
+            let chefMaj = false;
+            try { chefMaj = await syncChefProjet(id, req.user?.username); } catch (e) { console.error('[RENCONTRES] maj chef de projet échouée:', e.message); }
+            res.json({ message: 'Rencontre mise à jour', ticket_updated: ticketUpdated, chef_projet_updated: chefMaj });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -286,6 +374,135 @@ module.exports = {
     },
 
     // Stats
+    // Chefs de projet du module Projets (candidats au « CP pressenti ») : ceux déclarés dans
+    // chef_projet_services + ceux désignés sur au moins un projet. Nom affiché en « Prénom Nom ».
+    listChefsProjets: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`
+                WITH cps AS (
+                    SELECT chef_projet_username AS username FROM projets.chef_projet_services
+                    UNION
+                    SELECT chef_projet_username FROM projets.projets WHERE COALESCE(chef_projet_username, '') <> ''
+                )
+                SELECT DISTINCT ON (LOWER(c.username)) c.username, u.displayName AS display_name,
+                    (SELECT p.chef_projet_display_name FROM projets.projets p
+                      WHERE LOWER(p.chef_projet_username) = LOWER(c.username) AND COALESCE(p.chef_projet_display_name, '') <> ''
+                      LIMIT 1) AS projet_name
+                FROM cps c
+                LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(c.username)
+                WHERE COALESCE(c.username, '') <> ''
+                ORDER BY LOWER(c.username)
+            `);
+            const list = [];
+            for (const r of rows || []) {
+                const u = String(r.username);
+                // Un « nom » identique au login (ex. « MMasson ») n'est pas un vrai nom
+                const real = [r.display_name, r.projet_name].find(n => n && String(n).trim().toLowerCase() !== u.toLowerCase());
+                let name = real || null;
+                if (!name) {
+                    // Absent de l'annuaire local : recherche dans RH Studio (nom de famille = login sans 1re lettre)
+                    try {
+                        const studio = require('../infra/studio-onboarding');
+                        const found = await studio.searchAgents(u.slice(1));
+                        const agents = Array.isArray(found?.data) ? found.data : [];
+                        const hit = agents.find(a => String(a.email || '').split('@')[0].toLowerCase() === u.toLowerCase())
+                            || (agents.filter(a => String(a.prenom || '').toLowerCase().startsWith(u[0].toLowerCase()) && String(a.nom || '').toLowerCase() === u.slice(1).toLowerCase()).length === 1
+                                ? agents.find(a => String(a.prenom || '').toLowerCase().startsWith(u[0].toLowerCase()) && String(a.nom || '').toLowerCase() === u.slice(1).toLowerCase())
+                                : null);
+                        if (hit) name = `${hit.prenom || ''} ${hit.nom || ''}`.trim();
+                    } catch (e) { /* RH Studio indisponible : on garde le login */ }
+                }
+                list.push({ username: u, display_name: name ? formatPrenomNom(name) : u });
+            }
+            list.sort((a, b) => a.display_name.localeCompare(b.display_name, 'fr'));
+            res.json(list);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Projets du portefeuille (pour lier une demande à un projet)
+    listProjets: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`SELECT id, code, titre, statut, chef_projet_username, chef_projet_display_name
+                FROM projets.projets ORDER BY titre`);
+            res.json(rows || []);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Lie (ou délie avec projet_id = null) une demande à un projet ; le CP pressenti devient chef de projet
+    linkProjet: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const projetId = req.body.projet_id == null || req.body.projet_id === '' ? null : parseInt(req.body.projet_id, 10);
+            if (projetId !== null) {
+                if (!Number.isInteger(projetId)) return res.status(400).json({ error: 'Projet invalide' });
+                const p = await pgDb.get('SELECT id FROM projets.projets WHERE id = $1', [projetId]);
+                if (!p) return res.status(404).json({ error: 'Projet introuvable' });
+            }
+            await pgDb.run('UPDATE rencontres_budgetaires SET projet_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [projetId, id]);
+            const chefMaj = projetId !== null ? await syncChefProjet(id, req.user?.username) : false;
+            let tacheCreee = false;
+            if (projetId !== null) {
+                try { tacheCreee = await creerTacheProjet(id, projetId, req.user?.username); }
+                catch (e) { console.error('[RENCONTRES] création tâche projet échouée:', e.message); }
+            }
+            res.json({ message: projetId === null ? 'Projet délié' : 'Projet lié', projet_id: projetId, chef_projet_updated: chefMaj, tache_creee: tacheCreee });
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Projets « maîtres » (sans projet parent) d'un chef de projet : candidats au « sous-projet de »
+    listProjetsMaitres: async (req, res) => {
+        try {
+            const cp = String(req.query.cp || '').trim();
+            if (!cp) return res.json([]);
+            const rows = await pgDb.all(`SELECT id, code, titre, statut, service_pilote FROM projets.projets
+                WHERE LOWER(chef_projet_username) = LOWER($1) AND projet_parent_id IS NULL ORDER BY titre`, [cp]);
+            res.json(rows || []);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // Crée un projet simple (mini-projet) depuis une demande, éventuellement sous un projet maître,
+    // avec le CP pressenti comme chef de projet, puis le lie à la demande.
+    createProjetFromDemande: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const d = await pgDb.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [id]);
+            if (!d) return res.status(404).json({ error: 'Demande introuvable' });
+            if (d.projet_id) return res.status(409).json({ error: 'Cette demande est déjà liée à un projet' });
+
+            const titre = String(req.body.titre || d.titre || '').trim();
+            if (!titre) return res.status(400).json({ error: 'Titre obligatoire' });
+            const description = req.body.description !== undefined ? req.body.description : (d.description || '');
+            const chef = String(req.body.chef_projet_username || d.cp_presenti || '').trim() || null;
+            const parentId = req.body.projet_parent_id ? parseInt(req.body.projet_parent_id, 10) : null;
+
+            // Service pilote : celui du projet maître, sinon un service du chef de projet, sinon celui de la demande
+            let servicePilote = null;
+            if (parentId) {
+                const parent = await pgDb.get('SELECT service_pilote FROM projets.projets WHERE id = $1', [parentId]);
+                if (!parent) return res.status(404).json({ error: 'Projet maître introuvable' });
+                servicePilote = parent.service_pilote;
+            }
+            if (!servicePilote && chef) {
+                const svc = await pgDb.get('SELECT service_code FROM projets.chef_projet_services WHERE LOWER(chef_projet_username) = LOWER($1) AND service_code IS NOT NULL ORDER BY id LIMIT 1', [chef]);
+                servicePilote = svc && svc.service_code;
+            }
+            if (!servicePilote) servicePilote = d.service || d.direction;
+            if (!servicePilote) return res.status(400).json({ error: 'Service pilote introuvable : renseignez la direction/le service de la demande' });
+
+            // Réutilise la création standard du module Projets (code, journal…)
+            const out = { code: 200, body: null };
+            const fakeRes = { status(c) { out.code = c; return this; }, json(b) { out.body = b; return this; } };
+            await require('../projets/projets.controller').create({
+                body: { titre, description, niveau_projet: 'mineur', is_mini_projet: true, service_pilote: servicePilote, chef_projet_username: chef, projet_parent_id: parentId },
+                user: req.user,
+            }, fakeRes);
+            if (out.code >= 400 || !out.body || !out.body.id) return res.status(out.code >= 400 ? out.code : 500).json({ error: (out.body && out.body.error) || 'Création du projet impossible' });
+
+            await pgDb.run('UPDATE rencontres_budgetaires SET projet_id = ?, cp_presenti = COALESCE(?, cp_presenti), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [out.body.id, chef, id]);
+            res.status(201).json({ id: out.body.id, code: out.body.code, message: 'Projet créé et lié à la demande' });
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
     statsDirections: async (req, res) => {
         try {
             const stats = await pgDb.all(`SELECT direction, COUNT(*) as count, SUM(cout_ttc) as montant_total FROM rencontres_budgetaires GROUP BY direction ORDER BY count DESC`);
@@ -373,15 +590,40 @@ module.exports = {
 
             for (const row of all) {
                 if (row.direction) {
-                    dirSet.add(row.direction);
-                    if (!dirServicesMap[row.direction]) dirServicesMap[row.direction] = new Set();
-                    if (row.service) { svcSet.add(row.service); dirServicesMap[row.direction].add(row.service); }
+                    const dir = String(row.direction).trim().replace(/\s+/g, ' ').toUpperCase();
+                    dirSet.add(dir);
+                    if (!dirServicesMap[dir]) dirServicesMap[dir] = new Set();
+                    if (row.service) { svcSet.add(row.service); dirServicesMap[dir].add(row.service); }
                 }
             }
 
+            // Services réels de l'organigramme, rattachés à leur direction
+            try {
+                const org = await pgDb.all(`SELECT DISTINCT "DIRECTION_L" AS dir, "SERVICE_L" AS svc FROM oracle.rh_siim_organigramme WHERE "SERVICE_L" IS NOT NULL AND "DIRECTION_L" IS NOT NULL`);
+                for (const o of org) {
+                    const dir = String(o.dir).trim().replace(/\s+/g, ' ').toUpperCase();
+                    const svc = String(o.svc).trim();
+                    if (!svc || svc.toUpperCase() === dir) continue; // le « service » égal à la direction n'en est pas un
+                    dirSet.add(dir);
+                    svcSet.add(svc);
+                    if (!dirServicesMap[dir]) dirServicesMap[dir] = new Set();
+                    dirServicesMap[dir].add(svc);
+                }
+            } catch (e) { /* organigramme indisponible : on garde les données des demandes */ }
+
             const dirServicesFinal = {};
             for (const [dir, svcs] of Object.entries(dirServicesMap)) {
-                dirServicesFinal[dir] = [...svcs].filter(Boolean).sort();
+                // Dédoublonnage insensible à la casse/accents ; on garde la forme en majuscules (celle de l'organigramme) ;
+                // un « service » identique à sa direction n'en est pas un.
+                const key = (v) => String(v).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+                const byKey = new Map();
+                for (const sv of [...svcs].filter(Boolean)) {
+                    const k = key(sv);
+                    if (!k || k === key(dir)) continue;
+                    const cur = byKey.get(k);
+                    if (!cur || (sv === sv.toUpperCase() && cur !== cur.toUpperCase())) byKey.set(k, sv);
+                }
+                dirServicesFinal[dir] = [...byKey.values()].sort((x, y) => x.localeCompare(y, 'fr'));
             }
 
             res.json({ directions: [...dirSet].sort(), services: [...svcSet].sort(), dirServicesMap: dirServicesFinal });

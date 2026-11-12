@@ -57,7 +57,8 @@ interface Props {
  * la page /service-fait/processus/:id et par ServiceFaitProcessusModal.
  */
 export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canModifySF = ['superadmin', 'admin', 'finances', 'compta'].includes((user as any)?.role);
 
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
@@ -138,7 +139,7 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
                   {statusMeta.label}
                 </span>
               )}
-              {isOngoing && (
+              {isOngoing && canModifySF && (
                 <button onClick={handleCancel} disabled={cancelling} title="Annuler le processus"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 999, padding: '4px 12px', fontWeight: 600, fontSize: 12, cursor: cancelling ? 'default' : 'pointer', opacity: cancelling ? 0.6 : 1 }}>
                   <Ban size={13} /> {cancelling ? 'Annulation...' : 'Annuler le processus'}

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const MagAppController = require('./magapp.controller');
+const PromotionController = require('./promotion.controller');
 const { authenticateJWT, tryAuthenticateJWT, authenticateMagappControl, authenticateAdmin } = require('../../shared/middleware');
 const { getSqlite } = require('../../shared/database');
 
@@ -36,6 +37,8 @@ magappBaseRouter.get('/tickets-count', MagAppController.getTicketsCount);
 magappBaseRouter.get('/high-priority-incidents', MagAppController.getHighPriorityIncidents);
 magappBaseRouter.get('/observed-tickets', MagAppController.getObservedTickets);
 magappBaseRouter.get('/icons', authenticateJWT, MagAppController.getIcons);
+// BETA « Recherche d'agent » : annuaire RH Studio (lecture seule)
+magappBaseRouter.get('/agent-search', authenticateJWT, MagAppController.searchRhAgents);
 magappBaseRouter.get('/versions', MagAppController.getVersions);
 magappBaseRouter.get('/user-version', authenticateJWT, MagAppController.getUserVersion);
 magappBaseRouter.post('/user-version', authenticateJWT, MagAppController.recordUserVersionSeen);
@@ -44,6 +47,10 @@ magappBaseRouter.get('/apps/:id/orders', tryAuthenticateJWT, MagAppController.ge
 magappBaseRouter.post('/docs/:id/interaction', authenticateJWT, MagAppController.recordDocInteraction);
 
 // Admin routes under /api/magapp
+// Application mise en avant (bannière du magasin) — lecture publique, écriture admin
+magappBaseRouter.get('/promotion', PromotionController.get);
+magappBaseRouter.get('/promotion/logo', PromotionController.logo);
+magappBaseRouter.post('/promotion', authenticateMagappControl, uploadMemory.single('logo'), PromotionController.save);
 magappBaseRouter.get('/settings', tryAuthenticateJWT, MagAppController.getSettings);
 magappBaseRouter.post('/settings', authenticateMagappControl, MagAppController.updateSettings);
 magappBaseRouter.get('/apps/:id/users', authenticateMagappControl, MagAppController.getAppUsers);
@@ -78,6 +85,10 @@ magappAdminRouter.post('/migrate-uploads', authenticateMagappControl, MagAppCont
 magappAdminRouter.get('/beta-users', authenticateMagappControl, MagAppController.listBetaUsers);
 magappAdminRouter.post('/beta-users', authenticateMagappControl, MagAppController.addBetaUser);
 magappAdminRouter.delete('/beta-users/:id', authenticateMagappControl, MagAppController.removeBetaUser);
+// Accès par fonctionnalité (agents nommés)
+magappAdminRouter.get('/feature-users', authenticateMagappControl, MagAppController.listFeatureUsers);
+magappAdminRouter.post('/feature-users', authenticateMagappControl, MagAppController.addFeatureUser);
+magappAdminRouter.delete('/feature-users/:id', authenticateMagappControl, MagAppController.removeFeatureUser);
 
 // Exporting both or a main router that handles both
 const mainRouter = express.Router();

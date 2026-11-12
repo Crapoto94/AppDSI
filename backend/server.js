@@ -452,6 +452,8 @@ const documentStorage = require('./shared/storage');
 const serveDocumentStorage = async (req, res) => {
     try {
         const rel = decodeURIComponent(req.path.replace(/^\/+/, ''));
+        // CV et rapports de stage : données personnelles, servis uniquement par la route authentifiée du module RH
+        if (/^(storage\/)?rh_stagiaires\//i.test(rel)) return res.status(404).send('Fichier introuvable');
         const f = await documentStorage.getFileForServe(rel);
         if (!f) return res.status(404).send('Fichier introuvable');
         if (f.absolutePath) return res.sendFile(f.absolutePath);
@@ -491,6 +493,9 @@ app.use('/api/admin/param-ville', paramVilleRouter);
 
 // ─── RH Contract Renewals ──────────────────────────────────────────
 app.use('/api/admin/rh/contracts', contractsRouter);
+
+// ─── RH Stagiaires (liste + calendrier annuel) ─────────────────────
+app.use('/api/admin/rh/stagiaires', require('./modules/rh/stagiaires/stagiaires.routes'));
 
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
@@ -2222,6 +2227,7 @@ app.use('/api/finance/mandatement', require('./modules/finance/mandatement.route
 app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
+app.use('/api/boite-idees', require('./modules/boite-idees/boite-idees.routes'));
 app.use('/api/commande-envoi', require('./modules/commande-envoi/commande-envoi.routes'));
 require('./modules/commande-envoi/commande-envoi.controller').setSendMail(sendMail);
 
@@ -2244,6 +2250,8 @@ app.post('/api/magapp/ideas', async (req, res) => {
             [title, description || '', author_email || '', author_name || '']
         );
         
+        // Mail aux agents désignés dans /admin/backlog
+        try { void backlogController.notifyNewRequest({ kind: 'Idée MagApp', title, author: [author_name, author_email].filter(Boolean).join(' · '), description, path: '/admin/backlog?tab=magapp' }); } catch (e) { /* meilleur effort */ }
         res.json({ success: true, id: result.lastID, message: 'Idée créée avec succès' });
     } catch (error) {
         console.error('[Ideas] Erreur création idée:', error.message);
@@ -3925,7 +3933,10 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
             reunionIds
         );
 
-        res.json(demandes || []);
+        // Seules les demandes de la dernière année saisie POUR CET UTILISATEUR (ex. 2025 si rien en 2026)
+        const annees = (demandes || []).map(d => Number(d.annee)).filter(a => Number.isFinite(a) && a > 0);
+        const derniere = annees.length ? Math.max(...annees) : null;
+        res.json(derniere === null ? (demandes || []) : demandes.filter(d => Number(d.annee) === derniere));
     } catch (error) {
         console.error('Erreur my-demandes:', error);
         res.status(500).json({ error: error.message });
@@ -6010,6 +6021,7 @@ contractsCtrl.setSendMail(sendMail);
 // ============================================
 const { rencontresRouter, reunionRouter, directionsRouter, dirEmailsRouter } = require('./modules/rencontres/rencontres.routes');
 const rencontresCtrl = require('./modules/rencontres/rencontres.controller');
+rencontresCtrl.setSendMail(sendMail);
 const reunionsCtrl = require('./modules/rencontres/reunions.controller');
 // Inject sendMail into reunions controller
 reunionsCtrl.setSendMail(sendMail);
@@ -6165,6 +6177,10 @@ app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
 app.post('/api/backlog', authenticateJWT, backlogUpload.array('attachments', 5), backlogController.createBacklogItem);
 app.put('/api/backlog/:id', authenticateAdmin, backlogController.updateBacklogItem);
 app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklogItem);
+// Agents qui reçoivent un mail à chaque nouvelle demande (backlog Hub + idées MagApp)
+app.get('/api/admin/backlog-recipients', authenticateAdmin, backlogController.listRecipients);
+app.post('/api/admin/backlog-recipients', authenticateAdmin, backlogController.addRecipient);
+app.delete('/api/admin/backlog-recipients/:id', authenticateAdmin, backlogController.removeRecipient);
 
 // ============================================
 // DOCTRINES - Notes de service et doctrines

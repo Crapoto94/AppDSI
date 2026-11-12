@@ -40,6 +40,42 @@ async function writeLogoPath(dbPath) {
   );
 }
 
+// ── Textes des étiquettes (lignes 1 et 2) : réglage global, stocké côté serveur lui aussi ──
+const TEXTS_SETTING_KEY = 'etiquette.texts';
+const MAX_TEXT = 120;
+
+// GET /api/parc/etiquette/texts → { orgName, serviceName } (vide si jamais enregistrés : le client applique ses valeurs par défaut)
+exports.getTexts = async (req, res) => {
+  try {
+    const db = getSqlite();
+    const row = db ? await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', TEXTS_SETTING_KEY) : null;
+    let texts = {};
+    try { texts = row && row.setting_value ? JSON.parse(row.setting_value) : {}; } catch (e) { texts = {}; }
+    res.json({ orgName: texts.orgName, serviceName: texts.serviceName });
+  } catch (e) {
+    res.status(500).json({ error: 'Erreur lecture textes', details: e.message });
+  }
+};
+
+// PUT /api/parc/etiquette/texts { orgName, serviceName }
+exports.saveTexts = async (req, res) => {
+  try {
+    const db = getSqlite();
+    if (!db) return res.status(500).json({ error: 'Base SQLite non initialisée.' });
+    const clean = (v) => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim().slice(0, MAX_TEXT);
+    const value = JSON.stringify({ orgName: clean(req.body && req.body.orgName), serviceName: clean(req.body && req.body.serviceName) });
+    await db.run(
+      `INSERT INTO app_settings (setting_key, setting_value, description)
+       VALUES (?, ?, ?)
+       ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`,
+      [TEXTS_SETTING_KEY, value, 'Textes des étiquettes du parc (lignes 1 et 2)']
+    );
+    res.json(JSON.parse(value));
+  } catch (e) {
+    res.status(500).json({ error: "Erreur lors de l'enregistrement des textes", details: e.message });
+  }
+};
+
 // GET /api/parc/etiquette/logo → { url, path } (url null si aucun logo)
 exports.getLogo = async (req, res) => {
   try {

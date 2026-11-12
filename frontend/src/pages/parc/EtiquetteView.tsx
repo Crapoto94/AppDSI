@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Printer, Upload, Edit3, Check, X, Tag } from 'lucide-react';
+import { Printer, Upload, Edit3, Check, X, Tag, ListOrdered } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import axios from 'axios';
@@ -10,13 +10,15 @@ const C = {
   bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a',
 };
 
-// LS_LOGO ne stocke plus l'image elle-même : c'est un simple cache de l'URL du
-// logo servi depuis le dépôt GED (/api/storage/…). La source de vérité est le
-// stockage configuré dans /GED + app_settings (cf. /api/parc/etiquette/logo).
+// LS_LOGO / LS_TEXTS ne sont qu'un cache de repli (serveur injoignable) : la source de
+// vérité est le serveur — logo dans le dépôt GED (/api/storage/…) et textes dans
+// app_settings (cf. /api/parc/etiquette/logo et /api/parc/etiquette/texts), donc les
+// mêmes étiquettes sortent de tous les postes.
 export const LS_LOGO  = 'dsi_etiq_logo';
 export const LS_TEXTS = 'dsi_etiq_texts';
 
 const LOGO_API = '/api/parc/etiquette/logo';
+const TEXTS_API = '/api/parc/etiquette/texts';
 
 // Rend une URL de logo absolue (origine incluse) pour qu'elle se charge depuis la
 // fenêtre d'impression (about:blank) ; conserve les data: URL telles quelles.
@@ -54,18 +56,47 @@ async function makeQrSvg(value: string): Promise<string> {
   } catch { return ''; }
 }
 
-// ─── Impression depuis n'importe quel contexte ──────────────────────────────
-export async function printLabelWindow(machineName: string): Promise<void> {
-  const logoSrc = absoluteLogoUrl(localStorage.getItem(LS_LOGO));
-  let texts: Texts = { ...DEFAULT_TEXTS };
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const readLocalTexts = (): Texts => {
   try {
     const saved = localStorage.getItem(LS_TEXTS);
-    if (saved) texts = { ...DEFAULT_TEXTS, ...JSON.parse(saved) };
+    if (saved) return { ...DEFAULT_TEXTS, ...JSON.parse(saved) };
   } catch { /* ignore */ }
+  return { ...DEFAULT_TEXTS };
+};
 
-  const qrSvg  = await makeQrSvg(machineName);
+/**
+ * Réglages d'étiquette (logo + textes) lus sur le SERVEUR, partagés par tous les postes.
+ * Le localStorage ne sert que de repli si le serveur est injoignable.
+ * `serverTextsEmpty` : le serveur n'a encore aucun texte enregistré (permet de reprendre ceux d'un poste).
+ */
+export async function loadEtiquetteSettings(token?: string | null): Promise<{ logoUrl: string | null; texts: Texts; serverTextsEmpty: boolean }> {
+  const headers = { Authorization: `Bearer ${token || localStorage.getItem('token') || ''}` };
+  let logoUrl: string | null = localStorage.getItem(LS_LOGO);
+  let texts = readLocalTexts();
+  let serverTextsEmpty = false;
+  try {
+    const r = await axios.get(LOGO_API, { headers });
+    logoUrl = r.data?.url || null;
+    if (logoUrl) localStorage.setItem(LS_LOGO, logoUrl); else localStorage.removeItem(LS_LOGO);
+  } catch { /* repli : cache local */ }
+  try {
+    const r = await axios.get(TEXTS_API, { headers });
+    const d = r.data || {};
+    serverTextsEmpty = d.orgName === undefined && d.serviceName === undefined;
+    if (!serverTextsEmpty) {
+      texts = { orgName: d.orgName ?? DEFAULT_TEXTS.orgName, serviceName: d.serviceName ?? DEFAULT_TEXTS.serviceName };
+      localStorage.setItem(LS_TEXTS, JSON.stringify(texts));
+    }
+  } catch { /* repli : cache local */ }
+  return { logoUrl, texts, serverTextsEmpty };
+}
 
-  // Barcode SVG sur élément détaché
+// Étiquette complète (code-barres + QR + logo + textes) pour un nom de poste
+async function buildOneLabel(machineName: string, logoSrc: string | null, texts: Texts): Promise<string> {
+  const qrSvg = await makeQrSvg(machineName);
   const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   try {
     JsBarcode(svgEl, machineName.toUpperCase(), {
@@ -75,19 +106,25 @@ export async function printLabelWindow(machineName: string): Promise<void> {
     svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svgEl.style.cssText = 'width:100%;height:auto;display:block;';
   } catch { /* valeur incompatible */ }
+  return buildLabelHtml(machineName, logoSrc, texts, svgEl.outerHTML, qrSvg, esc);
+}
 
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Réduit la police du nom jusqu'à ce qu'il tienne sur une ligne (toutes les étiquettes de la page)
+const FIT_NAME_SCRIPT = `<script>(function(){var els=document.querySelectorAll('.lbl-name');for(var i=0;i<els.length;i++){var e=els[i],s=14;while(e.scrollWidth>e.offsetWidth+1&&s>7){s-=0.5;e.style.fontSize=s+'pt';}}})();<\/script>`;
+const PAGE_CSS = '@page{size:100mm 40mm;margin:0mm;}*,*::before,*::after{box-sizing:border-box;}html,body{margin:0;padding:0;background:#fff;}.pg{width:100mm;height:40mm;overflow:hidden;break-after:page;page-break-after:always;}.pg:last-child{break-after:auto;page-break-after:auto;}';
 
-  const labelHtml = buildLabelHtml(machineName, logoSrc, texts, svgEl.outerHTML, qrSvg, esc);
+// ─── Impression d'une étiquette depuis n'importe quel contexte ──────────────
+export async function printLabelWindow(machineName: string): Promise<void> {
+  const { logoUrl, texts } = await loadEtiquetteSettings();
+  const labelHtml = await buildOneLabel(machineName, absoluteLogoUrl(logoUrl), texts);
 
   const printWin = window.open('', '_blank');
   if (!printWin) { alert("Autorisez les popups pour ce site afin d'imprimer l'étiquette."); return; }
 
   printWin.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Étiquette ${esc(machineName)}</title>
-<style>@page{size:100mm 40mm;margin:0mm;}*,*::before,*::after{box-sizing:border-box;}html,body{margin:0;padding:0;background:#fff;overflow:hidden;}</style>
-</head><body>${labelHtml}<script>(function(){var e=document.getElementById('lbl-name');if(!e)return;var s=14;while(e.scrollWidth>e.offsetWidth+1&&s>7){s-=0.5;e.style.fontSize=s+'pt';}})();<\/script></body></html>`);
+<style>${PAGE_CSS}html,body{overflow:hidden;}</style>
+</head><body><div class="pg">${labelHtml}</div>${FIT_NAME_SCRIPT}</body></html>`);
   printWin.document.close();
 
   const tryPrint = () => {
@@ -100,6 +137,91 @@ export async function printLabelWindow(machineName: string): Promise<void> {
   const done = () => { if (--pending === 0) tryPrint(); };
   imgs.forEach(img => { if (img.complete) done(); else { img.onload = done; img.onerror = done; } });
   setTimeout(() => { if (pending > 0) tryPrint(); }, 2000);
+}
+
+// ─── Impression d'une SÉRIE d'étiquettes (ex. PO20205 → PO25260) ────────────
+export const MAX_SERIE = 10000;
+
+/** « PO20205 » → { prefix: 'PO', n: 20205, width: 5 } (les zéros de tête sont conservés). */
+function splitSerial(v: string): { prefix: string; n: number; width: number } | null {
+  const m = v.trim().toUpperCase().match(/^(\D*)(\d+)$/);
+  if (!m) return null;
+  return { prefix: m[1], n: parseInt(m[2], 10), width: m[2].startsWith('0') ? m[2].length : 0 };
+}
+
+/** Liste des noms d'une série, ou un message d'erreur. */
+export function buildSerie(from: string, to: string): { names: string[] } | { error: string } {
+  const a = splitSerial(from), b = splitSerial(to);
+  if (!a || !b) return { error: 'Saisissez deux noms se terminant par un nombre (ex. PO20205 et PO25260).' };
+  if (a.prefix !== b.prefix) return { error: `Le préfixe doit être identique (${a.prefix || 'aucun'} ≠ ${b.prefix || 'aucun'}).` };
+  if (b.n < a.n) return { error: 'La fin de série doit être supérieure ou égale au début.' };
+  const count = b.n - a.n + 1;
+  if (count > MAX_SERIE) return { error: `Série trop longue (${count} étiquettes, ${MAX_SERIE} maximum).` };
+  const width = Math.max(a.width, b.width);
+  const names: string[] = [];
+  for (let n = a.n; n <= b.n; n++) names.push(`${a.prefix}${width ? String(n).padStart(width, '0') : n}`);
+  return { names };
+}
+
+// Imprime un document HTML complet dans un iframe masqué ; se termine à la fermeture de la boîte d'impression.
+function printHtmlInFrame(html: string): Promise<void> {
+  return new Promise((resolve) => {
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+    document.body.appendChild(frame);
+    const win = frame.contentWindow!;
+    let finished = false;
+    const end = () => { if (finished) return; finished = true; setTimeout(() => { try { frame.remove(); } catch { /* ignore */ } resolve(); }, 300); };
+
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.addEventListener('afterprint', end);
+
+    const go = () => {
+      const t0 = Date.now();
+      win.focus();
+      win.print();
+      // Chromium : print() bloque jusqu'à la fermeture de la boîte d'impression
+      if (Date.now() - t0 > 400) end();
+    };
+    const imgs = Array.from(win.document.images);
+    let pending = imgs.filter(i => !i.complete).length;
+    if (!pending) { setTimeout(go, 150); return; }
+    const done = () => { if (--pending === 0) setTimeout(go, 150); };
+    imgs.forEach(img => { if (!img.complete) { img.onload = done; img.onerror = done; } });
+    setTimeout(() => { if (pending > 0) { pending = -1000; go(); } }, 4000);
+    setTimeout(end, 20 * 60 * 1000); // garde-fou
+  });
+}
+
+/** Document HTML d'un lot : une page 100 × 40 mm par étiquette. */
+export async function buildLotHtml(lot: string[], logoSrc: string | null, texts: Texts): Promise<string> {
+  const pages: string[] = [];
+  for (const name of lot) pages.push(`<div class="pg">${await buildOneLabel(name, logoSrc, texts)}</div>`);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Étiquettes ${esc(lot[0])} → ${esc(lot[lot.length - 1])}</title><style>${PAGE_CSS}</style></head><body>${pages.join('')}${FIT_NAME_SCRIPT}</body></html>`;
+}
+
+export interface SerieProgress { lot: number; lots: number; first: string; last: number | string; done: boolean }
+
+/**
+ * Imprime les étiquettes une par une : chaque étiquette est une page 100 × 40 mm, l'imprimante à étiquettes les sort donc
+ * à la suite. Par lots (une boîte d'impression par lot) pour ne pas figer le navigateur sur plusieurs milliers de pages.
+ */
+export async function printSerie(
+  names: string[], lotSize: number, token: string | null | undefined,
+  onProgress: (p: SerieProgress) => void, shouldStop: () => boolean,
+): Promise<void> {
+  const { logoUrl, texts } = await loadEtiquetteSettings(token);
+  const logoSrc = absoluteLogoUrl(logoUrl);
+  const lots = Math.ceil(names.length / lotSize);
+  for (let i = 0; i < lots; i++) {
+    if (shouldStop()) break;
+    const lot = names.slice(i * lotSize, (i + 1) * lotSize);
+    onProgress({ lot: i + 1, lots, first: lot[0], last: lot[lot.length - 1], done: false });
+    await printHtmlInFrame(await buildLotHtml(lot, logoSrc, texts));
+  }
+  onProgress({ lot: lots, lots, first: names[0], last: names[names.length - 1], done: true });
 }
 
 // ─── HTML de l'étiquette (string) — partagé avec la fenêtre d'impression ────
@@ -117,7 +239,7 @@ function buildLabelHtml(
       ${logoSrc ? `<img src="${logoSrc}" alt="logo" style="max-width:100%;max-height:100%;object-fit:contain;display:block;"/>` : '<div style="font-size:6pt;color:#aaa;text-align:center;line-height:1.4;">Logo<br/>DSI</div>'}
     </div>
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1mm;overflow:hidden;">
-      <div id="lbl-name" style="font-size:14pt;font-weight:900;letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-align:center;color:#000;line-height:1;width:100%;">${esc(machineName)}</div>
+      <div class="lbl-name" style="font-size:14pt;font-weight:900;letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-align:center;color:#000;line-height:1;width:100%;">${esc(machineName)}</div>
       ${barcodeSvg}
     </div>
     <div style="width:20mm;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-left:0.4mm solid #bbb;padding-left:2mm;">
@@ -242,27 +364,33 @@ const EtiquetteView: React.FC = () => {
   const barcodeRef   = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Impression d'une série (ex. PO20205 → PO25260)
+  const [serieFrom, setSerieFrom] = useState('');
+  const [serieTo, setSerieTo]     = useState('');
+  const [lotSize, setLotSize]     = useState(250);
+  const [serieRun, setSerieRun]   = useState<SerieProgress | null>(null);
+  const stopRef = useRef(false);
+
   // Chargement initial
   useEffect(() => {
-    // Affiche immédiatement le cache local pendant que l'API répond.
+    // Affiche immédiatement le cache local pendant que le serveur répond.
     const cached = localStorage.getItem(LS_LOGO);
     if (cached) setLogoSrc(cached);
-
     const savedTexts = localStorage.getItem(LS_TEXTS);
     if (savedTexts) {
       try { setTexts({ ...DEFAULT_TEXTS, ...JSON.parse(savedTexts) }); } catch { /* ignore */ }
     }
 
-    // Source de vérité : le logo stocké dans le dépôt GED.
+    // Source de vérité : le serveur (logo dans le dépôt GED, textes dans app_settings).
     if (!token) return;
-    axios.get(LOGO_API, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => {
-        const url: string | null = r.data?.url || null;
-        setLogoSrc(url);
-        if (url) localStorage.setItem(LS_LOGO, url);
-        else localStorage.removeItem(LS_LOGO);
-      })
-      .catch(() => { /* on garde le cache local en cas d'erreur réseau */ });
+    loadEtiquetteSettings(token).then(s => {
+      setLogoSrc(s.logoUrl);
+      setTexts(s.texts);
+      // Reprise des textes personnalisés saisis auparavant sur ce poste : on les envoie au serveur une fois
+      if (s.serverTextsEmpty && localStorage.getItem(LS_TEXTS)) {
+        axios.put(TEXTS_API, s.texts, { headers: { Authorization: `Bearer ${token}` } }).catch(() => { /* réessai au prochain chargement */ });
+      }
+    });
   }, [token]);
 
   // Barcode
@@ -322,15 +450,41 @@ const EtiquetteView: React.FC = () => {
     }
   };
 
-  const handleValidateTexts = () => {
-    setTexts(draft);
-    localStorage.setItem(LS_TEXTS, JSON.stringify(draft));
-    setEditingTexts(false);
+  const handleValidateTexts = async () => {
+    try {
+      const r = await axios.put(TEXTS_API, draft, { headers: { Authorization: `Bearer ${token}` } });
+      const saved: Texts = { orgName: r.data?.orgName ?? draft.orgName, serviceName: r.data?.serviceName ?? draft.serviceName };
+      setTexts(saved);
+      localStorage.setItem(LS_TEXTS, JSON.stringify(saved));
+      setEditingTexts(false);
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur';
+      alert(`Échec de l'enregistrement des textes : ${msg}`);
+    }
   };
 
   const handlePrint = () => {
     renderBarcode(barcodeRef, machineName);
     void printLabelWindow(machineName);
+  };
+
+  // Série : nombre d'étiquettes / erreur de saisie
+  const serie = serieFrom.trim() && serieTo.trim() ? buildSerie(serieFrom, serieTo) : null;
+  const serieCount = serie && 'names' in serie ? serie.names.length : 0;
+  const serieLots = serieCount ? Math.ceil(serieCount / lotSize) : 0;
+  const serieRunning = !!serieRun && !serieRun.done;
+
+  const handlePrintSerie = async () => {
+    if (!serie || !('names' in serie)) return;
+    if (serieCount > 500 && !window.confirm(`Imprimer ${serieCount} étiquettes (${serieLots} lot${serieLots > 1 ? 's' : ''}, une boîte d'impression par lot) ?`)) return;
+    stopRef.current = false;
+    setSerieRun({ lot: 0, lots: serieLots, first: serie.names[0], last: serie.names[serie.names.length - 1], done: false });
+    try {
+      await printSerie(serie.names, lotSize, token, setSerieRun, () => stopRef.current);
+    } catch (err) {
+      alert(`Échec de l'impression de la série : ${err instanceof Error ? err.message : 'erreur'}`);
+      setSerieRun(null);
+    }
   };
 
   return (
@@ -412,6 +566,47 @@ const EtiquetteView: React.FC = () => {
           <button onClick={handlePrint} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 22px', background: C.blue, color: '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', fontSize: '.95rem', fontWeight: 700, boxShadow: '0 2px 10px rgba(37,99,235,.25)' }}>
             <Printer size={17} /> Imprimer
           </button>
+        </div>
+      </div>
+
+      {/* ── Série d'étiquettes ───────────────────────────────────────────────── */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, fontSize: '.78rem', color: C.slate, marginBottom: 9, textTransform: 'uppercase', letterSpacing: '.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <ListOrdered size={14} /> Imprimer une série d'étiquettes
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {([['De', serieFrom, setSerieFrom, 'PO20205'], ['À', serieTo, setSerieTo, 'PO25260']] as const).map(([label, val, set, ph]) => (
+            <div key={label}>
+              <div style={{ fontSize: '.72rem', color: C.slate, marginBottom: 3 }}>{label}</div>
+              <input value={val} onChange={e => set(e.target.value.toUpperCase())} placeholder={ph} disabled={serieRunning}
+                style={{ width: 150, padding: '8px 12px', border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: '1rem', fontFamily: 'monospace', fontWeight: 700, letterSpacing: '.08em', boxSizing: 'border-box', outline: 'none' }} />
+            </div>
+          ))}
+          <div>
+            <div style={{ fontSize: '.72rem', color: C.slate, marginBottom: 3 }}>Étiquettes par lot</div>
+            <select value={lotSize} onChange={e => setLotSize(Number(e.target.value))} disabled={serieRunning}
+              style={{ padding: '9px 10px', border: `1.5px solid ${C.border}`, borderRadius: 8, fontSize: '.9rem', background: '#fff' }}>
+              {[50, 100, 250, 500].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          {!serieRunning ? (
+            <button onClick={handlePrintSerie} disabled={!serieCount}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: serieCount ? C.blue : '#94a3b8', color: '#fff', border: 'none', borderRadius: 10, cursor: serieCount ? 'pointer' : 'not-allowed', fontSize: '.9rem', fontWeight: 700 }}>
+              <Printer size={16} /> Imprimer la série
+            </button>
+          ) : (
+            <button onClick={() => { stopRef.current = true; }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: '#fef2f2', color: C.red, border: '1px solid #fecaca', borderRadius: 10, cursor: 'pointer', fontSize: '.9rem', fontWeight: 700 }}>
+              <X size={16} /> Arrêter après ce lot
+            </button>
+          )}
+        </div>
+        <div style={{ marginTop: 9, fontSize: '.8rem', color: C.slate, lineHeight: 1.6 }}>
+          {serie && 'error' in serie && <span style={{ color: C.red }}>{serie.error}</span>}
+          {serieCount > 0 && !serieRun && <span><b>{serieCount.toLocaleString('fr-FR')}</b> étiquette{serieCount > 1 ? 's' : ''} ({serie && 'names' in serie ? `${serie.names[0]} → ${serie.names[serie.names.length - 1]}` : ''}) en <b>{serieLots}</b> lot{serieLots > 1 ? 's' : ''}.</span>}
+          {serieRun && !serieRun.done && <span style={{ color: C.blue, fontWeight: 600 }}>Lot {serieRun.lot} / {serieRun.lots} en cours ({serieRun.first} → {serieRun.last}) : choisissez l'imprimante à étiquettes dans la boîte d'impression.</span>}
+          {serieRun && serieRun.done && <span style={{ color: C.green, fontWeight: 600 }}>{stopRef.current ? 'Impression arrêtée.' : 'Série terminée.'}</span>}
+          {!serie && !serieRun && <span>Chaque étiquette est une page 100 × 40 mm : l'imprimante à étiquettes les sort une par une. Les séries longues sont découpées en lots (une boîte d'impression par lot).</span>}
         </div>
       </div>
 

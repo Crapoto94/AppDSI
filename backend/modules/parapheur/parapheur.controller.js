@@ -1,6 +1,10 @@
 const service = require('./parapheur.service');
 const { authenticateJWT, isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 const path = require('path');
+const fs = require('fs');
+
+// Programme d'installation de l'agent de signature (à déposer sur le serveur : backend/data/agent/, dossier persistant)
+const AGENT_SETUP_FILE = path.join(__dirname, '..', '..', 'data', 'agent', 'DSIHubSignatureAgent-Setup.exe');
 
 function sendError(res, err, fallback) {
     const status = err && err.status ? err.status : 500;
@@ -247,6 +251,100 @@ const controller = {
             });
             res.json(result);
         } catch (e) { sendError(res, e, 'Signature impossible'); }
+    },
+
+    // ─── Signature avec une clé matérielle RGS** (agent local) : démarrage, interrogation, réponse ───
+    rgsStart: async (req, res) => {
+        try {
+            if (req.delegation) return res.status(403).json({ message: 'La signature avec une clé matérielle ne peut pas être déléguée.' });
+            const b = req.body || {};
+            const r = await service.startRgsSigning(req.params.token, {
+                signatureDataUrl: b.signatureDataUrl,
+                signatureNote: b.signatureNote,
+                signatureNoteDataUrl: b.signatureNoteDataUrl,
+                noteOffsetX: b.noteOffsetX,
+                noteOffsetY: b.noteOffsetY,
+                noteSize: b.noteSize,
+                memorize: b.memorize,
+                otpCode: b.otpCode,
+                documentIds: b.documentIds,
+                certB64: b.certificate,
+                chainB64: b.chain,
+                delegation: null,
+                req,
+            });
+            res.json(r);
+        } catch (e) { sendError(res, e, 'Démarrage de la signature impossible'); }
+    },
+
+    // Test du certificat de l'utilisateur connecté : P12 enregistré (logiciel) ou clé matérielle (agent local)
+    testMyCertificate: async (req, res) => {
+        try { res.json(await service.testMyCertificate(req.user.email, req.body && req.body.password)); }
+        catch (e) { sendError(res, e, 'Test du certificat impossible'); }
+    },
+
+    myKeyTestStart: async (req, res) => {
+        try {
+            const b = req.body || {};
+            res.json(await service.startRgsTest(`user:${req.user.username}`, { certB64: b.certificate, chainB64: b.chain }));
+        } catch (e) { sendError(res, e, 'Test de la clé impossible'); }
+    },
+
+    myKeyTestPoll: async (req, res) => {
+        try { res.json(await service.pollRgsSigning(`user:${req.user.username}`, req.params.jobId)); }
+        catch (e) { sendError(res, e, 'Suivi du test impossible'); }
+    },
+
+    myKeyTestAnswer: async (req, res) => {
+        try { res.json(await service.answerRgsSigning(`user:${req.user.username}`, req.params.jobId, req.body)); }
+        catch (e) { sendError(res, e, 'Réponse refusée'); }
+    },
+
+    // Programme d'installation de l'agent de signature : fichier déposé par la DSI dans backend/data/agent
+    agentInfo: (req, res) => {
+        const f = AGENT_SETUP_FILE;
+        const ok = fs.existsSync(f);
+        let version = null;
+        try { version = fs.readFileSync(path.join(path.dirname(f), 'version.txt'), 'utf8').trim() || null; } catch { /* version non renseignée */ }
+        res.json({ available: ok, version, size: ok ? fs.statSync(f).size : null, filename: path.basename(f) });
+    },
+
+    agentDownload: (req, res) => {
+        if (!fs.existsSync(AGENT_SETUP_FILE)) return res.status(404).json({ message: "Le programme d'installation n'est pas encore déposé sur le serveur." });
+        res.download(AGENT_SETUP_FILE, path.basename(AGENT_SETUP_FILE));
+    },
+
+    // Test de la clé (administration) : mêmes mécanismes de suivi, opération rattachée à l'administrateur
+    rgsTestStart: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const b = req.body || {};
+            res.json(await service.startRgsTest(`admin:${req.user.username}`, { certB64: b.certificate, chainB64: b.chain }));
+        } catch (e) { sendError(res, e, 'Test de la clé impossible'); }
+    },
+
+    rgsTestPoll: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.pollRgsSigning(`admin:${req.user.username}`, req.params.jobId));
+        } catch (e) { sendError(res, e, 'Suivi du test impossible'); }
+    },
+
+    rgsTestAnswer: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.answerRgsSigning(`admin:${req.user.username}`, req.params.jobId, req.body));
+        } catch (e) { sendError(res, e, 'Réponse refusée'); }
+    },
+
+    rgsPoll: async (req, res) => {
+        try { res.json(await service.pollRgsSigning(req.params.token, req.params.jobId)); }
+        catch (e) { sendError(res, e, 'Suivi de la signature impossible'); }
+    },
+
+    rgsAnswer: async (req, res) => {
+        try { res.json(await service.answerRgsSigning(req.params.token, req.params.jobId, req.body)); }
+        catch (e) { sendError(res, e, 'Réponse de signature refusée'); }
     },
 
     requestOtp: async (req, res) => {

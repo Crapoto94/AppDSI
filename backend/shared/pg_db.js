@@ -1739,6 +1739,23 @@ async function setupPgDb() {
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_username ON magapp.beta_users(LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
     } catch (e) { console.error('[PG DB] magapp.beta_users:', e.message); }
 
+    // Accès par fonctionnalité : quelques agents nommés pour une fonctionnalité BETA non publiée pour tous
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.feature_users (
+          id SERIAL PRIMARY KEY,
+          feature TEXT NOT NULL,
+          username TEXT,
+          email TEXT,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_feature_users_email ON magapp.feature_users(feature, LOWER(email)) WHERE email IS NOT NULL AND email <> ''`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_feature_users_username ON magapp.feature_users(feature, LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
+    } catch (e) { console.error('[PG DB] magapp.feature_users:', e.message); }
+
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
     } catch (e) {}
@@ -1781,6 +1798,30 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_reunions BOOLEAN DEFAULT false`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_agent_search BOOLEAN DEFAULT false`);
+    } catch (e) {}
+
+    // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.promotion (
+          id INTEGER PRIMARY KEY,
+          enabled BOOLEAN DEFAULT false,
+          url TEXT DEFAULT '',
+          badge TEXT DEFAULT '',
+          title TEXT DEFAULT '',
+          text TEXT DEFAULT '',
+          cta TEXT DEFAULT 'Découvrir',
+          until_date DATE,
+          logo_b64 TEXT,
+          logo_mime VARCHAR(100),
+          logo_version BIGINT DEFAULT 0
+        )
+      `);
+      await client.query(`ALTER TABLE magapp.promotion ADD COLUMN IF NOT EXISTS logo_b64 TEXT`);
+      await client.query(`INSERT INTO magapp.promotion (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    } catch (e) { console.error('[MAGAPP] promotion schema:', e.message); }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
@@ -2140,6 +2181,24 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_revue ON hub_rencontres.revue_projets(revue_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_projet ON hub_rencontres.revue_projets(projet_id);`);
 
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS annee_validation INTEGER`); } catch (e) {}
+    // Charge CP (chef de projet) : faible (1-3 j) / moyenne (4-10 j) / forte (> 10 j)
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS charge_cp TEXT`); } catch (e) {}
+    // Chef de projet pressenti (username, parmi projets.chef_projet_services)
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS cp_presenti TEXT`); } catch (e) {}
+    // Projet lié à la demande (projets.projets.id) ; le CP pressenti devient le chef de projet du projet
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS projet_id INTEGER`); } catch (e) {}
+    // Utilisateur de référence (recherché dans l'AD) : demandeur des tickets créés depuis la demande
+    for (const col of ['user_ref_username', 'user_ref_name', 'user_ref_email']) {
+      try { await client.query(`ALTER TABLE hub_rencontres.rencontres_budgetaires ADD COLUMN IF NOT EXISTS ${col} TEXT`); } catch (e) {}
+    }
+    // Fusion « commentaires » → « suivi » (idempotent : commentaires est vidé après report)
+    try {
+      await client.query(`UPDATE hub_rencontres.rencontres_budgetaires
+        SET suivi = CASE WHEN COALESCE(TRIM(suivi), '') = '' THEN commentaires ELSE suivi || E'\\n' || commentaires END,
+            commentaires = NULL
+        WHERE COALESCE(TRIM(commentaires), '') <> ''`);
+    } catch (e) { console.error('Migration commentaires→suivi (rencontres):', e.message); }
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON hub_rencontres.rencontres_budgetaires(direction);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON hub_rencontres.rencontres_budgetaires(statut);`);
@@ -2897,6 +2956,7 @@ async function setupPgDb() {
     // Add notes column if missing (migration)
     try {
       await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '[]'`);
+      await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS rencontre_id INTEGER`);
     } catch (e) {}
 
     // Seed default scoring config
@@ -3703,6 +3763,51 @@ async function setupPgDb() {
         uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Commande déjà envoyée au fournisseur hors du circuit Sedit / Hub : marquage manuel (qui, quand).
+    await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_par TEXT`);
+    await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS envoye_manuel_at TIMESTAMPTZ`);
+    // Agents qui reçoivent un e-mail à chaque nouvelle demande du backlog (/admin/backlog) et à chaque nouvelle idée MagApp.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.backlog_recipients (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          email TEXT NOT NULL,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_backlog_recipients_email ON hub.backlog_recipients(LOWER(email))`);
+    } catch (e) { console.error('[PG DB] backlog_recipients:', e.message); }
+    // Boîte à idées (remplace la boîte physique). Une idée anonyme n'a AUCUNE information sur son auteur (auteur_* = NULL).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.boite_idees (
+          id SERIAL PRIMARY KEY,
+          categorie TEXT NOT NULL,
+          titre TEXT NOT NULL,
+          contenu TEXT NOT NULL,
+          anonyme BOOLEAN NOT NULL DEFAULT FALSE,
+          auteur_username TEXT,
+          auteur_nom TEXT,
+          statut TEXT NOT NULL DEFAULT 'nouvelle',
+          reponse TEXT,
+          reponse_par TEXT,
+          reponse_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.boite_idees_votes (
+          idee_id INTEGER NOT NULL REFERENCES hub.boite_idees(id) ON DELETE CASCADE,
+          username TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          PRIMARY KEY (idee_id, username)
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_boite_idees_created ON hub.boite_idees(created_at DESC)`);
+    } catch (e) { console.error('[PG DB] boite_idees:', e.message); }
+    // Catégorie de la pièce : « devis » (création) ou, une fois la commande envoyée, bon_livraison / facture / autre.
+    await client.query(`ALTER TABLE finance.demandes_commande_pj ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT 'devis'`);
     // Fil de commentaires d'une demande (dès le devis pris en compte) : réponses (parent_id) et @mentions.
     await client.query(`
       CREATE TABLE IF NOT EXISTS finance.demandes_commande_commentaires (
@@ -4559,6 +4664,26 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Migration UNIQUE (marqueur hub_tickets.data_migrations) : les tickets saisis dans le Hub (source « hub ») dont le demandeur n'est
+    // PAS un agent DSI (hub_calendrier.agents_dsi, par e-mail ou identifiant) sont en réalité des appels téléphoniques → source « Téléphone ».
+    // La source d'origine est conservée dans hub_tickets.tickets.source_origine (retour arrière possible).
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub_tickets.data_migrations (name TEXT PRIMARY KEY, done_at TIMESTAMPTZ DEFAULT NOW(), details TEXT)`);
+      const done = await client.query(`SELECT 1 FROM hub_tickets.data_migrations WHERE name = 'source_hub_vers_telephone'`);
+      if (!done.rowCount) {
+        await client.query(`ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS source_origine TEXT`);
+        const upd = await client.query(`
+          UPDATE hub_tickets.tickets t SET source_origine = t.source, source = 'Téléphone'
+           WHERE t.source = 'hub'
+             AND NOT EXISTS (
+               SELECT 1 FROM hub_calendrier.agents_dsi a
+                WHERE LOWER(a.email) IN (LOWER(COALESCE(t.requester_email, '')), LOWER(COALESCE(t.requester_email_22, '')), LOWER(COALESCE(t.email_alt, '')))
+                   OR LOWER(a.username) = LOWER(SPLIT_PART(COALESCE(NULLIF(t.requester_email_22, ''), NULLIF(t.requester_email, ''), ''), '@', 1)))`);
+        await client.query(`INSERT INTO hub_tickets.data_migrations (name, details) VALUES ('source_hub_vers_telephone', $1)`, [`${upd.rowCount} ticket(s) passés de « hub » à « Téléphone »`]);
+        console.log(`[MIGRATION] source hub → Téléphone : ${upd.rowCount} ticket(s) (demandeur hors agents DSI)`);
+      }
+    } catch (e) { console.error('[MIGRATION] source hub → Téléphone :', e.message); }
 
     // TT fixed days (multiple per agent)
     await client.query(`
@@ -7055,6 +7180,31 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_relance ON hub.contract_renewals(date_relance)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_statut ON hub.contract_renewals(statut)`);
     } catch (e) { console.error('[PG DB] hub.contract_renewals:', e.message); }
+
+    // ─── Stagiaires accueillis (RH) ────────────────────────────────────────
+    // Un stage = un nom, un niveau, une période, un maître de stage. La durée (en semaines)
+    // est calculée à l'écriture : ceil(nb de jours calendaires inclusifs / 7).
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub.stagiaires (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        niveau VARCHAR(100) DEFAULT '',
+        date_arrivee DATE,
+        date_fin DATE,
+        duree_semaines INTEGER,
+        maitre_stage VARCHAR(100) DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+      // Le maître de stage est un agent DSI (hub_calendrier.agents_dsi.username) ; maitre_stage garde son nom affiché
+      await client.query(`ALTER TABLE hub.stagiaires ADD COLUMN IF NOT EXISTS maitre_username VARCHAR(100)`);
+      // Documents : chemins de stockage (jamais exposés au client) et noms d'origine affichés
+      for (const col of ['cv_path', 'cv_nom', 'rapport_path', 'rapport_nom']) {
+        await client.query(`ALTER TABLE hub.stagiaires ADD COLUMN IF NOT EXISTS ${col} TEXT`);
+      }
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_stagiaires_dates ON hub.stagiaires(date_arrivee, date_fin)`);
+    } catch (e) { console.error('[PG DB] hub.stagiaires:', e.message); }
 
     // ─── Parapheur électronique ─────────────────────────────────────────────
     // Workflow de signature de documents PDF : un parapheur contient N documents,

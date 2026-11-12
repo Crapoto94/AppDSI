@@ -7,12 +7,14 @@ import {
   Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import DgpWeeklyChart from '../components/DgpWeeklyChart';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import BudgetPrepTab from '../components/BudgetPrepTab';
 import DemandesCommandeTab from '../components/DemandesCommandeTab';
 import VirementCreditsTab from '../components/VirementCreditsTab';
 import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const Budget: React.FC = () => {
   const { token, user } = useAuth();
@@ -41,10 +43,38 @@ const Budget: React.FC = () => {
     </svg>
   );
 
+  // Chaque sous-menu a sa propre URL : /budget/resume, /budget/commandes, /budget/demandes…
+  const VIEW_SLUGS: Record<string, string> = {
+    summary: 'resume', lines: 'lignes', engagements: 'engagements', invoices_beta: 'factures', orders: 'commandes',
+    tiers: 'tiers', operations: 'operations', gestion: 'gestion', prep: 'preparation', demandes: 'demandes', virements: 'virements',
+  };
+  const SLUG_VIEWS: Record<string, string> = Object.fromEntries(Object.entries(VIEW_SLUGS).map(([v, sl]) => [sl, v]));
+  const { section } = useParams<{ section?: string }>();
+  const navigate = useNavigate();
+
   const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes' | 'virements'>(
-    // Lien d'une notification (@mention) : /budget?view=demandes&demande=ID
-    () => (new URLSearchParams(window.location.search).get('view') === 'demandes' ? 'demandes' : 'summary')
+    () => {
+      if (section && SLUG_VIEWS[section]) return SLUG_VIEWS[section] as any;
+      // Ancien lien de notification (@mention) : /budget?view=demandes&demande=ID
+      return new URLSearchParams(window.location.search).get('view') === 'demandes' ? 'demandes' : 'summary';
+    }
   );
+  // URL → onglet (retour arrière du navigateur, lien direct)
+  useEffect(() => {
+    if (section && SLUG_VIEWS[section] && SLUG_VIEWS[section] !== view) setView(SLUG_VIEWS[section] as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
+  // Onglet → URL (conserve les paramètres de requête, ex. ?demande=ID)
+  useEffect(() => {
+    const slug = VIEW_SLUGS[view];
+    if (slug && section !== slug) {
+      const params = new URLSearchParams(window.location.search);
+      params.delete('view');
+      const qs = params.toString();
+      navigate(`/budget/${slug}${qs ? `?${qs}` : ''}`, { replace: section === undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -635,7 +665,7 @@ const Budget: React.FC = () => {
       // On considère que par défaut si ce n'est pas mandaté, c'est à traiter
       if (etat.includes('SUSPENDUE')) {
         stats.suspended++;
-      } else if (!etat.includes('MANDATEE') && etat !== '') {
+      } else if (!etat.includes('MANDATEE') && !etat.includes('REFUS') && etat !== '') {
         const arrivalDate = parseExcelDate(inv['Arrivée']);
         if (arrivalDate) {
           const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -1505,6 +1535,8 @@ const Budget: React.FC = () => {
                     </ResponsiveContainer>
                   </div>
                 </div>
+
+                <DgpWeeklyChart year={currentFiscalYear} token={token} />
               </div>
             )}
 
