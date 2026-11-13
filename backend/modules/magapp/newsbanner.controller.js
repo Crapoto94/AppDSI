@@ -24,6 +24,7 @@ const toPublic = (r, admin) => {
         height: clampHeight(r.height),
         forum_enabled: !!r.forum_enabled,
         forum_locked: !!r.forum_locked,
+        forum_title: String(r.forum_title || '').trim() || 'Forum de crise',
         until
     };
 };
@@ -31,7 +32,7 @@ const toPublic = (r, admin) => {
 module.exports = {
     get: async (req, res) => {
         try {
-            const r = await pgDb.get('SELECT enabled, message, link_url, link_label, level, scrolling, height, forum_enabled, forum_locked, forum_id, until_date::text AS until_date FROM magapp.news_banner WHERE id = 1');
+            const r = await pgDb.get('SELECT enabled, message, link_url, link_label, level, scrolling, height, forum_enabled, forum_locked, forum_id, forum_title, until_date::text AS until_date FROM magapp.news_banner WHERE id = 1');
             const out = toPublic(r, req.query.admin === 'true');
             if (r && r.forum_enabled && out.enabled) out.forum_count = await ForumController.count(r.forum_id);
             res.json(out);
@@ -47,8 +48,8 @@ module.exports = {
             const until = /^\d{4}-\d{2}-\d{2}$/.test(String(b.until || '')) ? b.until : null;
             const level = LEVELS.includes(b.level) ? b.level : 'info';
             await pgDb.run(
-                'UPDATE magapp.news_banner SET enabled = ?, message = ?, link_url = ?, link_label = ?, level = ?, scrolling = ?, height = ?, forum_enabled = ?, forum_locked = ?, until_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-                [b.enabled === true || b.enabled === 'true', String(b.message || '').trim(), String(b.link_url || '').trim(), String(b.link_label || '').trim(), level, b.scrolling === true || b.scrolling === 'true', clampHeight(b.height), b.forum_enabled === true || b.forum_enabled === 'true', b.forum_locked === true || b.forum_locked === 'true', until]
+                'UPDATE magapp.news_banner SET enabled = ?, message = ?, link_url = ?, link_label = ?, level = ?, scrolling = ?, height = ?, forum_enabled = ?, forum_locked = ?, forum_title = ?, until_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+                [b.enabled === true || b.enabled === 'true', String(b.message || '').trim(), String(b.link_url || '').trim(), String(b.link_label || '').trim(), level, b.scrolling === true || b.scrolling === 'true', clampHeight(b.height), b.forum_enabled === true || b.forum_enabled === 'true', b.forum_locked === true || b.forum_locked === 'true', String(b.forum_title || '').trim().substring(0, 60) || 'Forum de crise', until]
             );
             res.json({ message: 'Bandeau enregistré' });
         } catch (e) {

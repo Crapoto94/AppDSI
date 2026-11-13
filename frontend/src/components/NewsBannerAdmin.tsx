@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Newspaper, Save } from 'lucide-react';
 
 interface Banner {
-  enabled: boolean; message: string; link_url: string; link_label: string; level: string; scrolling: boolean; height: number; forum_enabled: boolean; forum_locked: boolean; forum_count?: number; until: string;
+  enabled: boolean; message: string; link_url: string; link_label: string; level: string; scrolling: boolean; height: number; forum_enabled: boolean; forum_locked: boolean; forum_title: string; forum_count?: number; until: string;
 }
 
-const EMPTY: Banner = { enabled: false, message: '', link_url: '', link_label: '', level: 'info', scrolling: false, height: 56, forum_enabled: false, forum_locked: false, until: '' };
+const EMPTY: Banner = { enabled: false, message: '', link_url: '', link_label: '', level: 'info', scrolling: false, height: 56, forum_enabled: false, forum_locked: false, forum_title: 'Forum de crise', until: '' };
 
 const input: React.CSSProperties = { width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: '0.9rem', boxSizing: 'border-box', fontFamily: 'inherit' };
 const label: React.CSSProperties = { fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: 4, display: 'block' };
@@ -92,6 +92,10 @@ export default function NewsBannerAdmin({ token }: { token: string | null }) {
           </p>
           {b.forum_enabled && (
             <div style={{ marginLeft: 24, display: 'grid', gap: 8 }}>
+              <div>
+                <span style={label}>Nom du forum (affiché sur le bouton et en titre du panneau)</span>
+                <input style={input} value={b.forum_title} maxLength={60} onChange={e => setB({ ...b, forum_title: e.target.value })} placeholder="Forum de crise" />
+              </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
                 <input type="checkbox" checked={b.forum_locked} onChange={e => setB({ ...b, forum_locked: e.target.checked })} /> Lecture seule (plus de nouveaux messages)
               </label>

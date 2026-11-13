@@ -19,7 +19,7 @@ const rateLimited = (username) => {
     return false;
 };
 
-const getState = async () => pgDb.get('SELECT enabled, message, forum_enabled, forum_locked, forum_id FROM magapp.news_banner WHERE id = 1');
+const getState = async () => pgDb.get('SELECT enabled, message, forum_enabled, forum_locked, forum_id, forum_title FROM magapp.news_banner WHERE id = 1');
 
 const clean = (s, max) => String(s || '').replace(/\u0000/g, '').trim().substring(0, max);
 
@@ -47,6 +47,7 @@ module.exports = {
             })).reverse(); // plus récentes en premier
             res.json({
                 enabled: true, locked: !!st.forum_locked, forum_id: st.forum_id,
+                name: String(st.forum_title || '').trim() || 'Forum de crise',
                 title: st.message || '', me: req.user.username, is_admin: !!admin, threads
             });
         } catch (e) {

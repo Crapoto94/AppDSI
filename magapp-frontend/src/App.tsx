@@ -14,7 +14,7 @@ import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
 import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
-import CrisisForum from './components/CrisisForum';
+import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
@@ -238,9 +238,27 @@ function App() {
   // Application mise en avant (bannière), configurée dans DSI Hub /admin/magapp > Paramètres
   const [promo, setPromo] = useState<{ enabled: boolean; url: string; badge: string; title: string; text: string; cta: string; logo_url: string } | null>(null);
   // Bandeau d'actualité permanent, configuré dans DSI Hub /admin/magapp > Paramètres
-  const [newsBanner, setNewsBanner] = useState<{ message: string; link_url: string; link_label: string; level: string; scrolling: boolean; height?: number; forum_enabled?: boolean; forum_count?: number } | null>(null);
-  const [showForum, setShowForum] = useState(false);
+  const [newsBanner, setNewsBanner] = useState<{ message: string; link_url: string; link_label: string; level: string; scrolling: boolean; height?: number; forum_enabled?: boolean; forum_title?: string; forum_count?: number } | null>(null);
+  // Forum de crise : ouvert/fermé et épinglé/flottant mémorisés par navigateur (bonus de confort, jamais bloquant)
+  const lsGet = (k: string) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
+  const lsSet = (k: string, v: boolean) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* ignore */ } };
+  const [showForum, setShowForumState] = useState(() => lsGet('magapp_forum_open'));
+  const [forumPinned, setForumPinnedState] = useState(() => lsGet('magapp_forum_pinned'));
+  const setShowForum = (v: boolean) => { setShowForumState(v); lsSet('magapp_forum_open', v); };
+  const setForumPinned = (v: boolean) => { setForumPinnedState(v); lsSet('magapp_forum_pinned', v); };
+  const [viewportW, setViewportW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const bannerHeight = Math.min(150, Math.max(28, newsBanner?.height || 56));
+  // Panneau forum : épinglé = collé à droite et le contenu de la page est poussé ; flottant = fenêtre au-dessus.
+  // Sur petit écran il est toujours flottant, et le bouton du chat ne peut pas être décalé.
+  const forumNarrow = viewportW < 900;
+  const forumOpen = showForum && !!newsBanner?.forum_enabled;
+  const forumDocked = forumOpen && forumPinned && !forumNarrow;
+  const forumChatOffset = !forumOpen || forumNarrow ? 0 : (forumDocked ? FORUM_PIN_WIDTH : FORUM_OVERLAY_WIDTH);
   useEffect(() => {
     const load = () => fetch('/api/magapp/news-banner').then(r => r.ok ? r.json() : null).then(d => setNewsBanner(d && d.enabled ? d : null)).catch(() => {});
     load();
@@ -1419,7 +1437,7 @@ function App() {
   );
 
   return (
-    <div className="magapp-container" style={{ paddingTop: newsBanner ? `${100 + bannerHeight + 8}px` : '100px' }}>
+    <div className="magapp-container" style={{ paddingTop: newsBanner ? `${100 + bannerHeight + 8}px` : '100px', paddingRight: forumDocked ? FORUM_PIN_WIDTH : undefined }}>
       {/* Bandeau d'actualité permanent */}
       {newsBanner && (() => {
         const palette: Record<string, { bg: string; fg: string }> = {
@@ -1448,17 +1466,27 @@ function App() {
             )}
             {newsBanner.forum_enabled && (
               <button
-                onClick={() => setShowForum(true)}
+                onClick={() => setShowForum(!showForum)}
                 style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.95)', color: '#0f172a', border: 'none', borderRadius: 999, padding: `${Math.round(bannerHeight * 0.1)}px ${Math.round(bannerHeight * 0.3)}px`, fontSize: Math.max(12, Math.round(bannerHeight * 0.3)), fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }}
               >
-                💬 Forum{newsBanner.forum_count ? ` (${newsBanner.forum_count})` : ''}
+                💬 {newsBanner.forum_title || 'Forum de crise'}{newsBanner.forum_count ? ` (${newsBanner.forum_count})` : ''}
               </button>
             )}
             <style>{`@keyframes magapp-news-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }`}</style>
           </div>
         );
       })()}
-      {showForum && newsBanner?.forum_enabled && <CrisisForum displayName={displayName} onClose={() => setShowForum(false)} />}
+      {forumOpen && (
+        <CrisisForum
+          displayName={displayName}
+          pinned={forumDocked}
+          narrow={forumNarrow}
+          topOffset={80 + bannerHeight}
+          defaultName={newsBanner?.forum_title || 'Forum de crise'}
+          onTogglePin={() => setForumPinned(!forumPinned)}
+          onClose={() => setShowForum(false)}
+        />
+      )}
       {/* Header Fixe */}
       <header style={{ 
         position: 'fixed', 
@@ -3626,7 +3654,7 @@ Je confirme l'incident
         </div>
       )}
 
-      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.show_chat_live && !(settings as any).show_chat_live_original} />
+      <ChatWidget rightOffset={forumChatOffset} liveEnabled={settings.show_chat_live} beta={settings.show_chat_live && !(settings as any).show_chat_live_original} />
     </div>
   );
 }

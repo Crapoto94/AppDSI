@@ -1845,6 +1845,7 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_enabled BOOLEAN DEFAULT false`);
       await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_locked BOOLEAN DEFAULT false`);
       await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_id INTEGER DEFAULT 1`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_title TEXT DEFAULT 'Forum de crise'`);
       await client.query(`
         CREATE TABLE IF NOT EXISTS magapp.forum_posts (
           id SERIAL PRIMARY KEY,

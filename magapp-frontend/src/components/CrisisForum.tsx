@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { X, MessageSquare, Send, CheckCircle2, EyeOff, Eye, RefreshCw, Lock } from 'lucide-react';
+import { X, MessageSquare, Send, CheckCircle2, EyeOff, Eye, RefreshCw, Lock, Pin, PinOff } from 'lucide-react';
 
 interface Post { id: number; author: string; username: string; is_staff: boolean; body: string; created_at: string; hidden: boolean; }
 interface Thread extends Post { resolved: boolean; replies: Post[]; }
-interface ForumData { enabled: boolean; locked?: boolean; title?: string; me?: string; is_admin?: boolean; threads?: Thread[]; }
+interface ForumData { enabled: boolean; locked?: boolean; name?: string; title?: string; me?: string; is_admin?: boolean; threads?: Thread[]; }
 
 const fmt = (d: string) => {
   const dt = new Date(d.includes('Z') || d.includes('+') ? d : d + 'Z');
@@ -13,8 +13,14 @@ const fmt = (d: string) => {
 
 const initials = (name: string) => name.split(/[\s.\-_]+/).filter(Boolean).slice(0, 2).map(s => s[0]?.toUpperCase()).join('') || '?';
 
-/** Forum de crise : fil de questions / réponses associé au bandeau d'actualité, en panneau latéral. */
-export default function CrisisForum({ displayName, onClose }: { displayName: string; onClose: () => void }) {
+export const FORUM_PIN_WIDTH = 400;
+export const FORUM_OVERLAY_WIDTH = 520;
+
+/** Forum de crise : fil de questions / réponses associé au bandeau d'actualité.
+ *  Deux modes : panneau flottant (avec fond assombri) ou épinglé à droite de la page (reste utilisable pendant la navigation). */
+export default function CrisisForum({ displayName, pinned, narrow, topOffset, defaultName, onTogglePin, onClose }: {
+  displayName: string; pinned: boolean; narrow: boolean; topOffset: number; defaultName: string; onTogglePin: () => void; onClose: () => void;
+}) {
   const [data, setData] = useState<ForumData | null>(null);
   const [error, setError] = useState('');
   const [question, setQuestion] = useState('');
@@ -83,14 +89,21 @@ export default function CrisisForum({ displayName, onClose }: { displayName: str
   );
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.45)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 'min(520px, 100vw)', height: '100%', background: '#fff', color: '#1e293b', display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 30px rgba(0,0,0,0.2)' }}>
+    <div style={pinned ? undefined : { position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.45)' }} onClick={pinned ? undefined : onClose}>
+      <div onClick={e => e.stopPropagation()} style={pinned
+        ? { position: 'fixed', top: topOffset, right: 0, bottom: 0, width: FORUM_PIN_WIDTH, zIndex: 998, background: '#fff', color: '#1e293b', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #cbd5e1', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)' }
+        : { width: `min(${FORUM_OVERLAY_WIDTH}px, 100vw)`, height: '100%', background: '#fff', color: '#1e293b', display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 30px rgba(0,0,0,0.2)' }}>
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <MessageSquare size={22} color="#0078a4" style={{ marginTop: 2 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>Forum de crise</div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{data?.name || defaultName}</div>
             {data?.title && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{data.title}</div>}
           </div>
+          {!narrow && (
+            <button onClick={onTogglePin} title={pinned ? 'Détacher (afficher en fenêtre)' : 'Épingler à droite de la page'} style={{ background: pinned ? '#e0f2fe' : 'none', border: 'none', cursor: 'pointer', color: pinned ? '#0078a4' : '#64748b', borderRadius: 6, padding: 3 }}>
+              {pinned ? <PinOff size={18} /> : <Pin size={18} />}
+            </button>
+          )}
           <button onClick={load} title="Actualiser" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><RefreshCw size={18} /></button>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={22} /></button>
         </div>
@@ -132,7 +145,7 @@ export default function CrisisForum({ displayName, onClose }: { displayName: str
         </div>
 
         {data?.enabled && (
-          <div style={{ padding: 14, borderTop: '1px solid #e2e8f0', background: '#fff' }}>
+          <div style={{ padding: 14, paddingRight: narrow ? 84 : 14, borderTop: '1px solid #e2e8f0', background: '#fff' }}>
             {data.locked ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b', fontSize: 13 }}><Lock size={16} /> Le forum est en lecture seule.</div>
             ) : (
