@@ -1682,6 +1682,88 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
     }
 });
 
+// Envoi en masse d'un même message (fichier Excel importé côté front). Une campagne Frizbi par lot de 500.
+// Corps : { message, title?, contacts: [{ mobile, firstName?, lastName?, id?, variables?: {clé: valeur} }] }
+app.post('/api/admin/frizbi/send-bulk', authenticateAdmin, async (req, res) => {
+    const username = req.user?.username || 'admin';
+    const message = String(req.body?.message || '').trim();
+    const title = String(req.body?.title || 'Message DSI').trim().substring(0, 100);
+    const rawContacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
+    if (!message) return res.status(400).json({ message: 'Message vide' });
+    if (!rawContacts.length) return res.status(400).json({ message: 'Aucun destinataire' });
+    if (rawContacts.length > 5000) return res.status(400).json({ message: 'Maximum 5000 destinataires par envoi' });
+
+    // Normalisation des mobiles (FR) + dédoublonnage (Frizbi refuse un numéro en double)
+    const normalize = (v) => {
+        let n = String(v == null ? '' : v).replace(/[^\d+]/g, '');
+        if (n.startsWith('+33')) n = '0' + n.slice(3);
+        else if (n.startsWith('0033')) n = '0' + n.slice(4);
+        else if (/^[67]\d{8}$/.test(n)) n = '0' + n;
+        return /^0[67]\d{8}$/.test(n) ? n : null;
+    };
+    const seen = new Set();
+    const contacts = [];
+    const invalid = [];
+    let duplicates = 0;
+    for (const c of rawContacts) {
+        const mobile = normalize(c.mobile);
+        if (!mobile) { invalid.push(String(c.mobile ?? '')); continue; }
+        if (seen.has(mobile)) { duplicates++; continue; }
+        seen.add(mobile);
+        contacts.push({
+            customerSmsContactId: `bulk_${Date.now()}_${contacts.length}`.substring(0, 50),
+            mobile,
+            firstName: String(c.firstName || '').substring(0, 100),
+            lastName: String(c.lastName || '').substring(0, 100),
+            variables: Object.entries(c.variables || {}).map(([k, v]) => ({ variableKey: String(k), variableValue: String(v ?? '') }))
+        });
+    }
+    if (!contacts.length) return res.status(400).json({ message: 'Aucun numéro de mobile valide', invalid: invalid.slice(0, 50) });
+
+    let settings;
+    try {
+        settings = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        if (!settings || !settings.is_enabled || !settings.client_id || !settings.client_secret) {
+            return res.status(400).json({ message: 'Passerelle SMS (Frizbi) non configurée ou désactivée' });
+        }
+        const authRes = await axios.post(`${settings.api_url}/api/auth/login`, { login: settings.client_id, password: settings.client_secret });
+        const token = authRes.data?.token;
+        if (!token) return res.status(502).json({ message: 'Authentification Frizbi impossible' });
+
+        let sent = 0;
+        const failed = [];
+        const campaignId = Date.now();
+        for (let i = 0; i < contacts.length; i += 500) {
+            const batch = contacts.slice(i, i + 500);
+            try {
+                await axios.post(`${settings.api_url}/api/sms/send`, {
+                    customerSmsId: `bulk_${campaignId}_${i / 500}`,
+                    date: new Date().toISOString(),
+                    title,
+                    message,
+                    customerSenderId: settings.sender_id,
+                    smsContacts: batch
+                }, { headers: { Authorization: `Bearer ${token}` } });
+                sent += batch.length;
+                for (const c of batch) {
+                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'sent', source: 'bulk', created_by: username });
+                }
+            } catch (err) {
+                const d = err.response?.data;
+                const detail = d?.detail || d?.message || d?.title || err.message;
+                failed.push({ from: i + 1, to: i + batch.length, error: detail });
+                for (const c of batch) {
+                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'failed', error_message: detail, source: 'bulk', created_by: username });
+                }
+            }
+        }
+        res.json({ success: failed.length === 0, sent, failed, invalid: invalid.slice(0, 50), invalid_count: invalid.length, duplicates });
+    } catch (error) {
+        const d = error.response?.data;
+        res.status(error.response?.status || 500).json({ message: d?.detail || d?.message || d?.title || error.message });
+    }
+});
+
 // API Ville settings (stored in app_settings)
 app.get('/api/admin/api-ville-settings', authenticateAdmin, async (req, res) => {
     try {
