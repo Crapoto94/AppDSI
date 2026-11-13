@@ -1416,7 +1416,7 @@ function App() {
   );
 
   return (
-    <div className="magapp-container" style={{ paddingTop: newsBanner ? '144px' : '100px' }}>
+    <div className="magapp-container" style={{ paddingTop: newsBanner ? '164px' : '100px' }}>
       {/* Bandeau d'actualité permanent */}
       {newsBanner && (() => {
         const palette: Record<string, { bg: string; fg: string }> = {
@@ -1437,7 +1437,7 @@ function App() {
           </>
         );
         return (
-          <div role="status" style={{ position: 'fixed', top: 80, left: 0, right: 0, height: 36, background: c.bg, color: c.fg, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', fontSize: '0.9rem', fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <div role="status" style={{ position: 'fixed', top: 80, left: 0, right: 0, height: 56, background: c.bg, color: c.fg, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', fontSize: '1.5rem', fontWeight: 800, overflow: 'hidden', whiteSpace: 'nowrap' }}>
             {newsBanner.scrolling ? (
               <div style={{ display: 'inline-block', paddingLeft: '100%', animation: 'magapp-news-scroll 25s linear infinite' }}>{content}</div>
             ) : (
