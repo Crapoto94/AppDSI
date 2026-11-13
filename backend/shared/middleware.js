@@ -211,12 +211,22 @@ async function resolveEffectiveRole(user) {
     const jwtRole = user && user.role;
     if (!user || !user.username || user.source === 'magapp') return jwtRole;
     if (jwtRole && !['user', 'magapp'].includes(jwtRole)) return jwtRole;
+    let role = jwtRole;
+    // 1. Rôle courant en SQLite (posé par Admin → Utilisateurs) : le JWT ne le reflète qu'à la connexion.
     try {
-        const r = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1', [user.username]);
-        const hubRole = r.rows[0] && r.rows[0].role;
-        if (hubRole && !['user', 'magapp'].includes(hubRole)) return hubRole;
-    } catch (e) { /* non bloquant : on garde le rôle du jeton */ }
-    return jwtRole;
+        const db = getSqlite();
+        const row = db && await db.get('SELECT role FROM users WHERE LOWER(username) = LOWER(?)', [user.username]);
+        if (row && row.role) role = row.role;
+    } catch (e) { /* non bloquant */ }
+    // 2. Surcharge par hub.users (rôle posé via le module tickets), comme /api/auth/me.
+    if (!role || ['user', 'magapp'].includes(role)) {
+        try {
+            const r = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1', [user.username]);
+            const hubRole = r.rows[0] && r.rows[0].role;
+            if (hubRole && !['user', 'magapp'].includes(hubRole)) role = hubRole;
+        } catch (e) { /* non bloquant : on garde le rôle déjà résolu */ }
+    }
+    return role;
 }
 
 /**
