@@ -202,6 +202,41 @@ const authenticateAdminOrFinances = (req, res, next) => {
 };
 
 /**
+ * Rôle effectif d'un utilisateur. Le JWT porte le rôle SQLite figé à la connexion ; or le rôle
+ * « compta » / « finances » est posé dans hub.users (PostgreSQL), que /api/auth/me superpose
+ * au rôle SQLite pour le front (même règle, cf. server.js). Sans cette résolution, un agent
+ * déclaré compta voit le formulaire côté front mais le backend le refuse (rôle « user » du jeton).
+ */
+async function resolveEffectiveRole(user) {
+    const jwtRole = user && user.role;
+    if (!user || !user.username || user.source === 'magapp') return jwtRole;
+    if (jwtRole && !['user', 'magapp'].includes(jwtRole)) return jwtRole;
+    try {
+        const r = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1', [user.username]);
+        const hubRole = r.rows[0] && r.rows[0].role;
+        if (hubRole && !['user', 'magapp'].includes(hubRole)) return hubRole;
+    } catch (e) { /* non bloquant : on garde le rôle du jeton */ }
+    return jwtRole;
+}
+
+/**
+ * Middleware du service fait (déclaration, annulation, pièces jointes) : superadmin, admin,
+ * finances, compta — même périmètre que le front (canModifySF), rôle résolu comme /api/auth/me.
+ */
+const authenticateServiceFaitManager = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (!req.user) return res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+        if (isAdminLike(req.user)) return next();
+        const role = await resolveEffectiveRole(req.user);
+        if (role === 'admin' || role === 'finances' || role === 'compta') {
+            req.user.role = role;
+            return next();
+        }
+        res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+    });
+};
+
+/**
  * Middleware for Admin or users with MagApp Control access
  */
 const authenticateMagappControl = (req, res, next) => {
@@ -640,6 +675,7 @@ module.exports = {
     authenticateAdminUI: bypassIfApiKey(authenticateAdminUI),
     authenticateInternalOrAdmin: bypassIfApiKey(authenticateInternalOrAdmin),
     authenticateAdminOrFinances: bypassIfApiKey(authenticateAdminOrFinances),
+    authenticateServiceFaitManager: bypassIfApiKey(authenticateServiceFaitManager),
     authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
     authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
