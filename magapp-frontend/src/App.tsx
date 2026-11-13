@@ -14,6 +14,7 @@ import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
 import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
+import CrisisForum from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
@@ -237,7 +238,9 @@ function App() {
   // Application mise en avant (bannière), configurée dans DSI Hub /admin/magapp > Paramètres
   const [promo, setPromo] = useState<{ enabled: boolean; url: string; badge: string; title: string; text: string; cta: string; logo_url: string } | null>(null);
   // Bandeau d'actualité permanent, configuré dans DSI Hub /admin/magapp > Paramètres
-  const [newsBanner, setNewsBanner] = useState<{ message: string; link_url: string; link_label: string; level: string; scrolling: boolean } | null>(null);
+  const [newsBanner, setNewsBanner] = useState<{ message: string; link_url: string; link_label: string; level: string; scrolling: boolean; height?: number; forum_enabled?: boolean; forum_count?: number } | null>(null);
+  const [showForum, setShowForum] = useState(false);
+  const bannerHeight = Math.min(150, Math.max(28, newsBanner?.height || 56));
   useEffect(() => {
     const load = () => fetch('/api/magapp/news-banner').then(r => r.ok ? r.json() : null).then(d => setNewsBanner(d && d.enabled ? d : null)).catch(() => {});
     load();
@@ -1416,7 +1419,7 @@ function App() {
   );
 
   return (
-    <div className="magapp-container" style={{ paddingTop: newsBanner ? '164px' : '100px' }}>
+    <div className="magapp-container" style={{ paddingTop: newsBanner ? `${100 + bannerHeight + 8}px` : '100px' }}>
       {/* Bandeau d'actualité permanent */}
       {newsBanner && (() => {
         const palette: Record<string, { bg: string; fg: string }> = {
@@ -1437,16 +1440,25 @@ function App() {
           </>
         );
         return (
-          <div role="status" style={{ position: 'fixed', top: 80, left: 0, right: 0, height: 56, background: c.bg, color: c.fg, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', fontSize: '1.5rem', fontWeight: 800, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <div role="status" style={{ position: 'fixed', top: 80, left: 0, right: 0, height: bannerHeight, background: c.bg, color: c.fg, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', fontSize: Math.round(bannerHeight * 0.45), fontWeight: 800, overflow: 'hidden', whiteSpace: 'nowrap' }}>
             {newsBanner.scrolling ? (
               <div style={{ display: 'inline-block', paddingLeft: '100%', animation: 'magapp-news-scroll 25s linear infinite' }}>{content}</div>
             ) : (
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{content}</div>
             )}
+            {newsBanner.forum_enabled && (
+              <button
+                onClick={() => setShowForum(true)}
+                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.95)', color: '#0f172a', border: 'none', borderRadius: 999, padding: `${Math.round(bannerHeight * 0.1)}px ${Math.round(bannerHeight * 0.3)}px`, fontSize: Math.max(12, Math.round(bannerHeight * 0.3)), fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }}
+              >
+                💬 Forum{newsBanner.forum_count ? ` (${newsBanner.forum_count})` : ''}
+              </button>
+            )}
             <style>{`@keyframes magapp-news-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }`}</style>
           </div>
         );
       })()}
+      {showForum && newsBanner?.forum_enabled && <CrisisForum displayName={displayName} onClose={() => setShowForum(false)} />}
       {/* Header Fixe */}
       <header style={{ 
         position: 'fixed', 

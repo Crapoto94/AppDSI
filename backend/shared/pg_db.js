@@ -1840,6 +1840,26 @@ async function setupPgDb() {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS height INTEGER DEFAULT 56`);
+      // Forum de crise associé au bandeau : forum_id change à chaque « nouveau forum » (l'ancien est archivé)
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_enabled BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_locked BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_id INTEGER DEFAULT 1`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.forum_posts (
+          id SERIAL PRIMARY KEY,
+          forum_id INTEGER NOT NULL,
+          parent_id INTEGER REFERENCES magapp.forum_posts(id) ON DELETE CASCADE,
+          author_username TEXT NOT NULL,
+          author_name TEXT,
+          is_staff BOOLEAN DEFAULT false,
+          body TEXT NOT NULL,
+          resolved BOOLEAN DEFAULT false,
+          hidden BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_forum_posts_forum ON magapp.forum_posts(forum_id, parent_id)`);
       await client.query(`INSERT INTO magapp.news_banner (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
     } catch (e) { console.error('[MAGAPP] news_banner schema:', e.message); }
 

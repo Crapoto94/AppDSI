@@ -4,6 +4,7 @@ const multer = require('multer');
 const MagAppController = require('./magapp.controller');
 const PromotionController = require('./promotion.controller');
 const NewsBannerController = require('./newsbanner.controller');
+const ForumController = require('./forum.controller');
 const { authenticateJWT, tryAuthenticateJWT, authenticateMagappControl, authenticateAdmin } = require('../../shared/middleware');
 const { getSqlite } = require('../../shared/database');
 
@@ -55,6 +56,12 @@ magappBaseRouter.post('/promotion', authenticateMagappControl, uploadMemory.sing
 // Bandeau d'actualité permanent — lecture publique, écriture admin
 magappBaseRouter.get('/news-banner', NewsBannerController.get);
 magappBaseRouter.post('/news-banner', authenticateMagappControl, NewsBannerController.save);
+// Forum de crise (associé au bandeau) — lecture et écriture pour tout utilisateur connecté, modération admin
+magappBaseRouter.get('/forum', authenticateJWT, ForumController.list);
+magappBaseRouter.post('/forum/posts', authenticateJWT, ForumController.post);
+magappBaseRouter.post('/forum/posts/:id/resolve', authenticateJWT, ForumController.resolve);
+magappBaseRouter.post('/forum/posts/:id/hide', authenticateMagappControl, ForumController.toggleHidden);
+magappBaseRouter.post('/forum/new', authenticateMagappControl, ForumController.startNew);
 magappBaseRouter.get('/settings', tryAuthenticateJWT, MagAppController.getSettings);
 magappBaseRouter.post('/settings', authenticateMagappControl, MagAppController.updateSettings);
 magappBaseRouter.get('/apps/:id/users', authenticateMagappControl, MagAppController.getAppUsers);
