@@ -339,6 +339,20 @@ async function queryCommandeFactureStatus(commandes) {
 }
 exports.getCommandeFactureStatus = queryCommandeFactureStatus;
 
+/** ROO de la commande Sedit liée à une facture (FI.FACTURE.COMMANDE), ou null. */
+exports.getFactureCommandeRoo = async function getFactureCommandeRoo(invoiceRef) {
+    const ref = String(invoiceRef || '').trim();
+    if (!ref) return null;
+    const rows = await withFinanceOracle(async (connection) => {
+        const res = await connection.execute(
+            `SELECT TRIM(COMMANDE) AS CMD FROM FI.FACTURE WHERE TRIM(FACTURE) = :f`, { f: ref }
+        );
+        return res.rows;
+    });
+    const r = rows.find(x => x.CMD);
+    return r ? String(r.CMD).trim() : null;
+};
+
 /**
  * Valide le service fait DIRECTEMENT dans Sedit (écriture Oracle) une fois la décision
  * positive rendue côté AppDSI — voir service-fait.controller.js#submitDecision. Ne touche

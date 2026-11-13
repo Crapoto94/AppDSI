@@ -266,9 +266,68 @@ function isTelecomIntegrated(invoiceRef) {
     ).then(r => r.rowCount > 0).catch(() => false);
 }
 
+/** Pièces de la/des demande(s) de commande liée(s) à la commande Sedit de la facture. */
+async function loadDemandeCommandePieces(invoiceRef) {
+    const roo = await financeShareController.getFactureCommandeRoo(invoiceRef);
+    if (!roo) return { commande_roo: null, demandes: [], pieces: [] };
+    const dem = await pool.query(
+        `SELECT id, designation, commande_numero FROM finance.demandes_commande WHERE TRIM(commande_roo) = $1 ORDER BY id`, [roo]
+    );
+    if (!dem.rowCount) return { commande_roo: roo, demandes: [], pieces: [] };
+    const pj = await pool.query(
+        `SELECT id, demande_id, file_path, file_name, size, COALESCE(categorie, 'devis') AS categorie
+           FROM finance.demandes_commande_pj WHERE demande_id = ANY($1::int[]) ORDER BY id`,
+        [dem.rows.map(d => d.id)]
+    );
+    return { commande_roo: roo, demandes: dem.rows, pieces: pj.rows };
+}
+
+/** Copie dans le stockage du service fait les PJ de demande de commande sélectionnées (ids validés). */
+async function copyDemandePiecesToWorkflow(client, workflowId, invoiceRef, rawIds, username) {
+    const ids = (Array.isArray(rawIds) ? rawIds : []).map(n => parseInt(n, 10)).filter(Number.isInteger);
+    if (!ids.length) return 0;
+    const { pieces } = await loadDemandeCommandePieces(invoiceRef);
+    let n = 0;
+    for (const p of pieces.filter(x => ids.includes(x.id))) {
+        const buffer = await seditPj.readStorageBuffer(p.file_path);
+        const saved = await storage.saveFile('service-fait-pj', String(workflowId), { buffer, originalname: p.file_name });
+        await client.query(
+            `INSERT INTO finance.service_fait_pieces_jointes (workflow_id, file_path, original_name, uploaded_by)
+             VALUES ($1, $2, $3, $4)`,
+            [workflowId, saved.dbPath, p.file_name, username]
+        );
+        n++;
+    }
+    return n;
+}
+
+const parseIdList = (v) => {
+    if (Array.isArray(v)) return v;
+    try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+};
+
 const controller = {
 
     setSendMail,
+
+    // PJ de la demande de commande associée à la facture (préremplies dans la modale de lancement du SF).
+    getDemandePieces: async (req, res) => {
+        try {
+            const ref = String(req.query.invoice_ref || '').trim();
+            if (!ref) return res.status(400).json({ message: 'invoice_ref requis' });
+            const out = await loadDemandeCommandePieces(ref);
+            res.json({
+                commande_roo: out.commande_roo,
+                commande_numero: out.demandes[0]?.commande_numero || null,
+                pieces: out.pieces.map(p => ({
+                    id: p.id, file_name: p.file_name, file_path: p.file_path, size: p.size, categorie: p.categorie,
+                })),
+            });
+        } catch (error) {
+            console.error('[ServiceFait] getDemandePieces error:', error);
+            res.json({ commande_roo: null, commande_numero: null, pieces: [] }); // non bloquant
+        }
+    },
 
     createWorkflow: async (req, res) => {
         try {
@@ -324,6 +383,13 @@ const controller = {
                  normalizeServiceFaitDate(service_fait_date)]
             );
             const workflowId = insResult.rows[0].id;
+
+            // PJ de la demande de commande associée : intégrées d'office (sélection envoyée par la modale).
+            try {
+                await copyDemandePiecesToWorkflow(pool, workflowId, invoice_ref, req.body.demande_pj_ids, req.user.username);
+            } catch (e) {
+                console.warn('[ServiceFait] copie des PJ de la demande de commande échouée:', e.message);
+            }
 
             const token = makeToken(workflowId, agent.email || '');
             const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -387,7 +453,8 @@ const controller = {
             }
             // Un commentaire OU une pièce jointe suffit à justifier la déclaration (l'un des deux).
             const hasComment = !!(comment && comment.trim());
-            const hasFiles = !!(req.files && req.files.length > 0);
+            const demandePjIds = parseIdList(req.body.demande_pj_ids);
+            const hasFiles = !!(req.files && req.files.length > 0) || demandePjIds.length > 0;
             if (!hasComment && !hasFiles) {
                 return res.status(400).json({ message: 'Un commentaire ou une pièce jointe est requis (l\'un des deux suffit).' });
             }
@@ -444,6 +511,9 @@ const controller = {
                         [workflowId, fileResult.dbPath, file.originalname, req.user.username]
                     );
                 }
+
+                // PJ de la demande de commande associée (sélection de la modale).
+                await copyDemandePiecesToWorkflow(client, workflowId, invoice_ref, demandePjIds, req.user.username);
 
                 await client.query(
                     `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)

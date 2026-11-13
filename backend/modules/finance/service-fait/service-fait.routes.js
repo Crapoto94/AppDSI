@@ -13,6 +13,8 @@ router.post('/self', authenticateServiceFaitManager, upload.array('files', 10), 
 router.post('/statuses', authenticateJWT, controller.getStatuses);
 // Directeurs paramétrés (générique) — AVANT /:id.
 router.get('/directors', authenticateJWT, controller.getDirectors);
+// PJ de la demande de commande associée à la facture (préremplissage de la modale SF) — AVANT /:id.
+router.get('/demande-pieces', authenticateJWT, controller.getDemandePieces);
 // État de la facture des commandes (pastille FAC sur la liste des commandes)
 router.post('/commande-statuses', authenticateJWT, controller.getCommandeFactureStatuses);
 // Écritures Sedit (admin) — AVANT /:id pour ne pas être capturé par la route paramétrée.
