@@ -2402,297 +2402,113 @@ const MagappAdmin: React.FC = () => {
             </section>
           )}
 
-          {activeTab === 'settings' && (
-            <section className="workspace-section" style={{ maxWidth: '600px' }}>
-              <div className="section-header">
-                <h2>Paramètres MagApp</h2>
-                <div className="header-icon-v2"><Settings size={20} /></div>
-              </div>
+          {activeTab === 'settings' && (() => {
+            type SettingKey = 'show_tickets' | 'show_health_check' | 'show_create_buttons' | 'show_ideas' | 'show_library' | 'show_consommables' | 'show_chat_live' | 'show_rencontres' | 'show_transcript_manager' | 'show_parapheur' | 'show_pdf_tools' | 'show_subscriptions' | 'show_tool_incident' | 'show_tool_demande' | 'show_tasks' | 'show_notes' | 'show_reunions' | 'show_agent_search';
+            type ToggleDef = { key: SettingKey; feature: string; label: string; desc: string; color: string; beta?: boolean };
+            const mainToggles: ToggleDef[] = [
+              { key: 'show_tickets', feature: 'tickets', label: 'Afficher les tickets système (GLPI)', desc: "Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.", color: '#4f46e5' },
+              { key: 'show_health_check', feature: 'health_check', label: 'Afficher le Health Check global', desc: "Affiche le badge d'état global du système (Health Check) en haut de la page.", color: '#4f46e5' },
+              { key: 'show_create_buttons', feature: 'create_buttons', label: 'Afficher les boutons de création (Incident/Demande)', desc: 'Affiche les boutons pour créer des incidents ou demandes GLPI.', color: '#4f46e5' },
+              { key: 'show_ideas', feature: 'ideas', label: 'Afficher la section Idées', desc: 'Affiche le bouton "Mes Idées" et le formulaire de soumission.', color: '#4f46e5' },
+              { key: 'show_library', feature: 'library', label: 'Afficher la Bibliothèque', desc: "Active l'accès à la bibliothèque de documentation pour les utilisateurs.", color: '#4f46e5', beta: true },
+              { key: 'show_consommables', feature: 'consommables', label: 'Afficher les demandes de consommables', desc: 'Si décoché, le bouton "Consommables" ne sera visible que pour les administrateurs ou les personnes associées à la tuile "Demandes de consommables".', color: '#4f46e5' },
+              { key: 'show_chat_live', feature: 'chat_live', label: 'Chat Live', desc: 'Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.', color: '#6366f1', beta: true },
+            ];
+            const toolToggles: ToggleDef[] = [
+              { key: 'show_rencontres', feature: 'rencontres', label: 'Rencontres annuelles', desc: 'Affiche l\'outil "Rencontres annuelles" (demandes budgétaires des directions).', color: '#0284c7' },
+              { key: 'show_transcript_manager', feature: 'transcript_manager', label: 'Transcript manager', desc: 'Affiche l\'outil "Transcript manager" (réunions, comptes rendus, résumés IA).', color: '#0078a4', beta: true },
+              { key: 'show_parapheur', feature: 'parapheur', label: 'Parapheur', desc: "Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.", color: '#0e7490', beta: true },
+              { key: 'show_pdf_tools', feature: 'pdf_tools', label: 'Outils PDF', desc: 'Fusionner, découper, compresser, filigraner, comparer et réparer des PDF directement en ligne.', color: '#0369a1', beta: true },
+              { key: 'show_subscriptions', feature: 'subscriptions', label: 'Mes abonnements', desc: 'Affiche l\'outil "Mes abonnements" (abonnement aux notifications d\'état d\'un service).', color: '#4f46e5' },
+              { key: 'show_tool_incident', feature: 'tool_incident', label: 'Déclarer un incident', desc: 'Affiche le bouton « Déclarer un incident » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).', color: '#dc2626' },
+              { key: 'show_tool_demande', feature: 'tool_demande', label: 'Faire une demande', desc: 'Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).', color: '#2563eb' },
+              { key: 'show_tasks', feature: 'tasks', label: 'Mes tâches', desc: "Ouvre « Mes tâches » du DSI Hub depuis le Magasin d'applications (suivi et organisation des tâches personnelles).", color: '#2563eb', beta: true },
+              { key: 'show_notes', feature: 'notes', label: 'Mes notes IA', desc: "Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).", color: '#059669', beta: true },
+              { key: 'show_reunions', feature: 'reunions', label: 'Mes réunions', desc: "Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).", color: '#0369a1', beta: true },
+              { key: 'show_agent_search', feature: 'agent_search', label: "Recherche d'agent", desc: 'Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.', color: '#b45309', beta: true },
+            ];
+            const renderToggle = (t: ToggleDef) => {
+              const on = magappSettings[t.key];
+              return (
+                <div key={t.key} className="mgs-card" style={{ borderColor: on ? '#c7d2fe' : '#e2e8f0' }}>
+                  <label className="mgs-toggle-row">
+                    <span className="mgs-toggle-label">
+                      {t.label}
+                      {t.beta && !on && (<span className="mgs-beta" style={{ background: t.color }}>BETA</span>)}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={e => setMagappSettings({ ...magappSettings, [t.key]: e.target.checked })}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: t.color, flexShrink: 0 }}
+                    />
+                  </label>
+                  <p className="mgs-desc">{t.desc}</p>
+                  <FeatureAgents feature={t.feature} published={on} />
+                </div>
+              );
+            };
+            return (
+            <div className="mgs-page">
+              <style>{`
+                .mgs-page { display: flex; flex-direction: column; gap: 24px; width: 100%; }
+                .mgs-section { background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); border-radius: 28px; border: 1px solid rgba(255,255,255,0.8); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.02); padding: 28px 32px; }
+                .mgs-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+                .mgs-head h2 { margin: 0; font-size: 1.2rem; font-weight: 800; color: #1e293b; }
+                .mgs-head p { margin: 4px 0 0 0; font-size: 0.88rem; color: #64748b; }
+                .mgs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; align-items: start; }
+                .mgs-card { padding: 16px 18px; background: white; border: 1px solid #e2e8f0; border-radius: 16px; transition: border-color .2s; }
+                .mgs-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; margin: 0; }
+                .mgs-toggle-label { font-weight: 700; font-size: 0.98rem; color: #0f172a; }
+                .mgs-beta { margin-left: 8px; color: white; font-size: 0.6rem; font-weight: 800; padding: 2px 6px; border-radius: 6px; letter-spacing: 0.05em; vertical-align: middle; }
+                .mgs-desc { margin: 6px 0 0 0; font-size: 0.85rem; color: #64748b; line-height: 1.45; }
+                .mgs-save { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; position: sticky; bottom: 12px; z-index: 5; padding: 14px 20px; background: rgba(255,255,255,0.95); border: 1px solid #c7d2fe; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(79,70,229,0.15); }
+                .mgs-save span { font-size: 0.88rem; color: #64748b; }
+                @media (max-width: 700px) { .mgs-grid { grid-template-columns: 1fr; } .mgs-section { padding: 20px; } }
+              `}</style>
               <FeatureUsersProvider token={token}>
-              <div className="form-grid-v2">
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les tickets système (GLPI)</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_tickets} 
-                      onChange={e => setMagappSettings({...magappSettings, show_tickets: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.</p>
-                  <FeatureAgents feature="tickets" published={magappSettings.show_tickets} />
+                <section className="mgs-section">
+                  <div className="mgs-head">
+                    <div className="header-icon-v2"><Settings size={20} /></div>
+                    <div>
+                      <h2>Paramètres MagApp</h2>
+                      <p>Fonctionnalités visibles dans le Magasin d'applications. Décoché, une fonctionnalité reste disponible en beta pour les agents associés.</p>
+                    </div>
+                  </div>
+                  <div className="mgs-grid">
+                    {mainToggles.map(renderToggle)}
+                  </div>
+                </section>
+
+                <section className="mgs-section">
+                  <div className="mgs-head">
+                    <div className="header-icon-v2" style={{ background: '#e0f2fe', color: '#0369a1' }}><Wrench size={20} /></div>
+                    <div>
+                      <h2>Mes outils DSI</h2>
+                      <p>Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).</p>
+                    </div>
+                  </div>
+                  <div className="mgs-grid">
+                    {toolToggles.map(renderToggle)}
+                  </div>
+                </section>
+
+                <div className="mgs-save">
+                  <span>Les modifications des interrupteurs ne sont appliquées qu'après enregistrement.</span>
+                  <button className="primary-btn-v2" onClick={handleSaveMagappSettings}>
+                    <Save size={18} /> Mettre à jour les paramètres
+                  </button>
                 </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher le Health Check global</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_health_check} 
-                      onChange={e => setMagappSettings({...magappSettings, show_health_check: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le badge d'état global du système (Health Check) en haut de la page.</p>
-                  <FeatureAgents feature="health_check" published={magappSettings.show_health_check} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les boutons de création (Incident/Demande)</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_create_buttons} 
-                      onChange={e => setMagappSettings({...magappSettings, show_create_buttons: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche les boutons pour créer des incidents ou demandes GLPI.</p>
-                  <FeatureAgents feature="create_buttons" published={magappSettings.show_create_buttons} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la section Idées</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_ideas}
-                      onChange={e => setMagappSettings({...magappSettings, show_ideas: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Mes Idées" et le formulaire de soumission.</p>
-                  <FeatureAgents feature="ideas" published={magappSettings.show_ideas} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la Bibliothèque{!magappSettings.show_library && ' (BETA)'}</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_library} 
-                      onChange={e => setMagappSettings({...magappSettings, show_library: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'accès à la bibliothèque de documentation pour les utilisateurs.</p>
-                  <FeatureAgents feature="library" published={magappSettings.show_library} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les demandes de consommables</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_consommables}
-                      onChange={e => setMagappSettings({...magappSettings, show_consommables: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Si décoché, le bouton "Consommables" ne sera visible que pour les administrateurs ou les personnes associées à la tuile "Demandes de consommables".
-                  </p>
-                  <FeatureAgents feature="consommables" published={magappSettings.show_consommables} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Chat Live
-                      {!magappSettings.show_chat_live && (<span style={{ marginLeft: 8, background: '#6366f1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_chat_live}
-                      onChange={e => setMagappSettings({...magappSettings, show_chat_live: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#6366f1' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.
-                  </p>
-                  <FeatureAgents feature="chat_live" published={magappSettings.show_chat_live} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
-                  <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Wrench size={16} color="#0369a1" /> Mes outils DSI
-                  </span>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).
-                  </p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Rencontres annuelles</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_rencontres}
-                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0284c7' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Rencontres annuelles" (demandes budgétaires des directions).</p>
-                  <FeatureAgents feature="rencontres" published={magappSettings.show_rencontres} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Transcript manager
-                      {!magappSettings.show_transcript_manager && (<span style={{ marginLeft: 8, background: '#0078a4', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_transcript_manager}
-                      onChange={e => setMagappSettings({...magappSettings, show_transcript_manager: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0078a4' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Transcript manager" (réunions, comptes rendus, résumés IA).</p>
-                  <FeatureAgents feature="transcript_manager" published={magappSettings.show_transcript_manager} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Parapheur
-                      {!magappSettings.show_parapheur && (<span style={{ marginLeft: 8, background: '#0e7490', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_parapheur}
-                      onChange={e => setMagappSettings({...magappSettings, show_parapheur: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0e7490' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.</p>
-                  <FeatureAgents feature="parapheur" published={magappSettings.show_parapheur} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Outils PDF
-                      {!magappSettings.show_pdf_tools && (<span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_pdf_tools}
-                      onChange={e => setMagappSettings({...magappSettings, show_pdf_tools: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Fusionner, découper, compresser, filigraner, comparer et réparer des PDF directement en ligne.</p>
-                  <FeatureAgents feature="pdf_tools" published={magappSettings.show_pdf_tools} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Mes abonnements</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_subscriptions}
-                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Mes abonnements" (abonnement aux notifications d'état d'un service).</p>
-                  <FeatureAgents feature="subscriptions" published={magappSettings.show_subscriptions} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Déclarer un incident</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_tool_incident}
-                      onChange={e => setMagappSettings({...magappSettings, show_tool_incident: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#dc2626' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Déclarer un incident » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
-                  <FeatureAgents feature="tool_incident" published={magappSettings.show_tool_incident} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Faire une demande</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_tool_demande}
-                      onChange={e => setMagappSettings({...magappSettings, show_tool_demande: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
-                  <FeatureAgents feature="tool_demande" published={magappSettings.show_tool_demande} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Mes tâches
-                      {!magappSettings.show_tasks && (<span style={{ marginLeft: 8, background: '#2563eb', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_tasks}
-                      onChange={e => setMagappSettings({...magappSettings, show_tasks: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes tâches » du DSI Hub depuis le Magasin d'applications (suivi et organisation des tâches personnelles).</p>
-                  <FeatureAgents feature="tasks" published={magappSettings.show_tasks} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Mes notes IA
-                      {!magappSettings.show_notes && (<span style={{ marginLeft: 8, background: '#059669', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_notes}
-                      onChange={e => setMagappSettings({...magappSettings, show_notes: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#059669' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).</p>
-                  <FeatureAgents feature="notes" published={magappSettings.show_notes} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Mes réunions
-                      {!magappSettings.show_reunions && (<span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_reunions}
-                      onChange={e => setMagappSettings({...magappSettings, show_reunions: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).</p>
-                  <FeatureAgents feature="reunions" published={magappSettings.show_reunions} />
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Recherche d'agent
-                      {!magappSettings.show_agent_search && (<span style={{ marginLeft: 8, background: '#b45309', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>)}
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_agent_search}
-                      onChange={e => setMagappSettings({...magappSettings, show_agent_search: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#b45309' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.</p>
-                  <FeatureAgents feature="agent_search" published={magappSettings.show_agent_search} />
-                </div>
-                <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
-                  <Save size={18} /> Mettre à jour les paramètres
-                </button>
 
                 <NewsBannerAdmin token={token} />
 
                 <PromotionAdmin token={token} />
 
                 <BetaUsersAdmin token={token} />
-              </div>
               </FeatureUsersProvider>
-            </section>
-          )}
+            </div>
+            );
+          })()}
 
           {activeTab === 'library' && (
             <div className="workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
