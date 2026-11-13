@@ -2,6 +2,50 @@
 
 Toutes les évolutions notables du projet AppDSI sont documentées ici.
 
+## [1.6.0] - 2026-11-13
+
+Budgets précisés et filtrables, opérations visibles par tous les accès Budget, refonte du suivi des rencontres budgétaires, bandeau d'actualité et forum de crise MagApp, SMS en masse Frizbi, PDF + assistant IA, annuaire des intervenants externes et correctifs (calendrier DSI, tickets, service fait).
+
+### Budget
+- **Budgets précisés** : la colonne « Budget » affiche « code – libellé » (ex. `00 – PRINCIPAL`) pour les **lignes budgétaires, factures, commandes et engagements (mouvements)** ; les lignes de même libellé présentes dans plusieurs budgets ne sont plus additionnées (`sedit-budget-synthese.service.js`, `sedit-engagements.service.js`, `finance.controller.js`).
+- **Filtre « Budget »** à côté du bouton Budget principal / Tous les budgets : filtre lignes, factures, commandes et engagements, ce qui permet de lister les mouvements d'un budget.
+- **Opérations** : suppression du filtre automatique sur le service de l'utilisateur (la liste restait vide pour les utilisateurs hors admin/finances) ; tous ceux qui ont accès à la tuile Budget voient toutes les opérations (modification toujours réservée admin/finances). Le filtre de service est conservé sur les commandes.
+- **Demandes de commande** : page allégée (détails dépliables, menu d'actions, documents en pastilles), une URL par sous-menu (`/budget/commandes…`), ajout de documents ouvert à tous ; rôle compta gestionnaire des demandes et de l'envoi des commandes.
+- **Service fait** : réservé compta/finances/admin ; PJ de la demande de commande associée intégrées d'office (liste, retrait, aperçu) ; contrôle d'accès sur le rôle courant (SQLite Admin → Utilisateurs et `hub.users`) même si le rôle du jeton est périmé.
+
+### Rencontres budgétaires
+- Statuts **« A arbitrer »**, **« Refusé »**, **« Validé »** (année de validation obligatoire, année en cours présélectionnée) avec changement au clic et commentaire facultatif.
+- Création de **ticket DSIHUB** depuis la liste (HTML structuré, type repris, demandeur = utilisateur de référence AD) ; « + Assigner » avec recherche AD.
+- **« + Projet »** : mini-projet (ou sous-projet d'un projet maître) ou association à un projet existant ; création d'une tâche pour le chef de projet avec e-mail, la validation terminant la demande.
+- Fusion commentaires/suivi, charge des CP, CP pressenti, filtres par année, infobulle ; liste sobre, fiche redessinée, directions/services dédoublonnés.
+
+### Projets
+- **Journal de projet** : une réunion liée est datée de la **réunion** et non de la saisie (`lierReunion` → `ajouterJournal(..., dateEntree)`).
+
+### Réunions
+- **Annuaire des intervenants externes** (`hub_rencontres.intervenants_externes`) : fonction, organisme et e-mail mémorisés et proposés pendant la saisie du nom (création et fiche de réunion) via `GET /api/rencontres-reunions/intervenants/search` et le composant `IntervenantNameInput`.
+
+### Calendrier DSI
+- **Télétravail jamais en série** : saisie d'un jour ou d'une demi-journée unitaire (plus de date de fin, plus de « Supprimer la série » sur un TT, `deleteSeries` ignoré côté serveur pour la catégorie).
+- **Correctif** : `updateEvenement` avec `updateSeries` modifiait tous les événements de l'agent de même titre (demi-journées de TT passées en journées complètes) ; la modification d'un événement supprimait aussi les jours voisins saisis séparément. Seul l'événement ciblé est désormais touché.
+
+### Tickets
+- **Correctif** : la case à cocher d'une tâche (détail d'un ticket) est mise à jour immédiatement, avec retour arrière en cas d'erreur, anti double-clic et sans écrasement par un rechargement en cours.
+- Commentaires : pastille Observateur, distinction réponses du demandeur / commentaires (`is_reply_to_tech`), retours à la ligne conservés ; avertissement si demandeur sans e-mail ; tableau de bord : répartition en barres de l'âge et de l'attente.
+
+### MagApp
+- **Bandeau d'actualité** permanent paramétrable (`/admin/magapp`), **forum de crise** épinglable associé au bandeau, application mise en avant, refonte de l'onglet Paramètres.
+- **Modifier un PDF** (PdfCraft) + **assistant IA** (API Ville), extraction de texte via pdfjs-dist ; utilisateurs limités à leur dernière année de demandes.
+
+### Frizbi
+- **SMS en masse** depuis un fichier Excel, avec suivi de délivrance.
+
+### Parc
+- Windows 11 : build **26300 affiché « 26H2 »** (`shared/os_version_map.js`).
+
+### Corrections
+- Erreurs de build TypeScript, erreur JSX du sélecteur d'année, suppression d'une demande refusée en 403 pour les non-superadmin.
+
 ## [1.5.0] - 2026-11-06
 
 Version majeure depuis la 1.4.1 : signature avec clé matérielle RGS** dans le Parapheur, boîte à idées, modélisation BPMN, stagiaires, Budget en direct sur Sedit (demandes de commande, DGP, virements de crédits), chat en direct enrichi et statistiques tickets plus fines.
