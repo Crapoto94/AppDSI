@@ -5,6 +5,7 @@ import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
 import BetaUsersAdmin from '../components/BetaUsersAdmin';
 import PromotionAdmin from '../components/PromotionAdmin';
+import NewsBannerAdmin from '../components/NewsBannerAdmin';
 import { FeatureUsersProvider, FeatureAgents } from '../components/FeatureUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
@@ -2682,6 +2683,8 @@ const MagappAdmin: React.FC = () => {
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
+
+                <NewsBannerAdmin token={token} />
 
                 <PromotionAdmin token={token} />
 

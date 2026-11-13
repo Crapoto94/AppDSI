@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const MagAppController = require('./magapp.controller');
 const PromotionController = require('./promotion.controller');
+const NewsBannerController = require('./newsbanner.controller');
 const { authenticateJWT, tryAuthenticateJWT, authenticateMagappControl, authenticateAdmin } = require('../../shared/middleware');
 const { getSqlite } = require('../../shared/database');
 
@@ -51,6 +52,9 @@ magappBaseRouter.post('/docs/:id/interaction', authenticateJWT, MagAppController
 magappBaseRouter.get('/promotion', PromotionController.get);
 magappBaseRouter.get('/promotion/logo', PromotionController.logo);
 magappBaseRouter.post('/promotion', authenticateMagappControl, uploadMemory.single('logo'), PromotionController.save);
+// Bandeau d'actualité permanent — lecture publique, écriture admin
+magappBaseRouter.get('/news-banner', NewsBannerController.get);
+magappBaseRouter.post('/news-banner', authenticateMagappControl, NewsBannerController.save);
 magappBaseRouter.get('/settings', tryAuthenticateJWT, MagAppController.getSettings);
 magappBaseRouter.post('/settings', authenticateMagappControl, MagAppController.updateSettings);
 magappBaseRouter.get('/apps/:id/users', authenticateMagappControl, MagAppController.getAppUsers);

@@ -236,6 +236,14 @@ function App() {
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
   // Application mise en avant (bannière), configurée dans DSI Hub /admin/magapp > Paramètres
   const [promo, setPromo] = useState<{ enabled: boolean; url: string; badge: string; title: string; text: string; cta: string; logo_url: string } | null>(null);
+  // Bandeau d'actualité permanent, configuré dans DSI Hub /admin/magapp > Paramètres
+  const [newsBanner, setNewsBanner] = useState<{ message: string; link_url: string; link_label: string; level: string; scrolling: boolean } | null>(null);
+  useEffect(() => {
+    const load = () => fetch('/api/magapp/news-banner').then(r => r.ok ? r.json() : null).then(d => setNewsBanner(d && d.enabled ? d : null)).catch(() => {});
+    load();
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     fetch('/api/magapp/promotion').then(r => r.ok ? r.json() : null).then(d => setPromo(d && d.enabled ? d : null)).catch(() => setPromo(null));
   }, []);
@@ -1408,7 +1416,37 @@ function App() {
   );
 
   return (
-    <div className="magapp-container" style={{ paddingTop: '100px' }}>
+    <div className="magapp-container" style={{ paddingTop: newsBanner ? '144px' : '100px' }}>
+      {/* Bandeau d'actualité permanent */}
+      {newsBanner && (() => {
+        const palette: Record<string, { bg: string; fg: string }> = {
+          info: { bg: '#0078a4', fg: '#fff' },
+          success: { bg: '#059669', fg: '#fff' },
+          warning: { bg: '#f59e0b', fg: '#1e293b' },
+          alert: { bg: '#dc2626', fg: '#fff' }
+        };
+        const c = palette[newsBanner.level] || palette.info;
+        const content = (
+          <>
+            <span>{newsBanner.message}</span>
+            {newsBanner.link_url && (
+              <a href={newsBanner.link_url} target="_blank" rel="noopener noreferrer" style={{ color: c.fg, fontWeight: 800, textDecoration: 'underline', marginLeft: 12 }}>
+                {newsBanner.link_label || 'En savoir plus'}
+              </a>
+            )}
+          </>
+        );
+        return (
+          <div role="status" style={{ position: 'fixed', top: 80, left: 0, right: 0, height: 36, background: c.bg, color: c.fg, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', fontSize: '0.9rem', fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            {newsBanner.scrolling ? (
+              <div style={{ display: 'inline-block', paddingLeft: '100%', animation: 'magapp-news-scroll 25s linear infinite' }}>{content}</div>
+            ) : (
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{content}</div>
+            )}
+            <style>{`@keyframes magapp-news-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }`}</style>
+          </div>
+        );
+      })()}
       {/* Header Fixe */}
       <header style={{ 
         position: 'fixed', 

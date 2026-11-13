@@ -1825,6 +1825,24 @@ async function setupPgDb() {
       await client.query(`INSERT INTO magapp.promotion (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
     } catch (e) { console.error('[MAGAPP] promotion schema:', e.message); }
 
+    // Bandeau d'actualité permanent du magasin (/admin/magapp > Paramètres)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.news_banner (
+          id INTEGER PRIMARY KEY,
+          enabled BOOLEAN DEFAULT false,
+          message TEXT DEFAULT '',
+          link_url TEXT DEFAULT '',
+          link_label TEXT DEFAULT '',
+          level VARCHAR(20) DEFAULT 'info',
+          scrolling BOOLEAN DEFAULT false,
+          until_date DATE,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(`INSERT INTO magapp.news_banner (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    } catch (e) { console.error('[MAGAPP] news_banner schema:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
         id SERIAL PRIMARY KEY,
