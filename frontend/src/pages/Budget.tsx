@@ -888,6 +888,9 @@ const Budget: React.FC = () => {
     return c === budgetFilter;
   };
 
+  // Engagements du budget sélectionné (sert aux KPI de l'onglet Engagements et au report de la synthèse).
+  const engagementsBF = engagements.filter(matchesBudget);
+
   const groupedOrders = useMemo(() => {
     if (!orders || orders.length === 0) return [];
     const groups: Record<string, any> = {};
@@ -1757,8 +1760,9 @@ const Budget: React.FC = () => {
                   <BudgetHierarchy
                     token={token}
                     fiscalYear={currentFiscalYear}
-                    budgetScope={budgetFilter === '00' ? 'Ville' : 'All'}
-                    carry={engagements.reduce((acc: { reportsI: number; rattachF: number }, e: any) => {
+                    budgetScope="All"
+                    budget={budgetFilter}
+                    carry={engagementsBF.reduce((acc: { reportsI: number; rattachF: number }, e: any) => {
                       const m = parseFloat(e['Montant engagé'] || 0) || 0;
                       if (e['Type mvt'] === 'Report') acc.reportsI += m;
                       else if (e['Type mvt'] === 'Rattachement') acc.rattachF += m;
@@ -1772,7 +1776,7 @@ const Budget: React.FC = () => {
                   const addT = (b: { r: number; ra: number; n: number }, type: string, amt: number) => {
                     if (type === 'Report') b.r += amt; else if (type === 'Rattachement') b.ra += amt; else b.n += amt;
                   };
-                  const k = engagements.reduce((acc, e) => {
+                  const k = engagementsBF.reduce((acc, e) => {
                     const ttc = parseFloat(e['Montant engagé'] || 0) || 0;
                     const reste = parseFloat(e['Reste engagé'] || 0) || 0;
                     const type = e['Type mvt'];
@@ -1837,7 +1841,7 @@ const Budget: React.FC = () => {
                       >
                         <span style={label}>Total engagé</span>
                         <span style={value}>{fmt(k.total)}</span>
-                        <span style={sub}>{engagements.length} engagements{noFilter ? ' · tous' : ''}</span>
+                        <span style={sub}>{engagementsBF.length} engagements{noFilter ? ' · tous' : ''}</span>
                         {tLine(k.totalT)}
                       </div>
                       <div
@@ -2681,7 +2685,7 @@ const Budget: React.FC = () => {
                     Inv.
                   </button>
                 </div>
-                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear} budgetFilter={budgetFilter}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={orderColumnStyles}
                   visibleColumns={orderColumns}
@@ -2691,7 +2695,7 @@ const Budget: React.FC = () => {
             )}
             {view === 'invoices_beta' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear} budgetFilter={budgetFilter}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={invoiceColumnStyles}
                   visibleColumns={invoiceColumns}

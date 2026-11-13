@@ -60,20 +60,20 @@ function build(rows: any[]): Node[] {
   return root.children;
 }
 
-export default function BudgetHierarchy({ token, fiscalYear, budgetScope, carry }: { token: string | null; fiscalYear: number; budgetScope: string; carry?: { reportsI: number; rattachF: number } }) {
+export default function BudgetHierarchy({ token, fiscalYear, budgetScope, budget, carry }: { token: string | null; fiscalYear: number; budgetScope: string; budget?: string; carry?: { reportsI: number; rattachF: number } }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError('');
-    fetch(`/api/budget/synthese-sedit?fiscalYear=${fiscalYear}&budgetScope=${budgetScope}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`/api/budget/synthese-sedit?fiscalYear=${fiscalYear}&budgetScope=${budgetScope}${budget ? `&budget=${encodeURIComponent(budget)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`); return r.json(); })
       .then(d => { if (!cancelled) setRows(d.rows || []); })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, fiscalYear, budgetScope]);
+  }, [token, fiscalYear, budgetScope, budget]);
   const tree = useMemo(() => build(rows), [rows]);
   const kpi = useMemo(() => {
     const k = { total: zero(), sections: {} as Record<string, Totals> };

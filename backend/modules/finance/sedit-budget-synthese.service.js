@@ -11,7 +11,7 @@ const financeShare = require('./finance-share.controller');
 const { pool } = require('../../shared/database');
 const { listCommandesExercice } = require('../demandes-commande/sedit-commandes.service');
 
-const SQL = (principalOnly) => `
+const SQL = (principalOnly, byBudget) => `
 SELECT TRIM(i.TYPE_SECTION) AS SECTION,
        TRIM(i.CODECHAP)     AS CHAPITRE,
        TRIM(i.CODECOMP)     AS NATURE,
@@ -33,6 +33,7 @@ WHERE ba.EXERCICE = :exercice
   AND TRIM(i.TYPE_SECTION) IN ('F','I')
   AND (TRIM(i.CODEFONC) IS NOT NULL OR UPPER(TRIM(bg.LIBELLE)) <> 'PRINCIPAL')
   ${principalOnly ? "AND TRIM(bg.BUDGET) = '00'" : ''}
+  ${byBudget ? 'AND TRIM(bg.BUDGET) = :budget' : ''}
 GROUP BY TRIM(i.TYPE_SECTION), TRIM(i.CODECHAP), TRIM(i.CODECOMP), TRIM(i.CODESERG)
 ORDER BY 1, 2, 3, 4`;
 
@@ -73,10 +74,12 @@ async function getDemandesEnCours(exercice) {
     }
 }
 
-async function getBudgetSynthese({ exercice, scope }) {
+async function getBudgetSynthese({ exercice, scope, budget }) {
     const ex = parseInt(exercice, 10) || new Date().getFullYear();
+    const bud = String(budget || '').trim();
     const rows = await financeShare.withFinanceOracle(async (conn) => {
-        const r = await conn.execute(SQL(scope === 'Ville'), { exercice: ex }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const binds = bud ? { exercice: ex, budget: bud } : { exercice: ex };
+        const r = await conn.execute(SQL(scope === 'Ville', !!bud), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
         return r.rows;
     });
     const demandes = await getDemandesEnCours(ex);
