@@ -2138,6 +2138,23 @@ async function setupPgDb() {
       );
     `);
 
+    // Annuaire des intervenants externes (réutilisés d'une réunion à l'autre : saisie assistée)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.intervenants_externes (
+        id SERIAL PRIMARY KEY,
+        nom TEXT NOT NULL,
+        prenom TEXT,
+        email TEXT,
+        organisme TEXT,
+        fonction TEXT,
+        created_by TEXT,
+        usage_count INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_intervenants_ext_nom ON hub_rencontres.intervenants_externes (LOWER(nom));`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.reunion_attachments (
         id SERIAL PRIMARY KEY,

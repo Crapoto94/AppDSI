@@ -356,7 +356,7 @@ module.exports = {
                     'Fournisseur': String(row.FACTURE_LIBELLE2 || '').trim() || [row.TIERS_POBJ_EXTRACT_2, row.TIERS_POBJ_EXTRACT_3].map(x => String(x || '').trim()).filter(Boolean).join(' '),
                     'Libellé': String(row.FACTURE_LIBELLE1 || '').trim(),
                     'Montant TTC': parseNum(row.FACTURE_MONTANTTC_E),
-                    'Budget': row.BUDGET_LIBELLE,
+                    'Budget': require('./sedit-budget-synthese.service').budgetLabel(row.FACTURE_POBJ_EXTRACT_1, row.BUDGET_LIBELLE),
                     'Etat': row.FACETAT_LIBELLE,
                     'Arrivée': row.FACTURE_DATENTREE,
                     'Échéance': row.FACTURE_DATPAIPREV,
@@ -443,6 +443,7 @@ module.exports = {
                 if (!g.imputation) g.imputation = (row['Imputation'] || '').toString().trim();
                 if (!g.chapitre) g.chapitre = (row['Chapitre par nature'] || '').toString().trim();
                 if (!g.exercice) g.exercice = (row['Exercice'] || '').toString().trim();
+                if (!g.budget) g.budget = (row['Budget'] || '').toString().trim();
             }
 
             // Année du bon de commande associé (pour distinguer les BC de l'exercice en cours).
@@ -479,6 +480,7 @@ module.exports = {
                     'Libellé': g.libelle,
                     'Nom tiers': g.tiers,
                     'Section': g.section,
+                    'Budget': g.budget || '',
                     'Imputation': g.imputation,
                     'Article par nature': natures.join(', '),
                     'Chapitre par nature': g.chapitre,
@@ -619,7 +621,7 @@ module.exports = {
                     'Montant TTC': ttcAmount,
                     'Fournisseur': order.SERVICEFI_LIBELLE,
                     'Service émetteur': order.SERVICEFI_LIBELLE,
-                    'Budget': order.BUDGET_LIBELLE,
+                    'Budget': require('./sedit-budget-synthese.service').budgetLabel(order.BUDGET_BUDGET, order.BUDGET_LIBELLE),
                     order_number: orderId,
                     description: order.COMMANDE_LIBELLE,
                     provider: order.SERVICEFI_LIBELLE,

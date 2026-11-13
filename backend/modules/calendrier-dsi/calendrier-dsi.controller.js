@@ -1119,20 +1119,13 @@ module.exports = {
       const { id } = req.params;
       const { date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, updateSeries } = req.body;
       if (updateSeries) {
-        const existing = await pool.query('SELECT agent_username, titre, categorie, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
-        if (existing.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
-        const old = existing.rows[0];
-        if (old.agent_username) {
-          await pool.query(
-            `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE agent_username = $9 AND titre = $10`,
-            [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', old.agent_username, old.titre]
-          );
-        } else {
-          await pool.query(
-            `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE id = $9`,
-            [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', id]
-          );
-        }
+        // Ancien comportement supprimé : il modifiait TOUS les événements de l'agent portant le
+        // même titre (ex. tous ses « Télétravail »). On ne met à jour que l'événement ciblé.
+        const result = await pool.query(
+          `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE id = $9`,
+          [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', id]
+        );
+        if (result.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
       } else {
         const result = await pool.query(
           `UPDATE hub_calendrier.evenements SET date = $1, categorie = $2, periode = $3, titre = $4, description = $5, agent_username = $6, agent_nom = $7, agent_email = $8, couleur = $9 WHERE id = $10 RETURNING id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at`,
@@ -1151,7 +1144,13 @@ module.exports = {
     try {
       const { id } = req.params;
       const { deleteSeries } = req.query;
-      if (deleteSeries === 'true') {
+      let wantSeries = deleteSeries === 'true';
+      if (wantSeries) {
+        // Le télétravail n'a jamais de série : toujours un jour / demi-journée unitaire
+        const cat = await pool.query('SELECT categorie FROM hub_calendrier.evenements WHERE id = $1', [id]);
+        if (cat.rows[0]?.categorie === 'teletravail') wantSeries = false;
+      }
+      if (wantSeries) {
         const evt = await pool.query('SELECT agent_username, titre, categorie, periode, date, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
         if (evt.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
         const { agent_username, titre, categorie, periode, date, agent_email } = evt.rows[0];

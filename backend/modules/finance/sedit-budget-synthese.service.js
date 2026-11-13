@@ -109,6 +109,7 @@ async function getBudgetSynthese({ exercice, scope }) {
 // Lignes d'exécution DSI en direct (même colonnes que l'ancien import Excel « Liste des lignes d'exécution »).
 const LINES_SQL = (principalOnly) => `
 SELECT TRIM(i.IMPUTATION) AS CODE, MIN(TRIM(i.LIBELLE)) AS LIBELLE,
+       TRIM(bg.BUDGET) AS BUDGET_CODE, TRIM(bg.LIBELLE) AS BUDGET_LIB,
        TRIM(i.TYPE_SECTION) AS SECTION, TRIM(i.CODECHAP) AS CHAPITRE, TRIM(i.CODECOMP) AS NATURE,
        TRIM(i.CODEFONC) AS FONCTION, TRIM(i.CODEOPER) AS OPERATION, TRIM(i.CODESERG) AS SERVICE,
        SUM(s.TOTALVOTE_E) AS VOTE, SUM(s.PREVISION_E) AS PREVISION, SUM(s.PREENGAG_E) AS PREENGAGE,
@@ -124,9 +125,15 @@ WHERE ba.EXERCICE = :exercice
   AND TRIM(i.TYPE_SECTION) IN ('F','I')
   AND (TRIM(i.CODEFONC) IS NOT NULL OR UPPER(TRIM(bg.LIBELLE)) <> 'PRINCIPAL')
   ${principalOnly ? "AND TRIM(bg.BUDGET) = '00'" : ''}
-GROUP BY i.ROO_IMA_REF, TRIM(i.IMPUTATION), TRIM(i.TYPE_SECTION), TRIM(i.CODECHAP), TRIM(i.CODECOMP),
+GROUP BY i.ROO_IMA_REF, TRIM(i.IMPUTATION), TRIM(bg.BUDGET), TRIM(bg.LIBELLE), TRIM(i.TYPE_SECTION), TRIM(i.CODECHAP), TRIM(i.CODECOMP),
          TRIM(i.CODEFONC), TRIM(i.CODEOPER), TRIM(i.CODESERG)
-ORDER BY 4, 1`;
+ORDER BY TRIM(i.CODECHAP), 1`;
+
+// Libellé précis d'un budget : « 00 – PRINCIPAL », « 01 – EAU »… (code + libellé Sedit).
+const budgetLabel = (code, lib) => {
+    const c = String(code || '').trim(); const l = String(lib || '').trim();
+    return c && l ? `${c} – ${l}` : (l || c);
+};
 
 async function getBudgetLines({ exercice, scope }) {
     const ex = parseInt(exercice, 10) || new Date().getFullYear();
@@ -137,6 +144,8 @@ async function getBudgetLines({ exercice, scope }) {
     return rows.map(r => ({
         'Code': r.CODE || '',
         'Libellé': r.LIBELLE || '',
+        'Budget': budgetLabel(r.BUDGET_CODE, r.BUDGET_LIB),
+        'Code budget': r.BUDGET_CODE || '',
         'Masque': [r.CHAPITRE, r.FONCTION, r.NATURE].filter(Boolean).join('-'),
         'Sens': 'D',
         'Section': r.SECTION || '',
@@ -157,4 +166,4 @@ async function getBudgetLines({ exercice, scope }) {
     }));
 }
 
-module.exports = { getBudgetSynthese, getBudgetLines };
+module.exports = { getBudgetSynthese, getBudgetLines, budgetLabel };

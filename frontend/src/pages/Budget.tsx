@@ -103,6 +103,9 @@ const Budget: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const [currentFiscalYear, setCurrentFiscalYear] = useState(currentYear);
   const [budgetScope, setBudgetScope] = useState<'Ville' | 'All'>('Ville'); // Default to 'Ville'
+  // Filtre fin par budget (« 00 – PRINCIPAL », « 01 – EAU »…) pour lignes, factures et commandes. '' = tous.
+  const [budgetFilter, setBudgetFilter] = useState('');
+  const rowBudget = (r: any) => String(r?.['Budget'] ?? r?.BUDGET_LIBELLE ?? '').trim();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [sectionFilter, setSectionFilter] = useState('all');
@@ -119,15 +122,14 @@ const Budget: React.FC = () => {
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>(() => {
     const filters: Record<string, string> = {};
     if (!['admin', 'finances'].includes(currentUser.role)) {
-      if (view === 'orders' || view === 'operations') {
+      // Opérations : visibles par tous ceux qui ont accès à la tuile Budget (pas de filtre de service d'office).
+      if (view === 'orders') {
         const u = currentUser as any;
         if (u.service_code) {
-          const serviceKey = view === 'orders' ? 'Service émetteur' : 'Service';
-          filters[serviceKey] = u.service_code;
+          filters['Service émetteur'] = u.service_code;
         }
         if (u.service_complement) {
-          const complementKey = view === 'orders' ? 'Service complément' : 'Service Complément';
-          filters[complementKey] = u.service_complement;
+          filters['Service complément'] = u.service_complement;
         }
       }
     }
@@ -943,9 +945,12 @@ const Budget: React.FC = () => {
     const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
     
     budgetLines.forEach(line => {
+      if (budgetFilter && rowBudget(line) !== budgetFilter) return;
       const chapter = (line['Chapitre par nature'] || line.chapter || 'SANS_CHAPITRE').toString().trim();
       const label = (line['Libellé'] || line.label || 'SANS_LIBELLE').toString().trim();
-      
+      // Une même ligne existant dans plusieurs budgets reste distincte (pas d'addition entre budgets).
+      const labelKey = `${label}||${rowBudget(line)}`;
+
       if (!chapters[chapter]) {
         chapters[chapter] = {
           _isChapter: true,
@@ -957,24 +962,24 @@ const Budget: React.FC = () => {
         financialCols.forEach(col => chapters[chapter]._total[col] = 0);
       }
       
-      if (!chapters[chapter]._labels[label]) {
-        chapters[chapter]._labels[label] = {
+      if (!chapters[chapter]._labels[labelKey]) {
+        chapters[chapter]._labels[labelKey] = {
           ...line,
           "Libellé": label,
           label: label,
           _isGroup: true,
           _lines: []
         };
-        financialCols.forEach(col => chapters[chapter]._labels[label][col] = 0);
+        financialCols.forEach(col => chapters[chapter]._labels[labelKey][col] = 0);
       }
-      
+
       financialCols.forEach(col => {
         const val = parseFloat(line[col] || 0);
-        chapters[chapter]._labels[label][col] += val;
+        chapters[chapter]._labels[labelKey][col] += val;
         chapters[chapter]._total[col] += val;
       });
-      
-      chapters[chapter]._labels[label]._lines.push(line);
+
+      chapters[chapter]._labels[labelKey]._lines.push(line);
     });
     
     // Convert to flat list for rendering (Chapter Header then its Grouped Labels)
@@ -996,9 +1001,17 @@ const Budget: React.FC = () => {
     });
     
     return result;
-  }, [budgetLines]);
+  }, [budgetLines, budgetFilter]);
+
+  // Budgets présents dans les données chargées (lignes, factures, commandes), pour le filtre.
+  const budgetOptions = useMemo(() => {
+    const s = new Set<string>();
+    [budgetLines, invoices, orders, engagements].forEach((arr: any[]) => (arr || []).forEach(r => { const b = rowBudget(r); if (b) s.add(b); }));
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+  }, [budgetLines, invoices, orders, engagements]);
 
   const filteredOrders = groupedOrders.filter(order => {
+    if (budgetFilter && rowBudget(order) !== budgetFilter) return false;
     const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
     const globalLabel = (order['Libellé'] || '').toString().toLowerCase();
     const provider = (order.provider || order['Fournisseur'] || '').toString().toLowerCase();
@@ -1056,6 +1069,10 @@ const Budget: React.FC = () => {
 
   const filteredData = useMemo(() => {
     let data = view === 'lines' ? groupedBudgetLines : view === 'engagements' ? engagements : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
+
+    if ((view === 'invoices' || view === 'engagements') && budgetFilter) {
+      data = data.filter((row: any) => rowBudget(row) === budgetFilter);
+    }
 
     if (view === 'operations') {
       const seen = new Set<string>();
@@ -1151,7 +1168,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, currentFiscalYear, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
+  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, currentFiscalYear, invoices, operations, filteredOrders, budgetFilter, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
   // Évolution cumulée des commandes liées aux opérations actuellement filtrées.
   const opsChartData = useMemo(() => {
@@ -1233,13 +1250,13 @@ const Budget: React.FC = () => {
       return opColumns.filter(c => available.includes(c));
     } else if (view === 'engagements') {
       const ENGAGEMENT_COLUMNS = [
-        'Code mouvement', 'Type mvt', 'État', 'Libellé', 'Nom tiers', 'Section',
+        'Code mouvement', 'Type mvt', 'État', 'Libellé', 'Nom tiers', 'Budget', 'Section',
         'Imputation', 'Article par nature', 'Chapitre par nature',
         'Montant engagé', 'Réalisé', 'Reste engagé', 'Bon de commande'
       ];
       return ENGAGEMENT_COLUMNS.filter(c => available.includes(c));
     } else if (view === 'lines') {
-      const HIDDEN_LINE_COLUMNS = ['Code', 'Masque', 'Sens', 'Référence Fonctionnelle', "Opération d'équipement", 'EQUIPEMENT', 'TVA', 'JE'];
+      const HIDDEN_LINE_COLUMNS = ['Code', 'Code budget', 'Masque', 'Sens', 'Référence Fonctionnelle', "Opération d'équipement", 'EQUIPEMENT', 'TVA', 'JE'];
       return available.filter(c => !HIDDEN_LINE_COLUMNS.includes(c));
     }
     return available;
@@ -1308,6 +1325,17 @@ const Budget: React.FC = () => {
                 Tous les budgets
               </button>
             </div>
+            {budgetOptions.length > 0 && (
+              <select
+                value={budgetFilter}
+                onChange={e => setBudgetFilter(e.target.value)}
+                title="Filtrer les lignes, factures et commandes par budget"
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, background: 'white', color: budgetFilter ? '#003366' : '#475569' }}
+              >
+                <option value="">Tous les budgets (détail)</option>
+                {budgetOptions.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            )}
           </div>
           <div className="view-tabs">
             {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes', 'virements'].map(tab => {
@@ -1324,14 +1352,12 @@ const Budget: React.FC = () => {
                     
                     // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
                     const u = currentUser as any;
-                    if (u.service_code && !['admin', 'finances'].includes(u.role) && (tab === 'orders' || tab === 'operations')) {
+                    if (u.service_code && !['admin', 'finances'].includes(u.role) && tab === 'orders') {
                       const filters: Record<string, string> = {};
-                      const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
-                      filters[serviceKey] = u.service_code;
-                      
+                      filters['Service émetteur'] = u.service_code;
+
                       if (u.service_complement) {
-                        const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
-                        filters[complementKey] = u.service_complement;
+                        filters['Service complément'] = u.service_complement;
                       }
                       setColumnFilters(filters);
                     } else {

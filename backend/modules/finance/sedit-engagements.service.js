@@ -17,10 +17,12 @@ SELECT TRIM(m.MOUVEMENT) AS CODE, TRIM(m.LIBELLE) AS LIB_MVT, TRIM(l.LIBELLE) AS
        TRIM(sg.CLEACCES) AS SERVICE,
        TRIM(REGEXP_SUBSTR(t.POBJ_EXTRACT, '[^' || CHR(1) || ']+', 1, 2)) AS TIERS_NOM,
        (SELECT MAX(TRIM(c.COMMANDE)) FROM FI.COMMANDE c WHERE TRIM(c.MOUVEMENT) = TRIM(m.ROO_IMA_REF)) AS COMMANDE,
-       l.MONTANTTC_E AS MONTANT_TTC
+       l.MONTANTTC_E AS MONTANT_TTC,
+       TRIM(bg.BUDGET) AS BUDGET_CODE, TRIM(bg.LIBELLE) AS BUDGET_LIB
 FROM FI.MVTLIGNE l
 JOIN FI.MOUVEMENT m  ON TRIM(m.ROO_IMA_REF) = TRIM(l.MOUVEMENT)
 JOIN FI.BUDANNU ba   ON TRIM(ba.ROO_IMA_REF) = TRIM(m.BUDANNU)
+LEFT JOIN FI.BUDGET bg ON TRIM(bg.ROO_IMA_REF) = TRIM(ba.BUDGET)
 JOIN FI.SERVICEFI sg ON TRIM(sg.ROO_IMA_REF) = TRIM(l.SERVGEST)
 LEFT JOIN FI.AVANCEMENT av ON TRIM(av.ROO_IMA_REF) = TRIM(l.AVANCEMENT)
 LEFT JOIN FI.IMPUTATION imp ON TRIM(imp.ROO_IMA_REF) = TRIM(l.IMPUTATION)
@@ -44,6 +46,7 @@ async function readEngagementRows(exercice) {
             'Libellé': r.LIB_LIGNE || '',
             'Avancement': r.AVANCEMENT || '',
             'Exercice': String(r.EXERCICE || ''),
+            'Budget': (r.BUDGET_CODE && r.BUDGET_LIB) ? `${r.BUDGET_CODE} – ${r.BUDGET_LIB}` : (r.BUDGET_LIB || r.BUDGET_CODE || ''),
             'Imputation': r.IMPUTATION || '',
             'Section': r.SECTION || '',
             'Article par nature': r.NATURE || '',

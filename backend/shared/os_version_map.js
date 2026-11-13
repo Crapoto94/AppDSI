@@ -10,7 +10,7 @@ const WIN10_BUILDS = {
 };
 const WIN11_BUILDS = {
   21390: 'Insider (Dev)', 22000: '21H2', 22621: '22H2', 22631: '23H2',
-  26100: '24H2', 26200: '25H2', 29585: 'Insider (Canary)',
+  26100: '24H2', 26200: '25H2', 26300: '26H2', 29585: 'Insider (Canary)',
 };
 // Plus haut build officiellement sorti (hors Insider) : sert de repère pour le
 // fallback ci-dessous — au-delà, un build inconnu est presque sûrement un canal

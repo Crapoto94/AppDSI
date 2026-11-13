@@ -146,10 +146,11 @@ async function genererCodeProjet() {
     return `PROJ-${annee}-${String(num).padStart(3, '0')}`;
 }
 
-async function ajouterJournal(projetId, typeEntree, message, details, username) {
+// dateEntree (optionnel) : date métier de l'événement (ex. date de la réunion) ; à défaut, maintenant.
+async function ajouterJournal(projetId, typeEntree, message, details, username, dateEntree = null) {
     await pgDb.run(
-        `INSERT INTO projet_journal (projet_id, type_entree, message, details, username) VALUES ($1, $2, $3, $4, $5)`,
-        [projetId, typeEntree, message, details ? JSON.stringify(details) : null, username]
+        `INSERT INTO projet_journal (projet_id, type_entree, message, details, username, date_entree) VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamp, CURRENT_TIMESTAMP))`,
+        [projetId, typeEntree, message, details ? JSON.stringify(details) : null, username, dateEntree]
     );
 }
 
@@ -1276,7 +1277,7 @@ const lierReunion = async (req, res) => {
         const dateStr = reunion?.date_reunion ? new Date(reunion.date_reunion).toLocaleDateString('fr-FR') : '';
         const comiteStr = comite ? ` · ${comite.nom}` : '';
         const msg = `📅 Réunion liée : ${reunion?.titre || '#' + reunion_id}${dateStr ? ' (' + dateStr + ')' : ''}${comiteStr}`;
-        await ajouterJournal(id, 'reunion_liee', msg, { reunion_id, type_gouvernance, comite_id, reunion_titre: reunion?.titre }, username);
+        await ajouterJournal(id, 'reunion_liee', msg, { reunion_id, type_gouvernance, comite_id, reunion_titre: reunion?.titre }, username, reunion?.date_reunion || null);
 
         res.status(201).json({ message: 'Réunion liée au projet' });
     } catch (error) {
