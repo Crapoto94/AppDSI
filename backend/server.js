@@ -1523,12 +1523,12 @@ async function getOracleConnection(settings) {
 
 
 // ── Helper: log SMS to hub.sms_logs ──────────────────────────────────
-async function logSmsSend({ recipient, message, sender_id, status, error_message, source, created_by }) {
+async function logSmsSend({ recipient, message, sender_id, status, error_message, source, created_by, campaign_id, frizbi_sms_id, contact_id }) {
     try {
         await pgDb.run(`
-            INSERT INTO hub.sms_logs (recipient, message, sender_id, status, error_message, source, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [recipient, message, sender_id || 'IVRY', status || 'sent', error_message || null, source || 'system', created_by || null]);
+            INSERT INTO hub.sms_logs (recipient, message, sender_id, status, error_message, source, created_by, campaign_id, frizbi_sms_id, contact_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `, [recipient, message, sender_id || 'IVRY', status || 'sent', error_message || null, source || 'system', created_by || null, campaign_id || null, frizbi_sms_id || null, contact_id || null]);
     } catch (e) {
         console.error('[SMS_LOG] Failed to write log:', e.message);
     }
@@ -1732,12 +1732,13 @@ app.post('/api/admin/frizbi/send-bulk', authenticateAdmin, async (req, res) => {
 
         let sent = 0;
         const failed = [];
-        const campaignId = Date.now();
+        const campaignId = `bulk_${Date.now()}`;
         for (let i = 0; i < contacts.length; i += 500) {
             const batch = contacts.slice(i, i + 500);
+            const smsId = `${campaignId}_${i / 500}`;
             try {
                 await axios.post(`${settings.api_url}/api/sms/send`, {
-                    customerSmsId: `bulk_${campaignId}_${i / 500}`,
+                    customerSmsId: smsId,
                     date: new Date().toISOString(),
                     title,
                     message,
@@ -1746,21 +1747,100 @@ app.post('/api/admin/frizbi/send-bulk', authenticateAdmin, async (req, res) => {
                 }, { headers: { Authorization: `Bearer ${token}` } });
                 sent += batch.length;
                 for (const c of batch) {
-                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'sent', source: 'bulk', created_by: username });
+                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'sent', source: 'bulk', created_by: username, campaign_id: campaignId, frizbi_sms_id: smsId, contact_id: c.customerSmsContactId });
                 }
             } catch (err) {
                 const d = err.response?.data;
                 const detail = d?.detail || d?.message || d?.title || err.message;
                 failed.push({ from: i + 1, to: i + batch.length, error: detail });
                 for (const c of batch) {
-                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'failed', error_message: detail, source: 'bulk', created_by: username });
+                    await logSmsSend({ recipient: c.mobile, message, sender_id: settings.sender_id, status: 'failed', error_message: detail, source: 'bulk', created_by: username, campaign_id: campaignId, frizbi_sms_id: smsId, contact_id: c.customerSmsContactId });
                 }
             }
         }
-        res.json({ success: failed.length === 0, sent, failed, invalid: invalid.slice(0, 50), invalid_count: invalid.length, duplicates });
+        res.json({ success: failed.length === 0, campaign_id: campaignId, sent, failed, invalid: invalid.slice(0, 50), invalid_count: invalid.length, duplicates });
     } catch (error) {
         const d = error.response?.data;
         res.status(error.response?.status || 500).json({ message: d?.detail || d?.message || d?.title || error.message });
+    }
+});
+
+// ── Suivi de délivrance des envois en masse ──────────────────────────
+// Codes Frizbi (avec ou sans préfixe "status_") → statut simplifié
+const mapFrizbiStatus = (code) => {
+    const c = String(code || '').toLowerCase().replace(/^status_/, '');
+    if (c === 'sent') return 'delivered';
+    if (c === 'sent_not_delivered') return 'not_delivered';
+    if (c === 'error') return 'error';
+    if (c === 'canceled' || c === 'cancelled') return 'canceled';
+    if (c === 'pending') return 'pending';
+    if (c === 'waiting' || c === 'pending_0') return 'waiting';
+    return c || 'unknown';
+};
+
+// Liste des campagnes avec répartition des statuts
+app.get('/api/admin/frizbi/bulk-campaigns', authenticateAdmin, async (req, res) => {
+    try {
+        const rows = await pgDb.all(`
+            SELECT campaign_id,
+                   MIN(sent_at) AS sent_at,
+                   MAX(created_by) AS created_by,
+                   MAX(message) AS message,
+                   COUNT(*)::int AS total,
+                   COUNT(*) FILTER (WHERE status = 'failed')::int AS rejected,
+                   COUNT(*) FILTER (WHERE delivery_status = 'delivered')::int AS delivered,
+                   COUNT(*) FILTER (WHERE delivery_status IN ('not_delivered','error','canceled'))::int AS failed,
+                   COUNT(*) FILTER (WHERE status <> 'failed' AND COALESCE(delivery_status,'') NOT IN ('delivered','not_delivered','error','canceled'))::int AS in_progress,
+                   MAX(delivery_checked_at) AS checked_at
+            FROM hub.sms_logs
+            WHERE campaign_id IS NOT NULL
+            GROUP BY campaign_id
+            ORDER BY MIN(sent_at) DESC
+            LIMIT 50
+        `);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture campagnes', error: error.message });
+    }
+});
+
+// Interroge Frizbi pour chaque lot de la campagne et met à jour les statuts, puis renvoie le détail
+app.post('/api/admin/frizbi/bulk-campaigns/:id/refresh', authenticateAdmin, async (req, res) => {
+    try {
+        const campaignId = req.params.id;
+        const settings = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        if (!settings || !settings.client_id || !settings.client_secret) return res.status(400).json({ message: 'Frizbi non configuré' });
+        const batches = await pgDb.all(`SELECT DISTINCT frizbi_sms_id FROM hub.sms_logs WHERE campaign_id = $1 AND status <> 'failed' AND frizbi_sms_id IS NOT NULL`, [campaignId]);
+        const authRes = await axios.post(`${settings.api_url}/api/auth/login`, { login: settings.client_id, password: settings.client_secret });
+        const token = authRes.data?.token;
+        if (!token) return res.status(502).json({ message: 'Authentification Frizbi impossible' });
+
+        const errors = [];
+        for (const b of batches) {
+            try {
+                const r = await axios.get(`${settings.api_url}/api/sms/status/${encodeURIComponent(b.frizbi_sms_id)}`, { headers: { Authorization: `Bearer ${token}` } });
+                const list = Array.isArray(r.data) ? r.data : [];
+                for (const item of list) {
+                    const st = item.status || {};
+                    const detail = [st.brokerDescription, st.date].filter(Boolean).join(' — ');
+                    await pgDb.run(
+                        `UPDATE hub.sms_logs SET delivery_status = $1, delivery_detail = $2, delivery_checked_at = CURRENT_TIMESTAMP WHERE campaign_id = $3 AND contact_id = $4`,
+                        [mapFrizbiStatus(st.code), detail || null, campaignId, item.customerSmsContactId]
+                    );
+                }
+            } catch (err) {
+                const d = err.response?.data;
+                errors.push(`${b.frizbi_sms_id}: ${d?.detail || d?.message || err.message}`);
+            }
+        }
+        const details = await pgDb.all(
+            `SELECT recipient, status, error_message, delivery_status, delivery_detail, delivery_checked_at FROM hub.sms_logs WHERE campaign_id = $1 ORDER BY id`,
+            [campaignId]
+        );
+        res.json({ details, errors });
+    } catch (error) {
+        const d = error.response?.data;
+        res.status(error.response?.status || 500).json({ message: d?.detail || d?.message || error.message });
     }
 });
 

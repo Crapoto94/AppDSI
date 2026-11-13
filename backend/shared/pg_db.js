@@ -5234,6 +5234,14 @@ async function setupPgDb() {
       )
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_sms_logs_sent_at ON hub.sms_logs(sent_at DESC)`); } catch (e) {}
+    // Suivi de délivrance (envois en masse Frizbi)
+    for (const col of [
+      'campaign_id TEXT', 'frizbi_sms_id TEXT', 'contact_id TEXT',
+      'delivery_status TEXT', 'delivery_detail TEXT', 'delivery_checked_at TIMESTAMP'
+    ]) {
+      try { await client.query(`ALTER TABLE hub.sms_logs ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+    }
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_sms_logs_campaign ON hub.sms_logs(campaign_id)`); } catch (e) {}
 
     // Table de notes génériques pour toutes les tâches (Mes Tâches)
     await client.query(`

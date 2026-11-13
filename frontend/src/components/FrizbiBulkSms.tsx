@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Send, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -91,6 +91,7 @@ const FrizbiBulkSms: React.FC = () => {
     try {
       const res = await axios.post('/api/admin/frizbi/send-bulk', { message: message.trim(), title, contacts }, { headers });
       const d = res.data;
+      loadCampaigns();
       setStatus({
         type: d.success ? 'success' : 'error',
         message: `${d.sent} SMS envoyé(s)` + (d.invalid_count ? `, ${d.invalid_count} numéro(s) invalide(s) ignoré(s)` : '') + (d.duplicates ? `, ${d.duplicates} doublon(s) ignoré(s)` : '') + (d.failed?.length ? ` — erreurs : ${d.failed.map((f: any) => `lignes ${f.from}-${f.to} (${f.error})`).join(' ; ')}` : '')
@@ -100,6 +101,51 @@ const FrizbiBulkSms: React.FC = () => {
     } finally {
       setSending(false);
     }
+  };
+
+  // ── Suivi de délivrance ──
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [openId, setOpenId] = useState('');
+  const [details, setDetails] = useState<any[]>([]);
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackNote, setTrackNote] = useState('');
+
+  const loadCampaigns = async () => {
+    try { setCampaigns((await axios.get('/api/admin/frizbi/bulk-campaigns', { headers })).data || []); } catch { /* ignore */ }
+  };
+  useEffect(() => { loadCampaigns(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshCampaign = async (id: string) => {
+    setOpenId(id);
+    setTrackLoading(true);
+    setTrackNote('');
+    try {
+      const r = await axios.post(`/api/admin/frizbi/bulk-campaigns/${encodeURIComponent(id)}/refresh`, {}, { headers });
+      setDetails(r.data.details || []);
+      if (r.data.errors?.length) setTrackNote(`Frizbi n'a pas répondu pour certains lots : ${r.data.errors.join(' ; ')}`);
+      loadCampaigns();
+    } catch (err: any) {
+      setTrackNote(err.response?.data?.message || 'Erreur lors de la récupération des statuts');
+    } finally {
+      setTrackLoading(false);
+    }
+  };
+
+  const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+    delivered: { label: 'Délivré', color: '#059669' },
+    not_delivered: { label: 'Non délivré', color: '#dc2626' },
+    error: { label: 'Erreur', color: '#dc2626' },
+    canceled: { label: 'Annulé', color: '#6b7280' },
+    pending: { label: 'En cours', color: '#d97706' },
+    waiting: { label: 'En attente', color: '#d97706' }
+  };
+  const statusOf = (d: any) => d.status === 'failed' ? { label: 'Rejeté par Frizbi', color: '#dc2626' } : (STATUS_LABEL[d.delivery_status] || { label: 'Pas encore vérifié', color: '#94a3b8' });
+
+  const exportDetails = () => {
+    const ws = XLSX.utils.json_to_sheet(details.map(d => ({ Mobile: d.recipient, Statut: statusOf(d).label, Détail: d.error_message || d.delivery_detail || '' })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Délivrance');
+    XLSX.writeFile(wb, `delivrance_${openId}.xlsx`);
   };
 
   const colOptions = (allowNone: boolean) => (
@@ -198,6 +244,69 @@ const FrizbiBulkSms: React.FC = () => {
             </button>
           </>
         )}
+
+        <div style={{ marginTop: 30, borderTop: '1px solid #e2e8f0', paddingTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+            <h4 style={{ margin: 0 }}>Suivi de délivrance des envois en masse</h4>
+            <button className="btn btn-secondary" style={{ marginLeft: 'auto', padding: '6px 14px', fontSize: 13 }} onClick={loadCampaigns}>
+              <RefreshCw size={14} /> Actualiser la liste
+            </button>
+          </div>
+          {campaigns.length === 0 ? (
+            <div style={{ color: '#94a3b8', fontSize: 14 }}>Aucun envoi en masse pour le moment.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="sms-logs-table">
+                <thead><tr><th>Date</th><th>Message</th><th>Total</th><th>Délivrés</th><th>Échecs</th><th>En cours / non vérifiés</th><th></th></tr></thead>
+                <tbody>
+                  {campaigns.map(c => (
+                    <tr key={c.campaign_id} style={openId === c.campaign_id ? { background: '#f8fafc' } : undefined}>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{new Date(c.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.message}</td>
+                      <td>{c.total}</td>
+                      <td style={{ color: '#059669', fontWeight: 700 }}>{c.delivered}</td>
+                      <td style={{ color: '#dc2626', fontWeight: 700 }}>{c.failed + c.rejected}</td>
+                      <td style={{ color: '#d97706', fontWeight: 700 }}>{c.in_progress}</td>
+                      <td><button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: 12 }} onClick={() => refreshCampaign(c.campaign_id)} disabled={trackLoading}>
+                        {trackLoading && openId === c.campaign_id ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />} Vérifier
+                      </button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {trackNote && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13 }}>{trackNote}</div>}
+
+          {openId && details.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                <strong style={{ fontSize: 14 }}>Détail par destinataire ({details.length})</strong>
+                <button className="btn btn-secondary" style={{ marginLeft: 'auto', padding: '6px 14px', fontSize: 13 }} onClick={exportDetails}>
+                  <FileSpreadsheet size={14} /> Exporter en Excel
+                </button>
+              </div>
+              <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                <table className="sms-logs-table">
+                  <thead><tr><th>Mobile</th><th>Statut</th><th>Détail</th></tr></thead>
+                  <tbody>
+                    {details.map((d, i) => {
+                      const s = statusOf(d);
+                      return (
+                        <tr key={i}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{d.recipient}</td>
+                          <td style={{ color: s.color, fontWeight: 700 }}>{s.label}</td>
+                          <td style={{ fontSize: 12, color: '#64748b' }}>{d.error_message || d.delivery_detail || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
