@@ -47,6 +47,7 @@ const MODULES: { value: string; label: string }[] = [
   { value: 'dashboard', label: 'Dashboard DSI' },
   { value: 'dxf', label: 'Plans / DXF' },
   { value: 'oracle', label: 'Oracle' },
+  { value: 'dataquery', label: 'Interrogation SQL lecture seule (tous modules, IA) — expiration obligatoire' },
 ];
 
 export default function ApiKeysAdmin() {

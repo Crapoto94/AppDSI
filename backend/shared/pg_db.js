@@ -1,5 +1,55 @@
 const { Pool } = require('pg');
 
+/**
+ * (Ré)applique les droits du rôle lecture seule utilisé par le module dataquery.
+ * Ne fait rien si le rôle n'existe pas (il est créé à la main par
+ * modules/dataquery/sql/create_readonly_role.sql, avec son mot de passe).
+ * Appelée à chaque démarrage : les nouvelles tables sont donc couvertes, avec
+ * le même filtrage des données sensibles.
+ *  - tables dont le NOM évoque des secrets/paramètres → aucun accès ;
+ *  - colonnes dont le NOM évoque un secret → non accordées (droits par colonne) ;
+ *  - aucun droit d'écriture, jamais.
+ */
+const DATAQUERY_ROLE = process.env.DATAQUERY_PG_USER || 'dq_readonly';
+const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_audit)';
+const DATAQUERY_DENY_COLUMNS = '(passw|pwd|secret|token|api_?key|apikey|hash|otp|private_?key|credential|pin_code|refresh|cookie|salt)';
+async function applyDataqueryGrants(client) {
+  const { rows } = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [DATAQUERY_ROLE]);
+  if (rows.length === 0) return;
+  await client.query(`
+    DO $dq$
+    DECLARE
+      r record; cols text; role_name text := ${client.escapeLiteral(DATAQUERY_ROLE)};
+      deny_tbl text := ${client.escapeLiteral(DATAQUERY_DENY_TABLES)};
+      deny_col text := ${client.escapeLiteral(DATAQUERY_DENY_COLUMNS)};
+    BEGIN
+      FOR r IN SELECT nspname FROM pg_namespace
+               WHERE nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND nspname NOT LIKE 'pg\\_%' LOOP
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I', r.nspname, role_name);
+      END LOOP;
+      FOR r IN SELECT c.oid, n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE c.relkind IN ('r','p','v','m','f')
+                 AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg\\_%' LOOP
+        CONTINUE WHEN r.relname ~* deny_tbl;
+        IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = r.oid AND attnum > 0 AND NOT attisdropped AND attname ~* deny_col) THEN
+          SELECT string_agg(quote_ident(attname), ', ' ORDER BY attnum) INTO cols
+            FROM pg_attribute WHERE attrelid = r.oid AND attnum > 0 AND NOT attisdropped AND attname !~* deny_col;
+          IF cols IS NOT NULL THEN
+            EXECUTE format('GRANT SELECT (%s) ON %I.%I TO %I', cols, r.nspname, r.relname, role_name);
+          END IF;
+        ELSE
+          EXECUTE format('GRANT SELECT ON %I.%I TO %I', r.nspname, r.relname, role_name);
+        END IF;
+      END LOOP;
+    END
+    $dq$;
+  `);
+  console.log(`[PG DB] Droits lecture seule appliqués au rôle ${DATAQUERY_ROLE}`);
+}
+
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'postgres',
   host: process.env.POSTGRES_HOST || '10.103.130.106',
@@ -6863,6 +6913,26 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub.api_keys ADD COLUMN IF NOT EXISTS permissions VARCHAR(20) NOT NULL DEFAULT 'read'`);
     } catch (e) { console.error('[PG DB] api_keys:', e.message); }
 
+    // ─── Dataquery : audit + droits du rôle lecture seule ─────────────────
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_audit (
+          id           BIGSERIAL PRIMARY KEY,
+          created_at   TIMESTAMPTZ DEFAULT NOW(),
+          api_key_id   INT,
+          api_key_name VARCHAR(255),
+          ip           VARCHAR(100),
+          action       VARCHAR(30),
+          sql_text     TEXT,
+          row_count    INT,
+          duration_ms  INT,
+          error        TEXT
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_dataquery_audit_created ON hub.dataquery_audit (created_at DESC)`);
+      await applyDataqueryGrants(client);
+    } catch (e) { console.error('[PG DB] dataquery:', e.message); }
+
     // ─── hub.encadrants : téléphones des directeurs / resp. de service ──────────
     try {
       await client.query(`
@@ -7749,5 +7819,6 @@ async function setupPgDb() {
 module.exports = {
   pool,
   pgDb,
-  setupPgDb
+  setupPgDb,
+  applyDataqueryGrants
 };

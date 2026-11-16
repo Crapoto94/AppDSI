@@ -6269,6 +6269,10 @@ app.use('/api/admin/o365-calendar', o365CalendarRouter);
 // ============================================
 app.use('/api/admin/api-keys', apiKeysRouter);
 
+// Interrogation en lecture seule de toutes les données (tous modules), via clé API
+// de périmètre « dataquery ». Désactivé tant que DATAQUERY_ENABLED != 'true'.
+app.use('/api/dataquery', require('./modules/dataquery/dataquery.routes'));
+
 // Cron: auto-sync O365 calendars every 30 minutes
 cron.schedule('*/30 * * * *', async () => {
     try {
