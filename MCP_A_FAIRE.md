@@ -8,18 +8,15 @@ Documentation détaillée :
 
 ---
 
-## 0. Décision à prendre avant le déploiement
+## 0. Authentification de `/mcp` — décidé
 
-**Quelle identification personnelle pour `/mcp` ?**
+**Annuaire AD + clé API**, tel que codé :
+- l'identifiant et le mot de passe Windows sont vérifiés contre l'AD ;
+- la clé API `dsk_…` du module « Interrogation SQL lecture seule » est exigée en plus.
 
-| Option | Ce que ça veut dire |
-|---|---|
-| **A. Annuaire AD** (ce qui est codé) | La personne saisit son identifiant et son mot de passe Windows, vérifiés contre l'AD. Le mécanisme est propre au MCP (routes, sessions et secret distincts du chat), mais l'annuaire est le même. |
-| **B. Comptes MCP dédiés + TOTP** | Identifiant et mot de passe propres au MCP, plus un code d'application d'authentification. Le MCP devient indépendant de l'AD : un mot de passe Windows volé ne suffit pas. **À coder.** |
+Le mécanisme est propre au MCP : routes, sessions et secret sont distincts du chat, et les jetons du chat sont refusés.
 
-Dans les deux cas, la page `/mcp/login` lit encore la config du chat (`/api/live/public-config`) pour son logo et ses couleurs. Je peux supprimer cette dépendance.
-
-→ **Indique-moi A ou B.** Si c'est B, ne pas déployer avant que je l'aie codé.
+Évolution possible plus tard : comptes MCP dédiés + TOTP (voir § 10).
 
 ---
 
@@ -188,5 +185,5 @@ Une session distante ne peut pas faire la connexion par navigateur. Pour que je 
 ## 10. Plus tard
 
 - [ ] **Création de tickets via le MCP** : par des actions dédiées qui appellent le service tickets existant, avec une clé séparée, un mode « simulation » par défaut et un audit. Non commencé.
-- [ ] **Option B** de l'étape 0, si elle est choisie.
+- [ ] Éventuellement : comptes MCP dédiés + TOTP, à la place de l'AD.
 - [ ] Problème existant constaté pendant les tests, sans lien avec le MCP : `setupPgDb()` échoue sur une base vierge (`schema "projets" does not exist`). C'est sans effet sur la prod actuelle, mais ça gênera une réinstallation ou un environnement de test.
