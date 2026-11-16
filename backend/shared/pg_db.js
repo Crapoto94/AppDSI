@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 /**
  * (Ré)applique les droits du rôle lecture seule utilisé par le module dataquery.
  * Ne fait rien si le rôle n'existe pas (il est créé à la main par
- * modules/dataquery/sql/create_readonly_role.sql, avec son mot de passe).
+ * modules/dataquery/sql/setup_global.sql, avec son mot de passe).
  * Appelée à chaque démarrage : les nouvelles tables sont donc couvertes, avec
  * le même filtrage des données sensibles.
  *  - tables dont le NOM évoque des secrets/paramètres → aucun accès ;

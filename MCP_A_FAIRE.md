@@ -1,5 +1,8 @@
 # Serveur MCP AppDSI — ce qu'il reste à faire
 
+> **Procédure exacte à suivre (commandes, SQL, résultats attendus) : [`DEPLOIEMENT_MCP.md`](DEPLOIEMENT_MCP.md).**
+> Ce document-ci en est le résumé. En cas de différence, `DEPLOIEMENT_MCP.md` fait foi.
+
 Branche de travail : `ccr-24faa3bd-2p1jsz`. Elle n'est **ni fusionnée, ni déployée** : la prod n'a pas encore changé.
 
 Documentation détaillée :
@@ -48,22 +51,18 @@ Le mécanisme est propre au MCP : routes, sessions et secret sont distincts du c
 
 ## 3. Base de données (une seule fois)
 
-- [ ] Créer le rôle PostgreSQL en lecture seule, en superutilisateur. Choisir un mot de passe fort et le conserver pour l'étape 4.
+- [ ] Lancer le script global : idempotent, sans mot de passe.
   ```bash
-  psql -h 10.103.130.106 -U postgres -d ivry_admin \
-       -v dq_password="'<MOT_DE_PASSE_DQ>'" \
-       -f backend/modules/dataquery/sql/create_readonly_role.sql
+  psql -h 10.103.130.106 -U postgres -d ivry_admin -f backend/modules/dataquery/sql/setup_global.sql
   ```
-- [ ] Vérifier que ton compte a le rôle `superadmin`, ou prévoir de l'ajouter à `DATAQUERY_ALLOWED_USERS` (étape 4) :
-  ```sql
-  SELECT username, role FROM hub.users WHERE lower(username) = '<ton.identifiant>';
-  ```
+- [ ] Définir le mot de passe du rôle en saisie masquée, avec `\password dq_readonly` dans une session `psql` en `postgres`.
+- Le détail et les résultats attendus sont dans [`DEPLOIEMENT_MCP.md`](DEPLOIEMENT_MCP.md), étape 3.
 
 ---
 
 ## 4. Backend (LAN)
 
-- [ ] Ajouter ces variables d'environnement au backend (`docker-compose.yml` racine ou `.env`) :
+- [ ] Ajouter ces variables dans le `.env` à côté du `docker-compose.yml` racine, sur le serveur. Le `docker-compose.yml` les transmet au conteneur.
   ```
   DATAQUERY_ENABLED=true
   DATAQUERY_PG_USER=dq_readonly

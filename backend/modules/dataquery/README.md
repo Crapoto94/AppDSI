@@ -55,13 +55,18 @@ Personnes autorisées : rôle `superadmin` dans `hub.users`, ou liste
 
 ## Mise en service
 
-1. Créer le rôle (une fois, en superutilisateur) :
+Procédure complète et pas à pas : [`DEPLOIEMENT_MCP.md`](../../../DEPLOIEMENT_MCP.md).
+
+
+1. Créer le rôle, les tables et les droits (script idempotent, sans mot de passe),
+   puis définir le mot de passe en saisie masquée :
    ```bash
-   psql -h 10.103.130.106 -U postgres -d ivry_admin \
-        -v dq_password="'<mot-de-passe-fort>'" \
-        -f backend/modules/dataquery/sql/create_readonly_role.sql
+   psql -h 10.103.130.106 -U postgres -d ivry_admin -f backend/modules/dataquery/sql/setup_global.sql
+   psql -h 10.103.130.106 -U postgres -d ivry_admin
+   ivry_admin=# \password dq_readonly        -- saisie masquée, deux fois
    ```
-2. Variables d'environnement du backend, puis redémarrage (les droits sont
+2. Variables d'environnement du backend (fichier `.env` à côté du
+   `docker-compose.yml` racine, transmises par celui-ci), puis redémarrage (les droits sont
    appliqués au démarrage ; vérifier le log `Droits lecture seule appliqués`) :
    ```
    DATAQUERY_ENABLED=true

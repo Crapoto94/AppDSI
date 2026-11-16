@@ -2,7 +2,7 @@
  * Pool PostgreSQL dédié au module dataquery.
  *
  * Il se connecte avec un rôle LECTURE SEULE distinct (par défaut `dq_readonly`,
- * créé par sql/create_readonly_role.sql). La lecture seule est donc garantie
+ * créé par sql/setup_global.sql). La lecture seule est donc garantie
  * par PostgreSQL lui-même (droits SELECT uniquement, colonnes sensibles
  * masquées), pas seulement par le code de ce module.
  *
