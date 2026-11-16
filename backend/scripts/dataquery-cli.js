@@ -2,10 +2,16 @@
 /**
  * Client en ligne de commande du module dataquery (lecture seule).
  *
- *   DQ_BASE_URL=https://chat.ivry94.fr  DQ_API_KEY=dsk_...  node dataquery-cli.js <commande>
+ *   Usage sur le LAN uniquement (en DMZ, l'accès Internet passe par le serveur MCP) :
+ *   DQ_BASE_URL=http://<backend>:3001  DQ_API_KEY=dsk_...  node dataquery-cli.js <commande>
+ *
+ * Double authentification : clé API + identification personnelle (AD).
+ *   login <identifiant>            ouvre une session (mot de passe demandé, non affiché),
+ *                                  enregistrée dans ~/.dataquery-session (droits 600)
+ *   logout                         révoque la session
  *
  * Commandes :
- *   health                         état du module
+ *   health                         état du module, personne connectée
  *   catalog [schema]               modules et tables accessibles
  *   describe <schema.table>        colonnes, PK, FK
  *   sample <schema.table> [n]      n premières lignes (défaut 10)
@@ -14,12 +20,27 @@
  * DQ_API_KEY peut être omise si un proxy injecte l'en-tête X-API-Key.
  * Sortie : tableau texte lisible, ou JSON brut avec --json.
  */
-const BASE = (process.env.DQ_BASE_URL || 'https://chat.ivry94.fr').replace(/\/+$/, '');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const BASE = (process.env.DQ_BASE_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
 const KEY = process.env.DQ_API_KEY || '';
+const SESSION_FILE = path.join(os.homedir(), '.dataquery-session');
+const readSession = () => { try { return fs.readFileSync(SESSION_FILE, 'utf8').trim(); } catch { return ''; } };
+
+function askHidden(prompt) {
+    return new Promise((resolve) => {
+        const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+        rl._writeToOutput = (s) => { if (s.includes(prompt)) process.stdout.write(s); };
+        rl.question(prompt, (a) => { rl.close(); process.stdout.write('\n'); resolve(a); });
+    });
+}
 
 async function call(method, path, body) {
     const headers = { Accept: 'application/json' };
     if (KEY) headers['X-API-Key'] = KEY;
+    const session = readSession();
+    if (session && !path.endsWith('/auth/login')) headers['X-DQ-Session'] = session;
     if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${BASE}/api/dataquery${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
     const text = await res.text();
@@ -62,6 +83,17 @@ function opt(args, name) {
     const out = (d, fmt) => console.log(json ? JSON.stringify(d, null, 2) : fmt(d));
 
     switch (cmd) {
+        case 'login': {
+            if (!rest[0]) throw new Error('Usage : login <identifiant Windows>');
+            const password = process.env.DQ_PASSWORD || await askHidden('Mot de passe Windows : ');
+            const d = await call('POST', '/auth/login', { username: rest[0], password, client: 'CLI dataquery' });
+            fs.writeFileSync(SESSION_FILE, d.session, { mode: 0o600 });
+            return console.log(`Session ouverte pour ${d.user.displayName} jusqu'au ${new Date(d.expires_at).toLocaleString('fr-FR')}`);
+        }
+        case 'logout':
+            await call('POST', '/auth/logout');
+            fs.rmSync(SESSION_FILE, { force: true });
+            return console.log('Session révoquée');
         case 'health':
             return out(await call('GET', '/health'), d => JSON.stringify(d, null, 2));
         case 'catalog': {
@@ -98,6 +130,6 @@ function opt(args, name) {
                 table(d.columns, d.rows) + `\n${d.row_count} ligne(s) en ${d.duration_ms} ms${d.truncated ? ` — TRONQUÉ à ${d.max_rows} (utiliser --max ou affiner)` : ''}`);
         }
         default:
-            console.log(require('fs').readFileSync(__filename, 'utf8').split('\n').slice(2, 17).map(l => l.replace(/^ \*\s?/, '')).join('\n'));
+            console.log(require('fs').readFileSync(__filename, 'utf8').split('\n').slice(2, 24).map(l => l.replace(/^ \*\s?/, '')).join('\n'));
     }
 })().catch(e => { console.error(e.message); process.exit(1); });

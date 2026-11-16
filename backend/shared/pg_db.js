@@ -11,7 +11,7 @@ const { Pool } = require('pg');
  *  - aucun droit d'écriture, jamais.
  */
 const DATAQUERY_ROLE = process.env.DATAQUERY_PG_USER || 'dq_readonly';
-const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_audit)';
+const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_)';
 const DATAQUERY_DENY_COLUMNS = '(passw|pwd|secret|token|api_?key|apikey|hash|otp|private_?key|credential|pin_code|refresh|cookie|salt)';
 async function applyDataqueryGrants(client) {
   const { rows } = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [DATAQUERY_ROLE]);
@@ -6930,6 +6930,25 @@ async function setupPgDb() {
         )
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_dataquery_audit_created ON hub.dataquery_audit (created_at DESC)`);
+      await client.query(`ALTER TABLE hub.dataquery_audit ADD COLUMN IF NOT EXISTS username VARCHAR(100)`);
+      await client.query(`ALTER TABLE hub.dataquery_audit ADD COLUMN IF NOT EXISTS trace_id VARCHAR(100)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_dataquery_audit_trace ON hub.dataquery_audit (trace_id)`);
+      // Sessions personnelles (2e facteur) : révocables, horodatées.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_sessions (
+          jti            UUID PRIMARY KEY,
+          username       VARCHAR(100) NOT NULL,
+          display_name   VARCHAR(255),
+          api_key_id     INT,
+          ip             VARCHAR(100),
+          client         VARCHAR(200),
+          created_at     TIMESTAMPTZ DEFAULT NOW(),
+          expires_at     TIMESTAMPTZ NOT NULL,
+          last_used_at   TIMESTAMPTZ,
+          revoked_at     TIMESTAMPTZ,
+          revoked_reason VARCHAR(200)
+        )
+      `);
       await applyDataqueryGrants(client);
     } catch (e) { console.error('[PG DB] dataquery:', e.message); }
 

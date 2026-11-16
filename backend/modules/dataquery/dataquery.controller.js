@@ -14,6 +14,9 @@
  *     (ROLLBACK), en protocole étendu (une seule instruction possible), avec
  *     statement_timeout et un plafond de lignes.
  *  5. Journal d'audit (hub.dataquery_audit) + limitation de débit par clé.
+ *  6. Double authentification : clé API + identification personnelle (AD),
+ *     cf. dataquery.auth.js. Chaque ligne d'audit porte le username et
+ *     l'identifiant de trace transmis par le serveur MCP (X-Trace-Id).
  */
 const { pool } = require('../../shared/database');
 const { getReadOnlyPool, checkRoleSafety } = require('./dataquery.pool');
@@ -80,12 +83,17 @@ function clientIp(req) {
     return req.headers['x-real-ip'] || req.socket?.remoteAddress || null;
 }
 
+function traceId(req) {
+    const t = req.headers['x-trace-id'];
+    return typeof t === 'string' && /^[A-Za-z0-9._:-]{1,100}$/.test(t) ? t : null;
+}
+
 async function audit(req, { action, sql, rowCount, durationMs, error }) {
     try {
         await pool.query(
-            `INSERT INTO hub.dataquery_audit (api_key_id, api_key_name, ip, action, sql_text, row_count, duration_ms, error)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [req.apiKey?.id || null, req.apiKey?.name || null, clientIp(req), action,
+            `INSERT INTO hub.dataquery_audit (api_key_id, api_key_name, username, trace_id, ip, action, sql_text, row_count, duration_ms, error)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [req.apiKey?.id || null, req.apiKey?.name || null, req.dqUser?.username || null, traceId(req), clientIp(req), action,
              sql ? String(sql).slice(0, MAX_SQL_LENGTH) : null, rowCount ?? null, durationMs ?? null,
              error ? String(error).slice(0, 2000) : null]
         );
@@ -126,8 +134,10 @@ async function runReadOnly(text, values = [], rowMode) {
 
 module.exports = {
     SCHEMA_MODULES,
+    audit,
+    clientIp,
 
-    /** Garde commune : module activé, clé dataquery valide et non expirable, rôle sûr. */
+    /** Garde « clé » : module activé, clé dataquery valide et non expirable, rôle sûr. */
     async guard(req, res, next) {
         if (process.env.DATAQUERY_ENABLED !== 'true') {
             return res.status(503).json({ error: 'Module dataquery désactivé (DATAQUERY_ENABLED != true)' });
@@ -162,6 +172,7 @@ module.exports = {
             readonly_role: safety,
             limits: { max_rows_default: MAX_ROWS_DEFAULT, max_rows_hard: MAX_ROWS_HARD, statement_timeout_ms: STATEMENT_TIMEOUT_MS, rate: `${RATE_MAX}/${RATE_WINDOW_MS / 60000}min` },
             key: { name: req.apiKey?.name, scope: req.apiKey?.scope },
+            user: req.dqUser ? { username: req.dqUser.username, displayName: req.dqUser.displayName } : null,
         });
     },
 

@@ -14,6 +14,9 @@ dont le chat a besoin vers le backend LAN :
 - `/api/live/` — auth, sessions, messages du chat
 - `/api/storage/` — pièces jointes
 - `/socket.io/` — websocket temps réel
+- `/mcp`, `/mcp/oauth/*`, `/.well-known/oauth-*` — **serveur MCP** (lecture seule des
+  données pour Claude), processus Node dans le même conteneur, double authentification
+  clé API + AD et traçage complet des flux : voir [`mcp/README.md`](mcp/README.md)
 
 Résultat : le navigateur ne parle **qu'à `chat.ivry94.fr`** (même origine), donc
 pas de souci CORS. Et surtout, **le reste de l'API interne n'est pas exposé** :

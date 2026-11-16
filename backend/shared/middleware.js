@@ -647,7 +647,7 @@ const SEG_TO_SCOPE = {
 // Requêtes POST qui restent en lecture seule par construction : autorisées
 // pour une clé de permission 'read' (ex. /dataquery/query, qui exécute un
 // SELECT via un rôle PostgreSQL sans droit d'écriture).
-const READ_ONLY_POST_PATHS = new Set(['/dataquery/query']);
+const READ_ONLY_POST_PATHS = new Set(['/dataquery/query', '/dataquery/auth/login', '/dataquery/auth/logout']);
 
 // Déduit le périmètre (scope) attendu depuis le chemin relatif à /api.
 const scopeForPath = (relPath) => {

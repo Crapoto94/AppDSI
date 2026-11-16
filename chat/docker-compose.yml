@@ -9,6 +9,14 @@ services:
       # racine du projet, service "backend", port publié 3001:3001).
       - BACKEND_URL=${BACKEND_URL}
       - CHAT_DOMAIN=${CHAT_DOMAIN:-chat.ivry94.fr}
+      # Serveur MCP (chat.ivry94.fr/mcp) : traçage de tous les flux entrants/sortants.
+      #   full = corps complets (secrets masqués) ; meta = taille + empreinte seulement.
+      - MCP_TRACE_BODIES=${MCP_TRACE_BODIES:-full}
+      - MCP_TRACE_MAX_BYTES=${MCP_TRACE_MAX_BYTES:-2097152}
+    # Traces MCP persistantes sur l'hôte DMZ (un fichier JSONL par jour). À sauvegarder
+    # et à purger selon votre politique de conservation (elles contiennent des données).
+    volumes:
+      - ./logs:/var/log/appdsi-mcp
     # Publié sur l'hôte Docker DMZ : votre reverse proxy DMZ existant (celui qui gère
     # déjà le TLS pour vos autres services) pointe vers <ip-hote-dmz>:5175 en HTTP.
     ports:

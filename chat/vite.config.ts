@@ -12,6 +12,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,
       },
+      // Serveur MCP local (chat/mcp) — /mcp/login reste servi par Vite (page React).
+      '^/mcp$': { target: 'http://127.0.0.1:5176', changeOrigin: true },
+      '/mcp/oauth': { target: 'http://127.0.0.1:5176', changeOrigin: true },
+      '/.well-known/oauth': { target: 'http://127.0.0.1:5176', changeOrigin: true },
       '/socket.io': {
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,

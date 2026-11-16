@@ -2,19 +2,35 @@
 
 Permet à un assistant IA (Claude) ou à un outil d'analyse d'interroger **toutes
 les données PostgreSQL** de l'application (tickets, transcript manager,
-photocopieurs, contrats, projets…) en **lecture seule**, y compris depuis
-Internet via `chat.ivry94.fr`.
+photocopieurs, contrats, projets…) en **lecture seule**.
+
+Depuis Internet, l'accès se fait **uniquement via le serveur MCP de la DMZ**
+(`https://chat.ivry94.fr/mcp`, cf. [`chat/mcp/README.md`](../../../chat/mcp/README.md)),
+qui trace tous les flux. Cette API n'est pas publiée en DMZ ; elle sert au MCP
+et au CLI sur le LAN.
 
 ## Endpoints
 
 | Méthode | Chemin | Rôle |
 |---|---|---|
-| GET  | `/api/dataquery/health` | état du module et du rôle lecture seule |
+| POST | `/api/dataquery/auth/login` | `{ username, password }` (AD) → `{ session }` — clé API seule |
+| POST | `/api/dataquery/auth/logout` | révoque la session |
+| GET  | `/api/dataquery/health` | état du module, personne connectée |
 | GET  | `/api/dataquery/catalog[?schema=hub_tickets]` | modules (schémas) et tables accessibles |
 | GET  | `/api/dataquery/catalog/:schema/:table` | colonnes, PK, FK |
 | POST | `/api/dataquery/query` | `{ "sql": "...", "params": [...], "max_rows": 500 }` |
 
-Authentification : en-tête `X-API-Key: dsk_…`.
+**Double authentification**, exigée à chaque requête :
+1. `X-API-Key: dsk_…` — clé de périmètre `dataquery` avec expiration ;
+2. `X-DQ-Session: …` — session personnelle ouverte par `/auth/login` avec les
+   identifiants Windows (AD). Signée avec `DATAQUERY_SESSION_SECRET` (distinct du
+   secret JWT de l'application), liée à la clé utilisée, 8 h max, révocable
+   (`hub.dataquery_sessions`). Les jetons du chat ne sont **pas** acceptés : le
+   `guest-login` public permet d'en obtenir un avec un nom/email quelconques.
+
+Personnes autorisées : rôle `superadmin` dans `hub.users`, ou liste
+`DATAQUERY_ALLOWED_USERS` (revérifié à chaque requête). Anti brute-force :
+5 échecs / 15 min par identifiant, 20 par IP.
 
 ## Sécurité (défense en profondeur)
 
@@ -32,9 +48,10 @@ Authentification : en-tête `X-API-Key: dsk_…`.
    `READ ONLY` toujours annulée, protocole étendu (une seule instruction),
    `statement_timeout` 15 s, plafond 500 lignes (max 5000), fonctions système
    refusées (`pg_sleep`, `pg_terminate_backend`, `set_config`, `lo_*`, `dblink`…).
-6. **Audit** de toutes les requêtes, y compris refusées, dans `hub.dataquery_audit`.
-7. **Débit** : 300 requêtes / 10 min par clé (backend) + 2 req/s par IP (nginx DMZ).
-8. **nginx DMZ** : `/api/dataquery/` uniquement, GET/POST, 100 ko max, 401 sans clé.
+6. **Audit** de toutes les requêtes, y compris refusées et des connexions,
+   dans `hub.dataquery_audit`, avec le **nom de la personne** et l'**identifiant
+   de trace** MCP (`trace_id`) pour croiser avec les traces de la DMZ.
+7. **Débit** : 300 requêtes / 10 min par clé.
 
 ## Mise en service
 
@@ -50,16 +67,20 @@ Authentification : en-tête `X-API-Key: dsk_…`.
    DATAQUERY_ENABLED=true
    DATAQUERY_PG_USER=dq_readonly
    DATAQUERY_PG_PASSWORD=<mot-de-passe-fort>
+   DATAQUERY_SESSION_SECRET=<au moins 32 caractères aléatoires : openssl rand -base64 48>
+   # facultatif :
+   DATAQUERY_ALLOWED_USERS=prenom.nom,autre.compte   # en plus des superadmins
+   DATAQUERY_SESSION_TTL_HOURS=8
    ```
 3. Créer une clé dans `/admin/api-keys` : module **Interrogation SQL lecture
    seule**, permission **lecture**, **avec une date d'expiration**.
-4. Redéployer le conteneur `chat/` (DMZ) pour prendre en compte la nouvelle
-   `location /api/dataquery/`.
+4. Redéployer le conteneur `chat/` (DMZ) : serveur MCP + page `/mcp/login`.
 
-## Client CLI
+## Client CLI (LAN)
 
 ```bash
-export DQ_BASE_URL=https://chat.ivry94.fr DQ_API_KEY=dsk_...
+export DQ_BASE_URL=http://<backend>:3001 DQ_API_KEY=dsk_...
+node backend/scripts/dataquery-cli.js login prenom.nom   # mot de passe demandé
 node backend/scripts/dataquery-cli.js catalog
 node backend/scripts/dataquery-cli.js describe hub_tickets.tickets
 node backend/scripts/dataquery-cli.js sample transcript.transcripts 5
@@ -69,9 +90,10 @@ node backend/scripts/dataquery-cli.js query "SELECT status, count(*) FROM hub_ti
 ## Couper l'accès
 
 - Immédiat, côté base : `ALTER ROLE dq_readonly NOLOGIN;`
+- Une personne : `UPDATE hub.dataquery_sessions SET revoked_at = NOW() WHERE username = '…';`
 - Par clé : désactiver/supprimer la clé dans `/admin/api-keys`.
 - Module : `DATAQUERY_ENABLED=false` + redémarrage.
-- Internet uniquement : retirer la `location /api/dataquery/` du nginx DMZ.
+- Internet uniquement : commenter les blocs `/mcp` du nginx DMZ (`chat/nginx.conf.template`).
 
 ## Hors périmètre
 

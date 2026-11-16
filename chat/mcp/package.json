@@ -1,0 +1,19 @@
+{
+  "name": "appdsi-mcp-dmz",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Serveur MCP (lecture seule) exposé en DMZ sur chat.ivry94.fr/mcp — double authentification clé API + AD, traçage complet",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "express": "5.2.1",
+    "zod": "4.6.7"
+  }
+}
