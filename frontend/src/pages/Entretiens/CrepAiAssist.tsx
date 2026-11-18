@@ -37,7 +37,7 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, va
         { rubrique, notes, contexte, crep, existant: value }, { headers: { Authorization: `Bearer ${token}` } });
       setProposal(r.data.text || '');
     } catch (e: any) {
-      setError(e.response?.data?.message || 'L’IA locale n’a pas pu rédiger de proposition.');
+      setError(e.response?.data?.message || 'L’IA interne n’a pas pu rédiger de proposition.');
     } finally { setBusy(false); }
   };
 
@@ -56,7 +56,7 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, va
     <div style={{ marginTop: 6, padding: '10px 12px', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 9 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12, fontWeight: 800, color: '#5b21b6' }}>
-          <Sparkles size={14} /> Rédaction assistée (IA locale)
+          <Sparkles size={14} /> Rédaction assistée (IA interne de la Ville)
         </span>
         <button type="button" onClick={close} title="Fermer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#7c3aed' }}><X size={15} /></button>
       </div>

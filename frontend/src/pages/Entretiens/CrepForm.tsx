@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Entretien } from './types';
 import { formatDateHeure } from './types';
@@ -52,7 +52,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const headers = { Authorization: `Bearer ${token}` };
   const isAgent = mode === 'agent';
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
-  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
   const [check, setCheck] = useState<{ loading: boolean; missing: string[]; issues: string[]; ai: string[] | null; aiError: string | null } | null>(null);
@@ -89,6 +89,28 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     } catch (e: any) {
       if (Array.isArray(e.response?.data?.missing)) setMissing(e.response.data.missing);
       setMsg({ ok: false, text: e.response?.data?.message || e.message || 'Enregistrement impossible' });
+    } finally { setBusy(null); }
+  };
+
+  const agentDraft = async () => {
+    setBusy('draft'); setMsg(null);
+    try {
+      await axios.put(`/api/entretiens/${entretien.id}/crep/agent-draft`, { obs_agent_conditions: crep.obs_agent_conditions, obs_agent_entretien: crep.obs_agent_entretien }, { headers });
+      setMsg({ ok: true, text: 'Brouillon de vos observations enregistré.' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message || 'Enregistrement impossible' });
+    } finally { setBusy(null); }
+  };
+
+  const recall = async () => {
+    if (!window.confirm('Rappeler le compte rendu ? Il ne sera plus visible par l’agent (qui en sera informé) et vous pourrez le corriger avant de le renvoyer.')) return;
+    setBusy('recall'); setMsg(null);
+    try {
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/recall`, {}, { headers });
+      onSaved(r.data.entretien);
+      setMsg({ ok: true, text: 'Compte rendu rappelé : vous pouvez le modifier puis le renvoyer à l’agent.' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message || 'Rappel impossible' });
     } finally { setBusy(null); }
   };
 
@@ -346,7 +368,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
           </div>
-          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours (relecture par l’IA locale, quelques secondes)…</div>}
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours (relecture par l’IA interne, quelques secondes)…</div>}
           {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
             <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
           )}
@@ -387,9 +409,14 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       <div style={{ position: 'sticky', bottom: -14, background: '#fff', borderTop: `1px solid ${COLORS.border}`, margin: '18px -18px -14px', padding: '12px 18px', display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
         {isAgent ? (
           agentCanValidate ? (
-            <button style={{ ...btnPrimary, background: COLORS.success }} disabled={!!busy} onClick={agentValidate}>
-              {busy === 'agent' ? <Loader2 size={14} /> : <PenLine size={14} />} Valider et envoyer pour signature
-            </button>
+            <>
+              <button style={btnGhost} disabled={!!busy} onClick={agentDraft}>
+                {busy === 'draft' ? <Loader2 size={14} /> : <Save size={14} />} Enregistrer mon brouillon
+              </button>
+              <button style={{ ...btnPrimary, background: COLORS.success }} disabled={!!busy} onClick={agentValidate}>
+                {busy === 'agent' ? <Loader2 size={14} /> : <PenLine size={14} />} Valider et envoyer pour signature
+              </button>
+            </>
           ) : (
             <span style={{ fontSize: 12, color: COLORS.muted, display: 'inline-flex', gap: 5, alignItems: 'center' }}>
               <ClipboardList size={13} /> Compte rendu en lecture seule.
@@ -413,9 +440,16 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             )}
           </>
         ) : (
-          <span style={{ fontSize: 12, color: COLORS.muted, display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-            <ClipboardList size={13} /> Compte rendu en lecture seule.
-          </span>
+          <>
+            <span style={{ fontSize: 12, color: COLORS.muted, display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+              <ClipboardList size={13} /> Compte rendu en lecture seule.
+            </span>
+            {crepStatut === 'envoye_agent' && (
+              <button style={btnGhost} disabled={!!busy} onClick={recall} title="Annuler l’envoi tant que l’agent n’a pas validé">
+                {busy === 'recall' ? <Loader2 size={14} /> : <Undo2 size={14} />} Rappeler le compte rendu
+              </button>
+            )}
+          </>
         )}
         <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={!!busy} onClick={openPdf}>
           {busy === 'pdf' ? <Loader2 size={14} /> : <FileDown size={14} />} Imprimer / PDF (4 pages)

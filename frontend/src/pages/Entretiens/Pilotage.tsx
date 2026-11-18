@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, Send, AlertTriangle,
-  LayoutDashboard, CalendarClock, CheckCircle2, Users, MailWarning, Eye,
+  LayoutDashboard, CalendarClock, Download, BellRing, CheckCircle2, Users, MailWarning, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Campaign, Entretien, Stats } from './types';
-import { PREP_STATUTS, STATUTS, formatDateCourte, nomComplet } from './types';
+import { PREP_STATUTS, STATUTS, crepMeta, formatDateCourte, nomComplet } from './types';
 import AdminEntretienModal from './AdminEntretienModal';
 import EntretienDetailModal from './EntretienDetailModal';
 import AgentSearch from '../../components/AgentSearch';
@@ -45,6 +45,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [dsiOptions, setDsiOptions] = useState<Array<AgentOption & { raw: AgentAProgrammer }>>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [relancing, setRelancing] = useState(false);
 
   const currentCampaign = campaigns.find(c => c.id === campaignId) || null;
 
@@ -156,6 +157,32 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
     } finally { setBusyId(null); }
   };
 
+  const exportXlsx = async () => {
+    try {
+      const r = await axios.get('/api/entretiens/export.xlsx', { headers, params: { campaign_id: campaignId || undefined }, responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url; a.download = `Entretiens-professionnels-${currentCampaign?.annee || ''}.xlsx`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch { setToast({ ok: false, text: 'Export impossible' }); }
+  };
+
+  const sendRelances = async () => {
+    setRelancing(true);
+    try {
+      const dry = await axios.post('/api/entretiens/relances/run', { dry_run: true }, { headers });
+      const n = (dry.data.agentPreparation || 0) + (dry.data.agentValidation || 0) + (dry.data.evaluateurs || 0);
+      if (n === 0) { setToast({ ok: true, text: 'Aucune relance à envoyer pour le moment (chaque personne n’est relancée qu’à intervalle régulier).' }); return; }
+      const lines = (dry.data.details || []).slice(0, 15).join('\n');
+      const more = (dry.data.details || []).length > 15 ? '\n…' : '';
+      if (!window.confirm(`${n} relance(s) à envoyer :\n\n${lines}${more}\n\nEnvoyer maintenant ?`)) return;
+      const r = await axios.post('/api/entretiens/relances/run', {}, { headers });
+      setToast({ ok: !r.data.erreurs, text: `${(r.data.agentPreparation || 0) + (r.data.agentValidation || 0) + (r.data.evaluateurs || 0)} relance(s) envoyée(s)${r.data.erreurs ? `, ${r.data.erreurs} en erreur` : ''}.` });
+    } catch (e: any) {
+      setToast({ ok: false, text: e.response?.data?.message || 'Relances impossibles' });
+    } finally { setRelancing(false); }
+  };
+
   const total = stats?.total || 0;
 
   return (
@@ -169,6 +196,8 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
           {campaigns.length === 0 && <option value="">Aucune campagne</option>}
           {campaigns.map(c => <option key={c.id} value={c.id}>{c.libelle || `Campagne ${c.annee}`}</option>)}
         </select>
+        <button style={btnGhost} onClick={exportXlsx} disabled={!currentCampaign} title="Exporter le suivi de la campagne au format Excel"><Download size={14} /> Export Excel</button>
+        <button style={btnGhost} onClick={sendRelances} disabled={relancing} title="Relancer les agents et évaluateurs en retard"><BellRing size={14} /> {relancing ? 'Relances…' : 'Relances'}</button>
         <button style={btnPrimary} onClick={() => { setEditing(null); setPrefill(null); setModalOpen(true); }} disabled={!currentCampaign}>
           <Plus size={15} /> Programmer un entretien
         </button>
@@ -301,7 +330,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
         />
       ) : (
         <div style={{ ...card, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 940 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1060 }}>
             <thead>
               <tr>
                 <Th>Agent</Th>
@@ -309,6 +338,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
                 <Th>Date / heure</Th>
                 <Th>Statut</Th>
                 <Th>Préparation</Th>
+                <Th>Compte rendu</Th>
                 <Th>Outlook</Th>
                 <Th style={{ textAlign: 'right' }}>Actions</Th>
               </tr>
@@ -344,6 +374,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
                     <Td>{formatDateCourte(e.date_entretien)}</Td>
                     <Td><Badge {...st} /></Td>
                     <Td><Badge {...prep} /></Td>
+                    <Td>{(() => { const m = crepMeta(e); return m ? <Badge {...m} /> : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>—</span>; })()}</Td>
                     <Td>
                       {e.outlook_status === 'envoye'
                         ? <span title={e.outlook_web_link || ''} style={{ fontSize: 11.5, color: COLORS.success, fontWeight: 700 }}>Envoyée</span>
@@ -381,6 +412,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
                   </Td>
                   <Td><span style={{ fontSize: 11.5, color: '#94a3b8' }}>—</span></Td>
                   <Td><Badge {...STATUTS.a_planifier} /></Td>
+                  <Td><span style={{ fontSize: 11.5, color: '#94a3b8' }}>—</span></Td>
                   <Td><span style={{ fontSize: 11.5, color: '#94a3b8' }}>—</span></Td>
                   <Td><span style={{ fontSize: 11.5, color: '#94a3b8' }}>Non planifiée</span></Td>
                   <Td style={{ textAlign: 'right' }}>

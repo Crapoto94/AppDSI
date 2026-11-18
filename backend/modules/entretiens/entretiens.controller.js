@@ -886,6 +886,65 @@ const entretiensController = {
     },
 
 
+
+
+    // GET /api/entretiens/export.xlsx?campaign_id= — export Excel du suivi de la campagne (administrateurs du module)
+    exportXlsx: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
+            const rows = await svc.listEntretiens({ campaignId: campaign?.id });
+            const ExcelJS = require('exceljs');
+            const wb = new ExcelJS.Workbook();
+            const ws = wb.addWorksheet(`Entretiens ${campaign?.annee || ''}`.trim());
+            ws.columns = [
+                { header: 'Agent', key: 'agent', width: 28 }, { header: 'Direction', key: 'direction', width: 30 }, { header: 'Service', key: 'service', width: 32 },
+                { header: 'Évaluateur', key: 'evaluateur', width: 26 }, { header: 'Date de l’entretien', key: 'date', width: 20 },
+                { header: 'Statut', key: 'statut', width: 18 }, { header: 'Préparation agent', key: 'prep', width: 18 },
+                { header: 'Compte rendu', key: 'cr', width: 20 }, { header: 'Envoyé à l’agent le', key: 'envoye', width: 18 },
+                { header: 'Validé par l’agent le', key: 'valide', width: 20 }, { header: 'Parapheur', key: 'para', width: 16 }, { header: 'Statut parapheur', key: 'parast', width: 16 },
+            ];
+            ws.getRow(1).font = { bold: true };
+            ws.views = [{ state: 'frozen', ySplit: 1 }];
+            const lab = (map, k) => (map[k] || k || '');
+            const STATUT = { a_planifier: 'À planifier', planifie: 'Planifié', preparation_recue: 'Préparation reçue', realise: 'Réalisé', cloture: 'Clôturé' };
+            const PREP = { non_commencee: 'Non commencée', brouillon: 'En cours', soumis: 'Transmise' };
+            const CR = { non_envoye: 'Non envoyé', envoye_agent: 'Envoyé à l’agent', en_signature: 'En signature' };
+            const PARA = { en_cours: 'En cours', termine: 'Signé', refuse: 'Refusé', annule: 'Annulé' };
+            const d = (v) => (v ? new Date(v).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) : '');
+            for (const r of rows) {
+                ws.addRow({
+                    agent: svc.fullName(r.agent_prenom, r.agent_nom), direction: r.direction || '', service: r.service || '',
+                    evaluateur: r.evaluator_nom || r.evaluator_email || '', date: r.date_entretien ? svc.formatDateTimeFr(r.date_entretien) : '',
+                    statut: lab(STATUT, r.statut), prep: lab(PREP, r.preparation_statut), cr: lab(CR, r.crep_statut || 'non_envoye'),
+                    envoye: d(r.crep_sent_at), valide: d(r.crep_agent_validated_at), para: r.crep_parapheur_ref || '', parast: lab(PARA, r.crep_parapheur_status),
+                });
+            }
+            ws.autoFilter = { from: 'A1', to: 'L1' };
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="Entretiens-professionnels-${campaign?.annee || ''}.xlsx"`);
+            await wb.xlsx.write(res);
+            res.end();
+        } catch (err) {
+            console.error('[ENTRETIENS] exportXlsx:', err.message);
+            if (!res.headersSent) fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/relances/run  { dry_run? } — déclenche les relances (administrateurs du module)
+    runRelances: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const dry = req.body?.dry_run === true || req.body?.dry_run === 'true';
+            res.json(await require('./entretiens-reminders').runReminders({ dryRun: dry }));
+        } catch (err) {
+            console.error('[ENTRETIENS] runRelances:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
     // POST /api/entretiens/:id/crep/check  { crep, ai? }
     // Vérification globale avant validation : contrôles de cohérence fiables + relecture par l'IA locale (facultative).
     crepCheck: async (req, res) => {
@@ -909,6 +968,45 @@ const entretiensController = {
         }
     },
 
+
+    // PUT /api/entretiens/:id/crep/agent-draft — l'agent enregistre un brouillon de ses observations
+    crepAgentDraft: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            await workflow.agentSaveDraft({ row, access, body: req.body || {} });
+            res.json({ ok: true });
+        } catch (e) {
+            if (e && e.status) return fail(res, e.status, e.message);
+            console.error('[ENTRETIENS] crepAgentDraft:', e.message);
+            fail(res, 500, e.message);
+        }
+    },
+
+    // POST /api/entretiens/:id/crep/recall — l'évaluateur rappelle un compte rendu envoyé (avant validation de l'agent)
+    crepRecall: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            const mail = await workflow.recall({ row, access });
+            const fresh = await svc.getEntretienById(row.id);
+            const newAccess = await svc.buildAccess(actor, fresh, role.isAdmin);
+            res.json({ mail, entretien: { ...(await attachParapheur(await svc.withRelations(fresh))), access: newAccess } });
+        } catch (e) {
+            if (e && e.status) return fail(res, e.status, e.message);
+            console.error('[ENTRETIENS] crepRecall:', e.message);
+            fail(res, 500, e.message);
+        }
+    },
+
     // POST /api/entretiens/:id/crep/send-to-agent — l'évaluateur transmet le compte rendu à l'agent
     crepSendToAgent: async (req, res) => {
         try {
@@ -919,7 +1017,9 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             const mail = await workflow.sendToAgent({ row, access });
-            res.json({ mail, entretien: await attachParapheur(await svc.withRelations(await svc.getEntretienById(row.id))) });
+            const freshRow = await svc.getEntretienById(row.id);
+            const newAccess = await svc.buildAccess(actor, freshRow, role.isAdmin);
+            res.json({ mail, entretien: { ...(await attachParapheur(await svc.withRelations(freshRow))), access: newAccess } });
         } catch (e) {
             if (e && e.status) return fail(res, e.status, e.message);
             console.error('[ENTRETIENS] crepSendToAgent:', e.message);
@@ -938,7 +1038,8 @@ const entretiensController = {
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             const result = await workflow.agentValidate({ row, access, body: req.body || {}, actor, req });
             const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
-            res.json({ ...result, entretien: svc.forViewer(await attachParapheur(fresh), access) });
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ...result, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
         } catch (e) {
             if (e && e.status) return fail(res, e.status, e.message);
             console.error('[ENTRETIENS] crepAgentValidate:', e.message);

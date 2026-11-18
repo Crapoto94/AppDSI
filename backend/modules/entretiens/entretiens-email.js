@@ -62,4 +62,35 @@ function rdvPlanifie({ evaluateur, agent, annee, service, quand, duree, lieu, li
     return { subject: `📅 Entretien professionnel planifié — ${agent}`, ...render('#4f46e5', '📅 Entretien planifié', intro, bodyHtml, FOOTER) };
 }
 
-module.exports = { entretiensUrl, preparation, compteRenduEnvoye, aPlanifier, rdvPlanifie };
+/** À l'agent : le compte rendu envoyé est rappelé par l'évaluateur (en cours de correction). */
+function compteRenduRappele({ agent, annee, evaluateur }) {
+    const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>${esc(evaluateur || 'votre évaluateur')} a rappelé le compte rendu de votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} qui vous avait été transmis.`;
+    const bodyHtml = `<p style="font-size:14px;color:#334155;">Il est en cours de correction : vous n’avez rien à faire pour l’instant. Vous serez prévenu(e) par e-mail dès qu’une version corrigée vous sera envoyée.</p>`;
+    return { subject: 'Votre compte rendu d’entretien professionnel est en cours de correction', ...render('#64748b', 'Compte rendu rappelé', intro, bodyHtml, FOOTER) };
+}
+
+/** Relance à l'agent : préparation non transmise alors que l'entretien approche. */
+function relancePreparation({ agent, annee, quand, link }) {
+    const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} approche${quand ? ` (<strong>${esc(quand)}</strong>)` : ''} et votre fiche de préparation n’a pas encore été transmise à votre évaluateur.`;
+    const bodyHtml = `<p style="font-size:14px;color:#334155;">Merci de la compléter dès que possible : elle permet un échange constructif et factuel le jour de l’entretien.</p>
+      ${button(link, 'Compléter ma préparation', '#4f46e5')}`;
+    return { subject: '⏰ Rappel : préparez votre entretien professionnel', ...render('#d97706', '⏰ Préparation à transmettre', intro, bodyHtml, FOOTER) };
+}
+
+/** Relance à l'agent : compte rendu reçu, en attente de sa validation. */
+function relanceValidation({ agent, annee, evaluateur, link }) {
+    const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>le compte rendu de votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} transmis par ${esc(evaluateur || 'votre évaluateur')} attend votre validation.`;
+    const bodyHtml = `<p style="font-size:14px;color:#334155;">Merci de le relire, de renseigner vos observations puis de le valider : il sera alors transmis au parapheur pour signature.</p>
+      ${button(link, 'Relire et valider', '#4f46e5')}`;
+    return { subject: '⏰ Rappel : compte rendu d’entretien à valider', ...render('#d97706', '⏰ Compte rendu à valider', intro, bodyHtml, FOOTER) };
+}
+
+/** Relance à l'évaluateur : synthèse de ses entretiens en attente (à planifier, à finaliser, à envoyer). */
+function relanceEvaluateur({ evaluateur, annee, sections, link }) {
+    const intro = `Bonjour <strong>${esc(evaluateur)}</strong>,<br><br>voici vos entretiens professionnels${annee ? ` ${esc(annee)}` : ''} en attente d’une action de votre part.`;
+    const bodyHtml = sections.filter(s => s.items.length).map(s => infoBlock(`${s.title} (${s.items.length})`, s.items.map(i => [i.agent, i.detail || '—']))).join('')
+        + button(link, 'Ouvrir « Mes EP »', '#4f46e5');
+    return { subject: '⏰ Rappel : entretiens professionnels en attente', ...render('#d97706', '⏰ Entretiens en attente', intro, bodyHtml, FOOTER) };
+}
+
+module.exports = { entretiensUrl, preparation, compteRenduEnvoye, aPlanifier, rdvPlanifie, relancePreparation, relanceValidation, relanceEvaluateur, compteRenduRappele };

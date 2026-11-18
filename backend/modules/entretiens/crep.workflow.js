@@ -108,4 +108,38 @@ async function agentValidate({ row, access, body, actor, req }) {
     return { parapheur: created };
 }
 
-module.exports = { sendToAgent, agentValidate };
+/** L'agent enregistre un brouillon de ses 2 observations (sans valider) : rien n'est perdu s'il ferme la page. */
+async function agentSaveDraft({ row, access, body }) {
+    if (!access.isAgent) throw err(403, 'Seul l’agent concerné peut renseigner ses observations.');
+    if (row.crep_statut !== 'envoye_agent') throw err(409, 'Le compte rendu n’est plus modifiable par l’agent.');
+    const crep = normalizeCrep({
+        ...(row.crep || {}),
+        obs_agent_conditions: body?.obs_agent_conditions,
+        obs_agent_entretien: body?.obs_agent_entretien,
+    });
+    await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep = CAST(? AS jsonb), updated_at = NOW() WHERE id = ?`, [JSON.stringify(crep), row.id]);
+}
+
+/** L'évaluateur rappelle un compte rendu envoyé par erreur, tant que l'agent ne l'a pas validé. */
+async function recall({ row, access }) {
+    if (!(access.isEvaluator || access.isAdmin)) throw err(403, 'Seul l’évaluateur peut rappeler le compte rendu.');
+    if (row.crep_statut === 'en_signature') throw err(409, 'L’agent a déjà validé ce compte rendu : il est en cours de signature et ne peut plus être rappelé.');
+    if (row.crep_statut !== 'envoye_agent') throw err(409, 'Ce compte rendu n’a pas été envoyé à l’agent.');
+    await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep_statut = 'non_envoye', crep_sent_at = NULL, updated_at = NOW() WHERE id = ?`, [row.id]);
+    let mail = { ok: true };
+    try {
+        if (row.agent_email) {
+            const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+            const email = require('./entretiens-email');
+            const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            await sendParapheurEmail(row.agent_email, email.compteRenduRappele({
+                agent: svc.fullName(row.agent_prenom, row.agent_nom) || 'Madame, Monsieur',
+                annee: campaign?.annee,
+                evaluateur: row.evaluator_nom || row.evaluator_email,
+            }));
+        }
+    } catch (e) { mail = { ok: false, error: e.message }; }
+    return mail;
+}
+
+module.exports = { sendToAgent, agentValidate, agentSaveDraft, recall };

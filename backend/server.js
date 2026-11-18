@@ -3364,6 +3364,13 @@ setupDb().then(async database => {
         console.error('[PARAPHEUR CRON] échec démarrage:', e.message);
     }
 
+    // Relances automatiques des entretiens professionnels
+    try {
+        require('./modules/entretiens/entretiens-cron').start();
+    } catch (e) {
+        console.error('[ENTRETIENS CRON] échec démarrage:', e.message);
+    }
+
     // Deduplicate operations (keep the one with linked commands)
     await deduplicateOperations();
 

@@ -33,6 +33,11 @@ router.get('/directory', authenticateJWT, ctrl.directory);
 // Prochains créneaux libres (agent + évaluateur)
 router.post('/free-slots', authenticateJWT, ctrl.freeSlots);
 
+router.get('/export.xlsx', authenticateJWT, ctrl.exportXlsx);
+
+// Relances automatiques (déclenchement manuel, administrateurs)
+router.post('/relances/run', authenticateJWT, ctrl.runRelances);
+
 // Liste générale (admin : tout ; évaluateur : ses entretiens)
 router.get('/', authenticateJWT, ctrl.list);
 router.post('/', authenticateJWT, ctrl.create);
@@ -49,6 +54,8 @@ router.put('/:id/planning', authenticateJWT, ctrl.planning);
 router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
 router.post('/:id/crep/check', authenticateJWT, ctrl.crepCheck);
 router.post('/:id/crep/send-to-agent', authenticateJWT, ctrl.crepSendToAgent);
+router.put('/:id/crep/agent-draft', authenticateJWT, ctrl.crepAgentDraft);
+router.post('/:id/crep/recall', authenticateJWT, ctrl.crepRecall);
 router.post('/:id/crep/agent-validate', authenticateJWT, ctrl.crepAgentValidate);
 router.post('/:id/ai-draft', authenticateJWT, ctrl.aiDraft);
 router.post('/:id/outlook', authenticateJWT, ctrl.resyncOutlook);

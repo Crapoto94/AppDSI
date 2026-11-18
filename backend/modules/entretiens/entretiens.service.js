@@ -336,7 +336,8 @@ async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, 
         SELECT e.*,
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id) AS objectifs_total,
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id AND o.niveau IS NOT NULL AND o.niveau <> '') AS objectifs_renseignes,
-          (SELECT COUNT(*) FROM hub_entretiens.formations f WHERE f.entretien_id = e.id) AS formations_total
+          (SELECT COUNT(*) FROM hub_entretiens.formations f WHERE f.entretien_id = e.id) AS formations_total,
+          (SELECT p.status FROM hub_parapheur.parapheurs p WHERE p.id = e.crep_parapheur_id) AS crep_parapheur_status
         FROM hub_entretiens.entretiens e
         WHERE e.deleted_at IS NULL${where.length ? ' AND ' + where.join(' AND ') : ''}
         ORDER BY e.date_entretien NULLS LAST, e.agent_nom, e.agent_prenom

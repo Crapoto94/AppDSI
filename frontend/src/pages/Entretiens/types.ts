@@ -216,3 +216,16 @@ export function initiales(nom: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+/** Étape du compte rendu (CREP) d'un entretien, avec l'état de signature du parapheur le cas échéant. */
+export function crepMeta(e: { statut?: string; crep_statut?: string | null; crep_parapheur_status?: string | null }): StatutMeta | null {
+  const st = e.crep_statut || 'non_envoye';
+  if (st === 'en_signature') {
+    if (e.crep_parapheur_status === 'termine') return { label: 'Signé', color: '#16a34a', bg: '#dcfce7' };
+    if (e.crep_parapheur_status === 'refuse') return { label: 'Signature refusée', color: '#b91c1c', bg: '#fee2e2' };
+    if (e.crep_parapheur_status === 'annule') return { label: 'Parapheur annulé', color: '#64748b', bg: '#f1f5f9' };
+    return { label: 'En signature', color: '#2563eb', bg: '#dbeafe' };
+  }
+  if (st === 'envoye_agent') return { label: 'Envoyé à l’agent', color: '#b45309', bg: '#fef3c7' };
+  return e.statut === 'realise' ? { label: 'À envoyer', color: '#64748b', bg: '#f1f5f9' } : null;
+}

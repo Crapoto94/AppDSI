@@ -146,7 +146,7 @@ export default function MonEntretien({ data, onChanged }: { data: MeData; onChan
             <FileSignature size={17} color={COLORS.primary} /> Compte rendu de mon entretien professionnel
           </div>
           <CrepForm mode="agent" entretien={entretien} canEdit={false}
-            onSaved={(updated) => { setEntretien(prev => (prev ? { ...prev, ...updated, access: prev.access } : updated)); onChanged(); }} />
+            onSaved={(updated) => { setEntretien(prev => (prev ? { ...prev, ...updated, access: (updated as any).access || prev.access } : updated)); onChanged(); }} />
         </div>
       )}
 
