@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle, Files, Users, Send } from 'lucide-react';
-import ServiceFaitModal from './ServiceFaitModal';
+import ServiceFaitModal, { extractInvoice } from './ServiceFaitModal';
+import ServiceFaitBatchModal from './ServiceFaitBatchModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
 import MandatementModal from './MandatementModal';
@@ -92,6 +93,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [childVisibleCols, setChildVisibleCols] = useState<string[]>([]);
   const [pendingFilter, setPendingFilter] = useState(false);
   const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
+  // Service fait par lot : factures cochées (clé = n° interne SEDIT) d'un même fournisseur
+  const [sfBatchSel, setSfBatchSel] = useState<Set<string>>(new Set());
+  const [sfBatchMode, setSfBatchMode] = useState<'circuit' | 'self' | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
   const [commandeStatuses, setCommandeStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
@@ -835,6 +839,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   (sinon la pastille SF compacte suffit, plus de texte « Déjà fait »). */}
                               {canModifySF && !sfInfo && !st?.sedit_service_fait && (
                                 <>
+                                  <input type="checkbox" title="Sélectionner pour un service fait par lot (même fournisseur)" checked={sfBatchSel.has(factureRef || '')}
+                                    onChange={() => setSfBatchSel(prev => { const n = new Set(prev); const k = factureRef || ''; if (n.has(k)) n.delete(k); else n.add(k); return n; })} />
                                   <button title="Lancer la validation du service fait (avec un vérificateur)"
                                     onClick={() => setSfModalRow({ row, mode: 'circuit' })}
                                     style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -1204,6 +1210,32 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
       {contactsTier && (
         <TiersContactsModal tierCode={contactsTier.code} tierName={contactsTier.name} onClose={() => { const code = contactsTier.code; setContactsTier(null); loadContactCounts([code]); }} />
+      )}
+
+      {rubriqueName === 'Factures' && sfBatchSel.size > 0 && (() => {
+        const sel = rows.filter(r => sfBatchSel.has(extractInvoice(r, columns).invoice_ref)).map(r => extractInvoice(r, columns));
+        const sameSupplier = new Set(sel.map(i => i.invoice_supplier.toUpperCase())).size <= 1;
+        return (
+          <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 900, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, padding: '10px 16px', display: 'flex', gap: 12, alignItems: 'center', boxShadow: '0 10px 30px rgba(0,0,0,.35)', flexWrap: 'wrap' }}>
+            <strong>{sel.length} facture{sel.length > 1 ? 's' : ''} sélectionnée{sel.length > 1 ? 's' : ''}</strong>
+            {sel.length < 2 ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Sélectionnez au moins deux factures du même fournisseur.</span>
+              : !sameSupplier ? <span style={{ fontSize: 12, color: '#fcd34d' }}>Un lot ne peut contenir que des factures d'un même fournisseur.</span>
+              : <>
+                <button onClick={() => setSfBatchMode('circuit')} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Lancer par lot</button>
+                <button onClick={() => setSfBatchMode('self')} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Faire par lot</button>
+              </>}
+            <button onClick={() => setSfBatchSel(new Set())} style={{ background: 'transparent', color: '#cbd5e1', border: '1px solid #475569', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>Désélectionner</button>
+          </div>
+        );
+      })()}
+
+      {sfBatchMode && (
+        <ServiceFaitBatchModal
+          invoices={rows.filter(r => sfBatchSel.has(extractInvoice(r, columns).invoice_ref)).map(r => extractInvoice(r, columns))}
+          mode={sfBatchMode}
+          onClose={() => setSfBatchMode(null)}
+          onDone={() => { setSfBatchSel(new Set()); fetchData(searchTerm, currentPage * effectivePageSize); }}
+        />
       )}
 
       {sfModalRow && rubriqueName === 'Factures' && (

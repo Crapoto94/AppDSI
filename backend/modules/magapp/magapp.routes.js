@@ -80,6 +80,36 @@ magappBaseRouter.get('/mes-factures/dgp-weekly', authenticateJWT, async (req, re
 magappBaseRouter.get('/mes-factures/verifiers', authenticateJWT, async (req, res) => {
     try { res.json(await mesFactures.searchVerifiers(req.user, req.query.q)); } catch (e) { mfFail(res, e, 'Erreur de recherche'); }
 });
+magappBaseRouter.get('/mes-factures/director', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.getMyDirector(req.user)); } catch (e) { mfFail(res, e, 'Erreur de lecture du directeur'); }
+});
+// Service fait PAR LOT : plusieurs factures d'un même fournisseur, même vérificateur / même déclaration
+magappBaseRouter.post('/mes-factures/service-fait/batch', authenticateJWT, uploadMemory.array('files', 10), async (req, res) => {
+    try {
+        const b = req.body || {};
+        const mode = b.mode === 'self' ? 'self' : 'circuit';
+        let nums = b.nums;
+        if (typeof nums === 'string') { try { nums = JSON.parse(nums); } catch { nums = []; } }
+        const items = await mesFactures.prepareBatch(req.user, nums);
+        const common = { service_fait_date: mode === 'self' ? String(b.service_fait_date || '') : '', comment: String(b.comment || ''), demande_pj_ids: '[]' };
+        if (mode === 'self') {
+            if (!common.comment.trim() && !(req.files && req.files.length)) return res.status(400).json({ message: 'Un commentaire ou une pièce justificative est requis' });
+        } else {
+            const email = String(b.verifier_email || '').trim().toLowerCase();
+            if (!b.verifier_username || !/^[^@\s]+@ivry94\.fr$/.test(email)) return res.status(400).json({ message: 'Choisissez un vérificateur' });
+            await mesFactures.assertVerifierInDirection(req.user, email);
+            req.magappVerifier = { email, name: String(b.verifier_name || '').slice(0, 120) };
+            common.verifier_username = String(b.verifier_username);
+            common.director_mode = null;
+            if (['informe', 'visa'].includes(b.director_mode)) {
+                const d = await mesFactures.getMyDirector(req.user);
+                if (!d) return res.status(400).json({ message: 'Directeur de votre direction introuvable' });
+                common.director_mode = b.director_mode; common.entity_code = d.direction_code;
+            }
+        }
+        res.json({ results: await sfController.runBatch(req, items, mode, common) });
+    } catch (e) { mfFail(res, e, 'Erreur service fait par lot'); }
+});
 magappBaseRouter.get('/mes-factures/:num/mandatement', authenticateJWT, async (req, res) => {
     try { res.json(await mesFactures.getMandatement(req.user, req.params.num)); } catch (e) { mfFail(res, e, 'Erreur lecture mandatement'); }
 });
@@ -97,7 +127,14 @@ magappBaseRouter.post('/mes-factures/:num/service-fait', authenticateJWT, async 
         const email = String(b.verifier_email || '').trim().toLowerCase();
         if (!b.verifier_username || !/^[^@\s]+@ivry94\.fr$/.test(email)) return res.status(400).json({ message: 'Choisissez un vérificateur (agent de la Ville avec une adresse @ivry94.fr)' });
         await mesFactures.assertVerifierInDirection(req.user, email);
-        await sfBody(req, res, { verifier_username: String(b.verifier_username), director_mode: null });
+        // Directeur de MA direction : « informé » (mail de l'issue) ou « avec visa » (doit viser après le vérificateur)
+        let dirExtra = { director_mode: null };
+        if (['informe', 'visa'].includes(b.director_mode)) {
+            const d = await mesFactures.getMyDirector(req.user);
+            if (!d) return res.status(400).json({ message: 'Directeur de votre direction introuvable (administration Ville › encadrants)' });
+            dirExtra = { director_mode: b.director_mode, entity_code: d.direction_code };
+        }
+        await sfBody(req, res, { verifier_username: String(b.verifier_username), ...dirExtra });
         req.magappVerifier = { email, name: String(b.verifier_name || '').slice(0, 120) };
         return sfController.createWorkflow(req, res);
     } catch (e) { mfFail(res, e, 'Erreur service fait'); }

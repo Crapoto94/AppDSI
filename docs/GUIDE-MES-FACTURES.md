@@ -20,6 +20,12 @@
 | **En cours de paiement** | Factures pas encore payées (DGP provisoire), dont celles déjà au-delà de 30 jours |
 | **Service fait à traiter** | Factures non rejetées dont le service fait n'est pas encore validé |
 
+**Filtres rapides** : cliquez sur un indicateur ou sur une pastille sous la barre de recherche pour filtrer la liste : **À traiter (SF)** (service fait non validé), **Hors délai > 30 j** (DGP déjà au-delà de 30 jours, payées ou non), **En circuit** (service fait en cours de validation). Recliquez pour retirer le filtre. Un clic sur l'indicateur **DGP moyen** ouvre la courbe d'évolution hebdomadaire de votre périmètre.
+
+**Comparaison avec la collectivité** : sous le DGP moyen, la ligne « Collectivité : X j » donne le DGP moyen de toute la Ville sur l'exercice et votre écart (vert = vous payez plus vite). Seul cet agrégat est affiché ; aucune facture d'un autre périmètre n'est visible. Il est recalculé chaque nuit.
+
+**Alerte DGP** : si le DGP n'a pas pu être calculé pour tout votre périmètre, un bandeau orange l'indique au lieu d'un simple « — ».
+
 **Le tableau** : n° SEDIT, n° fournisseur, libellé, date de réception, tiers, montant TTC, service, DGP, service fait, actions. Recherchez par numéro, fournisseur, libellé ou tiers ; filtrez par exercice, par état du service fait et, si vous avez plusieurs accès, par périmètre.
 
 **Le DGP d'une facture**
@@ -64,6 +70,23 @@ Pendant ce temps, la facture porte l'icône **⏳ « En circuit »** avec le nom
 1. Cliquez sur l'icône **Faire SF** (✔), indiquez la **date de service fait**.
 2. Ajoutez un **commentaire** ou **joignez une pièce justificative** (l'un des deux suffit).
 3. Validez : le service fait est enregistré dans SEDIT immédiatement, avec un procès-verbal scellé contenant votre déclaration et vos pièces.
+
+### Traiter plusieurs factures d'un coup (lot)
+
+Cochez les cases des factures d'un **même fournisseur** (un lot ne peut pas mélanger plusieurs fournisseurs), puis utilisez la barre en bas de l'écran : **Lancer SF** ou **Faire SF**. Les mêmes paramètres (vérificateur ou commentaire / pièces, date) s'appliquent à chaque facture, **une par une** : un échec n'arrête pas le lot, et un récapitulatif liste les factures traitées et celles refusées. En circuit, le vérificateur reçoit un lien par facture.
+
+### Directeur : informé ou avec visa
+
+Quand le directeur de votre direction est connu, le lancement d'un circuit propose :
+
+- **Aucun** (par défaut) ;
+- **Informé** : le directeur reçoit un e-mail avec l'issue de la validation ;
+- **Avec visa** : après la validation du vérificateur, le directeur doit lui aussi viser (lien par e-mail) ; le service fait n'est alors enregistré dans SEDIT qu'après son visa et le procès-verbal porte les deux signatures.
+
+### Rappels et notifications
+
+- Le **demandeur est prévenu par mail** de chaque décision du vérificateur (validé, réserves, refus, retour, pause), avec un lien vers MagApp.
+- Un vérificateur qui n'a pas répondu reçoit un **rappel automatique** (jours ouvrés, 9 h) après 3 jours sans réponse, puis tous les 3 jours, **3 rappels au maximum**. Annuler le circuit arrête les rappels.
 
 ### Annuler un circuit
 

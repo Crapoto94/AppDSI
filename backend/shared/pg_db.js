@@ -3745,6 +3745,8 @@ async function setupPgDb() {
     await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS in_scope BOOLEAN NOT NULL DEFAULT TRUE;`);
     // Origine du workflow de service fait ('magapp' : liens de validation sous le domaine MagApp)
     await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ;`).catch(() => {});
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS reminder_count INTEGER NOT NULL DEFAULT 0;`).catch(() => {});
 
     // ── Service Fait validation workflow ──
     await client.query(`

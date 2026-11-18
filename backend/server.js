@@ -3364,6 +3364,13 @@ setupDb().then(async database => {
         console.error('[PARAPHEUR CRON] échec démarrage:', e.message);
     }
 
+    // Rappels aux vérificateurs de service fait dont le circuit traîne
+    try {
+        require('./modules/finance/service-fait/service-fait-reminders').start();
+    } catch (e) {
+        console.error('[SF RAPPELS] échec démarrage:', e.message);
+    }
+
     // Notification des demandeurs de virement de crédits (signée / refusée / annulée)
     try {
         require('./modules/finance/virement-credits-notify').start();
@@ -6489,6 +6496,8 @@ cron.schedule('0 5 * * *', async () => {
         const r = await require('./modules/finance/dgp.service').refreshFacturesDgpCache();
         console.log(`[CRON dgp] ${r.count} facture(s) (exercices ${r.years.join(', ')}).`);
         logMouchard(`Cache DGP factures recalculé : ${r.count} facture(s) (${r.years.join(', ')})`);
+        // Agrégat de toute la collectivité (comparaison dans MagApp « Mes factures ») — plusieurs minutes, en arrière-plan
+        require('./modules/finance/dgp.service').refreshCollectiviteStats().catch(e => console.warn('[CRON dgp] stats collectivité:', e.message));
     } catch (e) {
         console.error('[CRON dgp]', e.message);
         logMouchard(`Recalcul cache DGP échoué: ${e.message}`);
@@ -6500,6 +6509,7 @@ cron.schedule('0 5 * * *', async () => {
 setTimeout(() => {
     require('./modules/finance/dgp.service').refreshFacturesDgpCache()
         .then(r => console.log(`[DGP] Cache initial recalculé : ${r.count} facture(s).`))
+        .then(() => require('./modules/finance/dgp.service').getCollectiviteStats(new Date().getFullYear()).then(c => { if (!c) require('./modules/finance/dgp.service').refreshCollectiviteStats().catch(() => {}); }))
         .catch(e => console.warn('[DGP] Cache initial non recalculé:', e.message));
 }, 45000);
 

@@ -125,7 +125,7 @@ async function listFactures(user, q = {}) {
     const year = Number(q.year) || new Date().getFullYear();
     const limit = Math.max(1, Math.min(parseInt(q.limit, 10) || 50, 200));
     const offset = Math.max(0, parseInt(q.offset, 10) || 0);
-    const empty = { rows: [], total: 0, stats: null, a_traiter: 0, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
+    const empty = { dgp_alert: null, collectivite: null, rows: [], total: 0, stats: null, a_traiter: 0, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
     if (!pairs.size) return empty;
 
     const binds = { y0: `${year}-01-01`, y1: `${year + 1}-01-01` };
@@ -160,6 +160,35 @@ async function listFactures(user, q = {}) {
     const opts = { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 50000 };
     const pick = (b, keys) => Object.fromEntries(keys.filter(k => k in b).map(k => [k, b[k]]));
 
+    // 1) ROO de tout le périmètre de l'exercice (hors filtres de recherche) : sert au résumé, au DGP et aux filtres rapides
+    const baseBinds = pick(binds, Object.keys(binds).filter(k => k !== 'search'));
+    const roos = await financeShare.withFinanceOracle(async (conn) =>
+        ((await conn.execute(`SELECT TRIM(f.ROO_IMA_REF) AS ROO ${FROM} WHERE ${baseWhere.join(' AND ')}`, baseBinds, opts)).rows || []).map(r => r.ROO));
+
+    // 2) DGP calculé À LA DEMANDE pour les factures du périmètre absentes du cache (ou de plus de 6 h) : pas de recalcul de toute la collectivité
+    let dgpError = null;
+    await dgp.ensureDgpForRoos(roos).catch(e => { dgpError = e.message; console.warn('[MesFactures] DGP à la demande:', e.message); });
+
+    // 3) Filtres rapides des KPI : « à traiter » (SF non validé), « hors délai » (DGP > 30 j), « en circuit » (service fait en cours)
+    const inList = (expr, values, prefix) => {
+        if (!values.length) return '1=0';
+        const parts = [];
+        for (let i = 0; i < values.length; i += 500) {
+            const marks = values.slice(i, i + 500).map((v, k) => { const name = `${prefix}${i + k}`; binds[name] = v; return `:${name}`; });
+            parts.push(`${expr} IN (${marks.join(',')})`);
+        }
+        return `(${parts.join(' OR ')})`;
+    };
+    const kpi = clean(q.kpi);
+    if (kpi === 'todo') where.push(todoCond);
+    else if (kpi === 'late') {
+        const late = (await pool.query('SELECT facture_roo FROM finance.facture_dgp WHERE facture_roo = ANY($1) AND dgp > 30 AND NOT refused', [roos])).rows.map(r => r.facture_roo);
+        where.push(inList('TRIM(f.ROO_IMA_REF)', late, 'kl'));
+    } else if (kpi === 'circuit') {
+        const nums = (await pool.query(`SELECT DISTINCT invoice_ref FROM finance.service_fait_workflows WHERE status IN ('en_attente','en_cours','transfere','en_pause','en_attente_visa')`)).rows.map(r => r.invoice_ref);
+        where.push(inList('TRIM(f.FACTURE)', nums, 'kc'));
+    }
+
     const data = await financeShare.withFinanceOracle(async (conn) => {
         const bindsRows = { ...binds };
         const total = Number((await conn.execute(`SELECT COUNT(*) AS N ${FROM} WHERE ${where.join(' AND ')}`, bindsRows, opts)).rows[0].N) || 0;
@@ -171,15 +200,9 @@ async function listFactures(user, q = {}) {
                     TO_CHAR(f.DATE_REJET, 'YYYY-MM-DD') AS DATE_REJET
              ${FROM} WHERE ${where.join(' AND ')}
              ORDER BY f.DATENTREE DESC, f.FACTURE DESC OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`, bindsRows, opts)).rows || [];
-        // Résumé : tout le périmètre de l'exercice (sans les filtres de recherche / service fait)
-        const baseBinds = pick(binds, Object.keys(binds).filter(k => k !== 'search'));
-        const roos = ((await conn.execute(`SELECT TRIM(f.ROO_IMA_REF) AS ROO ${FROM} WHERE ${baseWhere.join(' AND ')}`, baseBinds, opts)).rows || []).map(r => r.ROO);
         const aTraiter = Number((await conn.execute(`SELECT COUNT(*) AS N ${FROM} WHERE ${baseWhere.join(' AND ')} AND ${todoCond}`, baseBinds, opts)).rows[0].N) || 0;
         return { total, rows, roos, aTraiter };
     });
-
-    // DGP calcule A LA DEMANDE pour les factures du perimetre qui manquent au cache (ou plus de 6 h) : pas de recalcul de toute la collectivite
-    await dgp.ensureDgpForRoos(data.roos).catch(e => console.warn('[MesFactures] DGP a la demande:', e.message));
 
     // Enrichissements : circuit SEDIT (rapprochement / service fait / rejet / mandat), workflow AppDSI, DGP
     const nums = data.rows.map(r => r.NUM);
@@ -262,7 +285,15 @@ async function listFactures(user, q = {}) {
     });
     let seditUrl = 'https://seditgfprod.ivry.local/SeditGfSMProd';
     try { const db = require('../../shared/database').getSqlite(); const r = db && await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'url_sedit_fi'"); if (r && r.setting_value) seditUrl = String(r.setting_value).replace(/\/+$/, ''); } catch { /* défaut */ }
-    return { sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
+    // Alerte : le cache DGP ne couvre pas tout le périmètre (calcul en échec ou factures encore absentes)
+    let dgpAlert = null;
+    try {
+        const found = (await pool.query('SELECT COUNT(*)::int AS n FROM finance.facture_dgp WHERE facture_roo = ANY($1)', [data.roos])).rows[0].n;
+        const missing = Math.max(0, data.roos.length - found);
+        if (dgpError || missing > 0) dgpAlert = { error: dgpError, missing, total: data.roos.length };
+    } catch (e) { dgpAlert = { error: e.message, missing: data.roos.length, total: data.roos.length }; }
+    const collectivite = await dgp.getCollectiviteStats(year);
+    return { dgp_alert: dgpAlert, collectivite, sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
 }
 
 // Mandatement d'une facture (infobulle), uniquement si la facture est dans le périmètre de l'agent
@@ -445,4 +476,24 @@ async function streamDocument(user, numero, docId, res) {
     return financeShare.streamFactureDocumentFile(num, String(docId || '').trim(), res);
 }
 
-module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser, listDocuments, streamDocument };
+// Directeur de ma direction (circuit « informé » / « avec visa »)
+async function getMyDirector(user) {
+    const { getSignataires } = require('./virement-credits-signataires.service');
+    const r = await getSignataires(user, []);
+    const d = r.defaults.directeur;
+    return d ? { name: `${d.prenom || ''} ${d.nom || ''}`.trim(), email: d.email, direction_code: d.direction_code, direction_label: d.direction_label } : null;
+}
+
+// Lot : factures du MÊME fournisseur, toutes dans le périmètre de modification de l'agent (données relues dans SEDIT)
+async function prepareBatch(user, nums) {
+    const list = [...new Set((Array.isArray(nums) ? nums : []).map(clean).filter(Boolean))];
+    if (list.length < 2) { const e = new Error('Sélectionnez au moins deux factures'); e.status = 400; throw e; }
+    if (list.length > 50) { const e = new Error('50 factures maximum par lot'); e.status = 400; throw e; }
+    const items = [];
+    for (const n of list) items.push(await getInvoiceForAction(user, n));
+    const suppliers = new Set(items.map(i => i.invoice_supplier.toUpperCase()));
+    if (suppliers.size > 1) { const e = new Error('Un lot ne peut contenir que des factures d’un même fournisseur'); e.status = 400; throw e; }
+    return items;
+}
+
+module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser, listDocuments, streamDocument, getMyDirector, prepareBatch };

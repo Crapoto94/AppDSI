@@ -145,7 +145,7 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
 const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 let sendMailFn = null;
-const setSendMail = (fn) => { sendMailFn = fn; };
+const setSendMail = (fn) => { sendMailFn = fn; try { require('./service-fait-reminders').setSendMail(fn); } catch { /* rappels optionnels */ } };
 
 function makeToken(workflowId, verifierEmail) {
     const ts = Date.now();
@@ -1002,6 +1002,7 @@ const controller = {
                         <p style="font-size:16px;font-weight:600;margin:12px 0">${statusLabels[decision] || decision}</p>
                         ${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}
                         <p style="font-size:12px;color:#94a3b8">Répondu par ${wf.verifier_name}</p>
+                        ${wf.origin === 'magapp' ? `<p><a href="${await getMagappBaseUrl()}/">Ouvrir MagApp › Mes factures</a></p>` : ''}
                     `;
                     try {
                         await sendMailFn(requesterEmail, subjectMap[decision], html);
@@ -1268,5 +1269,26 @@ const controller = {
 // Exposé pour permettre le rattrapage manuel d'une synchro Sedit (ex. décision déjà
 // enregistrée mais écriture Sedit échouée) — cf. scripts/sedit_sf_apply.js.
 controller.syncServiceFaitToSedit = syncServiceFaitToSedit;
+
+/**
+ * Traitement PAR LOT : applique createWorkflow (circuit) ou createSelfWorkflow (déclaration directe) à chaque facture, une par une, avec
+ * les mêmes paramètres communs (vérificateur / directeur, commentaire, pièces, date). Un échec n'arrête pas le lot : le résultat liste
+ * chaque facture. `items` = [{ invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section }].
+ */
+controller.runBatch = async function runBatch(req, items, mode, common = {}) {
+    const results = [];
+    for (const it of items) {
+        const fakeReq = Object.create(req);
+        fakeReq.body = { ...common, ...it };
+        let status = 200, body = null;
+        const fakeRes = { status(c) { status = c; return this; }, json(d) { body = d; return this; } };
+        try {
+            if (mode === 'self') await controller.createSelfWorkflow(fakeReq, fakeRes);
+            else await controller.createWorkflow(fakeReq, fakeRes);
+        } catch (e) { status = 500; body = { message: e.message }; }
+        results.push({ invoice_ref: it.invoice_ref, ok: status < 300, message: status < 300 ? '' : ((body && body.message) || 'Erreur') });
+    }
+    return results;
+};
 
 module.exports = controller;

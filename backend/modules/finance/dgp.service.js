@@ -366,4 +366,66 @@ async function getMandateInfoByRoos(roos) {
     return out;
 }
 
-module.exports = { ensureDgpForRoos, getDgpStats, getDgpWeekly, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };
+/**
+ * Statistiques DGP de TOUTE la collectivité (agrégat seul, aucune facture individuelle exposée) : sert de repère de comparaison dans
+ * MagApp « Mes factures ». Une passe Oracle sur toutes les factures des exercices (même requête que le cache, sans filtre de périmètre),
+ * agrégée en JS puis stockée dans finance.dgp_collectivite — appelée par le cron nocturne (plusieurs minutes : ne pas l'appeler à la demande).
+ */
+async function refreshCollectiviteStats(opts = {}) {
+    const year = Number(opts.year) || new Date().getFullYear();
+    const years = Array.isArray(opts.years) && opts.years.length ? opts.years.map(Number) : [year, year - 1];
+    const yearBinds = {};
+    const marks = years.map((y, i) => { yearBinds['y' + i] = y; return ':y' + i; });
+    const rows = await financeShare.withFinanceOracle(async (conn) => (await conn.execute(
+        `SELECT TRIM(f.ROO_IMA_REF) AS FROO, TRIM(f.FACTURE) AS NUM, f.DATENTREE AS DT, f.DATE_REJET AS DREJ,
+                EXTRACT(YEAR FROM f.DATENTREE) AS FY, 0 AS IN_SCOPE, p.NB AS NB, p.DP AS DP, p.DMAND AS DMAND
+           FROM FI.FACTURE f
+           LEFT JOIN (
+               SELECT TRIM(fa.FACTURE_ID_CS) AS FROO, COUNT(fa.MANDAT_ID_CS) AS NB, MAX(mm.DATE_PAIEMENT) AS DP, MAX(mm.DATMANDAT) AS DMAND
+                 FROM FI.FAIT fa LEFT JOIN FI.MANDAT mm ON TRIM(mm.ROO_IMA_REF) = TRIM(fa.MANDAT_ID_CS)
+                GROUP BY TRIM(fa.FACTURE_ID_CS)
+           ) p ON p.FROO = TRIM(f.ROO_IMA_REF)
+          WHERE EXTRACT(YEAR FROM f.DATENTREE) IN (${marks.join(',')})`, yearBinds)).rows);
+    await pool.query(`CREATE TABLE IF NOT EXISTS finance.dgp_collectivite (
+        fiscal_year INTEGER PRIMARY KEY, nb_factures INTEGER, nb_payees INTEGER, dgp_moyen NUMERIC(6,1),
+        nb_hors_delai INTEGER, taux_dans_delai NUMERIC(5,1), dgp_recent NUMERIC(6,1), updated_at TIMESTAMPTZ DEFAULT NOW())`);
+    const cutoff = Date.now() - 30 * 86400000;
+    const byYear = new Map();
+    for (const row of rows) {
+        const rec = rowToRecord(row);
+        if (!rec || !rec.fy) continue;
+        const a = byYear.get(rec.fy) || { nb: 0, paid: 0, sum: 0, hors: 0, rN: 0, rS: 0 };
+        a.nb++;
+        if (rec.definitive && !rec.refused && rec.dgp != null) {
+            a.paid++; a.sum += rec.dgp; if (rec.dgp > 30) a.hors++;
+            if (rec.paiement && new Date(rec.paiement).getTime() >= cutoff) { a.rN++; a.rS += rec.dgp; }
+        }
+        byYear.set(rec.fy, a);
+    }
+    for (const [fy, a] of byYear) {
+        await pool.query(
+            `INSERT INTO finance.dgp_collectivite (fiscal_year, nb_factures, nb_payees, dgp_moyen, nb_hors_delai, taux_dans_delai, dgp_recent, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+             ON CONFLICT (fiscal_year) DO UPDATE SET nb_factures = EXCLUDED.nb_factures, nb_payees = EXCLUDED.nb_payees, dgp_moyen = EXCLUDED.dgp_moyen,
+               nb_hors_delai = EXCLUDED.nb_hors_delai, taux_dans_delai = EXCLUDED.taux_dans_delai, dgp_recent = EXCLUDED.dgp_recent, updated_at = NOW()`,
+            [fy, a.nb, a.paid, a.paid ? Math.round((a.sum / a.paid) * 10) / 10 : null, a.hors,
+                a.paid ? Math.round(((a.paid - a.hors) / a.paid) * 1000) / 10 : null, a.rN ? Math.round((a.rS / a.rN) * 10) / 10 : null]);
+    }
+    console.log(`[DGP] Statistiques collectivité recalculées (exercices ${years.join(', ')}).`);
+    return { years };
+}
+
+async function getCollectiviteStats(year) {
+    try {
+        const { rows } = await pool.query('SELECT * FROM finance.dgp_collectivite WHERE fiscal_year = $1', [Number(year)]);
+        const r = rows[0];
+        if (!r) return null;
+        return {
+            nb_factures: r.nb_factures, nb_payees: r.nb_payees, dgp_moyen: r.dgp_moyen != null ? Number(r.dgp_moyen) : null,
+            taux_dans_delai: r.taux_dans_delai != null ? Number(r.taux_dans_delai) : null,
+            dgp_recent: r.dgp_recent != null ? Number(r.dgp_recent) : null, updated_at: r.updated_at,
+        };
+    } catch { return null; } // table pas encore créée (1er calcul nocturne pas passé)
+}
+
+module.exports = { refreshCollectiviteStats, getCollectiviteStats, ensureDgpForRoos, getDgpStats, getDgpWeekly, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };

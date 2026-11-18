@@ -17,7 +17,9 @@ interface Row {
 interface Mandat { type: string; objet: string; bord: number | string | null; piece: number | string | null; date_emission: string | null; date_transmission: string | null; date_paiement: string | null; montant: number | null; rejete: boolean }
 interface Tendance { recent: number | null; precedent: number | null; nb_recent: number; nb_precedent: number; delta: number | null; semaines: { semaine: string; moyenne: number; nb: number }[] }
 interface Stats { tendance?: Tendance; nb_factures: number; nb_payees: number; nb_non_payees: number; dgp_moyen: number | null; nb_hors_delai: number; nb_prov_hors_delai: number; taux_dans_delai: number | null }
-interface ListData { sedit_url?: string; rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
+interface Collectivite { dgp_moyen: number | null; taux_dans_delai: number | null; dgp_recent: number | null; nb_payees: number }
+interface DgpAlert { error: string | null; missing: number; total: number }
+interface ListData { dgp_alert?: DgpAlert | null; collectivite?: Collectivite | null; sedit_url?: string; rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
 interface Access { allowed: boolean; canShare: boolean; sources: { key: string; label: string; nb_services: number; inactive: boolean }[]; received: { key: string; name: string }[] }
 interface Shares { given: { id: number; shared_username: string; shared_name: string; shared_email: string; created_at: string }[]; received: { id: number; owner_username: string; owner_name: string }[] }
 interface AgentHit { username: string; displayName: string; email: string; service: string }
@@ -44,8 +46,8 @@ const s: Record<string, React.CSSProperties> = {
   td: { padding: '0.5rem', fontSize: '0.84rem', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
 };
 
-const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; color?: string; extra?: React.ReactNode; onClick?: () => void }> = ({ label, value, sub, color = '#0f172a', extra, onClick }) => (
-  <div onClick={onClick} role={onClick ? 'button' : undefined} style={{ ...s.card, flex: '1 1 150px', cursor: onClick ? 'pointer' : undefined, borderColor: onClick ? '#bfdbfe' : undefined }}>
+const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; color?: string; extra?: React.ReactNode; onClick?: () => void; active?: boolean }> = ({ label, value, sub, color = '#0f172a', extra, onClick, active }) => (
+  <div onClick={onClick} role={onClick ? 'button' : undefined} style={{ ...s.card, flex: '1 1 150px', cursor: onClick ? 'pointer' : undefined, borderColor: active ? '#2563eb' : onClick ? '#bfdbfe' : undefined, boxShadow: active ? '0 0 0 2px #bfdbfe' : undefined }}>
     <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>{label}</div>
     <div style={{ fontSize: '1.5rem', fontWeight: 800, color }}>{value}</div>
     {sub && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{sub}</div>}
@@ -53,6 +55,19 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; colo
   </div>
 );
 
+
+// Comparaison avec la collectivité (agrégat seul : aucune facture d'un autre agent n'est exposée)
+const CollectiviteCompare: React.FC<{ mine: number | null; c: Collectivite | null }> = ({ mine, c }) => {
+  if (!c || c.dgp_moyen == null) return null;
+  const diff = mine != null ? Math.round((mine - c.dgp_moyen) * 10) / 10 : null;
+  const color = diff == null || diff === 0 ? '#64748b' : diff < 0 ? '#16a34a' : '#dc2626';
+  return (
+    <div title={`DGP moyen de toute la collectivité sur l'exercice : ${c.dgp_moyen} j (${c.nb_payees} factures payées), ${c.taux_dans_delai ?? '—'} % payées dans les 30 j. Agrégat calculé chaque nuit.`} style={{ marginTop: 4, fontSize: '0.72rem', color: '#64748b', cursor: 'help' }}>
+      Collectivité : <strong>{String(c.dgp_moyen).replace('.', ',')} j</strong>
+      {diff != null && <span style={{ color, fontWeight: 700 }}> · {diff > 0 ? '+' : ''}{String(diff).replace('.', ',')} j pour moi</span>}
+    </div>
+  );
+};
 
 // Tendance du DGP moyen : flèche + écart (30 derniers jours vs 30 jours précédents) et mini-courbe hebdomadaire
 const DgpTrend: React.FC<{ t?: Tendance }> = ({ t }) => {
@@ -208,8 +223,17 @@ const ShareDialog: React.FC<{ canShare: boolean; onClose: () => void; onChanged:
 
 
 // ───────── Service fait : lancer une validation (vérificateur) ou le déclarer soi-même ─────────
-const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose: () => void; onDone: () => void }> = ({ row, mode, onClose, onDone }) => {
+const ServiceFaitDialog: React.FC<{ rows: Row[]; mode: 'circuit' | 'self'; onClose: () => void; onDone: () => void }> = ({ rows, mode, onClose, onDone }) => {
   const isSelf = mode === 'self';
+  const row = rows[0];
+  const multi = rows.length > 1;
+  const [directorMode, setDirectorMode] = useState<'none' | 'informe' | 'visa'>('none');
+  const [director, setDirector] = useState<{ name: string; email: string } | null>(null);
+  const [results, setResults] = useState<{ invoice_ref: string; ok: boolean; message: string }[] | null>(null);
+  useEffect(() => {
+    if (isSelf) return;
+    fetch(`${API}/director`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(d => setDirector(d && d.email ? d : null)).catch(() => {});
+  }, [isSelf]);
   const today = new Date();
   const [date, setDate] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   const [comment, setComment] = useState('');
@@ -244,6 +268,24 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
     setBusy(true);
     try {
       let r: Response;
+      const dm = !isSelf && directorMode !== 'none' ? directorMode : undefined;
+      if (multi) {
+        // Lot : mêmes paramètres pour chaque facture (même fournisseur), une par une côté serveur
+        const nums = rows.map(x => x.num);
+        if (isSelf) {
+          const fd = new FormData();
+          fd.append('mode', 'self'); fd.append('nums', JSON.stringify(nums)); fd.append('comment', comment); fd.append('service_fait_date', date);
+          files.forEach(f => fd.append('files', f));
+          r = await fetch(`${API}/service-fait/batch`, { method: 'POST', headers: authHeaders(), body: fd });
+        } else {
+          r = await fetch(`${API}/service-fait/batch`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ mode: 'circuit', nums, verifier_username: verifier!.username, verifier_email: verifier!.email, verifier_name: verifier!.displayName, director_mode: dm }) });
+        }
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message || 'Erreur');
+        setResults(d.results || []);
+        onDone();
+        return;
+      }
       if (isSelf) {
         const fd = new FormData();
         fd.append('comment', comment); fd.append('service_fait_date', date);
@@ -252,7 +294,7 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
       } else {
         r = await fetch(`${API}/${encodeURIComponent(row.num)}/service-fait`, {
           method: 'POST', headers: jsonHeaders(),
-          body: JSON.stringify({ verifier_username: verifier!.username, verifier_email: verifier!.email, verifier_name: verifier!.displayName }),
+          body: JSON.stringify({ verifier_username: verifier!.username, verifier_email: verifier!.email, verifier_name: verifier!.displayName, director_mode: dm }),
         });
       }
       const d = await r.json().catch(() => ({}));
@@ -267,15 +309,33 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540, maxHeight: '92vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, flex: 1, fontSize: 17, fontWeight: 700 }}>{isSelf ? 'Service fait — déclaration directe' : 'Validation du service fait'}</h2>
+          <h2 style={{ margin: 0, flex: 1, fontSize: 17, fontWeight: 700 }}>{isSelf ? 'Service fait — déclaration directe' : 'Validation du service fait'}{multi ? ` — ${rows.length} factures` : ''}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
         </div>
         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: 6 }}>Facture</div>
-          <div><strong>{row.num}</strong> · {row.tiers} · <strong>{fmtMoney(row.montant)}</strong></div>
-          <div style={{ color: '#475569', marginTop: 4 }}>{row.libelle}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: 6 }}>{multi ? `Lot de ${rows.length} factures — ${row.tiers}` : 'Facture'}</div>
+          {multi ? (
+            <>
+              <div style={{ maxHeight: 130, overflowY: 'auto' }}>
+                {rows.map(x => <div key={x.roo} style={{ display: 'flex', gap: 8 }}><strong>{x.num}</strong><span style={{ flex: 1, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.libelle}</span><span>{fmtMoney(x.montant)}</span></div>)}
+              </div>
+              <div style={{ marginTop: 6, fontWeight: 700, textAlign: 'right' }}>Total : {fmtMoney(rows.reduce((a, x) => a + x.montant, 0))}</div>
+            </>
+          ) : (
+            <>
+              <div><strong>{row.num}</strong> · {row.tiers} · <strong>{fmtMoney(row.montant)}</strong></div>
+              <div style={{ color: '#475569', marginTop: 4 }}>{row.libelle}</div>
+            </>
+          )}
         </div>
         {error && <div style={{ background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', color: '#b91c1c', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+        {results ? (
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>{results.filter(x => x.ok).length} facture(s) traitée(s) sur {results.length}</div>
+            {results.map(x => <div key={x.invoice_ref} style={{ fontSize: 13, color: x.ok ? '#166534' : '#b91c1c', padding: '3px 0' }}>{x.ok ? '✔' : '✖'} {x.invoice_ref}{x.ok ? '' : ` — ${x.message}`}</div>)}
+            <button onClick={onClose} style={{ ...s.btn, width: '100%', marginTop: 14, justifyContent: 'center' }}>Fermer</button>
+          </div>
+        ) : (
         <form onSubmit={submit}>
           {isSelf && <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px', color: '#1e40af', fontSize: 13, marginBottom: 14 }}>
             Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire ou joignez une pièce justificative (l'un des deux suffit).</div>}
@@ -317,6 +377,23 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
               {verifier && <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', background: '#eff6ff', padding: '8px 12px', borderRadius: 8 }}>Un e-mail sera envoyé à <strong>{verifier.email}</strong> avec un lien de validation ; les pièces jointes de la facture dans SEDIT lui seront mises à disposition.</div>}
             </div>
           )}
+          {!isSelf && director && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={lbl}>Directeur — {director.name}</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {([
+                  { v: 'none', l: 'Aucun', h: 'Le directeur n’est ni informé ni sollicité' },
+                  { v: 'informe', l: 'Informé', h: 'Reçoit un e-mail à la décision' },
+                  { v: 'visa', l: 'Avec visa', h: 'Doit viser après le vérificateur' },
+                ] as const).map(o => (
+                  <button type="button" key={o.v} onClick={() => setDirectorMode(o.v)} title={o.h}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13, fontWeight: 600, border: directorMode === o.v ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0', background: directorMode === o.v ? '#eef2ff' : '#fff', color: directorMode === o.v ? '#3730a3' : '#475569' }}>
+                    {o.l}<div style={{ fontWeight: 400, fontSize: 11, color: '#94a3b8' }}>{o.h}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {isSelf && (
             <>
               <div style={{ marginBottom: 14 }}>
@@ -337,6 +414,7 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
             {busy ? 'Enregistrement…' : isSelf ? <><CheckCircle2 size={16} /> Valider le service fait</> : <><Send size={16} /> Lancer la validation</>}
           </button>
         </form>
+        )}
       </div>
     </div>
   );
@@ -448,7 +526,9 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
   };
   const [showChart, setShowChart] = useState(false);
   const [piecesRow, setPiecesRow] = useState<Row | null>(null);
-  const [sfDialog, setSfDialog] = useState<{ row: Row; mode: 'circuit' | 'self' } | null>(null);
+  const [sfDialog, setSfDialog] = useState<{ rows: Row[]; mode: 'circuit' | 'self' } | null>(null);
+  const [kpi, setKpi] = useState<'' | 'todo' | 'late' | 'circuit'>('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const LIMIT = 50;
 
@@ -463,13 +543,14 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
     const qs = new URLSearchParams({ year: String(year), limit: String(LIMIT), offset: String(offset), scope });
     if (searchApplied) qs.set('search', searchApplied);
     if (sf) qs.set('sf', sf);
+    if (kpi) qs.set('kpi', kpi);
     fetch(`${API}?${qs}`, { headers: authHeaders() })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible'); return r.json(); })
       .then(d => { if (alive) setData(d); })
       .catch((e: Error) => { if (alive) { setData(null); setError(e.message); } })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [year, searchApplied, sf, scope, offset, reloadKey]);
+  }, [year, searchApplied, sf, scope, offset, reloadKey, kpi]);
 
   const cancelCircuit = async (r: Row) => {
     const motif = window.prompt(`Annuler le circuit de service fait de la facture ${r.num} ?\nMotif (optionnel) :`, '');
@@ -480,6 +561,8 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
   };
 
   const total = data?.total || 0;
+  const selectedRows = (data?.rows || []).filter(r => selected.has(r.num));
+  const sameSupplier = new Set(selectedRows.map(r => r.tiers.toUpperCase())).size <= 1;
   const st = data?.stats;
   const dgpColor = (r: Row) => (r.dgp == null ? '#94a3b8' : r.dgp > 30 ? '#dc2626' : r.dgp > 20 ? '#d97706' : '#16a34a');
   const multiSource = (access?.sources.length || 0) > 1;
@@ -502,11 +585,18 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           {/* Résumé DGP du périmètre */}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             <Stat label={`Factures ${year}`} value={st ? st.nb_factures : '—'} sub="dans mon périmètre" />
-            <Stat label="DGP moyen (payées) 📈" value={st && st.dgp_moyen != null ? `${st.dgp_moyen} j` : '—'} sub="réception → paiement" color={st && st.dgp_moyen != null && st.dgp_moyen > 30 ? '#dc2626' : '#16a34a'} extra={<DgpTrend t={st?.tendance} />} onClick={() => setShowChart(true)} />
-            <Stat label="Payées dans les 30 j" value={st && st.taux_dans_delai != null ? `${st.taux_dans_delai} %` : '—'} sub={st ? `${st.nb_hors_delai} hors délai sur ${st.nb_payees} payées` : ''} color={st && st.taux_dans_delai != null && st.taux_dans_delai < 90 ? '#d97706' : '#16a34a'} />
+            <Stat label="DGP moyen (payées) 📈" value={st && st.dgp_moyen != null ? `${st.dgp_moyen} j` : '—'} sub="réception → paiement" color={st && st.dgp_moyen != null && st.dgp_moyen > 30 ? '#dc2626' : '#16a34a'} extra={<><DgpTrend t={st?.tendance} /><CollectiviteCompare mine={st?.dgp_moyen ?? null} c={data?.collectivite || null} /></>} onClick={() => setShowChart(true)} />
+            <Stat onClick={() => { setKpi(kpi === 'late' ? '' : 'late'); setOffset(0); }} active={kpi === 'late'} label="Payées dans les 30 j" value={st && st.taux_dans_delai != null ? `${st.taux_dans_delai} %` : '—'} sub={st ? `${st.nb_hors_delai} hors délai sur ${st.nb_payees} payées` : ''} color={st && st.taux_dans_delai != null && st.taux_dans_delai < 90 ? '#d97706' : '#16a34a'} />
             <Stat label="En cours de paiement" value={st ? st.nb_non_payees : '—'} sub={st && st.nb_prov_hors_delai ? `dont ${st.nb_prov_hors_delai} déjà > 30 j` : 'DGP provisoire'} color={st && st.nb_prov_hors_delai ? '#d97706' : '#0f172a'} />
-            <Stat label="Service fait à traiter" value={data ? data.a_traiter : '—'} sub="non rejetées, SF non validé" color={data && data.a_traiter ? '#d97706' : '#16a34a'} />
+            <Stat onClick={() => { setKpi(kpi === 'todo' ? '' : 'todo'); setOffset(0); }} active={kpi === 'todo'} label="Service fait à traiter" value={data ? data.a_traiter : '—'} sub="non rejetées, SF non validé" color={data && data.a_traiter ? '#d97706' : '#16a34a'} />
           </div>
+
+          {data?.dgp_alert && (
+            <div style={{ ...s.card, background: '#fffbeb', borderColor: '#f59e0b', color: '#78350f', fontSize: '0.84rem' }}>
+              ⚠ Le DGP n'a pas pu être calculé pour {data.dgp_alert.missing > 0 ? `${data.dgp_alert.missing} facture(s) sur ${data.dgp_alert.total}` : 'certaines factures'}
+              {data.dgp_alert.error ? ` (${data.dgp_alert.error})` : ''} : les résumés et la colonne DGP sont incomplets. Réessayez dans quelques minutes ; si le message persiste, prévenez la DSI.
+            </div>
+          )}
 
           {/* Filtres */}
           <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -526,6 +616,10 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                 {access!.sources.map(src => <option key={src.key} value={src.key}>{src.label}</option>)}
               </select>
             )}
+            {([['todo', 'À traiter (SF)'], ['late', 'Hors délai > 30 j'], ['circuit', 'En circuit']] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => { setKpi(kpi === k ? '' : k); setOffset(0); }}
+                style={{ padding: '4px 11px', borderRadius: 16, fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', border: `1px solid ${kpi === k ? '#2563eb' : '#cbd5e1'}`, background: kpi === k ? '#2563eb' : '#fff', color: kpi === k ? '#fff' : '#475569' }}>{l}</button>
+            ))}
             <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{loading ? 'Chargement…' : `${total} résultat${total > 1 ? 's' : ''}`}</span>
           </div>
 
@@ -539,9 +633,9 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           {/* Tableau */}
           <div style={{ ...s.card, padding: 0, overflowX: 'auto' }}>
             {loading && !data ? <div style={{ padding: '1.5rem' }}>Chargement…</div> : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                 <thead><tr>
-                  <th style={s.th}>N° SEDIT</th><th style={s.th}>N° fournisseur</th><th style={s.th}>Libellé</th><th style={s.th}>Reçue le</th><th style={s.th}>Tiers</th>
+                  <th style={s.th}></th><th style={s.th}>N° SEDIT</th><th style={s.th}>N° fournisseur</th><th style={s.th}>Libellé</th><th style={s.th}>Reçue le</th><th style={s.th}>Tiers</th>
                   <th style={{ ...s.th, textAlign: 'right' }}>Montant TTC</th><th style={s.th}>Service</th><th style={s.th}>DGP</th><th style={s.th}>Service fait</th><th style={s.th}>Action</th>{multiSource && <th style={s.th}>Accès</th>}
                 </tr></thead>
                 <tbody>
@@ -549,6 +643,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                     const e = ETATS[r.etat];
                     return (
                       <tr key={r.roo} style={{ opacity: loading ? 0.5 : 1 }}>
+                        <td style={s.td}>{r.can_sf ? <input type="checkbox" checked={selected.has(r.num)} onChange={() => setSelected(prev => { const n = new Set(prev); if (n.has(r.num)) n.delete(r.num); else n.add(r.num); return n; })} title="Sélectionner pour un traitement par lot" /> : null}</td>
                         <td style={s.td}>{r.num}</td>
                         <td style={s.td}>{r.num_fournisseur}</td>
                         <td style={{ ...s.td, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }} title={r.libelle}>{r.libelle}</td>
@@ -583,8 +678,8 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                             <IconBtn title="Ouvrir la facture dans SEDIT" color="#2563eb" onClick={() => window.open(`${data?.sedit_url || 'https://seditgfprod.ivry.local/SeditGfSMProd'}/FicheFacture.html?factureId=${encodeURIComponent(r.roo)}`, '_blank')}><ExternalLink size={14} /></IconBtn>
                             <IconBtn title="Pièces jointes SEDIT (PDF / XML de la facture)" color="#7c3aed" onClick={() => setPiecesRow(r)}><Files size={14} /></IconBtn>
                             {(r.can_sf || (r.circuit && r.circuit.can_cancel)) && <span style={{ width: 1, height: 18, background: '#e2e8f0', margin: '0 2px' }} />}
-                            {r.can_sf && <IconBtn title="Lancer la validation du service fait (avec un vérificateur)" color="#4f46e5" onClick={() => setSfDialog({ row: r, mode: 'circuit' })}><Send size={14} /></IconBtn>}
-                            {r.can_sf && <IconBtn title="Déclarer moi-même le service fait (sans circuit de validation)" color="#16a34a" onClick={() => setSfDialog({ row: r, mode: 'self' })}><CheckCircle2 size={14} /></IconBtn>}
+                            {r.can_sf && <IconBtn title="Lancer la validation du service fait (avec un vérificateur)" color="#4f46e5" onClick={() => setSfDialog({ rows: [r], mode: 'circuit' })}><Send size={14} /></IconBtn>}
+                            {r.can_sf && <IconBtn title="Déclarer moi-même le service fait (sans circuit de validation)" color="#16a34a" onClick={() => setSfDialog({ rows: [r], mode: 'self' })}><CheckCircle2 size={14} /></IconBtn>}
                             {r.circuit && r.circuit.can_cancel && <IconBtn title="Annuler le circuit de service fait en cours" color="#dc2626" onClick={() => cancelCircuit(r)}><Ban size={14} /></IconBtn>}
                           </div>
                         </td>
@@ -593,13 +688,27 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                     );
                   })}
                   {data && data.rows.length === 0 && !loading && (
-                    <tr><td colSpan={multiSource ? 11 : 10} style={{ ...s.td, textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>Aucune facture.</td></tr>
+                    <tr><td colSpan={multiSource ? 12 : 11} style={{ ...s.td, textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>Aucune facture.</td></tr>
                   )}
                 </tbody>
               </table>
             )}
           </div>
           <div style={{ fontSize: '0.74rem', color: '#94a3b8' }}>* DGP provisoire : jours écoulés depuis la réception tant que la facture n'est pas payée. Définitif une fois payée (réception → paiement). ✕ = facture rejetée : DGP arrêté à la date de rejet.</div>
+
+          {selectedRows.length > 0 && (
+            <div style={{ position: 'sticky', bottom: 0, background: '#0f172a', color: '#e2e8f0', borderRadius: 12, padding: '10px 16px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <strong>{selectedRows.length} facture{selectedRows.length > 1 ? 's' : ''} sélectionnée{selectedRows.length > 1 ? 's' : ''}</strong>
+              {selectedRows.length < 2 ? <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Sélectionnez au moins deux factures du même fournisseur pour un traitement par lot.</span>
+                : !sameSupplier ? <span style={{ fontSize: '0.8rem', color: '#fcd34d' }}>Un lot ne peut contenir que des factures d'un même fournisseur.</span>
+                : <>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{selectedRows[0].tiers} · {fmtMoney(selectedRows.reduce((a, x) => a + x.montant, 0))}</span>
+                  <button style={{ ...s.btn, background: '#4f46e5' }} onClick={() => setSfDialog({ rows: selectedRows, mode: 'circuit' })}><Send size={14} /> Lancer SF</button>
+                  <button style={{ ...s.btn, background: '#16a34a' }} onClick={() => setSfDialog({ rows: selectedRows, mode: 'self' })}><CheckCircle2 size={14} /> Faire SF</button>
+                </>}
+              <button style={{ ...s.btn, background: 'transparent', border: '1px solid #475569', marginLeft: 'auto' }} onClick={() => setSelected(new Set())}>Tout désélectionner</button>
+            </div>
+          )}
 
           {total > LIMIT && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
@@ -610,7 +719,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           )}
         </div>
       </div>
-      {sfDialog && <ServiceFaitDialog row={sfDialog.row} mode={sfDialog.mode} onClose={() => setSfDialog(null)} onDone={() => setReloadKey(k => k + 1)} />}
+      {sfDialog && <ServiceFaitDialog rows={sfDialog.rows} mode={sfDialog.mode} onClose={() => setSfDialog(null)} onDone={() => { setReloadKey(k => k + 1); setSelected(new Set()); }} />}
       {piecesRow && <PiecesDialog row={piecesRow} onClose={() => setPiecesRow(null)} />}
       {showChart && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowChart(false)}>
