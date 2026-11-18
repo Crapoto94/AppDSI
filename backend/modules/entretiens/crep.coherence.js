@@ -35,6 +35,7 @@ function summarizeCrep(input, entretien) {
         }
     }
     if (grid.length) { out.push('Appréciation de la valeur professionnelle (grille) :'); out.push(...grid); }
+    if (grid.length) out.unshift(...gridSynthesis(c));
 
     if (has(c.appreciation_generale)) out.push(`Appréciation générale actuelle : ${c.appreciation_generale.trim().replace(/\n+/g, ' ')}`);
     const fut = c.objectifs_futurs.filter(o => has(o.descriptif));
@@ -51,8 +52,11 @@ function summarizeCrep(input, entretien) {
     return out.join('\n');
 }
 
-const POSITIF = /\b(excellent|excellente|remarquable|remarquables|très bon|très bonne|tres bon|exemplaire|brillant|brillante|parfaitement|pleinement satisfais)/i;
-const NEGATIF = /\b(insuffisant|insuffisante|insuffisants|décevant|décevante|ne répond pas|n['’]atteint pas|inadapté|inadaptée|lacunes importantes|manque de rigueur|défaillant)/i;
+// Détection de tonalité par radicaux (insensible aux accents de bord grâce à \p{L}).
+const stems = (list) => new RegExp(String.raw`(?<![\p{L}])(?:` + list.map(w => w.replace(/[’']/g, '.')).join('|') + String.raw`)\p{L}*`, 'iu');
+const POSITIF = stems(['excellen', 'remarquabl', 'très bon', 'tres bon', 'exemplaire', 'brillan', 'parfaitement', 'pleinement satisfais', 'irréprochable', 'exceptionnel']);
+const NEGATIF = stems(['pourri', 'nul', 'catastroph', 'désastr', 'calamit', 'médiocr', 'mauvais', 'très mauvais', 'inacceptable', 'incompéten', 'insuffisan', 'décevan', 'défaillan',
+    'aucune compétence', 'aucune qualité', 'n’a aucun', 'ne répond pas', 'n’atteint pas', 'inadapté', 'lacunes importantes', 'manque de rigueur']);
 
 /** Contrôles de cohérence fiables (sans IA). Renvoie une liste de constats lisibles. */
 function coherenceIssues(input) {
@@ -87,11 +91,11 @@ function coherenceIssues(input) {
     // Appréciation générale vs grille / objectifs
     if (has(c.appreciation_generale)) {
         const txt = c.appreciation_generale;
-        if (POSITIF.test(txt) && total >= 5 && nI >= 3) {
-            issues.push(`L’appréciation générale est très positive alors que ${nI} critères de la grille sont jugés « Insuffisants ».`);
+        if (NEGATIF.test(txt) && total >= 5 && nS / total >= 0.6) {
+            issues.push(`L’appréciation générale est négative alors que ${nS} critères sur ${total} de la grille sont jugés « Satisfaisants ».`);
         }
-        if (NEGATIF.test(txt) && total >= 5 && nI === 0 && nAS === 0) {
-            issues.push('L’appréciation générale évoque des insuffisances alors que tous les critères de la grille sont jugés « Satisfaisants ».');
+        if (POSITIF.test(txt) && total >= 5 && nI / total >= 0.4) {
+            issues.push(`L’appréciation générale est très positive alors que ${nI} critères sur ${total} de la grille sont jugés « Insuffisants ».`);
         }
         if (POSITIF.test(txt) && nNA >= 2) {
             issues.push(`L’appréciation générale est très positive alors que ${nNA} objectifs sont « Non atteints ».`);
@@ -103,4 +107,46 @@ function coherenceIssues(input) {
     return issues;
 }
 
-module.exports = { summarizeCrep, coherenceIssues };
+/** Synthèse explicite de la grille (niveaux, points forts, SEULS points faibles autorisés comme axes de progrès). */
+function gridSynthesis(c) {
+    const by = { S: [], AS: [], I: [] };
+    for (const g of CRITERIA_GROUPS) for (const it of g.items) { const v = c.valeur[it.key]; if (v) by[v].push(it.label); }
+    const total = by.S.length + by.AS.length + by.I.length;
+    const lines = [`SYNTHÈSE DE LA GRILLE (référence absolue) : ${total} critères évalués — ${by.S.length} « Satisfaisant », ${by.AS.length} « Assez satisfaisant », ${by.I.length} « Insuffisant ».`];
+    if (by.AS.length + by.I.length === 0) {
+        lines.push('Aucun point faible : tous les critères sont « Satisfaisant ». Le texte doit être entièrement positif et ne mentionner AUCUN axe de progrès ni point à améliorer.');
+    } else {
+        lines.push(`Seuls points faibles autorisés comme axes de progrès : ${[...by.I.map(l => `${l} (insuffisant)`), ...by.AS.map(l => `${l} (assez satisfaisant)`)].join(' ; ')}.`);
+    }
+    return lines;
+}
+
+const PROGRES = /(améliorer|amélioration|progress|axe de|axes de|effort|renforcer|lacune|insuffisan|à travailler (?:sur|davantage|encore)|travailler sur|lieu de travailler|à développer|marges? de|gagner en|à consolider|cependant|toutefois|néanmoins|requi[èe]r\p{L}* encore|développement pour atteindre)/iu;
+
+/**
+ * Contrôle d'un texte d'appréciation générale (proposé par l'IA ou saisi) face à la grille et aux objectifs.
+ * Renvoie la liste des écarts (vide si cohérent).
+ */
+function draftIssues(input, text) {
+    const c = normalizeCrep(input);
+    const issues = coherenceIssues({ ...c, appreciation_generale: text }).filter(i => /appréciation générale|axe de progrès/i.test(i));
+    const answered = Object.values(c.valeur);
+    const weak = answered.filter(v => v === 'AS' || v === 'I').length;
+    if (answered.length >= 5 && weak === 0 && PROGRES.test(text)) {
+        issues.push('Le texte évoque des axes de progrès alors que tous les critères de la grille sont « Satisfaisants ».');
+    }
+    if (answered.length >= 5 && weak > 0 && /(tous|toutes|l'ensemble des) (les )?crit[èe]res? (sont )?(satisfais|jug[ée]s satisfais)/i.test(text)) {
+        issues.push('Le texte affirme que tous les critères sont satisfaisants alors que certains ne le sont pas.');
+    }
+    if (/synth[èe]se de la grille|points? faibles? (?:identifi|list)|consignes?/i.test(text)) {
+        issues.push('Le texte reprend la formulation interne des consignes (« synthèse de la grille », « points faibles »…).');
+    }
+    return issues;
+}
+
+/** Écarts de TONALITÉ seulement (texte négatif face à une grille favorable, ou inversement) : sert à repérer des notes contradictoires. */
+function sentimentIssues(input, text) {
+    return coherenceIssues({ ...normalizeCrep(input), appreciation_generale: text }).filter(i => /négative|très positive/.test(i));
+}
+
+module.exports = { summarizeCrep, coherenceIssues, draftIssues, sentimentIssues };

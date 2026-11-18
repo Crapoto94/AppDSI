@@ -7,6 +7,7 @@
 const axios = require('axios');
 const { getSqlite } = require('../../shared/database');
 const svc = require('./entretiens.service');
+const { draftIssues, sentimentIssues } = require('./crep.coherence');
 
 const TIMEOUT_MS = 240000;
 const clip = (v, max) => String(v ?? '').replace(/\r/g, '').trim().slice(0, max);
@@ -106,6 +107,35 @@ function extractAnswer(out) {
     return t.split('»»')[0].trim().replace(/^["«»\s]+|["«»\s]+$/g, '').replace(/^\*\*|\*\*$/g, '').trim();
 }
 
+/** « Agent Marc Chevalier » → « Marc Chevalier » (le nom seul, sans le mot « Agent »). */
+function cleanName(text, agent) {
+    let t = String(text || '');
+    const name = String(agent || '').trim();
+    if (name) {
+        // On retire « Agent », « L'agent », « l’agente » juste devant le nom (recherche sans regex construite sur le nom).
+        const lower = t.toLowerCase();
+        const target = name.toLowerCase();
+        let out = '';
+        let i = 0;
+        while (i < t.length) {
+            const idx = lower.indexOf(target, i);
+            if (idx < 0) { out += t.slice(i); break; }
+            const head = t.slice(i, idx).replace(/(?:l[’']\s*)?agente?\s+$/i, '');
+            out += head + t.slice(idx, idx + name.length);
+            i = idx + name.length;
+        }
+        t = out;
+    }
+    return t.replace(/Agent Exemple/g, '').trim();
+}
+
+/** Retire les phrases qui reprennent le vocabulaire interne des consignes (« synthèse de la grille »…). */
+function stripLeaks(text) {
+    const parts = String(text || '').split(/(?<=[.!?])\s+/);
+    const kept = parts.filter(p => !/synth[èe]se de la grille|consignes?|aucun point faible n/i.test(p));
+    return (kept.length ? kept : parts).join(' ').trim();
+}
+
 // ─── Rédaction d'une rubrique ────────────────────────────────────────────────
 const SYSTEM = [
     'Tu es rédacteur RH pour une mairie. Tu rédiges le compte rendu officiel d’un entretien professionnel annuel à partir des quelques mots donnés par l’évaluateur (N+1).',
@@ -124,10 +154,10 @@ const userMessage = ({ rubrique, agent, contexte, existant, notes }) => [
 
 const EXAMPLE_IN = userMessage({
     rubrique: 'Appréciation générale sur l’exercice des missions',
-    agent: 'Agent Exemple',
+    agent: 'Camille Martin',
     notes: 'tres bon boulot, autonome, doit progresser sur suivi budget',
 });
-const EXAMPLE_OUT = '««Agent Exemple a accompli ses missions avec un très bon niveau de qualité et fait preuve d’une réelle autonomie dans l’organisation de son travail. Un effort reste à fournir sur le suivi budgétaire, axe de progression identifié pour l’année à venir.»»';
+const EXAMPLE_OUT = '««Camille Martin a accompli ses missions avec un très bon niveau de qualité et fait preuve d’une réelle autonomie dans l’organisation de son travail. Un effort reste à fournir sur le suivi budgétaire, axe de progression identifié pour l’année à venir.»»';
 
 /**
  * @param {Object} p
@@ -138,13 +168,35 @@ const EXAMPLE_OUT = '««Agent Exemple a accompli ses missions avec un très bon
  * @param {string} [p.agent]    nom de l'agent
  * @param {boolean} [p.coherent] impose la cohérence avec tous les éléments du contexte (appréciation générale)
  */
-async function draftComment({ rubrique, notes, contexte, existant, agent, coherent }) {
+async function draftComment({ rubrique, notes, contexte, existant, agent, coherent, crep }) {
     let question = userMessage({ rubrique, agent, contexte, existant, notes });
-    if (coherent) question += '\nExigence : le texte doit être parfaitement cohérent avec l’ensemble des éléments du contexte, en particulier avec les niveaux attribués aux critères de la grille d’appréciation et aux objectifs : ne les contredis pas, appuie-toi sur les points forts et signale les axes de progrès qu’ils révèlent.';
-    const { out, model } = await complete({ system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT, question });
-    const text = extractAnswer(out);
+    if (coherent) {
+        question += '\nExigences : (1) la tonalité du texte doit correspondre à la SYNTHÈSE DE LA GRILLE du contexte, qui fait référence ; (2) ne cite comme axes de progrès que les points faibles listés dans cette synthèse, et aucun s’il n’y en a pas ; (3) si les notes de l’évaluateur contredisent la grille ou les niveaux des objectifs, suis la grille et n’écris pas l’élément contradictoire ; (4) n’invente aucun fait ; (5) synthétise en 3 à 5 phrases, sans énumérer les critères un par un et sans citer la « synthèse » ni ces consignes.';
+    }
+    const warnings = [];
+    // Contradiction entre les notes de l'évaluateur et la grille : signalée à l'évaluateur (le texte suit la grille).
+    if (coherent && crep && sentimentIssues(crep, notes).length) {
+        warnings.push('Vos notes semblent contredire la grille d’appréciation que vous avez renseignée : le texte proposé suit la grille. Corrigez la grille ou vos notes si ce n’est pas ce que vous voulez dire.');
+    }
+    let { out, model } = await complete({ system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT, question });
+    let text = cleanName(coherent ? stripLeaks(extractAnswer(out)) : extractAnswer(out), agent);
     if (!text) throw new Error('L’IA n’a renvoyé aucun texte.');
-    return { text, model };
+    if (coherent && crep) {
+        // Contrôle du texte proposé face à la grille ; une régénération corrective si nécessaire.
+        let issues = draftIssues(crep, text);
+        // Jusqu'à 3 régénérations correctives : on garde la première proposition sans écart, sinon la dernière (avec avertissement).
+        for (let attempt = 0; attempt < 3 && issues.length; attempt++) {
+            const retry = await complete({
+                system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT,
+                question: `${question}\nATTENTION : ta proposition précédente était incohérente avec la grille (${issues.join(' ')}). Propose un nouveau texte strictement conforme à la SYNTHÈSE DE LA GRILLE, sans « cependant » ni « toutefois » ni axe de progrès qui n’y figure pas.`,
+            });
+            const t2 = cleanName(stripLeaks(extractAnswer(retry.out)), agent);
+            if (!t2) continue;
+            text = t2; model = retry.model; issues = draftIssues(crep, text);
+        }
+        issues.forEach(i => warnings.push(`À vérifier : ${i}`));
+    }
+    return { text, model, warnings };
 }
 
 // ─── Relecture de cohérence ──────────────────────────────────────────────────

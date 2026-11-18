@@ -25,6 +25,7 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, va
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState('');
 
   if (disabled) return null;
@@ -36,12 +37,13 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, va
       const r = await axios.post(`/api/entretiens/${entretienId}/ai-draft`,
         { rubrique, notes, contexte, crep, existant: value }, { headers: { Authorization: `Bearer ${token}` } });
       setProposal(r.data.text || '');
+      setWarnings(Array.isArray(r.data.warnings) ? r.data.warnings : []);
     } catch (e: any) {
       setError(e.response?.data?.message || 'L’IA interne n’a pas pu rédiger de proposition.');
     } finally { setBusy(false); }
   };
 
-  const close = () => { setOpen(false); setProposal(''); setError(''); setNotes(''); };
+  const close = () => { setOpen(false); setProposal(''); setWarnings([]); setError(''); setNotes(''); };
 
   if (!open) {
     return (
@@ -75,6 +77,11 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, va
 
       {proposal && (
         <div style={{ marginTop: 9 }}>
+          {warnings.length > 0 && (
+            <div style={{ marginBottom: 7, padding: '7px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e', lineHeight: 1.45 }}>
+              {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+            </div>
+          )}
           <div style={{ fontSize: 11, fontWeight: 700, color: '#6d28d9', marginBottom: 4 }}>Proposition (modifiable) :</div>
           <textarea style={{ ...textarea, background: '#fff' }} rows={5} value={proposal} onChange={e => setProposal(e.target.value)} />
           <div style={{ display: 'flex', gap: 7, marginTop: 7, flexWrap: 'wrap' }}>

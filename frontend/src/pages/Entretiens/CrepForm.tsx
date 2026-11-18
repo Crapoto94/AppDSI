@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -55,6 +55,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  const checkRef = useRef<HTMLDivElement>(null);
   const [check, setCheck] = useState<{ loading: boolean; missing: string[]; issues: string[]; ai: string[] | null; aiError: string | null } | null>(null);
 
   useEffect(() => { setCrep(initialCrep(entretien)); }, [entretien.id]);
@@ -113,6 +114,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       setMsg({ ok: false, text: e.response?.data?.message || 'Rappel impossible' });
     } finally { setBusy(null); }
   };
+
+  // Le panneau de résultat est en bas du formulaire : on le ramène à l'écran dès que la vérification démarre ou aboutit.
+  useEffect(() => {
+    if (check) window.setTimeout(() => checkRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  }, [check?.loading]);
 
   /** Vérification globale : champs manquants, incohérences fiables, puis relecture par l'IA locale. */
   const runCheck = async () => {
@@ -363,7 +369,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       ) : null}
 
       {check && (
-        <div style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: `1px solid ${COLORS.border}`, borderRadius: 10, fontSize: 12.5, color: '#334155' }}>
+        <div ref={checkRef} style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: `1px solid ${COLORS.border}`, borderRadius: 10, fontSize: 12.5, color: '#334155' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, marginBottom: 6 }}>
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
@@ -431,7 +437,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
               {busy === 'submit' ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Valider le compte rendu
             </button>
             <button style={btnGhost} disabled={!!busy || !!check?.loading} onClick={runCheck}>
-              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} Vérifier la cohérence
+              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} {check?.loading ? 'Analyse en cours…' : 'Vérifier la cohérence'}
             </button>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>

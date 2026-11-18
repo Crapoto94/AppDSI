@@ -841,6 +841,7 @@ const entretiensController = {
                 existant: text(b.existant),
                 agent: svc.fullName(row.agent_prenom, row.agent_nom),
                 coherent: global,
+                crep: global ? normalizeCrep(b.crep) : undefined,
             });
             res.json(result);
         } catch (err) {
