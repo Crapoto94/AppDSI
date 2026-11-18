@@ -70,6 +70,7 @@ router.get('/:page', async (req, res) => {
             '/admin/param-ville':      'GUIDE-PARAM-VILLE.md',
             '/boites-partagees':       'GUIDE-BOITES-PARTAGEES.md',
             '/parapheur':              'GUIDE-PARAPHEUR.md',
+            '/magapp/virement-credits': 'GUIDE-VIREMENT-CREDITS.md',
         };
 
         const fileName = MAP[page];

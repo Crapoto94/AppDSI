@@ -91,7 +91,26 @@ function invalidateAppBaseUrlCache() {
     cachedAt = 0;
 }
 
+const MAGAPP_FALLBACK = 'https://magapp.ivry.local';
+
+/**
+ * URL publique du Magasin d'applications (MagApp) : SQLite `app_settings.magapp_base_url`, puis variable `MAGAPP_URL`,
+ * puis `https://magapp.ivry.local`. À utiliser pour les liens qui doivent ouvrir MagApp (et non le DSI Hub).
+ */
+async function getMagappBaseUrl() {
+    try {
+        const db = getSqliteSafe();
+        if (db) {
+            const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'magapp_base_url'");
+            const v = normalizeAppBaseUrl(row?.setting_value);
+            if (v) return v;
+        }
+    } catch { /* repli */ }
+    return normalizeAppBaseUrl(process.env.MAGAPP_URL) || MAGAPP_FALLBACK;
+}
+
 module.exports = {
+    getMagappBaseUrl,
     getAppBaseUrl,
     getAppBaseUrlSync,
     invalidateAppBaseUrlCache,

@@ -3364,6 +3364,13 @@ setupDb().then(async database => {
         console.error('[PARAPHEUR CRON] échec démarrage:', e.message);
     }
 
+    // Notification des demandeurs de virement de crédits (signée / refusée / annulée)
+    try {
+        require('./modules/finance/virement-credits-notify').start();
+    } catch (e) {
+        console.error('[VIREMENT CRON] échec démarrage:', e.message);
+    }
+
     // Relances automatiques des entretiens professionnels
     try {
         require('./modules/entretiens/entretiens-cron').start();

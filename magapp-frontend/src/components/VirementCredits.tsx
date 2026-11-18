@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight } from 'lucide-react';
+import logoDsiHub from '../assets/DSI.png';
+import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight, HelpCircle, Copy } from 'lucide-react';
 
 // BETA « Virement de crédits » : demande de modification budgétaire pour les agents ayant un compte SEDIT Finances.
 // - lignes proposées = celles que l'agent peut modifier dans SEDIT (filtrées côté serveur) ;
@@ -28,7 +29,9 @@ interface Rec {
   parapheur_id: number | null; para_reference: string | null; para_status: string | null;
   sent_at: string | null; sent_to: string | null; sent_cc: string | null;
   etat: 'brouillon' | 'en_signature' | 'signee' | 'refusee' | 'annulee' | 'envoyee';
+  payload?: { section: string; sens: string; compense: boolean; activite: string; motivation: string; majorer: PayloadLine[]; minorer: PayloadLine[] };
 }
+interface PayloadLine { code: string; montant: number }
 
 const ETATS: Record<Rec['etat'], { label: string; color: string }> = {
   brouillon: { label: 'Brouillon', color: '#64748b' },
@@ -51,6 +54,30 @@ const nameOf = (e: Encadrant) => `${e.prenom || ''} ${e.nom || ''}`.trim();
 const imputation = (l: BudgetLine) =>
   [l['Chapitre par nature'], l['Référence Fonctionnelle'], l['Article par nature'], shortOp(l["Opération d'équipement"]), l['Service Gestionnaire']]
     .map(x => x || '·').join(' / ');
+
+const HELP_CSS = `
+.vc-help { font-size: 14.5px; color: #334155; line-height: 1.7; }
+.vc-help > *:first-child { margin-top: 0; }
+.vc-help h1 { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
+.vc-help h2 { font-size: 1.18rem; font-weight: 800; color: #1e293b; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #eef2f7; }
+.vc-help h3 { font-size: 1.02rem; font-weight: 700; color: #334155; margin: 18px 0 6px; }
+.vc-help p { margin: 8px 0; }
+.vc-help ul, .vc-help ol { margin: 8px 0; padding-left: 22px; }
+.vc-help li { margin: 4px 0; }
+.vc-help a { color: #2563eb; text-decoration: none; }
+.vc-help hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
+.vc-help code { background: #f1f5f9; color: #be123c; padding: 1px 6px; border-radius: 5px; font-family: Consolas, Menlo, monospace; font-size: 0.85em; }
+.vc-help blockquote { margin: 12px 0; padding: 8px 14px; border-left: 4px solid #93c5fd; background: #eff6ff; color: #1e3a8a; border-radius: 0 8px 8px 0; }
+.vc-help blockquote p { margin: 4px 0; }
+.vc-help table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; border: 1px solid #e2e8f0; }
+.vc-help th, .vc-help td { border: 1px solid #e9eef5; padding: 9px 12px; text-align: left; vertical-align: top; }
+.vc-help th { background: #f1f5f9; color: #334155; font-weight: 700; }
+.vc-help tbody tr:nth-child(even) { background: #f8fafc; }
+.vc-help strong { color: #0f172a; }
+.vc-help-pulse { animation: vcHelpPulse 2.4s ease-in-out infinite; }
+.vc-help-pulse:hover { filter: brightness(1.08); animation: none; }
+@keyframes vcHelpPulse { 0%, 100% { box-shadow: 0 4px 14px -4px rgba(37,99,235,0.55); } 50% { box-shadow: 0 0 0 5px rgba(37,99,235,0.18); } }
+`;
 
 const API = '/api/magapp/virement-credits';
 const authHeaders = (): Record<string, string> => ({ Authorization: `Bearer ${localStorage.getItem('token') || ''}` });
@@ -125,7 +152,12 @@ const Picker: React.FC<{
                     <td style={s.td}>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <input style={{ ...s.input, textAlign: 'right' }} inputMode="decimal" value={p.montant}
-                          onChange={e => setPicked(picked.map((x, j) => (j === i ? { ...x, montant: e.target.value } : x)))} />
+                          onChange={e => {
+                            let v = e.target.value;
+                            // Minoration plafonnée au disponible de la ligne
+                            if (sign === '-' && toNum(v) > Math.max(0, p.line.Disponible)) v = String(Math.max(0, p.line.Disponible));
+                            setPicked(picked.map((x, j) => (j === i ? { ...x, montant: v } : x)));
+                          }} />
                         <button type="button" style={{ padding: '0 0.6rem', border: `1px solid ${color}`, color, background: '#fff', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.78rem' }}
                           title={sign === '-' ? 'Minorer tout le disponible' : 'Majorer du montant libéré par les minorations'}
                           onClick={() => {
@@ -251,6 +283,7 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
                     </div>
                   ) : !sig ? <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Chargement des signataires…</div> : (
                     <>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', background: '#f8fafc', borderRadius: 8, padding: '6px 8px' }}>Le PDF comporte aussi les cadres des finances, de la direction générale et des élus : ils sont complétés ensuite par le service budget.</div>
                       <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Signature successive : responsable de service puis directeur. Proposés : ceux de votre chaîne hiérarchique, ou des services/directions de votre périmètre SEDIT.</div>
                       {selector('Responsable de service', sig.responsables, respEmail, setResp, sig.defaults.responsable, e => e.service_label || e.service_code)}
                       {selector('Directeur', sig.directeurs, dirEmail, setDir, sig.defaults.directeur, e => e.direction_label || e.direction_code)}
@@ -288,7 +321,7 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
 };
 
 // ───────────────────────── Composant principal ─────────────────────────
-export default function VirementCredits({ onClose, beta = false, userName = '' }: { onClose: () => void; beta?: boolean; userName?: string }) {
+export default function VirementCredits({ onClose, beta = false, userName = '', initialOpenId = null }: { onClose: () => void; beta?: boolean; userName?: string; initialOpenId?: number | null }) {
   const [lines, setLines] = useState<BudgetLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveError, setLiveError] = useState('');
@@ -305,9 +338,22 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'new' | 'history'>('new');
   const [currentId, setCurrentId] = useState<number | null>(null);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(initialOpenId);
   const [rows, setRows] = useState<Rec[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
+  const [helpHtml, setHelpHtml] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Aide : guide Markdown (modifiable dans /admin/aides, page « /magapp/virement-credits »)
+  const openHelp = async () => {
+    setShowHelp(true);
+    if (helpHtml !== null) return;
+    try {
+      const r = await fetch(`/api/page-help/${encodeURIComponent('/magapp/virement-credits')}`);
+      const d = r.ok ? await r.json() : null;
+      setHelpHtml(d?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
+    } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
+  };
 
   useEffect(() => {
     fetch(`${API}/lines`, { headers: authHeaders() })
@@ -340,6 +386,24 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
   const desequilibre = compense && ecart !== 0;
   const hasLines = majorer.length + minorer.length > 0;
   const hasNegative = minorer.some(p => p.line.Disponible - toNum(p.montant) < 0);
+  // Virement entre chapitres : les lignes touchées ne relèvent pas toutes du même chapitre
+  const interChapitre = new Set([...majorer, ...minorer].map(p => p.line['Chapitre par nature'])).size > 1;
+  const noLine = !loading && !liveError && scoped.length === 0;
+
+  // Dupliquer : reprend une demande existante (refusée, annulée, envoyée…) dans un nouveau brouillon
+  const duplicate = (r: Rec) => {
+    const pl = r.payload;
+    if (!pl) return;
+    const find = (arr: PayloadLine[]) => arr.map(l => ({ line: lines.find(x => x.Code === l.code), montant: String(l.montant) }))
+      .filter((x): x is Picked => !!x.line);
+    const maj = find(pl.majorer || []), min = find(pl.minorer || []);
+    setSection(pl.section === 'F' ? 'F' : 'I'); setSens(pl.sens === 'R' ? 'R' : 'D');
+    setCompense(pl.compense !== false); setActivite(pl.activite || ''); setMotivation(pl.motivation || '');
+    setDate(new Date().toISOString().slice(0, 10));
+    setMajorer(maj); setMinorer(min); setCurrentId(null); setError(''); setMode('new');
+    const lost = (pl.majorer || []).length + (pl.minorer || []).length - maj.length - min.length;
+    if (lost > 0) setError(`${lost} ligne(s) de la demande d'origine ne sont plus disponibles dans votre périmètre et n'ont pas été reprises.`);
+  };
 
   const toPayloadLine = (p: Picked, delta: 1 | -1) => ({
     chapitre: p.line['Chapitre par nature'], fonction: p.line['Référence Fonctionnelle'], nature: p.line['Article par nature'],
@@ -376,12 +440,18 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+      <style>{HELP_CSS}</style>
       <div style={{ background: '#f8fafc', width: 'min(1280px, 100%)', height: '94vh', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
           <div style={{ width: 40, height: 40, background: '#dbeafe', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowLeftRight size={22} color="#2563eb" /></div>
           <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b' }}>Virement de crédits</h2>
           {beta && <span style={{ background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: 6, letterSpacing: '0.05em' }}>BETA</span>}
           <span style={{ flex: 1 }} />
+          <img src={logoDsiHub} alt="DSI" style={{ height: 46, marginRight: 8 }} />
+          <button onClick={openHelp} title="Aide sur cette page" className="vc-help-pulse"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #2563eb, #4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13, boxShadow: '0 4px 14px -4px rgba(37,99,235,0.55)' }}>
+            <HelpCircle size={18} /> Aide
+          </button>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -407,6 +477,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
                           <td style={{ ...s.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.motivation || ''}>{r.motivation}</td>
                           <td style={s.td}><span style={{ background: e.color, color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.label}</span></td>
                           <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
+                            <button title="Dupliquer dans une nouvelle demande" onClick={() => duplicate(r)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569' }}><Copy size={16} /></button>
                             <button title="Ouvrir / envoyer" onClick={() => setOpenId(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#2563eb' }}><Eye size={17} /></button>
                             {!r.parapheur_id && !r.sent_at && <button title="Supprimer" onClick={() => remove(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#dc2626' }}><Trash2 size={16} /></button>}
                           </td>
@@ -444,6 +515,12 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
               </div>
 
               {liveError && <div style={{ ...s.card, borderColor: '#dc2626', color: '#b91c1c', fontSize: '0.85rem' }}><AlertTriangle size={15} style={{ verticalAlign: 'text-bottom' }} /> Impossible de lire vos lignes dans SEDIT : {liveError}</div>}
+              {noLine && (
+                <div style={{ ...s.card, borderColor: '#f59e0b', background: '#fffbeb', color: '#78350f', fontSize: '0.88rem' }}>
+                  <AlertTriangle size={15} style={{ verticalAlign: 'text-bottom' }} /> Aucune ligne budgétaire modifiable pour cette section / ce sens : vos droits SEDIT ne couvrent aucune ligne correspondante
+                  (dépenses ou recettes, investissement ou fonctionnement). Essayez l'autre section ou l'autre sens, ou demandez les droits à la direction des finances.
+                </div>
+              )}
               {loading ? <div style={s.card}>Chargement de vos lignes d'exécution…</div> : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
                   <Picker scoped={scoped} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à minorer (−)" sign="-" picked={minorer} setPicked={setMinorer} color="#dc2626" />
@@ -456,6 +533,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
                 <div>Total à majorer : <strong>{fmt(totalMaj)} €</strong></div>
                 <div style={{ color: desequilibre ? '#dc2626' : '#16a34a' }}>Écart : <strong>{fmt(ecart)} €</strong></div>
                 {desequilibre && <span style={{ color: '#dc2626', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Demande compensée : les totaux doivent être égaux.</span>}
+                {interChapitre && <span style={{ color: '#d97706', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Virement entre chapitres : il peut suivre un circuit de validation différent.</span>}
                 {hasNegative && <span style={{ color: '#d97706', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Une ligne minorée passerait en disponible négatif.</span>}
                 <div style={{ marginLeft: 'auto' }}>
                   <button style={{ ...s.btn, opacity: busy || !hasLines || desequilibre ? 0.5 : 1 }} disabled={busy || !hasLines || desequilibre} onClick={generate}>
@@ -468,6 +546,17 @@ export default function VirementCredits({ onClose, beta = false, userName = '' }
           )}
         </div>
       </div>
+      {showHelp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(820px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
+              <HelpCircle size={20} color="#0078a4" /><strong style={{ flex: 1 }}>Aide — Virement de crédits</strong>
+              <button onClick={() => setShowHelp(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            <div className="vc-help" style={{ padding: '14px 20px', overflowY: 'auto', color: '#1e293b', lineHeight: 1.55, fontSize: '0.92rem' }} dangerouslySetInnerHTML={{ __html: helpHtml ?? 'Chargement…' }} />
+          </div>
+        </div>
+      )}
       {openId != null && <Detail id={openId} sig={sig} onClose={() => { setOpenId(null); if (mode === 'history') loadRows(); }} onChanged={() => { if (mode === 'history') loadRows(); }} />}
     </div>
   );

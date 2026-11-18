@@ -185,6 +185,8 @@ function App() {
   // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
   const [showVirement, setShowVirement] = useState(false);
   const [virementAllowed, setVirementAllowed] = useState(false);
+  // Lien de notification : /?virement=ID ouvre directement la demande
+  const [virementDeepLink, setVirementDeepLink] = useState<number | null>(() => { const v = parseInt(new URLSearchParams(window.location.search).get('virement') || '', 10); return Number.isFinite(v) ? v : null; });
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -257,7 +259,7 @@ function App() {
     if (!windowLogin) { setVirementAllowed(false); return; }
     const token = localStorage.getItem('token') || '';
     axios.get('/api/magapp/virement-credits/access', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setVirementAllowed(!!r.data?.allowed))
+      .then(r => { setVirementAllowed(!!r.data?.allowed); if (r.data?.allowed && virementDeepLink) setShowVirement(true); })
       .catch(() => setVirementAllowed(false));
   }, [windowLogin]);
 
@@ -1841,7 +1843,7 @@ function App() {
 
       {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
-      {showVirement && <VirementCredits beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => setShowVirement(false)} />}
+      {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
       {/* Modal Rencontres */}

@@ -149,6 +149,34 @@ interface DocStats {
   total_ratings: number;
 }
 
+// Destinataire (et copie) du mail « demande de virement de crédits » envoyé au service budget (finance.virement_budget_to/cc)
+const VirementMailSettings: React.FC<{ token: string | null }> = ({ token }) => {
+  const [v, setV] = useState({ to: '', cc: '' });
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    fetch('/api/budget/virement-credits/settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null)).then(d => d && setV(d)).catch(() => {});
+  }, [token]);
+  const save = async () => {
+    const r = await fetch('/api/budget/virement-credits/settings', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(v),
+    });
+    if (r.ok) { setV(await r.json()); setMsg('Enregistré.'); } else setMsg("Échec de l'enregistrement.");
+  };
+  const inp: React.CSSProperties = { width: '100%', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: '0.85rem', boxSizing: 'border-box' };
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <strong style={{ fontSize: '0.85rem', color: '#334155' }}>Envoi au service budget</strong>
+      <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Destinataire(s)
+        <input style={inp} value={v.to} onChange={e => setV({ ...v, to: e.target.value })} placeholder="budget@ivry94.fr" /></label>
+      <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Copie (CC)
+        <input style={inp} value={v.cc} onChange={e => setV({ ...v, cc: e.target.value })} placeholder="prenom.nom@ivry94.fr" /></label>
+      <div><button type="button" onClick={save} style={{ padding: '6px 14px', border: 'none', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Enregistrer</button>
+        {msg && <span style={{ marginLeft: 10, fontSize: '0.8rem', color: '#16a34a' }}>{msg}</span>}</div>
+    </div>
+  );
+};
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -2448,6 +2476,7 @@ const MagappAdmin: React.FC = () => {
                   </label>
                   <p className="mgs-desc">{t.desc}</p>
                   <FeatureAgents feature={t.feature} published={on} />
+                  {t.key === 'show_virement_credits' && <VirementMailSettings token={token} />}
                 </div>
               );
             };

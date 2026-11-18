@@ -32,7 +32,27 @@ async function ensureTable() {
         sent_to TEXT,
         sent_cc TEXT
     )`);
+    // Notification du demandeur (signée / refusée / annulée) : dernier état notifié. Lignes existantes = état courant (pas de rafale au 1er démarrage).
+    const col = await pool.query("SELECT 1 FROM information_schema.columns WHERE table_schema='finance' AND table_name='virements_credits' AND column_name='notified_etat'");
+    if (!col.rows.length) {
+        await pool.query('ALTER TABLE finance.virements_credits ADD COLUMN notified_etat TEXT');
+        await pool.query(`UPDATE finance.virements_credits v SET notified_etat = p.status
+                            FROM hub_parapheur.parapheurs p WHERE p.id = v.parapheur_id AND p.status IN ('termine','refuse','annule')`);
+    }
+    // Journal des actions (qui a fait quoi, quand)
+    await pool.query(`CREATE TABLE IF NOT EXISTS finance.virements_credits_log (
+        id SERIAL PRIMARY KEY, virement_id INTEGER NOT NULL, at TIMESTAMPTZ DEFAULT now(), username TEXT, action TEXT NOT NULL, detail JSONB)`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_virements_log_virement ON finance.virements_credits_log(virement_id)');
     tableReady = true;
+}
+
+// Journal : ne doit jamais faire échouer l'action journalisée
+async function logAction(virementId, username, action, detail) {
+    try {
+        await ensureTable();
+        await pool.query('INSERT INTO finance.virements_credits_log (virement_id, username, action, detail) VALUES ($1,$2,$3,$4)',
+            [virementId, username || null, action, detail ? JSON.stringify(detail) : null]);
+    } catch (e) { console.warn('[VirementCredits] journal:', e.message); }
 }
 
 const isManager = (u) => u && ['superadmin', 'admin', 'finances', 'compta'].includes(u.role);
@@ -150,6 +170,8 @@ const fail = (res, e, msg) => {
 
 module.exports = {
     requireSeditAccount,
+    logAction,
+    ensureTable,
 
     // Accès de l'agent connecté : compte SEDIT + services sur lesquels il peut modifier le budget
     async access(req, res) {
@@ -217,6 +239,7 @@ module.exports = {
                         compense=$7, montant=$8, motivation=$9, payload=$10, updated_at=now() WHERE id=$11`,
                     [p.direction, p.service, p.contact, p.date, p.section, p.sens, p.compense, montant, p.motivation, JSON.stringify(p), id]
                 );
+                await logAction(id, req.user.username, 'modification', { montant, lignes: p.majorer.length + p.minorer.length });
                 return res.json({ id });
             }
             const r = await pool.query(
@@ -226,6 +249,7 @@ module.exports = {
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
                 [req.user.username, name, email, p.direction, p.service, p.contact, p.date, p.section, p.sens, p.compense, montant, p.motivation, JSON.stringify(p)]
             );
+            await logAction(r.rows[0].id, req.user.username, 'creation', { montant, lignes: p.majorer.length + p.minorer.length });
             res.status(201).json({ id: r.rows[0].id });
         } catch (e) { fail(res, e, 'Erreur enregistrement'); }
     },
@@ -252,6 +276,7 @@ module.exports = {
             if (error) return res.status(error.status).json({ message: error.message });
             if (row.parapheur_id || row.sent_at) return res.status(409).json({ message: 'Demande déjà transmise : suppression impossible' });
             await pool.query('DELETE FROM finance.virements_credits WHERE id = $1', [row.id]);
+            await logAction(row.id, req.user.username, 'suppression', { montant: row.montant });
             res.json({ ok: true });
         } catch (e) { fail(res, e, 'Erreur suppression'); }
     },
@@ -283,6 +308,7 @@ module.exports = {
                 req,
             });
             await pool.query('UPDATE finance.virements_credits SET parapheur_id = $1, parapheur_at = now(), updated_at = now() WHERE id = $2', [result.id, row.id]);
+            await logAction(row.id, req.user.username, 'envoi_parapheur', { parapheur_id: result.id, reference: result.reference });
             res.json({ parapheur_id: result.id, reference: result.reference });
         } catch (e) { fail(res, e, "Erreur d'envoi au parapheur"); }
     },
@@ -337,6 +363,7 @@ module.exports = {
                 req,
             });
             await pool.query('UPDATE finance.virements_credits SET parapheur_id = $1, parapheur_at = now(), updated_at = now() WHERE id = $2', [result.id, row.id]);
+            await logAction(row.id, req.user.username, 'envoi_parapheur', { parapheur_id: result.id, reference: result.reference });
             res.json({ parapheur_id: result.id, reference: result.reference });
         } catch (e) { fail(res, e, "Erreur d'envoi au parapheur"); }
     },
@@ -370,6 +397,7 @@ module.exports = {
                 'UPDATE finance.virements_credits SET sent_at = now(), sent_by = $1, sent_to = $2, sent_cc = $3, updated_at = now() WHERE id = $4',
                 [req.user.username, to.join(', '), cc.join(', '), row.id]
             );
+            await logAction(row.id, req.user.username, 'envoi_budget', { to, cc, signed });
             res.json({ to, cc, signed });
         } catch (e) {
             if (!e.status) return res.status(502).json({ message: `Envoi impossible : ${e.message}` });
@@ -383,6 +411,7 @@ module.exports = {
 
     async saveSettings(req, res) {
         try {
+            if (!isManager(req.user)) return res.status(403).json({ message: 'Réservé aux administrateurs / finances' });
             const to = splitEmails(req.body && req.body.to);
             const cc = splitEmails(req.body && req.body.cc);
             await writeSetting(KEY_TO, (to.length ? to : [DEFAULT_TO]).join(', '), 'Virements de crédits : destinataire du mail');
