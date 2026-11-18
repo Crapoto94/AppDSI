@@ -10,7 +10,7 @@ interface Weekly { year: number; mode: 'global' | 'ville'; seuil: number; weeks:
 const fmtDate = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 
 /** Évolution du délai global de paiement (DGP) au cours de l'année, courbe à la semaine. */
-export default function DgpWeeklyChart({ year, scope = 'all' }: { year: number; scope?: string }) {
+export default function DgpWeeklyChart({ year, scope = 'all', budget = '' }: { year: number; scope?: string; budget?: string }) {
   const [mode, setMode] = useState<'global' | 'ville'>('global');
   const [data, setData] = useState<Weekly | null>(null);
   const [error, setError] = useState('');
@@ -19,13 +19,13 @@ export default function DgpWeeklyChart({ year, scope = 'all' }: { year: number; 
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError('');
-    fetch(`/api/magapp/mes-factures/dgp-weekly?year=${year}&mode=${mode}&scope=${encodeURIComponent(scope)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
+    fetch(`/api/magapp/mes-factures/dgp-weekly?year=${year}&mode=${mode}&scope=${encodeURIComponent(scope)}&budget=${encodeURIComponent(budget)}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'Erreur de chargement du DGP'); return r.json(); })
       .then((d: Weekly) => { if (!cancelled) setData(d); })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [year, scope, mode]);
+  }, [year, scope, budget, mode]);
 
   const ville = mode === 'ville';
   const seuil = ville ? 20 : 30;

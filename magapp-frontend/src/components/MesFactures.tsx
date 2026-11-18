@@ -19,7 +19,7 @@ interface Tendance { recent: number | null; precedent: number | null; nb_recent:
 interface Stats { tendance?: Tendance; nb_factures: number; nb_payees: number; nb_non_payees: number; dgp_moyen: number | null; nb_hors_delai: number; nb_prov_hors_delai: number; taux_dans_delai: number | null }
 interface Collectivite { dgp_moyen: number | null; taux_dans_delai: number | null; dgp_recent: number | null; nb_payees: number }
 interface DgpAlert { error: string | null; missing: number; total: number }
-interface ListData { dgp_alert?: DgpAlert | null; collectivite?: Collectivite | null; sedit_url?: string; rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
+interface ListData { budgets?: string[]; dgp_alert?: DgpAlert | null; collectivite?: Collectivite | null; sedit_url?: string; rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
 interface Access { allowed: boolean; canShare: boolean; sources: { key: string; label: string; nb_services: number; inactive: boolean }[]; received: { key: string; name: string }[] }
 interface Shares { given: { id: number; shared_username: string; shared_name: string; shared_email: string; created_at: string }[]; received: { id: number; owner_username: string; owner_name: string }[] }
 interface AgentHit { username: string; displayName: string; email: string; service: string }
@@ -528,6 +528,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
   const [piecesRow, setPiecesRow] = useState<Row | null>(null);
   const [sfDialog, setSfDialog] = useState<{ rows: Row[]; mode: 'circuit' | 'self' } | null>(null);
   const [kpi, setKpi] = useState<'' | 'todo' | 'late' | 'circuit'>('');
+  const [budget, setBudget] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const LIMIT = 50;
@@ -544,13 +545,14 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
     if (searchApplied) qs.set('search', searchApplied);
     if (sf) qs.set('sf', sf);
     if (kpi) qs.set('kpi', kpi);
+    if (budget) qs.set('budget', budget);
     fetch(`${API}?${qs}`, { headers: authHeaders() })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible'); return r.json(); })
       .then(d => { if (alive) setData(d); })
       .catch((e: Error) => { if (alive) { setData(null); setError(e.message); } })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [year, searchApplied, sf, scope, offset, reloadKey, kpi]);
+  }, [year, searchApplied, sf, scope, offset, reloadKey, kpi, budget]);
 
   const cancelCircuit = async (r: Row) => {
     const motif = window.prompt(`Annuler le circuit de service fait de la facture ${r.num} ?\nMotif (optionnel) :`, '');
@@ -610,6 +612,12 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
             <select style={s.input} value={sf} onChange={e => { setSf(e.target.value as '' | 'todo' | 'done'); setOffset(0); }}>
               <option value="">Tous les états</option><option value="todo">Service fait à traiter</option><option value="done">Service fait validé</option>
             </select>
+            {(data?.budgets?.length || 0) > 1 && (
+              <select style={s.input} value={budget} onChange={e => { setBudget(e.target.value); setOffset(0); }} title="Filtrer par budget">
+                <option value="">Tous les budgets</option>
+                {data!.budgets!.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            )}
             {multiSource && (
               <select style={s.input} value={scope} onChange={e => { setScope(e.target.value); setOffset(0); }}>
                 <option value="all">Tout mon périmètre</option>
@@ -725,7 +733,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowChart(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(1100px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 10px 0' }}><button onClick={() => setShowChart(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button></div>
-            <DgpWeeklyChart year={year} scope={scope} />
+            <DgpWeeklyChart year={year} scope={scope} budget={budget} />
           </div>
         </div>
       )}

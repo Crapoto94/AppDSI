@@ -26,7 +26,7 @@
 
 **Alerte DGP** : si le DGP n'a pas pu être calculé pour tout votre périmètre, un bandeau orange l'indique au lieu d'un simple « — ».
 
-**Le tableau** : n° SEDIT, n° fournisseur, libellé, date de réception, tiers, montant TTC, service, DGP, service fait, actions. Recherchez par numéro, fournisseur, libellé ou tiers ; filtrez par exercice, par état du service fait et, si vous avez plusieurs accès, par périmètre.
+**Le tableau** : n° SEDIT, n° fournisseur, libellé, date de réception, tiers, montant TTC, service, DGP, service fait, actions. Recherchez par numéro, fournisseur, libellé ou tiers ; filtrez par exercice, par **budget** (liste affichée si vous avez accès à plusieurs budgets : principal, annexes…), par état du service fait et, si vous avez plusieurs accès, par périmètre. Le budget choisi s'applique aussi au résumé, aux filtres rapides et à la courbe DGP.
 
 **Le DGP d'une facture**
 

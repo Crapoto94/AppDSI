@@ -115,8 +115,12 @@ async function listFactures(user, q = {}) {
 
     // Couples (budget, service) → sources qui les ouvrent
     const pairs = new Map();
+    const budgetFilter = clean(q.budget).toUpperCase();
+    const budgetsInScope = new Set();
     for (const src of chosen) {
         for (const sv of src.services) {
+            budgetsInScope.add(sv.budget);
+            if (budgetFilter && sv.budget.toUpperCase() !== budgetFilter) continue;
             const k = `${sv.budgetRoo}|${sv.serviceRoo}`;
             if (!pairs.has(k)) pairs.set(k, { budgetRoo: sv.budgetRoo, serviceRoo: sv.serviceRoo, via: new Set() });
             pairs.get(k).via.add(src.key);
@@ -125,7 +129,8 @@ async function listFactures(user, q = {}) {
     const year = Number(q.year) || new Date().getFullYear();
     const limit = Math.max(1, Math.min(parseInt(q.limit, 10) || 50, 200));
     const offset = Math.max(0, parseInt(q.offset, 10) || 0);
-    const empty = { dgp_alert: null, collectivite: null, rows: [], total: 0, stats: null, a_traiter: 0, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
+    const budgets = [...budgetsInScope].filter(Boolean).sort();
+    const empty = { budgets, dgp_alert: null, collectivite: null, rows: [], total: 0, stats: null, a_traiter: 0, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
     if (!pairs.size) return empty;
 
     const binds = { y0: `${year}-01-01`, y1: `${year + 1}-01-01` };
@@ -293,7 +298,7 @@ async function listFactures(user, q = {}) {
         if (dgpError || missing > 0) dgpAlert = { error: dgpError, missing, total: data.roos.length };
     } catch (e) { dgpAlert = { error: e.message, missing: data.roos.length, total: data.roos.length }; }
     const collectivite = await dgp.getCollectiviteStats(year);
-    return { dgp_alert: dgpAlert, collectivite, sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
+    return { budgets, dgp_alert: dgpAlert, collectivite, sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
 }
 
 // Mandatement d'une facture (infobulle), uniquement si la facture est dans le périmètre de l'agent
@@ -443,7 +448,9 @@ async function getDgpWeeklyForUser(user, q = {}) {
     const chosen = scope === 'all' ? sources : sources.filter(s => s.key === scope);
     const year = Number(q.year) || new Date().getFullYear();
     const byBudget = new Map();
+    const bf = clean(q.budget).toUpperCase();
     for (const src of chosen) for (const sv of src.services) {
+        if (bf && sv.budget.toUpperCase() !== bf) continue;
         if (!byBudget.has(sv.budgetRoo)) byBudget.set(sv.budgetRoo, new Set());
         byBudget.get(sv.budgetRoo).add(sv.serviceRoo);
     }
