@@ -38,8 +38,17 @@ async function getMandatementByFacture(numero) {
              FROM FI.FAIT WHERE TRIM(FACTURE_ID_CS) = :r`, { r: factureRoo }
         );
 
+        // Une ligne FAIT par ligne d'imputation : un même mandat y figure plusieurs fois (bordereau parfois renseigné sur une seule).
+        // On regroupe par mandat en gardant le bordereau et le type renseignés.
+        const byMandat = new Map();
+        for (const r of faits.rows) {
+            if (!r.MANDAT_ROO) continue;
+            const cur = byMandat.get(r.MANDAT_ROO);
+            if (!cur) byMandat.set(r.MANDAT_ROO, { ...r });
+            else { cur.BORD_ROO = cur.BORD_ROO || r.BORD_ROO; cur.MANDAT_TYPE = cur.MANDAT_TYPE || r.MANDAT_TYPE; }
+        }
         const mandats = [];
-        for (const row of faits.rows) {
+        for (const row of byMandat.values()) {
             if (!row.MANDAT_ROO) continue;
             const mRes = await conn.execute(
                 `SELECT MANDAT, DATMANDAT, DATINDIGO, DATE_PAIEMENT, MONTANTTC_E, TRIM(BORDEREAU) AS BORD_ROO,
