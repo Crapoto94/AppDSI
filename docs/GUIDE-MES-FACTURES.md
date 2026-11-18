@@ -29,6 +29,10 @@
 - **Rejetée** (✕) : le délai s'arrête à la **date de rejet** (réception → rejet).
 - Couleurs : vert jusqu'à 20 j, orange jusqu'à 30 j, **rouge au-delà de 30 j**.
 
+**Les actions** sont des icônes en fin de ligne (survolez-les pour lire leur libellé) : ↗ **Sedit**, 📎 **Pièces jointes**, ➤ **Lancer SF**, ✔ **Faire SF**, ⊘ **Annuler le circuit**.
+
+**Voir la facture** : le bouton **Sedit** ouvre la fiche de la facture dans SEDIT (nouvel onglet) ; le bouton **Pièces jointes** affiche dans MagApp le PDF de la facture et ses justificatifs (XML du flux, pièces ajoutées) avec un bouton de téléchargement. Seules les factures de votre périmètre sont consultables.
+
 **Le mandatement** : passez la souris sur la pastille **Mandatée** pour voir le type de mandat, l'objet, le n° de pièce et de bordereau, les dates d'émission, de transmission et de paiement, et le montant.
 
 ## Le service fait
@@ -39,7 +43,7 @@ Deux façons de traiter une facture, sur les factures de vos services **où vous
 
 À utiliser quand **quelqu'un d'autre** doit attester que la prestation a bien été réalisée.
 
-1. Cliquez sur **Lancer SF**, puis **cherchez le vérificateur** : seuls les agents de **votre direction** sont proposés.
+1. Cliquez sur l'icône **Lancer SF** (➤), puis **cherchez le vérificateur** : seuls les agents de **votre direction** sont proposés.
 2. Validez : le vérificateur reçoit un **e-mail avec un lien** (valable 30 jours, ouvert sur le domaine MagApp). Les pièces jointes de la facture dans SEDIT lui sont mises à disposition.
 3. Sur la page du lien, le vérificateur choisit une décision :
    - **Valider** ;
@@ -57,13 +61,13 @@ Pendant ce temps, la facture porte l'icône **⏳ « En circuit »** avec le nom
 
 À utiliser quand **vous attestez vous-même** le service fait.
 
-1. Cliquez sur **Faire SF**, indiquez la **date de service fait**.
+1. Cliquez sur l'icône **Faire SF** (✔), indiquez la **date de service fait**.
 2. Ajoutez un **commentaire** ou **joignez une pièce justificative** (l'un des deux suffit).
 3. Validez : le service fait est enregistré dans SEDIT immédiatement, avec un procès-verbal scellé contenant votre déclaration et vos pièces.
 
 ### Annuler un circuit
 
-Tant que le vérificateur n'a pas décidé, le bouton **Annuler le circuit** (à côté de l'icône ⏳) est proposé au **demandeur** et à tout agent ayant le droit de modification sur le service de la facture. Indiquez un motif (facultatif) : le lien devient inutilisable et, si l'annulation est faite par un autre que le demandeur, celui-ci est prévenu par mail. Vous pouvez ensuite **relancer** un nouveau circuit ou faire le service fait vous-même.
+Tant que le vérificateur n'a pas décidé, l'icône **Annuler le circuit** (⊘, à côté de la pastille ⏳) est proposé au **demandeur** et à tout agent ayant le droit de modification sur le service de la facture. Indiquez un motif (facultatif) : le lien devient inutilisable et, si l'annulation est faite par un autre que le demandeur, celui-ci est prévenu par mail. Vous pouvez ensuite **relancer** un nouveau circuit ou faire le service fait vous-même.
 
 ### Cas particuliers
 

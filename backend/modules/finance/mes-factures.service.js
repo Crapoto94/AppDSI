@@ -260,7 +260,9 @@ async function listFactures(user, q = {}) {
                 && !(fs && fs.mandate && fs.mandate.done) && (!wfMap.get(r.NUM) || ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(wfMap.get(r.NUM))),
         };
     });
-    return { rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
+    let seditUrl = 'https://seditgfprod.ivry.local/SeditGfSMProd';
+    try { const db = require('../../shared/database').getSqlite(); const r = db && await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'url_sedit_fi'"); if (r && r.setting_value) seditUrl = String(r.setting_value).replace(/\/+$/, ''); } catch { /* défaut */ }
+    return { sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
 }
 
 // Mandatement d'une facture (infobulle), uniquement si la facture est dans le périmètre de l'agent
@@ -271,7 +273,7 @@ const dstr = (d) => {
     const p = (n) => String(n).padStart(2, '0');
     return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
 };
-async function getMandatement(user, numero) {
+async function assertVisible(user, numero) {
     const num = clean(numero);
     const sources = await getSources(user);
     const byBudget = new Map();
@@ -293,6 +295,11 @@ async function getMandatement(user, numero) {
         `SELECT COUNT(*) AS N FROM FI.FACTURE f WHERE TRIM(f.FACTURE) = :n AND (${blocks.join(' OR ')})`, binds,
         { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows[0].N) > 0);
     if (!ok) { const e = new Error('Facture hors de votre périmètre'); e.status = 403; throw e; }
+    return num;
+}
+
+async function getMandatement(user, numero) {
+    const num = await assertVisible(user, numero);
     const res = await require('./sedit-mandat.service').getMandatementByFacture(num);
     return { numero: num, mandats: res.mandats.map(m => ({
         ...m, date_emission: dstr(m.date_emission), date_transmission: dstr(m.date_transmission), date_paiement: dstr(m.date_paiement),
@@ -427,4 +434,15 @@ async function getDgpWeeklyForUser(user, q = {}) {
     return dgp.getDgpWeekly({ fiscalYear: year, mode: q.mode, roos });
 }
 
-module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser };
+// Pièces jointes SEDIT (PDF / XML) d'une facture du périmètre de l'agent — les URL de téléchargement repassent par MagApp (contrôle de périmètre)
+async function listDocuments(user, numero) {
+    const num = await assertVisible(user, numero);
+    const documents = await financeShare.buildFactureDocumentsList(num, `/api/magapp/mes-factures/${encodeURIComponent(num)}`);
+    return { numero: num, documents };
+}
+async function streamDocument(user, numero, docId, res) {
+    const num = await assertVisible(user, numero);
+    return financeShare.streamFactureDocumentFile(num, String(docId || '').trim(), res);
+}
+
+module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser, listDocuments, streamDocument };

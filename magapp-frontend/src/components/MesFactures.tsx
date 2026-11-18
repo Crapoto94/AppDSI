@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight, HelpCircle, Send, CheckCircle2, Upload, Paperclip, Hourglass, Ban } from 'lucide-react';
+import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight, HelpCircle, Send, CheckCircle2, Upload, Paperclip, Hourglass, Ban, ExternalLink, Files, Download } from 'lucide-react';
 import logoDsiHub from '../assets/DSI.png';
 import { HELP_CSS } from './helpStyles';
 import DgpWeeklyChart from './DgpWeeklyChart';
@@ -17,7 +17,7 @@ interface Row {
 interface Mandat { type: string; objet: string; bord: number | string | null; piece: number | string | null; date_emission: string | null; date_transmission: string | null; date_paiement: string | null; montant: number | null; rejete: boolean }
 interface Tendance { recent: number | null; precedent: number | null; nb_recent: number; nb_precedent: number; delta: number | null; semaines: { semaine: string; moyenne: number; nb: number }[] }
 interface Stats { tendance?: Tendance; nb_factures: number; nb_payees: number; nb_non_payees: number; dgp_moyen: number | null; nb_hors_delai: number; nb_prov_hors_delai: number; taux_dans_delai: number | null }
-interface ListData { rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
+interface ListData { sedit_url?: string; rows: Row[]; total: number; stats: Stats | null; a_traiter: number; year: number; sources: { key: string; label: string }[] }
 interface Access { allowed: boolean; canShare: boolean; sources: { key: string; label: string; nb_services: number; inactive: boolean }[]; received: { key: string; name: string }[] }
 interface Shares { given: { id: number; shared_username: string; shared_name: string; shared_email: string; created_at: string }[]; received: { id: number; owner_username: string; owner_name: string }[] }
 interface AgentHit { username: string; displayName: string; email: string; service: string }
@@ -342,6 +342,85 @@ const ServiceFaitDialog: React.FC<{ row: Row; mode: 'circuit' | 'self'; onClose:
   );
 };
 
+
+// Bouton d'action compact (icône seule, infobulle) : même gabarit pour toutes les actions d'une ligne
+const IconBtn: React.FC<{ title: string; color: string; onClick: () => void; children: React.ReactNode }> = ({ title, color, onClick, children }) => (
+  <button title={title} aria-label={title} onClick={onClick}
+    style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, border: `1px solid ${color}55`, background: `${color}12`, color, cursor: 'pointer', padding: 0 }}
+    onMouseEnter={e => { e.currentTarget.style.background = color; e.currentTarget.style.color = '#fff'; }}
+    onMouseLeave={e => { e.currentTarget.style.background = `${color}12`; e.currentTarget.style.color = color; }}>{children}</button>
+);
+
+// ───────── Pièces jointes SEDIT de la facture (PDF / XML) ─────────
+interface Doc { doc_id: string; nom: string; url: string; mime?: string; principal?: boolean; categorie?: string }
+const CAT_LABEL: Record<string, string> = { facture: 'Facture', bon_commande: 'Bon de commande', autre: 'Autre pièce' };
+const PiecesDialog: React.FC<{ row: Row; onClose: () => void }> = ({ row, onClose }) => {
+  const [docs, setDocs] = useState<Doc[] | null>(null);
+  const [err, setErr] = useState('');
+  const [cur, setCur] = useState<Doc | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const [loadingDoc, setLoadingDoc] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/${encodeURIComponent(row.num)}/documents`, { headers: authHeaders() })
+      .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.message || d.error || 'Pièces jointes indisponibles'); return d; })
+      .then(d => { const list: Doc[] = d.documents || []; setDocs(list); if (list.length) setCur(list.find(x => x.principal) || list[0]); })
+      .catch((e: Error) => setErr(e.message));
+  }, [row.num]);
+
+  useEffect(() => {
+    if (!cur) return;
+    let alive = true;
+    setLoadingDoc(true); setText(null);
+    setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    fetch(cur.url, { headers: authHeaders() })
+      .then(async r => {
+        if (!r.ok) throw new Error('Lecture impossible');
+        const blob = await r.blob();
+        if (!alive) return;
+        const isXml = /xml/i.test(blob.type) || /\.xml$/i.test(cur.nom);
+        if (isXml) setText(await blob.text());
+        else setBlobUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => { if (alive) setErr('Impossible de lire cette pièce jointe.'); })
+      .finally(() => { if (alive) setLoadingDoc(false); });
+    return () => { alive = false; };
+  }, [cur]);
+  useEffect(() => () => { setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; }); }, []);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: 'min(1200px, 100%)', height: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid #e2e8f0' }}>
+          <Files size={18} color="#7c3aed" /><strong style={{ flex: 1 }}>Pièces jointes SEDIT — facture {row.num} · {row.tiers}</strong>
+          {cur && blobUrl && <a href={blobUrl} download={cur.nom} style={{ ...s.btn, background: '#64748b', textDecoration: 'none', padding: '0.4rem 0.8rem' }}><Download size={14} /> Télécharger</a>}
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <div style={{ flex: 1, display: 'flex', minHeight: 0, flexWrap: 'wrap' }}>
+          <div style={{ width: 260, maxWidth: '100%', borderRight: '1px solid #e2e8f0', overflowY: 'auto', padding: 10 }}>
+            {err && !docs && <div style={{ color: '#b91c1c', fontSize: 13 }}>{err}</div>}
+            {!docs && !err && <div style={{ fontSize: 13, color: '#64748b' }}>Chargement…</div>}
+            {docs && docs.length === 0 && <div style={{ fontSize: 13, color: '#94a3b8' }}>Aucune pièce jointe dans SEDIT pour cette facture.</div>}
+            {docs?.map(d => (
+              <div key={d.doc_id} onClick={() => setCur(d)} style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, fontSize: 13, background: cur?.doc_id === d.doc_id ? '#ede9fe' : '#f8fafc', border: `1px solid ${cur?.doc_id === d.doc_id ? '#a78bfa' : '#e2e8f0'}`, wordBreak: 'break-all' }}>
+                <div style={{ fontWeight: 600 }}>{d.nom}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>{CAT_LABEL[d.categorie || 'autre'] || 'Autre pièce'}{d.principal ? ' · principale' : ''}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: '1 1 400px', minHeight: 300, background: '#f1f5f9', display: 'flex' }}>
+            {loadingDoc && <div style={{ margin: 'auto', color: '#64748b' }}>Chargement du document…</div>}
+            {!loadingDoc && blobUrl && <iframe title="Pièce jointe" src={blobUrl} style={{ flex: 1, border: 'none' }} />}
+            {!loadingDoc && text != null && <pre style={{ flex: 1, margin: 0, padding: 14, overflow: 'auto', fontSize: 12, background: '#fff', color: '#0f172a', whiteSpace: 'pre-wrap' }}>{text}</pre>}
+            {!loadingDoc && err && docs && <div style={{ margin: 'auto', color: '#b91c1c' }}>{err}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ───────── Composant principal ─────────
 export default function MesFactures({ onClose, beta = false }: { onClose: () => void; beta?: boolean }) {
   const thisYear = new Date().getFullYear();
@@ -368,6 +447,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
     } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
   };
   const [showChart, setShowChart] = useState(false);
+  const [piecesRow, setPiecesRow] = useState<Row | null>(null);
   const [sfDialog, setSfDialog] = useState<{ row: Row; mode: 'circuit' | 'self' } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const LIMIT = 50;
@@ -459,7 +539,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           {/* Tableau */}
           <div style={{ ...s.card, padding: 0, overflowX: 'auto' }}>
             {loading && !data ? <div style={{ padding: '1.5rem' }}>Chargement…</div> : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1060 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
                 <thead><tr>
                   <th style={s.th}>N° SEDIT</th><th style={s.th}>N° fournisseur</th><th style={s.th}>Libellé</th><th style={s.th}>Reçue le</th><th style={s.th}>Tiers</th>
                   <th style={{ ...s.th, textAlign: 'right' }}>Montant TTC</th><th style={s.th}>Service</th><th style={s.th}>DGP</th><th style={s.th}>Service fait</th><th style={s.th}>Action</th>{multiSource && <th style={s.th}>Accès</th>}
@@ -499,18 +579,14 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                           </div>
                         </td>
                         <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
-                          {r.circuit && r.circuit.can_cancel && (
-                            <button title="Annuler le circuit de service fait en cours" onClick={() => cancelCircuit(r)}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #dc2626', background: '#fef2f2', color: '#b91c1c', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}><Ban size={12} /> Annuler le circuit</button>
-                          )}
-                          {r.can_sf && (
-                            <div style={{ display: 'flex', gap: 4 }}>
-                              <button title="Lancer la validation du service fait (avec un vérificateur)" onClick={() => setSfDialog({ row: r, mode: 'circuit' })}
-                                style={{ border: '1px solid #6366f1', background: '#eef2ff', color: '#3730a3', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>Lancer SF</button>
-                              <button title="Déclarer moi-même le service fait (sans circuit de validation)" onClick={() => setSfDialog({ row: r, mode: 'self' })}
-                                style={{ border: '1px solid #16a34a', background: '#f0fdf4', color: '#166534', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>Faire SF</button>
-                            </div>
-                          )}
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <IconBtn title="Ouvrir la facture dans SEDIT" color="#2563eb" onClick={() => window.open(`${data?.sedit_url || 'https://seditgfprod.ivry.local/SeditGfSMProd'}/FicheFacture.html?factureId=${encodeURIComponent(r.roo)}`, '_blank')}><ExternalLink size={14} /></IconBtn>
+                            <IconBtn title="Pièces jointes SEDIT (PDF / XML de la facture)" color="#7c3aed" onClick={() => setPiecesRow(r)}><Files size={14} /></IconBtn>
+                            {(r.can_sf || (r.circuit && r.circuit.can_cancel)) && <span style={{ width: 1, height: 18, background: '#e2e8f0', margin: '0 2px' }} />}
+                            {r.can_sf && <IconBtn title="Lancer la validation du service fait (avec un vérificateur)" color="#4f46e5" onClick={() => setSfDialog({ row: r, mode: 'circuit' })}><Send size={14} /></IconBtn>}
+                            {r.can_sf && <IconBtn title="Déclarer moi-même le service fait (sans circuit de validation)" color="#16a34a" onClick={() => setSfDialog({ row: r, mode: 'self' })}><CheckCircle2 size={14} /></IconBtn>}
+                            {r.circuit && r.circuit.can_cancel && <IconBtn title="Annuler le circuit de service fait en cours" color="#dc2626" onClick={() => cancelCircuit(r)}><Ban size={14} /></IconBtn>}
+                          </div>
                         </td>
                         {multiSource && <td style={{ ...s.td, fontSize: '0.75rem', color: '#64748b' }}>{r.via.join(', ')}</td>}
                       </tr>
@@ -535,6 +611,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
         </div>
       </div>
       {sfDialog && <ServiceFaitDialog row={sfDialog.row} mode={sfDialog.mode} onClose={() => setSfDialog(null)} onDone={() => setReloadKey(k => k + 1)} />}
+      {piecesRow && <PiecesDialog row={piecesRow} onClose={() => setPiecesRow(null)} />}
       {showChart && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowChart(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(1100px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}>
