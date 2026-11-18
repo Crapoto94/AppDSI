@@ -1,10 +1,41 @@
 const fs = require('fs');
 const path = require('path');
-const { pgDb } = require('../../shared/database');
+const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 
 const MODULE = 'rencontres';
+
+// Mémorise un intervenant externe (annuaire réutilisable pour les prochaines réunions).
+// Clé de rapprochement : email s'il existe, sinon nom + prénom. Ne doit jamais faire échouer la saisie.
+async function memoriserIntervenant(p, username) {
+    try {
+        if (!p || p.type_presence !== 'externe' || !String(p.nom || '').trim()) return;
+        const nom = String(p.nom).trim();
+        const prenom = String(p.prenom || '').trim();
+        const email = String(p.email || '').trim();
+        const organisme = String(p.organisme || '').trim();
+        const fonction = String(p.fonction || '').trim();
+        const found = email
+            ? await pool.query('SELECT id FROM hub_rencontres.intervenants_externes WHERE LOWER(email) = LOWER($1) LIMIT 1', [email])
+            : await pool.query('SELECT id FROM hub_rencontres.intervenants_externes WHERE LOWER(nom) = LOWER($1) AND LOWER(COALESCE(prenom, \'\')) = LOWER($2) LIMIT 1', [nom, prenom]);
+        if (found.rows.length) {
+            await pool.query(
+                `UPDATE hub_rencontres.intervenants_externes
+                 SET nom = $1, prenom = NULLIF($2, ''), email = COALESCE(NULLIF($3, ''), email),
+                     organisme = COALESCE(NULLIF($4, ''), organisme), fonction = COALESCE(NULLIF($5, ''), fonction),
+                     usage_count = COALESCE(usage_count, 0) + 1, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $6`,
+                [nom, prenom, email, organisme, fonction, found.rows[0].id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO hub_rencontres.intervenants_externes (nom, prenom, email, organisme, fonction, created_by) VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), $6)`,
+                [nom, prenom, email, organisme, fonction, username || null]
+            );
+        }
+    } catch (e) { console.warn('[Rencontres] memoriserIntervenant:', e.message); }
+}
 
 // Forward declaration - sendMail will be injected from server.js
 let sendMailFn = null;
@@ -265,6 +296,7 @@ module.exports = {
                         [reunionId, p.nom, p.prenom || '', p.email || '', p.service || '', p.direction || '', p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null, p.commentaire || null, p.organisme || null, p.fonction || null]
                     );
                     if (p.ad_username) addedUsernames.add(p.ad_username);
+                    await memoriserIntervenant(p, username);
                 }
             }
 
@@ -641,7 +673,24 @@ ${teamsHtml}`;
                 [id, nom, prenom, email, service, direction, type_presence || 'metier', statut_presence || 'present', ad_username, commentaire || null, organisme || null, fonction || null]
             );
             const participant = await pgDb.get('SELECT * FROM reunion_participants WHERE id=?', [result.lastID]);
+            await memoriserIntervenant({ nom, prenom, email, organisme, fonction, type_presence }, req.user?.username);
             res.status(201).json(participant);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // GET /intervenants/search?q= : suggestions d'intervenants externes déjà saisis
+    searchIntervenants: async (req, res) => {
+        try {
+            const q = String(req.query.q || '').trim();
+            if (q.length < 2) return res.json([]);
+            const like = `%${q.replace(/[\\%_]/g, m => '\\' + m)}%`;
+            const { rows } = await pool.query(
+                `SELECT id, nom, prenom, email, organisme, fonction FROM hub_rencontres.intervenants_externes
+                 WHERE nom ILIKE $1 OR prenom ILIKE $1 OR (COALESCE(prenom,'') || ' ' || nom) ILIKE $1 OR organisme ILIKE $1 OR email ILIKE $1
+                 ORDER BY usage_count DESC NULLS LAST, nom LIMIT 10`,
+                [like]
+            );
+            res.json(rows);
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 

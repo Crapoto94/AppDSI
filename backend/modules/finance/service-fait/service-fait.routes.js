@@ -1,27 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('./service-fait.controller');
-const { authenticateJWT, authenticateAdmin, authenticateAdminOrFinances } = require('../../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateServiceFaitManager } = require('../../../shared/middleware');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Internal API (requires JWT)
-// Opérations de modification du service fait : superadmin / finances / compta uniquement
-router.post('/', authenticateAdminOrFinances, controller.createWorkflow);
+// Opérations de modification du service fait : superadmin / admin / finances / compta (rôle résolu comme /api/auth/me)
+router.post('/', authenticateServiceFaitManager, controller.createWorkflow);
 // Déclaration directe du service fait (sans circuit de validation) — PJ obligatoire
-router.post('/self', authenticateAdminOrFinances, upload.array('files', 10), controller.createSelfWorkflow);
+router.post('/self', authenticateServiceFaitManager, upload.array('files', 10), controller.createSelfWorkflow);
 router.post('/statuses', authenticateJWT, controller.getStatuses);
 // Directeurs paramétrés (générique) — AVANT /:id.
 router.get('/directors', authenticateJWT, controller.getDirectors);
+// PJ de la demande de commande associée à la facture (préremplissage de la modale SF) — AVANT /:id.
+router.get('/demande-pieces', authenticateJWT, controller.getDemandePieces);
 // État de la facture des commandes (pastille FAC sur la liste des commandes)
 router.post('/commande-statuses', authenticateJWT, controller.getCommandeFactureStatuses);
 // Écritures Sedit (admin) — AVANT /:id pour ne pas être capturé par la route paramétrée.
 router.get('/sedit-writes', authenticateAdmin, controller.listSeditWrites);
 router.post('/sedit-writes/:logId/undo', authenticateAdmin, controller.undoSeditWrite);
 router.get('/:id', authenticateJWT, controller.getWorkflow);
-router.post('/:id/cancel', authenticateAdminOrFinances, controller.cancelWorkflow);
-router.post('/:id/pieces-jointes', authenticateAdminOrFinances, upload.array('files', 10), controller.addPiecesJointes);
-router.delete('/pieces-jointes/:pjId', authenticateAdminOrFinances, controller.deletePieceJointe);
+router.post('/:id/cancel', authenticateServiceFaitManager, controller.cancelWorkflow);
+router.post('/:id/pieces-jointes', authenticateServiceFaitManager, upload.array('files', 10), controller.addPiecesJointes);
+router.delete('/pieces-jointes/:pjId', authenticateServiceFaitManager, controller.deletePieceJointe);
 
 // Public API (no JWT — token-based)
 router.get('/public/:token', controller.getPublicByToken);

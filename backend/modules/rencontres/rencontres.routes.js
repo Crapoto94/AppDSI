@@ -70,6 +70,7 @@ reunionRouter.post('/generate', authenticateJWT, reunionsCtrl.generate);
 reunionRouter.post('/free-slots', authenticateJWT, reunionsCtrl.freeSlots);
 reunionRouter.get('/', authenticateJWT, reunionsCtrl.getAll);
 reunionRouter.post('/', authenticateJWT, reunionsCtrl.create);
+reunionRouter.get('/intervenants/search', authenticateJWT, reunionsCtrl.searchIntervenants);
 reunionRouter.get('/:id', authenticateJWT, reunionsCtrl.getById);
 reunionRouter.get('/:id/compte-rendu/preview', authenticateJWT, reunionsCtrl.previewCompteRendu);
 reunionRouter.post('/:id/compte-rendu', authenticateJWT, reunionsCtrl.sendCompteRendu);

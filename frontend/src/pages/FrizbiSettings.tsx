@@ -5,6 +5,7 @@ import {
   Send, RefreshCw, Save, Server, Globe, Key, Lock, Clock, Phone, MessageSquare, Check, X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import FrizbiBulkSms from '../components/FrizbiBulkSms';
 
 interface FrizbiSettingsData {
   is_enabled: number;
@@ -267,6 +268,8 @@ const FrizbiSettings: React.FC = () => {
         </div>
       </div>
 
+      <FrizbiBulkSms />
+
       {/* SMS Logs */}
       <div className="settings-card full-width" style={{ marginTop: 25 }}>
         <div className="card-header">
@@ -308,7 +311,7 @@ const FrizbiSettings: React.FC = () => {
                       <td style={{ fontSize: 13 }}>{log.sender_id}</td>
                       <td>
                         <span className={`source-badge source-${log.source}`}>
-                          {log.source === 'ecole_notify' ? 'École' : log.source === 'emergency' ? 'Urgence' : log.source === 'test' ? 'Test' : log.source}
+                          {log.source === 'ecole_notify' ? 'École' : log.source === 'emergency' ? 'Urgence' : log.source === 'test' ? 'Test' : log.source === 'bulk' ? 'Envoi en masse' : log.source}
                         </span>
                       </td>
                       <td>

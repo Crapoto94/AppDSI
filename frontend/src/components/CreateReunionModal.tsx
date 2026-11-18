@@ -4,6 +4,7 @@ import { X, Plus, Paperclip, Calendar as CalendarIcon, CalendarSearch, AlertTria
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { useADSearch } from '../utils/useADSearch';
+import IntervenantNameInput from './IntervenantNameInput';
 import { createAgentLinkTicket } from '../utils/createAgentLinkTicket';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -611,7 +612,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           <div style={{background: '#f0fdf4', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
             <div style={{fontSize: '12px', fontWeight: '700', color: '#16a34a', marginBottom: '8px'}}>➕ Ajouter un participant externe</div>
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1fr 1fr auto', gap: '8px', alignItems: 'end'}}>
-              <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>NOM *</label><input type="text" placeholder="Nom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.nom} onChange={e => setNewParticipant(v => ({...v, nom: e.target.value}))} /></div>
+              <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>NOM *</label><IntervenantNameInput token={token} placeholder="Nom (suggestions)" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.nom} onChange={nom => setNewParticipant(v => ({...v, nom}))} onPick={i => setNewParticipant(v => ({...v, nom: i.nom, prenom: i.prenom || '', email: i.email || '', organisme: i.organisme || '', fonction: i.fonction || ''}))} /></div>
               <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>PRÉNOM</label><input type="text" placeholder="Prénom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.prenom} onChange={e => setNewParticipant(v => ({...v, prenom: e.target.value}))} /></div>
               <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>EMAIL</label><input type="email" placeholder="Email" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.email} onChange={e => setNewParticipant(v => ({...v, email: e.target.value}))} /></div>
               <div>

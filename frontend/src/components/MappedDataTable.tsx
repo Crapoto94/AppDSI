@@ -35,12 +35,14 @@ interface MappedDataTableProps {
   onColumnsReady?: (columns: string[]) => void;
   visibleColumns?: string[];
   sectionFilter?: string;
+  /** Code du budget Sedit (« 00 », « 08 »…) : filtre factures/commandes côté serveur. '' = tous. */
+  budgetFilter?: string;
   // Source des données : 'pg' (copie locale oracle.gf_oracle_*, défaut) ou 'sedit'
   // (interrogation directe de la base Sedit — page « Factures (beta) »).
   dataSource?: 'pg' | 'sedit';
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter, dataSource = 'pg' }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter, budgetFilter, dataSource = 'pg' }) => {
   const { token, user } = useAuth();
   // Service fait : opérations de modification réservées aux rôles compta / finances / admin
   const canModifySF = ['superadmin', 'admin', 'finances', 'compta'].includes((user as any)?.role);
@@ -128,6 +130,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       if (fiscalYear) params.fiscal_year = String(fiscalYear);
       if (pendingFilter && rubriqueName === 'Factures') params.pending_filter = '1';
       if (sectionFilter && sectionFilter !== 'all') params.section_filter = sectionFilter;
+      if (budgetFilter) params.budget_filter = budgetFilter;
       const s = sort !== undefined ? sort : sortConfig;
       if (s) {
         params.sort_by = s.key;
@@ -222,7 +225,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     if (!mountedRef.current) return;
     setCurrentPage(0);
     fetchData(searchTerm, 0);
-  }, [pendingFilter, sectionFilter]);
+  }, [pendingFilter, sectionFilter, budgetFilter]);
   useEffect(() => { mountedRef.current = true; }, []);
 
   useEffect(() => {

@@ -59,7 +59,7 @@ router.get('/lines', authenticateJWT, swr.wrap('budget-lines', financeController
 // Synthèse budgétaire lue en direct dans Sedit (Oracle FI)
 router.get('/synthese-sedit', authenticateJWT, async (req, res) => {
     try {
-        res.json(await require('./sedit-budget-synthese.service').getBudgetSynthese({ exercice: req.query.fiscalYear, scope: req.query.budgetScope }));
+        res.json(await require('./sedit-budget-synthese.service').getBudgetSynthese({ exercice: req.query.fiscalYear, scope: req.query.budgetScope, budget: req.query.budget }));
     } catch (e) {
         console.error('[Finance] synthese-sedit error:', e);
         res.status(500).json({ message: 'Erreur lecture Sedit', error: e.message });

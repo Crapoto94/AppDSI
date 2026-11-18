@@ -412,16 +412,24 @@ export default function CalendrierDSI() {
     setShowPrevModal(true);
   };
 
+  // Télétravail : jamais de série, toujours un jour (ou demi-journée) unitaire
+  useEffect(() => {
+    if (prevType === 'teletravail') {
+      setPrevDateFin(prevDateDebut);
+      setPrevPeriodeFin(prevPeriodeDebut);
+    }
+  }, [prevType, prevDateDebut, prevPeriodeDebut]);
+
   const handlePrevSave = async () => {
     if (!prevAgent || !prevType) return;
     setPrevSaving(true);
     try {
       if (editingEvent && editingEvent.id > 0 && prevType !== 'hotline') {
         try {
-          const titre = encodeURIComponent(editingEvent.titre || '');
-          const username = encodeURIComponent(editingEvent.agent_username || '');
-          await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}?deleteSeries=true&titre=${titre}&agent_username=${username}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-        } catch (e) { console.error('[Prev] Error deleting old series:', e); }
+          // Ne supprimer QUE l'événement modifié : la « série » est déduite par adjacence
+          // et regrouperait des jours saisis séparément.
+          await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) { console.error('[Prev] Error deleting old event:', e); }
       }
       const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, deplacement: CATEGORY_COLORS.deplacement, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
       const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', deplacement: 'Déplacement', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
@@ -945,8 +953,7 @@ export default function CalendrierDSI() {
       agent_username: selectedAgent?.username || null,
       agent_nom: selectedAgent?.displayName || null,
       agent_email: selectedAgent?.email || null,
-      couleur: CATEGORY_COLORS[formCategorie],
-      updateSeries: editingEvent?.agent_username ? true : undefined
+      couleur: CATEGORY_COLORS[formCategorie]
     };
     console.log('[Calendrier] Saving event:', body);
     try {
@@ -2587,7 +2594,7 @@ const renderDot = (evt: Evenement) => {
                   <option value="apres-midi">Après-midi</option>
                 </select>
               </div>
-              <div style={{ flex: 1 }}>
+              {prevType !== 'teletravail' && <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, color: '#475569' }}>Date fin</label>
                 <input type="date" value={prevDateFin} onChange={e => setPrevDateFin(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
                 <select value={prevPeriodeFin} onChange={e => setPrevPeriodeFin(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem', marginTop: 4, background: '#fff' }}>
@@ -2595,7 +2602,7 @@ const renderDot = (evt: Evenement) => {
                   <option value="matin">Matin</option>
                   <option value="apres-midi">Après-midi</option>
                 </select>
-              </div>
+              </div>}
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               {editingEvent && <button onClick={() => { setShowPrevModal(false); setConfirmDelete(editingEvent!.id); }} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>🗑 Supprimer</button>}
@@ -2611,7 +2618,7 @@ const renderDot = (evt: Evenement) => {
       {/* Confirm delete */}
       {confirmDelete !== null && (() => {
         const evt = events.find(e => e.id === confirmDelete);
-        const isSeries = evt && evt.agent_username;
+        const isSeries = evt && evt.agent_username && evt.categorie !== 'teletravail';
         return (
         <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="confirm-box" onClick={e => e.stopPropagation()}>

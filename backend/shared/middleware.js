@@ -202,6 +202,54 @@ const authenticateAdminOrFinances = (req, res, next) => {
 };
 
 /**
+ * Rôle effectif d'un utilisateur. Le JWT porte le rôle SQLite figé à la connexion ; or le rôle
+ * « compta » / « finances » est posé dans hub.users (PostgreSQL), que /api/auth/me superpose
+ * au rôle SQLite pour le front (même règle, cf. server.js). Sans cette résolution, un agent
+ * déclaré compta voit le formulaire côté front mais le backend le refuse (rôle « user » du jeton).
+ */
+async function resolveEffectiveRole(user) {
+    const jwtRole = user && user.role;
+    if (!user || !user.username || user.source === 'magapp') return jwtRole;
+    // Rôle du jeton déjà suffisant → inutile d'interroger les bases.
+    if (['superadmin', 'admin', 'finances', 'compta'].includes(jwtRole)) return jwtRole;
+    // Sinon on relit TOUJOURS le rôle courant : le jeton est figé à la connexion (un agent promu compta depuis,
+    // ou connecté avec un rôle « technician » issu de hub.users, garderait sinon un rôle périmé).
+    let role = jwtRole;
+    // 1. Rôle courant en SQLite (posé par Admin → Utilisateurs) : le JWT ne le reflète qu'à la connexion.
+    try {
+        const db = getSqlite();
+        const row = db && await db.get('SELECT role FROM users WHERE LOWER(username) = LOWER(?)', [user.username]);
+        if (row && row.role) role = row.role;
+    } catch (e) { /* non bloquant */ }
+    // 2. Surcharge par hub.users (rôle posé via le module tickets), comme /api/auth/me.
+    if (!role || !['superadmin', 'admin', 'finances', 'compta'].includes(role)) {
+        try {
+            const r = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1', [user.username]);
+            const hubRole = r.rows[0] && r.rows[0].role;
+            if (hubRole && ['superadmin', 'admin', 'finances', 'compta'].includes(hubRole)) role = hubRole;
+        } catch (e) { /* non bloquant : on garde le rôle déjà résolu */ }
+    }
+    return role;
+}
+
+/**
+ * Middleware du service fait (déclaration, annulation, pièces jointes) : superadmin, admin,
+ * finances, compta — même périmètre que le front (canModifySF), rôle résolu comme /api/auth/me.
+ */
+const authenticateServiceFaitManager = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (!req.user) return res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+        if (isAdminLike(req.user)) return next();
+        const role = await resolveEffectiveRole(req.user);
+        if (role === 'admin' || role === 'finances' || role === 'compta') {
+            req.user.role = role;
+            return next();
+        }
+        res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+    });
+};
+
+/**
  * Middleware for Admin or users with MagApp Control access
  */
 const authenticateMagappControl = (req, res, next) => {
@@ -593,7 +641,13 @@ const SEG_TO_SCOPE = {
   maps: 'dxf',
   'oracle-automation': 'oracle',
   notes: 'notes',
+  dataquery: 'dataquery',
 };
+
+// Requêtes POST qui restent en lecture seule par construction : autorisées
+// pour une clé de permission 'read' (ex. /dataquery/query, qui exécute un
+// SELECT via un rôle PostgreSQL sans droit d'écriture).
+const READ_ONLY_POST_PATHS = new Set(['/dataquery/query', '/dataquery/auth/login', '/dataquery/auth/logout']);
 
 // Déduit le périmètre (scope) attendu depuis le chemin relatif à /api.
 const scopeForPath = (relPath) => {
@@ -612,7 +666,8 @@ const scopeForPath = (relPath) => {
 const apiKeyGate = (req, res, next) => {
   if (!extractApiKey(req)) return next();
   return authenticateApiKey(req, res, () => {
-    if (req.method !== 'GET' && req.apiKey.permissions !== 'read_write') {
+    const readOnlyPost = req.method === 'POST' && READ_ONLY_POST_PATHS.has(req.path.replace(/\/+$/, ''));
+    if (req.method !== 'GET' && !readOnlyPost && req.apiKey.permissions !== 'read_write') {
       return res.status(403).json({ error: "Clé API en lecture seule : passez la permission de cette clé en 'read_write' (/admin/api-keys) pour autoriser l'écriture" });
     }
     const scope = scopeForPath(req.path);
@@ -640,6 +695,7 @@ module.exports = {
     authenticateAdminUI: bypassIfApiKey(authenticateAdminUI),
     authenticateInternalOrAdmin: bypassIfApiKey(authenticateInternalOrAdmin),
     authenticateAdminOrFinances: bypassIfApiKey(authenticateAdminOrFinances),
+    authenticateServiceFaitManager: bypassIfApiKey(authenticateServiceFaitManager),
     authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
     authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),

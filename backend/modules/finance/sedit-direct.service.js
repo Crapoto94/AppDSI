@@ -83,6 +83,13 @@ function buildOracleInner({ tableName, config, whereClause }, validColumns, extr
         selectParts.push(`${impl('CODECOMP')} AS "nature"`);
     }
 
+    // Budget (code + libellé, via FI.BUDGET) des factures et commandes : sert à la colonne « Budget »
+    // et au filtre par budget de la page Budget.
+    if (['COMMANDE', 'FACTURE'].includes(String(tableName).toUpperCase())) {
+        const bud = (col) => `(SELECT TRIM(b.${col}) FROM FI.BUDGET b WHERE TRIM(b.ROO_IMA_REF) = TRIM(T1.BUDGET) AND ROWNUM = 1)`;
+        selectParts.push(`${bud('BUDGET')} AS "budget_code"`, `${bud('LIBELLE')} AS "budget_lib"`);
+    }
+
     let sql = `SELECT ${selectParts.join(', ')} FROM "${tableName}" T1 ${joinParts.join(' ')}`;
     const raw = String(whereClause || '').trim().replace(/"/g, "'");
     const conditions = [];
@@ -159,7 +166,7 @@ function columnRefForVariable(v) {
  * Résout une rubrique depuis Sedit. Renvoie la même structure que resolveMapping.
  */
 async function resolveRubriqueFromSedit(name, query = {}) {
-    const { limit, offset, search, fiscal_year, sort_by, sort_dir, etat_filter, section_filter, pending_filter } = query;
+    const { limit, offset, search, fiscal_year, sort_by, sort_dir, etat_filter, section_filter, pending_filter, budget_filter } = query;
 
     const rubriqueResult = await pool.query('SELECT * FROM finance.field_mapping_rubriques WHERE name = $1', [name]);
     if (rubriqueResult.rowCount === 0) { const e = new Error(`Rubrique '${name}' non trouvée`); e.status = 404; throw e; }
@@ -212,6 +219,12 @@ async function resolveRubriqueFromSedit(name, query = {}) {
         }
     }
 
+    // Filtre par budget (code Sedit, ex. « 00 », « 08 ») — factures et commandes.
+    if (budget_filter && ['COMMANDE', 'FACTURE'].includes(String(sync.tableName).toUpperCase())) {
+        whereParts.push(`"_o"."budget_code" = :bud`);
+        binds.bud = String(budget_filter).trim();
+    }
+
     // Filtre « à traiter » (Factures) : service fait NON validé dans Sedit ET facture
     // NON rejetée. Évalué sur la source brute (T1) à l'intérieur de la sous-requête.
     const innerExtra = [];
@@ -229,6 +242,13 @@ async function resolveRubriqueFromSedit(name, query = {}) {
     const isCommande = String(sync.tableName).toUpperCase() === 'COMMANDE';
     const isFacture = String(sync.tableName).toUpperCase() === 'FACTURE';
     const extraColumns = [];
+    if (isCommande || isFacture) {
+        // Colonne « Budget » = « code – libellé » (ex. 00 – PRINCIPAL), sauf si le mapping en définit déjà une.
+        if (!variables.some(v => v.variable_name === 'Budget')) {
+            extraColumns.push({ name: 'Budget', display_type: 'text', expression: 'budget', expression_type: 'field' });
+            projections.push(`CASE WHEN "budget_code" IS NULL THEN NULL WHEN "budget_lib" IS NULL THEN "budget_code" ELSE "budget_code" || ' – ' || "budget_lib" END AS "Budget"`);
+        }
+    }
     if (isCommande) {
         extraColumns.push(
             { name: 'Nature', display_type: 'text', expression: 'nature', expression_type: 'field' },

@@ -30,6 +30,8 @@ interface Props {
   liveEnabled: boolean;
   // Chat visible uniquement pour les beta testeurs (non activé pour tout le monde) : affiche le badge BETA
   beta?: boolean;
+  // Décalage (px) vers la gauche quand un panneau (forum de crise) est épinglé à droite de la page
+  rightOffset?: number;
 }
 
 /** Notification du navigateur (si autorisée) : réponse d'un technicien alors que l'onglet est en arrière-plan ou le chat réduit. */
@@ -76,7 +78,7 @@ interface CoreProps extends Props {
   openCapture: (src: string, done: (b: Blob) => void) => void;
 }
 
-function ChatWidgetCore({ liveEnabled, beta = false, hidden, setHidden, openCapture }: CoreProps) {
+function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, setHidden, openCapture }: CoreProps) {
   const [state, setState] = useState<ChatState>('idle');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<LiveMessage[]>([]);
@@ -424,7 +426,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, hidden, setHidden, openCapt
 
   // ── Shared styles ────────────────────────────────────────────────────
   const panelStyle: React.CSSProperties = {
-    position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+    position: 'fixed', bottom: 24, right: 24 + rightOffset, zIndex: 9999,
     width: 360, background: '#fff', borderRadius: 20,
     boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -522,7 +524,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, hidden, setHidden, openCapt
           ? (closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour envoyer un message d'urgence"
           : (closingMessage || 'Le support est actuellement fermé')}
         style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          position: 'fixed', bottom: 24, right: 24 + rightOffset, zIndex: 9999,
           width: 56, height: 56, borderRadius: '50%',
           background: emergencyAvailable ? 'linear-gradient(135deg, #f59e0b, #dc2626)' : 'linear-gradient(135deg, #94a3b8, #64748b)',
           border: 'none', cursor: emergencyAvailable ? 'pointer' : 'not-allowed',
@@ -540,7 +542,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, hidden, setHidden, openCapt
         onClick={() => { requestNotificationPermission(); setUnread(0); setState(sessionId ? (state === 'ended' ? 'open' : (techName ? 'active' : 'waiting')) : 'open'); }}
         title="Contacter le support DSI"
         style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          position: 'fixed', bottom: 24, right: 24 + rightOffset, zIndex: 9999,
           width: 56, height: 56, borderRadius: '50%',
           background: sessionId
             ? 'linear-gradient(135deg, #22c55e, #16a34a)'

@@ -7,6 +7,7 @@ import TranscriptUploadModal from './TranscriptUploadModal';
 import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
+import IntervenantNameInput from './IntervenantNameInput';
 import type { ADUser } from '../utils/useADSearch';
 import { createAgentLinkTicket } from '../utils/createAgentLinkTicket';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
@@ -641,7 +642,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                 <div style={{fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px'}}>➕ Ajouter un participant externe</div>
                 <div style={{display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px'}}>
                   <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px'}}>
-                    <div><input type="text" placeholder="Nom *" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.nom} onChange={e => setDetailNewParticipant(v => ({...v, nom: e.target.value}))} /></div>
+                    <div><IntervenantNameInput token={token} placeholder="Nom * (suggestions)" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.nom} onChange={nom => setDetailNewParticipant(v => ({...v, nom}))} onPick={i => setDetailNewParticipant(v => ({...v, nom: i.nom, prenom: i.prenom || '', email: i.email || '', organisme: i.organisme || '', fonction: i.fonction || ''}))} /></div>
                     <div><input type="text" placeholder="Prénom" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.prenom} onChange={e => setDetailNewParticipant(v => ({...v, prenom: e.target.value}))} /></div>
                   </div>
                   <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px'}}>

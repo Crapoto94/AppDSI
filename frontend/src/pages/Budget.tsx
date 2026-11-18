@@ -102,7 +102,23 @@ const Budget: React.FC = () => {
   // New state for fiscal year and budget scope
   const currentYear = new Date().getFullYear();
   const [currentFiscalYear, setCurrentFiscalYear] = useState(currentYear);
-  const [budgetScope, setBudgetScope] = useState<'Ville' | 'All'>('Ville'); // Default to 'Ville'
+  // Plus de bascule Ville / Tous : on charge toujours tous les budgets et on filtre côté page.
+  const budgetScope: 'Ville' | 'All' = 'All';
+  // Filtre par code de budget (lignes, factures, commandes, engagements). '' = tous. Défaut : budget principal (00).
+  const [budgetFilter, setBudgetFilter] = useState('00');
+  // Code du budget d'une ligne, quel que soit l'onglet (le libellé seul n'est pas fiable : « 00 » et
+  // « 00 – PRINCIPAL » désignent le même budget). Retourne '' si inconnu, ou « L:LIBELLE » si seul le libellé existe.
+  const rowBudgetCode = (r: any): string => {
+    const direct = String(r?.['Code budget'] ?? r?.BUDGET_BUDGET ?? r?.FACTURE_POBJ_EXTRACT_1 ?? '').trim();
+    if (direct) return direct;
+    const b = String(r?.['Budget'] ?? r?.BUDGET_LIBELLE ?? '').trim();
+    if (!b) return '';
+    const m = b.match(/^(\S+)\s+[–-]\s+/);
+    if (m) return m[1];
+    if (/^\d+$/.test(b)) return b;
+    return `L:${b.toUpperCase()}`;
+  };
+  const rowBudgetLabel = (r: any): string => String(r?.['Budget'] ?? r?.BUDGET_LIBELLE ?? '').trim();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [sectionFilter, setSectionFilter] = useState('all');
@@ -119,15 +135,14 @@ const Budget: React.FC = () => {
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>(() => {
     const filters: Record<string, string> = {};
     if (!['admin', 'finances'].includes(currentUser.role)) {
-      if (view === 'orders' || view === 'operations') {
+      // Opérations : visibles par tous ceux qui ont accès à la tuile Budget (pas de filtre de service d'office).
+      if (view === 'orders') {
         const u = currentUser as any;
         if (u.service_code) {
-          const serviceKey = view === 'orders' ? 'Service émetteur' : 'Service';
-          filters[serviceKey] = u.service_code;
+          filters['Service émetteur'] = u.service_code;
         }
         if (u.service_complement) {
-          const complementKey = view === 'orders' ? 'Service complément' : 'Service Complément';
-          filters[complementKey] = u.service_complement;
+          filters['Service complément'] = u.service_complement;
         }
       }
     }
@@ -838,6 +853,44 @@ const Budget: React.FC = () => {
     setColumnFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  // Budgets présents dans les données chargées, dédoublonnés par CODE (un seul libellé par code).
+  const budgetOptions = useMemo(() => {
+    const labelOf: Record<string, string> = {};   // code -> « code – libellé » le plus complet
+    const codeOfLabel: Record<string, string> = {}; // LIBELLE (majuscules) -> code
+    const lonely = new Set<string>();             // libellés sans code connu
+    [budgetLines, invoices, orders, engagements].forEach((arr: any[]) => (arr || []).forEach(r => {
+      const c = rowBudgetCode(r);
+      if (!c) return;
+      if (c.startsWith('L:')) { lonely.add(c); return; }
+      const label = rowBudgetLabel(r);
+      if (label.length > (labelOf[c] || '').length) labelOf[c] = label;
+      const m = label.match(/^\S+\s+[–-]\s+(.+)$/);
+      if (m) codeOfLabel[m[1].trim().toUpperCase()] = c;
+      if (!labelOf[c]) labelOf[c] = c;
+    }));
+    // Un libellé seul qui correspond à un code connu est rattaché à ce code ; sinon il devient une option à part.
+    lonely.forEach(l => { const code = codeOfLabel[l.slice(2)]; if (!code) labelOf[l] = l.slice(2); });
+    return { options: Object.entries(labelOf).map(([code, label]) => ({ code, label })).sort((a, b) => a.label.localeCompare(b.label, 'fr', { numeric: true })), codeOfLabel };
+  }, [budgetLines, invoices, orders, engagements]);
+
+  // Si le budget par défaut (00) n'existe pas dans les données chargées, on affiche tous les budgets.
+  useEffect(() => {
+    if (budgetFilter && budgetOptions.options.length > 0 && !budgetOptions.options.some(o => o.code === budgetFilter)) {
+      setBudgetFilter('');
+    }
+  }, [budgetOptions, budgetFilter]);
+
+  // Une ligne appartient-elle au budget sélectionné (par code) ?
+  const matchesBudget = (r: any): boolean => {
+    if (!budgetFilter) return true;
+    let c = rowBudgetCode(r);
+    if (c.startsWith('L:')) c = budgetOptions.codeOfLabel[c.slice(2)] || c;
+    return c === budgetFilter;
+  };
+
+  // Engagements du budget sélectionné (sert aux KPI de l'onglet Engagements et au report de la synthèse).
+  const engagementsBF = engagements.filter(matchesBudget);
+
   const groupedOrders = useMemo(() => {
     if (!orders || orders.length === 0) return [];
     const groups: Record<string, any> = {};
@@ -943,9 +996,12 @@ const Budget: React.FC = () => {
     const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
     
     budgetLines.forEach(line => {
+      if (!matchesBudget(line)) return;
       const chapter = (line['Chapitre par nature'] || line.chapter || 'SANS_CHAPITRE').toString().trim();
       const label = (line['Libellé'] || line.label || 'SANS_LIBELLE').toString().trim();
-      
+      // Une même ligne existant dans plusieurs budgets reste distincte (pas d'addition entre budgets).
+      const labelKey = `${label}||${rowBudgetCode(line)}`;
+
       if (!chapters[chapter]) {
         chapters[chapter] = {
           _isChapter: true,
@@ -957,24 +1013,24 @@ const Budget: React.FC = () => {
         financialCols.forEach(col => chapters[chapter]._total[col] = 0);
       }
       
-      if (!chapters[chapter]._labels[label]) {
-        chapters[chapter]._labels[label] = {
+      if (!chapters[chapter]._labels[labelKey]) {
+        chapters[chapter]._labels[labelKey] = {
           ...line,
           "Libellé": label,
           label: label,
           _isGroup: true,
           _lines: []
         };
-        financialCols.forEach(col => chapters[chapter]._labels[label][col] = 0);
+        financialCols.forEach(col => chapters[chapter]._labels[labelKey][col] = 0);
       }
-      
+
       financialCols.forEach(col => {
         const val = parseFloat(line[col] || 0);
-        chapters[chapter]._labels[label][col] += val;
+        chapters[chapter]._labels[labelKey][col] += val;
         chapters[chapter]._total[col] += val;
       });
-      
-      chapters[chapter]._labels[label]._lines.push(line);
+
+      chapters[chapter]._labels[labelKey]._lines.push(line);
     });
     
     // Convert to flat list for rendering (Chapter Header then its Grouped Labels)
@@ -996,9 +1052,10 @@ const Budget: React.FC = () => {
     });
     
     return result;
-  }, [budgetLines]);
+  }, [budgetLines, budgetFilter, budgetOptions]);
 
   const filteredOrders = groupedOrders.filter(order => {
+    if (!matchesBudget(order)) return false;
     const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
     const globalLabel = (order['Libellé'] || '').toString().toLowerCase();
     const provider = (order.provider || order['Fournisseur'] || '').toString().toLowerCase();
@@ -1056,6 +1113,10 @@ const Budget: React.FC = () => {
 
   const filteredData = useMemo(() => {
     let data = view === 'lines' ? groupedBudgetLines : view === 'engagements' ? engagements : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
+
+    if ((view === 'invoices' || view === 'engagements') && budgetFilter) {
+      data = data.filter((row: any) => matchesBudget(row));
+    }
 
     if (view === 'operations') {
       const seen = new Set<string>();
@@ -1151,7 +1212,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, currentFiscalYear, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
+  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, currentFiscalYear, invoices, operations, filteredOrders, budgetFilter, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
   // Évolution cumulée des commandes liées aux opérations actuellement filtrées.
   const opsChartData = useMemo(() => {
@@ -1233,13 +1294,13 @@ const Budget: React.FC = () => {
       return opColumns.filter(c => available.includes(c));
     } else if (view === 'engagements') {
       const ENGAGEMENT_COLUMNS = [
-        'Code mouvement', 'Type mvt', 'État', 'Libellé', 'Nom tiers', 'Section',
+        'Code mouvement', 'Type mvt', 'État', 'Libellé', 'Nom tiers', 'Budget', 'Section',
         'Imputation', 'Article par nature', 'Chapitre par nature',
         'Montant engagé', 'Réalisé', 'Reste engagé', 'Bon de commande'
       ];
       return ENGAGEMENT_COLUMNS.filter(c => available.includes(c));
     } else if (view === 'lines') {
-      const HIDDEN_LINE_COLUMNS = ['Code', 'Masque', 'Sens', 'Référence Fonctionnelle', "Opération d'équipement", 'EQUIPEMENT', 'TVA', 'JE'];
+      const HIDDEN_LINE_COLUMNS = ['Code', 'Code budget', 'Masque', 'Sens', 'Référence Fonctionnelle', "Opération d'équipement", 'EQUIPEMENT', 'TVA', 'JE'];
       return available.filter(c => !HIDDEN_LINE_COLUMNS.includes(c));
     }
     return available;
@@ -1294,20 +1355,17 @@ const Budget: React.FC = () => {
                 )}
               </select>
             </div>
-            <div className="budget-scope-toggle">
-              <button
-                className={`toggle-btn ${budgetScope === 'Ville' ? 'active' : ''}`}
-                onClick={() => setBudgetScope('Ville')}
+            {budgetOptions.options.length > 0 && (
+              <select
+                value={budgetFilter}
+                onChange={e => setBudgetFilter(e.target.value)}
+                title="Filtrer les lignes, factures et commandes par budget"
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, background: 'white', color: budgetFilter ? '#003366' : '#475569' }}
               >
-                Budget {budgetPrincipal || 'Ville'}
-              </button>
-              <button
-                className={`toggle-btn ${budgetScope === 'All' ? 'active' : ''}`}
-                onClick={() => setBudgetScope('All')}
-              >
-                Tous les budgets
-              </button>
-            </div>
+                <option value="">Tous les budgets</option>
+                {budgetOptions.options.map(b => <option key={b.code} value={b.code}>{b.label}</option>)}
+              </select>
+            )}
           </div>
           <div className="view-tabs">
             {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes', 'virements'].map(tab => {
@@ -1324,14 +1382,12 @@ const Budget: React.FC = () => {
                     
                     // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
                     const u = currentUser as any;
-                    if (u.service_code && !['admin', 'finances'].includes(u.role) && (tab === 'orders' || tab === 'operations')) {
+                    if (u.service_code && !['admin', 'finances'].includes(u.role) && tab === 'orders') {
                       const filters: Record<string, string> = {};
-                      const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
-                      filters[serviceKey] = u.service_code;
-                      
+                      filters['Service émetteur'] = u.service_code;
+
                       if (u.service_complement) {
-                        const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
-                        filters[complementKey] = u.service_complement;
+                        filters['Service complément'] = u.service_complement;
                       }
                       setColumnFilters(filters);
                     } else {
@@ -1704,8 +1760,9 @@ const Budget: React.FC = () => {
                   <BudgetHierarchy
                     token={token}
                     fiscalYear={currentFiscalYear}
-                    budgetScope={budgetScope}
-                    carry={engagements.reduce((acc: { reportsI: number; rattachF: number }, e: any) => {
+                    budgetScope="All"
+                    budget={budgetFilter}
+                    carry={engagementsBF.reduce((acc: { reportsI: number; rattachF: number }, e: any) => {
                       const m = parseFloat(e['Montant engagé'] || 0) || 0;
                       if (e['Type mvt'] === 'Report') acc.reportsI += m;
                       else if (e['Type mvt'] === 'Rattachement') acc.rattachF += m;
@@ -1719,7 +1776,7 @@ const Budget: React.FC = () => {
                   const addT = (b: { r: number; ra: number; n: number }, type: string, amt: number) => {
                     if (type === 'Report') b.r += amt; else if (type === 'Rattachement') b.ra += amt; else b.n += amt;
                   };
-                  const k = engagements.reduce((acc, e) => {
+                  const k = engagementsBF.reduce((acc, e) => {
                     const ttc = parseFloat(e['Montant engagé'] || 0) || 0;
                     const reste = parseFloat(e['Reste engagé'] || 0) || 0;
                     const type = e['Type mvt'];
@@ -1784,7 +1841,7 @@ const Budget: React.FC = () => {
                       >
                         <span style={label}>Total engagé</span>
                         <span style={value}>{fmt(k.total)}</span>
-                        <span style={sub}>{engagements.length} engagements{noFilter ? ' · tous' : ''}</span>
+                        <span style={sub}>{engagementsBF.length} engagements{noFilter ? ' · tous' : ''}</span>
                         {tLine(k.totalT)}
                       </div>
                       <div
@@ -2628,7 +2685,7 @@ const Budget: React.FC = () => {
                     Inv.
                   </button>
                 </div>
-                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear} budgetFilter={budgetFilter}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={orderColumnStyles}
                   visibleColumns={orderColumns}
@@ -2638,7 +2695,7 @@ const Budget: React.FC = () => {
             )}
             {view === 'invoices_beta' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear} budgetFilter={budgetFilter}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={invoiceColumnStyles}
                   visibleColumns={invoiceColumns}

@@ -1,5 +1,55 @@
 const { Pool } = require('pg');
 
+/**
+ * (Ré)applique les droits du rôle lecture seule utilisé par le module dataquery.
+ * Ne fait rien si le rôle n'existe pas (il est créé à la main par
+ * modules/dataquery/sql/setup_global.sql, avec son mot de passe).
+ * Appelée à chaque démarrage : les nouvelles tables sont donc couvertes, avec
+ * le même filtrage des données sensibles.
+ *  - tables dont le NOM évoque des secrets/paramètres → aucun accès ;
+ *  - colonnes dont le NOM évoque un secret → non accordées (droits par colonne) ;
+ *  - aucun droit d'écriture, jamais.
+ */
+const DATAQUERY_ROLE = process.env.DATAQUERY_PG_USER || 'dq_readonly';
+const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_)';
+const DATAQUERY_DENY_COLUMNS = '(passw|pwd|secret|token|api_?key|apikey|hash|otp|private_?key|credential|pin_code|refresh|cookie|salt)';
+async function applyDataqueryGrants(client) {
+  const { rows } = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [DATAQUERY_ROLE]);
+  if (rows.length === 0) return;
+  await client.query(`
+    DO $dq$
+    DECLARE
+      r record; cols text; role_name text := ${client.escapeLiteral(DATAQUERY_ROLE)};
+      deny_tbl text := ${client.escapeLiteral(DATAQUERY_DENY_TABLES)};
+      deny_col text := ${client.escapeLiteral(DATAQUERY_DENY_COLUMNS)};
+    BEGIN
+      FOR r IN SELECT nspname FROM pg_namespace
+               WHERE nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND nspname NOT LIKE 'pg\\_%' LOOP
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', r.nspname, role_name);
+        EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I', r.nspname, role_name);
+      END LOOP;
+      FOR r IN SELECT c.oid, n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE c.relkind IN ('r','p','v','m','f')
+                 AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg\\_%' LOOP
+        CONTINUE WHEN r.relname ~* deny_tbl;
+        IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = r.oid AND attnum > 0 AND NOT attisdropped AND attname ~* deny_col) THEN
+          SELECT string_agg(quote_ident(attname), ', ' ORDER BY attnum) INTO cols
+            FROM pg_attribute WHERE attrelid = r.oid AND attnum > 0 AND NOT attisdropped AND attname !~* deny_col;
+          IF cols IS NOT NULL THEN
+            EXECUTE format('GRANT SELECT (%s) ON %I.%I TO %I', cols, r.nspname, r.relname, role_name);
+          END IF;
+        ELSE
+          EXECUTE format('GRANT SELECT ON %I.%I TO %I', r.nspname, r.relname, role_name);
+        END IF;
+      END LOOP;
+    END
+    $dq$;
+  `);
+  console.log(`[PG DB] Droits lecture seule appliqués au rôle ${DATAQUERY_ROLE}`);
+}
+
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'postgres',
   host: process.env.POSTGRES_HOST || '10.103.130.106',
@@ -1825,6 +1875,45 @@ async function setupPgDb() {
       await client.query(`INSERT INTO magapp.promotion (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
     } catch (e) { console.error('[MAGAPP] promotion schema:', e.message); }
 
+    // Bandeau d'actualité permanent du magasin (/admin/magapp > Paramètres)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.news_banner (
+          id INTEGER PRIMARY KEY,
+          enabled BOOLEAN DEFAULT false,
+          message TEXT DEFAULT '',
+          link_url TEXT DEFAULT '',
+          link_label TEXT DEFAULT '',
+          level VARCHAR(20) DEFAULT 'info',
+          scrolling BOOLEAN DEFAULT false,
+          until_date DATE,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS height INTEGER DEFAULT 56`);
+      // Forum de crise associé au bandeau : forum_id change à chaque « nouveau forum » (l'ancien est archivé)
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_enabled BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_locked BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_id INTEGER DEFAULT 1`);
+      await client.query(`ALTER TABLE magapp.news_banner ADD COLUMN IF NOT EXISTS forum_title TEXT DEFAULT 'Forum de crise'`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.forum_posts (
+          id SERIAL PRIMARY KEY,
+          forum_id INTEGER NOT NULL,
+          parent_id INTEGER REFERENCES magapp.forum_posts(id) ON DELETE CASCADE,
+          author_username TEXT NOT NULL,
+          author_name TEXT,
+          is_staff BOOLEAN DEFAULT false,
+          body TEXT NOT NULL,
+          resolved BOOLEAN DEFAULT false,
+          hidden BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_forum_posts_forum ON magapp.forum_posts(forum_id, parent_id)`);
+      await client.query(`INSERT INTO magapp.news_banner (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    } catch (e) { console.error('[MAGAPP] news_banner schema:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
         id SERIAL PRIMARY KEY,
@@ -2098,6 +2187,23 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Annuaire des intervenants externes (réutilisés d'une réunion à l'autre : saisie assistée)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.intervenants_externes (
+        id SERIAL PRIMARY KEY,
+        nom TEXT NOT NULL,
+        prenom TEXT,
+        email TEXT,
+        organisme TEXT,
+        fonction TEXT,
+        created_by TEXT,
+        usage_count INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_intervenants_ext_nom ON hub_rencontres.intervenants_externes (LOWER(nom));`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.reunion_attachments (
@@ -5216,6 +5322,14 @@ async function setupPgDb() {
       )
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_sms_logs_sent_at ON hub.sms_logs(sent_at DESC)`); } catch (e) {}
+    // Suivi de délivrance (envois en masse Frizbi)
+    for (const col of [
+      'campaign_id TEXT', 'frizbi_sms_id TEXT', 'contact_id TEXT',
+      'delivery_status TEXT', 'delivery_detail TEXT', 'delivery_checked_at TIMESTAMP'
+    ]) {
+      try { await client.query(`ALTER TABLE hub.sms_logs ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+    }
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_sms_logs_campaign ON hub.sms_logs(campaign_id)`); } catch (e) {}
 
     // Table de notes génériques pour toutes les tâches (Mes Tâches)
     await client.query(`
@@ -6799,6 +6913,45 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub.api_keys ADD COLUMN IF NOT EXISTS permissions VARCHAR(20) NOT NULL DEFAULT 'read'`);
     } catch (e) { console.error('[PG DB] api_keys:', e.message); }
 
+    // ─── Dataquery : audit + droits du rôle lecture seule ─────────────────
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_audit (
+          id           BIGSERIAL PRIMARY KEY,
+          created_at   TIMESTAMPTZ DEFAULT NOW(),
+          api_key_id   INT,
+          api_key_name VARCHAR(255),
+          ip           VARCHAR(100),
+          action       VARCHAR(30),
+          sql_text     TEXT,
+          row_count    INT,
+          duration_ms  INT,
+          error        TEXT
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_dataquery_audit_created ON hub.dataquery_audit (created_at DESC)`);
+      await client.query(`ALTER TABLE hub.dataquery_audit ADD COLUMN IF NOT EXISTS username VARCHAR(100)`);
+      await client.query(`ALTER TABLE hub.dataquery_audit ADD COLUMN IF NOT EXISTS trace_id VARCHAR(100)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_dataquery_audit_trace ON hub.dataquery_audit (trace_id)`);
+      // Sessions personnelles (2e facteur) : révocables, horodatées.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_sessions (
+          jti            UUID PRIMARY KEY,
+          username       VARCHAR(100) NOT NULL,
+          display_name   VARCHAR(255),
+          api_key_id     INT,
+          ip             VARCHAR(100),
+          client         VARCHAR(200),
+          created_at     TIMESTAMPTZ DEFAULT NOW(),
+          expires_at     TIMESTAMPTZ NOT NULL,
+          last_used_at   TIMESTAMPTZ,
+          revoked_at     TIMESTAMPTZ,
+          revoked_reason VARCHAR(200)
+        )
+      `);
+      await applyDataqueryGrants(client);
+    } catch (e) { console.error('[PG DB] dataquery:', e.message); }
+
     // ─── hub.encadrants : téléphones des directeurs / resp. de service ──────────
     try {
       await client.query(`
@@ -7685,5 +7838,6 @@ async function setupPgDb() {
 module.exports = {
   pool,
   pgDb,
-  setupPgDb
+  setupPgDb,
+  applyDataqueryGrants
 };

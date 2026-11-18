@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Loader, Send, CheckCircle2, FileText, Paperclip, Upload } from 'lucide-react';
+import { X, Loader, Send, CheckCircle2, FileText, Paperclip, Upload, Eye } from 'lucide-react';
+import { openAttachmentViewer } from './AttachmentViewer';
 
 interface MappingColumn {
   name: string;
@@ -73,6 +74,10 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromT
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [telecomBlocked, setTelecomBlocked] = useState(false);
+  // PJ de la demande de commande associée : intégrées d'office, retirables.
+  const [demandePieces, setDemandePieces] = useState<{ id: number; file_name: string; file_path: string; size: number | null; categorie?: string }[]>([]);
+  const [excludedPjIds, setExcludedPjIds] = useState<number[]>([]);
+  const [commandeNumero, setCommandeNumero] = useState<string | null>(null);
 
   const invoice_ref = String(row[columns.find(c => c.expression === 'FACTURE_FACTURE')?.name || ''] || '').trim() || String(row['FACTURE_FACTURE'] || '').trim() || '';
   const invoice_number = pick(row, columns, 'invoice_number') || invoice_ref;
@@ -80,6 +85,18 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromT
   const invoice_supplier = pick(row, columns, 'invoice_supplier') || '';
   const invoice_amount = pick(row, columns, 'invoice_amount');
   const invoice_section = pick(row, columns, 'invoice_section') || '';
+
+  useEffect(() => {
+    if (!invoice_ref) return;
+    axios.get('/api/finance/service-fait/demande-pieces', { headers, params: { invoice_ref } })
+      .then(r => {
+        setDemandePieces(Array.isArray(r.data?.pieces) ? r.data.pieces : []);
+        setCommandeNumero(r.data?.commande_numero || null);
+      })
+      .catch(() => setDemandePieces([]));
+  }, [invoice_ref]);
+
+  const includedPieces = demandePieces.filter(p => !excludedPjIds.includes(p.id));
 
   useEffect(() => {
     if (isSelf) return;
@@ -121,7 +138,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromT
     if (!invoice_ref) { setError('Référence de facture introuvable.'); return; }
     if (isSelf) {
       // Un commentaire OU une pièce justificative suffit (l'un des deux).
-      if (!comment.trim() && pjFiles.length === 0) {
+      if (!comment.trim() && pjFiles.length === 0 && includedPieces.length === 0) {
         setError('Renseignez un commentaire ou joignez au moins une pièce justificative (l\'un des deux suffit).');
         return;
       }
@@ -145,12 +162,14 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromT
         const fd = new FormData();
         Object.entries(payload).forEach(([k, v]) => fd.append(k, v == null ? '' : String(v)));
         fd.append('comment', comment || '');
+        fd.append('demande_pj_ids', JSON.stringify(includedPieces.map(p => p.id)));
         pjFiles.forEach(f => fd.append('files', f));
         await axios.post('/api/finance/service-fait/self', fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
       } else {
         await axios.post('/api/finance/service-fait', {
           ...payload,
           verifier_username: verifier,
+          demande_pj_ids: includedPieces.map(p => p.id),
           director_mode: selectedDirector && directorMode !== 'none' ? directorMode : null,
           entity_code: selectedDirector ? selectedDirector.entity_code : undefined,
         }, { headers });
@@ -306,6 +325,33 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromT
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+
+            {demandePieces.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Pièces de la demande de commande{commandeNumero ? ` (${commandeNumero})` : ''}
+                  <span style={{ fontWeight: 400, color: '#94a3b8' }}> — intégrées au service fait, décochez pour retirer</span>
+                </label>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {demandePieces.map(p => {
+                    const checked = !excludedPjIds.includes(p.id);
+                    return (
+                      <li key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, background: checked ? '#f8fafc' : '#fff', opacity: checked ? 1 : 0.55 }}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => setExcludedPjIds(prev => checked ? [...prev, p.id] : prev.filter(x => x !== p.id))} />
+                        <Paperclip size={13} color="#64748b" />
+                        <span style={{ flex: 1, fontSize: 13, color: '#334155', wordBreak: 'break-all' }}>{p.file_name}</span>
+                        <button type="button" title="Visualiser"
+                          onClick={() => openAttachmentViewer([{ url: `/${p.file_path}`, name: p.file_name }])}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 12, fontWeight: 600 }}>
+                          <Eye size={14} /> Voir
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
 

@@ -234,6 +234,8 @@ export default function TicketDetail() {
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [ticketTasks, setTicketTasks] = useState<any[]>([]);
+  const taskPendingRef = React.useRef<Set<number>>(new Set());
+  const taskMutationRef = React.useRef(0);
   // Bascule d'affichage de la section "Activité" : tâches, changements de statut et
   // assignations. Désactivées par défaut ; l'état est mémorisé par utilisateur.
   const activityTogglesKey = `ticket_activity_toggles_${user?.username || 'anon'}`;
@@ -647,6 +649,7 @@ export default function TicketDetail() {
   }
 
   async function loadTicket() {
+    const mutationAtStart = taskMutationRef.current;
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -675,7 +678,10 @@ export default function TicketDetail() {
       setRequesterSearch(t.requester?.name || t.requester_name || '');
       setComments(commentsRes.data);
       setHistory(historyRes.data);
-      setTicketTasks(tasksRes.data || []);
+      // Si une tâche a été cochée pendant ce chargement, sa réponse est périmée : on ne l'écrase pas.
+      if (taskMutationRef.current === mutationAtStart && taskPendingRef.current.size === 0) {
+        setTicketTasks(tasksRes.data || []);
+      }
       // À l'ouverture du ticket : déplie d'office les notes des tâches qui en
       // contiennent (note_count > 0). Le endpoint by-context renvoie déjà les
       // notes imbriquées (task.notes), on évite donc un appel supplémentaire.
@@ -818,21 +824,32 @@ export default function TicketDetail() {
   }
 
   async function handleTaskStatusCycle(taskId: number, currentStatut: string, teamGroupId?: string) {
+    // Un seul changement à la fois par tâche : évite qu'un 2e clic (pendant que le serveur répond)
+    // refasse avancer le cycle et annule/décale le premier.
+    if (taskPendingRef.current.has(taskId)) return;
+    taskPendingRef.current.add(taskId);
+    taskMutationRef.current++;
     const next = currentStatut === 'a_faire' ? 'en_cours' : currentStatut === 'en_cours' ? 'terminé' : 'a_faire';
+    const applies = (t: any) => t.id === taskId || (!!teamGroupId && t.team_group_id === teamGroupId);
+    // Mise à jour immédiate de l'affichage (le serveur propage le statut à tout le groupe d'équipe).
+    const before = ticketTasks;
+    setTicketTasks(prev => prev.map(t => applies(t) ? { ...t, statut: next, taken_by: next === 'a_faire' ? null : t.taken_by } : t));
     try {
       const token = localStorage.getItem('token');
       await axios.patch(`/api/tasks/personal/${taskId}`, { statut: next }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Le serveur propage le statut à toutes les lignes du groupe d'équipe :
-      // on fait pareil ici pour que le rendu ne dépende pas d'un rechargement.
-      setTicketTasks(prev => prev.map(t => {
-        const inGroup = !!teamGroupId && t.team_group_id === teamGroupId;
-        if (t.id !== taskId && !inGroup) return t;
-        return { ...t, statut: next, taken_by: next === 'a_faire' ? null : t.taken_by };
-      }));
     } catch (e: any) {
+      // Retour à l'état précédent si le serveur a refusé
+      setTicketTasks(prev => prev.map(t => {
+        if (!applies(t)) return t;
+        const old = before.find((b: any) => b.id === t.id);
+        return old ? { ...t, statut: old.statut, taken_by: old.taken_by } : t;
+      }));
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
+    } finally {
+      taskPendingRef.current.delete(taskId);
+      taskMutationRef.current++;
     }
   }
 
