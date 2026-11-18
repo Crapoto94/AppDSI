@@ -5,6 +5,7 @@ const historyRepo = require('../../tickets/repositories/history.repository');
 const slaRepo = require('../../tickets/repositories/sla.repository');
 const { pgDb } = require('../../../shared/database');
 const { getAppBaseUrl } = require('../../../shared/app_url');
+const { toParisSql } = require('../../../shared/utils');
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
@@ -75,7 +76,9 @@ module.exports = {
 
         const currentPriority = parseInt(ticket.priority) || 3;
         const newPriority = Math.min(5, currentPriority + 1);
-        await pgDb.run('UPDATE hub_tickets.tickets SET priority = $1, date_mod = CURRENT_TIMESTAMP WHERE glpi_id = $2', [newPriority, ticketId]);
+        // date_mod est une colonne naïve en heure de Paris (cf. convention GLPI) :
+        // CURRENT_TIMESTAMP (UTC) y décalait l'horodatage de 1 h l'hiver / 2 h l'été.
+        await pgDb.run('UPDATE hub_tickets.tickets SET priority = $1, date_mod = $3 WHERE glpi_id = $2', [newPriority, ticketId, toParisSql()]);
 
         await repo.markTicketKeepAlive(ticketId);
         await repo.addLog(ticketId, 'keep_alive', log.reminder_count, null, `Priorité passée de ${currentPriority} à ${newPriority}`);
@@ -151,7 +154,7 @@ module.exports = {
                 if (shouldClose) {
                     const sysUser = buildSystemUser(ticket);
                     const oldStatus = ticket.status;
-                    await pgDb.run(`UPDATE hub_tickets.tickets SET status = '7', date_mod = CURRENT_TIMESTAMP, date_closed = CURRENT_TIMESTAMP WHERE glpi_id = $1`, [ticket.glpi_id]);
+                    await pgDb.run(`UPDATE hub_tickets.tickets SET status = '7', date_mod = $2, date_closed = $2 WHERE glpi_id = $1`, [ticket.glpi_id, toParisSql()]);
                     try {
                         await historyRepo.log(ticket.glpi_id, 0, 'status_changed', 'status', String(oldStatus), '7',
                             'Clôture automatique – aucune réponse après relances');

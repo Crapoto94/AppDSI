@@ -1,5 +1,6 @@
 const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
+const { naiveDbTimestampToUtcIso } = require('../../shared/utils');
 const ticketRepo = require('./repositories/ticket.repository');
 
 const MODULE = 'tickets';
@@ -1281,7 +1282,11 @@ async assign(req, res) {
         res.json({
             ticketId: info.ticketId, title: ticket.title, email: info.email,
             description: ticket.content || null,
-            lastQuestion: lastQuestion || null
+            // date_creation est une colonne naïve en heure de Paris : on l'expose en
+            // instant UTC pour que la page publique l'affiche sans décalage.
+            lastQuestion: lastQuestion
+                ? { ...lastQuestion, date_creation: naiveDbTimestampToUtcIso(lastQuestion.date_creation) }
+                : null
         });
     },
 

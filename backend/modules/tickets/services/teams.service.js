@@ -1,4 +1,5 @@
 const { pgDb } = require('../../../shared/database');
+const { naiveDbTimestampToUtcIso } = require('../../../shared/utils');
 const axios = require('axios');
 
 const URGENCY_LABELS = { 2: 'Basse', 3: 'Normale', 4: 'Haute', 5: 'Très haute' };
@@ -78,7 +79,15 @@ function buildCard(ticket, config) {
     }
 
     if (isResolved && ticket.date_solved) {
-        facts.push({ name: 'Résolu le', value: new Date(ticket.date_solved).toLocaleString('fr-FR') });
+        // date_solved est naïve en heure de Paris : on l'expose en instant UTC puis on
+        // formate explicitement en Europe/Paris (sinon dépend du fuseau du serveur).
+        const solvedIso = naiveDbTimestampToUtcIso(ticket.date_solved);
+        facts.push({
+            name: 'Résolu le',
+            value: solvedIso
+                ? new Date(solvedIso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
+                : String(ticket.date_solved)
+        });
     }
 
     return {

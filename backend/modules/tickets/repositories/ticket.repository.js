@@ -1,5 +1,32 @@
 const { pgDb, pool } = require('../../../shared/database');
-const { toParisSql } = require('../../../shared/utils');
+const { toParisSql, toDbParisTimestamp, naiveDbTimestampToUtcIso } = require('../../../shared/utils');
+
+// ── Normalisation des horodatages ───────────────────────────────────────────
+// Les colonnes date_* de hub_tickets.tickets sont des `timestamp without time zone`
+// qui portent l'HEURE DE PARIS (convention historique GLPI, cf. toParisSql).
+//  • à l'écriture : toDbParisTimestamp() garantit qu'on ne stocke jamais un ISO UTC
+//    brut (c'était le cas de date_solved dans setSolution → ticket #45884 résolu
+//    affiché 1 h trop tôt) ;
+//  • à la lecture : naiveDbTimestampToUtcIso() réexpose un instant UTC explicite, que le
+//    front affiche en Europe/Paris. Sans cela, le pilote interprétait la valeur dans
+//    le fuseau du process (UTC en conteneur → 1 h de décalage).
+const TICKET_DATE_FIELDS = ['date_creation', 'date_mod', 'date_solved', 'date_closed'];
+
+function normalizeTicketDates(ticket) {
+    if (!ticket) return ticket;
+    const out = { ...ticket };
+    for (const field of TICKET_DATE_FIELDS) {
+        if (out[field] !== undefined) out[field] = naiveDbTimestampToUtcIso(out[field]);
+    }
+    const normalizeEmbedded = (list) => Array.isArray(list)
+        ? list.map(t => (t && typeof t === 'object' && t.date_creation !== undefined
+            ? { ...t, date_creation: naiveDbTimestampToUtcIso(t.date_creation) }
+            : t))
+        : list;
+    if (out.bundle_members) out.bundle_members = normalizeEmbedded(out.bundle_members);
+    if (out.problem_linked_tickets) out.problem_linked_tickets = normalizeEmbedded(out.problem_linked_tickets);
+    return out;
+}
 
 // ── Série journalière des KPI ───────────────────────────────────────────────
 // Reconstruit l'état des tickets jour par jour à partir de trois sources :
@@ -436,7 +463,8 @@ SELECT t.*,
 
 module.exports = {
     async findById(id) {
-        return pgDb.get(`${BASE_SELECT} WHERE t.glpi_id = $1`, [id]);
+        const row = await pgDb.get(`${BASE_SELECT} WHERE t.glpi_id = $1`, [id]);
+        return normalizeTicketDates(row);
     },
 
     async findAll(filters = {}, pagination = { page: 1, limit: 25, sort: 'date_creation', order: 'desc' }, user = null) {
@@ -599,7 +627,7 @@ module.exports = {
         const rows = await pgDb.all(sql, params);
 
         return {
-            data: rows,
+            data: rows.map(normalizeTicketDates),
             pagination: {
                 page: pagination.page,
                 limit: pagination.limit,
@@ -649,15 +677,27 @@ module.exports = {
             ) problem_sub ON true AND t.type = '3'
             WHERE t.glpi_id = ANY($1::int[])
         `, [ids]);
-        return rows;
+        return rows.map(t => ({
+            ...t,
+            bundle_members: Array.isArray(t.bundle_members)
+                ? t.bundle_members.map(m => (m && m.date_creation !== undefined
+                    ? { ...m, date_creation: naiveDbTimestampToUtcIso(m.date_creation) } : m))
+                : t.bundle_members,
+            problem_linked_tickets: Array.isArray(t.problem_linked_tickets)
+                ? t.problem_linked_tickets.map(m => (m && m.date_creation !== undefined
+                    ? { ...m, date_creation: naiveDbTimestampToUtcIso(m.date_creation) } : m))
+                : t.problem_linked_tickets,
+        }));
     },
 
     async create(data) {
         // Check for duplicate: same title + requester within 2 minutes
+        // date_creation est naïf en heure de Paris : comparer à NOW() (UTC) élargissait
+        // la fenêtre de 1 h en hiver / 2 h en été et provoquait de faux doublons.
         if (data.title && data.requester_email) {
             const dup = await pgDb.get(
-                `SELECT glpi_id FROM hub_tickets.tickets WHERE title = $1 AND requester_email_22 = $2 AND date_creation > NOW() - INTERVAL '2 minutes' LIMIT 1`,
-                [data.title, data.requester_email]
+                `SELECT glpi_id FROM hub_tickets.tickets WHERE title = $1 AND requester_email_22 = $2 AND date_creation > $3::timestamp - INTERVAL '2 minutes' LIMIT 1`,
+                [data.title, data.requester_email, toParisSql()]
             );
             if (dup) {
                 console.log('[TICKET] Duplicate detected: title=%s email=%s existing_id=%d', data.title, data.requester_email, dup.glpi_id);
@@ -681,7 +721,7 @@ module.exports = {
             id, data.title, data.content || '', data.status || 1,
             data.priority || 3, data.urgency || 3, data.impact || 2,
             String(data.type || 1), data.category || '',
-            data.date_creation ? toParisSql(data.date_creation) : toParisSql(), data.source || 'hub',
+            data.date_creation ? toDbParisTimestamp(data.date_creation) : toParisSql(), data.source || 'hub',
             data.requester_name || '', data.requester_email || '',
             data.location || '', data.solution || '', !!data.is_vip,
             data.resolution_method || null, data.knowledge_article || null,
@@ -716,14 +756,14 @@ module.exports = {
         // une valeur explicite prime sur l'horodatage du jour.
         if (data.date_solved !== undefined) {
             fields.push(`date_solved = $${idx++}`);
-            params.push(data.date_solved);
+            params.push(toDbParisTimestamp(data.date_solved));
         } else if (data.status === 5) {
             fields.push(`date_solved = $${idx++}`);
             params.push(toParisSql());
         }
         if (data.date_closed !== undefined) {
             fields.push(`date_closed = $${idx++}`);
-            params.push(data.date_closed);
+            params.push(toDbParisTimestamp(data.date_closed));
         } else if (data.status === 6) {
             fields.push(`date_closed = $${idx++}`);
             params.push(toParisSql());
@@ -980,14 +1020,14 @@ module.exports = {
                 COALESCE(
                     AVG(
                         EXTRACT(EPOCH FROM (
-                            COALESCE(t.date_solved, CURRENT_TIMESTAMP)
+                            COALESCE(t.date_solved, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
                             - t.date_creation
                         )) - COALESCE(t.total_waiting_seconds, 0)
                     ) FILTER (WHERE t.date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_resolved_week,
                 COALESCE(
                     AVG(
-                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - t.date_creation))
+                        EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris') - t.date_creation))
                     ) FILTER (WHERE t.status IN (1,2,3) AND t.date_creation IS NOT NULL), 0
                 )::integer as avg_age_open_seconds
             FROM hub_tickets.tickets t
@@ -1003,7 +1043,7 @@ module.exports = {
                 COALESCE(
                     AVG(
                         EXTRACT(EPOCH FROM (
-                            COALESCE(date_solved, date_closed, CURRENT_TIMESTAMP)
+                            COALESCE(date_solved, date_closed, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
                             - date_creation
                         )) - COALESCE(total_waiting_seconds, 0)
                     ) FILTER (WHERE date_creation IS NOT NULL), 0
@@ -1804,7 +1844,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
                 COUNT(*) FILTER (WHERE t.status::int IN (1,2,3,4))::int AS en_cours,
                 COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
-                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, (NOW() AT TIME ZONE 'Europe/Paris')) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
             FROM hub_tickets.tickets t
             LEFT JOIN LATERAL (
                 SELECT service_code, service_complement
@@ -1827,7 +1867,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
                 COUNT(*) FILTER (WHERE t.status::int IN (1,2,3,4))::int AS en_cours,
                 COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
-                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, (NOW() AT TIME ZONE 'Europe/Paris')) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
             FROM hub_tickets.tickets t
             LEFT JOIN LATERAL (
                 SELECT service_code, service_complement

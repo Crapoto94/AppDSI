@@ -227,6 +227,110 @@ function parisLocalToUtcISO(naiveLocal) {
     return new Date(asIfUtc.getTime() + offsetMs).toISOString();
 }
 
+/**
+ * Convertit un horodatage stocké dans une colonne PostgreSQL `timestamp without time zone`
+ * (convention du projet : heure locale de Paris) en instant UTC explicite (ISO 8601 « Z »)
+ * pour la sérialisation JSON.
+ *
+ * Pourquoi : le pilote `pg` interprète une colonne naïve dans le fuseau du PROCESS serveur.
+ * Selon que le conteneur soit en UTC ou en Europe/Paris, la même valeur en base était
+ * exposée différemment (ex. ticket #45884 : résolution à 13:39 Paris affichée à 12:39 ou
+ * 14:39 selon le contexte). En repassant TOUJOURS par le fuseau Europe/Paris, l'API renvoie
+ * des instants fiables, que le front affiche ensuite en Europe/Paris.
+ *
+ * Les valeurs déjà « absolues » (chaîne avec fuseau, `Date` issue d'un `timestamptz`)
+ * sont renvoyées telles quelles.
+ *
+ * @param {Date|string|number|null|undefined} value
+ * @returns {string|null} ex. "2026-11-13T12:39:37.000Z"
+ */
+function dbTimestampToUtcIso(value) {
+    if (value === null || value === undefined || value === '') return value ?? null;
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value.toISOString();
+    if (typeof value === 'number') {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const s = String(value).trim();
+    if (!s) return null;
+    // Déjà un instant avec fuseau explicite (Z ou ±HH:mm) : rien à corriger.
+    if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    // Colonne naïve : la valeur représente une heure de Paris.
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) {
+        return parisLocalToUtcISO(s.replace(' ', 'T'));
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * Convertit une valeur temporelle quelconque (Date, ISO UTC, naïve Paris) en horodatage
+ * « naïf » à écrire dans une colonne `timestamp without time zone` selon la convention
+ * du projet (heure de Paris). Les chaînes naïves sont considérées comme déjà à l'heure
+ * de Paris ; les instants explicites (Z / +HH:mm) sont ramenés à Paris.
+ *
+ * @param {Date|string|number|null|undefined} [value] - défaut : maintenant
+ * @returns {string|null} ex. "2026-11-13 13:39:37"
+ */
+function toDbParisTimestamp(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : toParisSql(value);
+    if (typeof value === 'number') {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : toParisSql(d);
+    }
+    const s = String(value).trim();
+    if (!s) return null;
+    // Instant explicite → conversion vers l'heure de Paris.
+    if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : toParisSql(d);
+    }
+    // Valeur naïve : on la considère déjà en heure de Paris, on la normalise au format SQL.
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) {
+        return s.replace('T', ' ').replace(/\.\d+$/, '').slice(0, 19);
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : toParisSql(d);
+}
+
+/**
+ * Convertit un horodatage lu d'une colonne `timestamp without time zone` (convention
+ * du projet : heure de Paris) en instant UTC explicite.
+ *
+ * Différence avec dbTimestampToUtcIso() : ici on SAIT que la valeur provient d'une
+ * colonne naïve. Or le pilote `pg` convertit ces colonnes en `Date` en interprétant
+ * l'heure murale dans le fuseau du PROCESS (comportement de `postgres-date`). Pour
+ * retrouver l'heure stockée, il faut donc relire l'horloge murale de la `Date` dans
+ * le fuseau du process, puis la réinterpréter comme Europe/Paris. La prendre comme
+ * instant absolu (toISOString) donnerait un résultat dépendant du conteneur — et
+ * appliquer une seconde conversion au Date décalerait de 1 à 2 h.
+ *
+ * Les chaînes naïves suivent le même chemin ; les chaînes avec fuseau sont respectées.
+ *
+ * @param {Date|string|number|null|undefined} value
+ * @returns {string|null}
+ */
+const PROCESS_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function naiveDbTimestampToUtcIso(value) {
+    if (value === null || value === undefined || value === '') return value ?? null;
+    if (value instanceof Date) {
+        if (isNaN(value.getTime())) return null;
+        // Heure murale telle que stockée en base (fuseau du process = fuseau de parsing).
+        const wallClock = new Intl.DateTimeFormat('sv-SE', {
+            timeZone: PROCESS_TIMEZONE,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).format(value).replace(' ', 'T');
+        return parisLocalToUtcISO(wallClock);
+    }
+    return dbTimestampToUtcIso(value);
+}
+
 module.exports = {
     logMouchard,
     decodeLDAPString,
@@ -239,7 +343,10 @@ module.exports = {
     parseLDAPDate,
     formatDateToFrench,
     toParisSql,
-    parisLocalToUtcISO
+    parisLocalToUtcISO,
+    dbTimestampToUtcIso,
+    naiveDbTimestampToUtcIso,
+    toDbParisTimestamp
 };
 
 /**

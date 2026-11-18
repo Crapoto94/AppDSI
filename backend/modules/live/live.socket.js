@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
 const { pgDb } = require('../../shared/database');
+const { toParisSql } = require('../../shared/utils');
 
 let ioInstance = null;
 
@@ -150,8 +151,8 @@ function setupSocket(server) {
                 );
                 if (session?.ticket_id) {
                     await pgDb.run(
-                        `UPDATE hub_tickets.tickets SET status = 6, date_mod = NOW() WHERE glpi_id = $1`,
-                        [session.ticket_id]
+                        `UPDATE hub_tickets.tickets SET status = 6, date_mod = $2 WHERE glpi_id = $1`,
+                        [session.ticket_id, toParisSql()]
                     );
                 }
 

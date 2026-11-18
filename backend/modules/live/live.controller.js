@@ -1,5 +1,6 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { getIO } = require('./live.socket');
+const { toParisSql } = require('../../shared/utils');
 const storage = require('../../shared/storage');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -87,14 +88,17 @@ async function createSession(req, res) {
         const ticketId = seqResult.next_id;
 
         // Create linked ticket (no notification — live tickets are email-silent)
+        // date_creation/date_mod sont des colonnes naïves en heure de Paris : on
+        // n'y écrit pas NOW() (UTC), sinon le ticket apparaît 1 h trop tôt.
         await pgDb.run(`
             INSERT INTO hub_tickets.tickets
                 (glpi_id, title, content, status, priority, urgency, impact,
                  type, date_creation, date_mod, source, requester_name, requester_email_22, is_live)
-             VALUES ($1, $2, $3, 1, 3, 3, 2, NULL, NOW(), NOW(), 'live', $4, $5, true)
+             VALUES ($1, $2, $3, 1, 3, 3, 2, NULL, $4, $4, 'live', $5, $6, true)
         `, [ticketId,
             `💬 Live – ${user.displayName || user.username}`,
             content.trim(),
+            toParisSql(),
             user.displayName || user.username,
             user.email || '']);
 
@@ -334,8 +338,8 @@ async function closeSession(req, res) {
                     await pgDb.run(`
                         INSERT INTO hub_tickets.ticket_followups
                             (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
-                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, NOW())
-                    `, [session.ticket_id, transcriptHtml]);
+                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, $3)
+                    `, [session.ticket_id, transcriptHtml, toParisSql()]);
                 }
 
                 // Send summary email
@@ -386,17 +390,23 @@ async function closeSession(req, res) {
                 }
             }
 
-            const safeTitle = newTitle?.trim().replace(/'/g, "''") || null;
+            const safeTitle = newTitle?.trim() || null;
             if (closeTicket !== false) {
-                const titleClause = safeTitle ? `, title = '${safeTitle}'` : '';
-                await pgDb.run(
-                    `UPDATE hub_tickets.tickets SET status = 6, date_mod = NOW()${titleClause} WHERE glpi_id = $1`,
-                    [session.ticket_id]
-                );
+                if (safeTitle) {
+                    await pgDb.run(
+                        `UPDATE hub_tickets.tickets SET status = 6, title = $3, date_mod = $2 WHERE glpi_id = $1`,
+                        [session.ticket_id, toParisSql(), safeTitle]
+                    );
+                } else {
+                    await pgDb.run(
+                        `UPDATE hub_tickets.tickets SET status = 6, date_mod = $2 WHERE glpi_id = $1`,
+                        [session.ticket_id, toParisSql()]
+                    );
+                }
             } else if (safeTitle) {
                 await pgDb.run(
-                    `UPDATE hub_tickets.tickets SET title = '${safeTitle}', date_mod = NOW() WHERE glpi_id = $1`,
-                    [session.ticket_id]
+                    `UPDATE hub_tickets.tickets SET title = $2, date_mod = $3 WHERE glpi_id = $1`,
+                    [session.ticket_id, safeTitle, toParisSql()]
                 );
             }
 
@@ -412,8 +422,8 @@ async function closeSession(req, res) {
                     await pgDb.run(`
                         INSERT INTO hub_tickets.ticket_followups
                             (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
-                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, NOW())
-                    `, [session.ticket_id, transcriptHtml]);
+                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, $3)
+                    `, [session.ticket_id, transcriptHtml, toParisSql()]);
                 }
             }
 
@@ -915,8 +925,8 @@ async function rejectSession(req, res) {
         // Soft-delete the auto-created ticket (status = 8 "Rejeté")
         if (session.ticket_id) {
             await pgDb.run(
-                `UPDATE hub_tickets.tickets SET status = 8, date_mod = NOW() WHERE glpi_id = $1`,
-                [session.ticket_id]
+                `UPDATE hub_tickets.tickets SET status = 8, date_mod = $2 WHERE glpi_id = $1`,
+                [session.ticket_id, toParisSql()]
             );
         }
 
@@ -1304,8 +1314,8 @@ async function setTicketType(req, res) {
         if (!session.ticket_id) return res.status(400).json({ message: 'Aucun ticket associé' });
 
         await pgDb.run(
-            `UPDATE hub_tickets.tickets SET type = $1, date_mod = NOW() WHERE glpi_id = $2`,
-            [String(type), session.ticket_id]
+            `UPDATE hub_tickets.tickets SET type = $1, date_mod = $3 WHERE glpi_id = $2`,
+            [String(type), session.ticket_id, toParisSql()]
         );
 
         res.json({ success: true, type: String(type) });
@@ -1336,9 +1346,11 @@ async function setTicketPriority(req, res) {
         const params = [];
         if (priority !== undefined) { params.push(String(priority)); sets.push(`priority = $${params.length}`); }
         if (impact !== undefined) { params.push(String(impact)); sets.push(`impact = $${params.length}`); }
+        params.push(toParisSql());
+        sets.push(`date_mod = $${params.length}`);
         params.push(session.ticket_id);
         await pgDb.run(
-            `UPDATE hub_tickets.tickets SET ${sets.join(', ')}, date_mod = NOW() WHERE glpi_id = $${params.length}`,
+            `UPDATE hub_tickets.tickets SET ${sets.join(', ')} WHERE glpi_id = $${params.length}`,
             params
         );
 
@@ -1368,8 +1380,8 @@ async function setTicketCategory(req, res) {
         const sub = subcategory_id != null && subcategory_id !== '' ? parseInt(subcategory_id) : null;
 
         await pgDb.run(
-            `UPDATE hub_tickets.tickets SET category_id = $1, subcategory_id = $2, date_mod = NOW() WHERE glpi_id = $3`,
-            [cat, sub, session.ticket_id]
+            `UPDATE hub_tickets.tickets SET category_id = $1, subcategory_id = $2, date_mod = $4 WHERE glpi_id = $3`,
+            [cat, sub, session.ticket_id, toParisSql()]
         );
 
         res.json({ success: true, category_id: cat, subcategory_id: sub });

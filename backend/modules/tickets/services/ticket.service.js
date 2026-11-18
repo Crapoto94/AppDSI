@@ -215,12 +215,19 @@ module.exports = {
     },
 
     async setSolution(id, solution, user) {
+        // Un SEUL instant de référence pour la résolution : la date du ticket
+        // (colonne naïve heure de Paris, reconvertie par le repository) et
+        // l'événement d'historique (timestamptz) doivent raconter la même chose.
+        // Avant, date_solved recevait un ISO UTC brut interprété comme heure de
+        // Paris → ticket #45884 affiché résolu 1 h trop tôt par rapport au
+        // commentaire/historique de résolution.
+        const solvedAt = new Date();
         // Résolu = statut 5 (sémantique GLPI). La clôture (6) se fait séparément.
-        await ticketRepo.update(id, { solution, status: 5, date_solved: new Date().toISOString() });
+        await ticketRepo.update(id, { solution, status: 5, date_solved: solvedAt });
 
         // Historique et SLA ne doivent JAMAIS empêcher la notification de résolution :
         // on isole chaque étape pour que l'envoi du mail au demandeur survive à leur échec.
-        try { await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie', user.username); }
+        try { await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie', user.username, solvedAt); }
         catch (e) { console.error('[TICKET] solved history log failed:', e.message); }
 
         try {

@@ -1,9 +1,18 @@
 const { pgDb } = require('../../../shared/database');
 const crypto = require('crypto');
+const { toParisSql, toDbParisTimestamp, naiveDbTimestampToUtcIso } = require('../../../shared/utils');
 
 const { resolveTicketRole } = require('../middleware/ticket-permissions');
 
 const INTERNAL_RAW_ROLES = ['superviseur', 'supervisor', 'admin', 'superadmin', 'technicien', 'technicienne', 'technician', 'tech', 'superadmins'];
+
+// hub_tickets.ticket_followups.date_creation est un `timestamp without time zone`
+// en heure de Paris : on écrit avec toParisSql() et on relit en instant UTC
+// explicite pour que le front l'affiche correctement (cohérent avec les tickets).
+function normalizeFollowup(row) {
+    if (!row) return row;
+    return { ...row, date_creation: naiveDbTimestampToUtcIso(row.date_creation) };
+}
 
 module.exports = {
     async findByTicket(ticketId, user = null) {
@@ -13,18 +22,20 @@ module.exports = {
         const isInternal = ['technician', 'supervisor', 'admin', 'superadmin'].includes(effectiveRole) || rawRoleIsInternal;
 
         if (isInternal) {
-            return pgDb.all(`
+            const rows = await pgDb.all(`
                 SELECT * FROM hub_tickets.ticket_followups
                 WHERE ticket_id = $1
                 ORDER BY date_creation ASC
             `, [ticketId]);
+            return rows.map(normalizeFollowup);
         }
 
-        return pgDb.all(`
+        const rows = await pgDb.all(`
             SELECT * FROM hub_tickets.ticket_followups
             WHERE ticket_id = $1 AND is_private = 0
             ORDER BY date_creation ASC
         `, [ticketId]);
+        return rows.map(normalizeFollowup);
     },
 
     async create(ticketId, data, user) {
@@ -40,11 +51,12 @@ module.exports = {
             ticketId, data.content, contentHash,
             user.displayName || user.username, user.email || '',
             data.is_private ? 1 : 0, data.sent_to_user ? 1 : 0, sentTo,
-            data.is_reply_to_tech ? 1 : 0, new Date()
+            data.is_reply_to_tech ? 1 : 0,
+            data.date_creation ? toDbParisTimestamp(data.date_creation) : toParisSql()
         ]);
 
         const id = result.lastID;
-        return pgDb.get('SELECT * FROM hub_tickets.ticket_followups WHERE id = $1', [id]);
+        return normalizeFollowup(await pgDb.get('SELECT * FROM hub_tickets.ticket_followups WHERE id = $1', [id]));
     },
 
     async update(id, data, user) {

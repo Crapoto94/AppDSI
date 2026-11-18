@@ -15,10 +15,12 @@ module.exports = {
         `, [ticketId]);
     },
 
-    // createdAt (optionnel) : horodatage explicite de l'événement, en UTC
-    // (created_at est un timestamp naïf en UTC, comme le DEFAULT CURRENT_TIMESTAMP).
-    // Utilisé par la clôture automatique rétroactive, qui date l'événement du
-    // jour où la clôture aurait dû avoir lieu.
+    // createdAt (optionnel) : horodatage explicite de l'événement. created_at est un
+    // `timestamptz` (instant exact) : on accepte un Date ou un ISO UTC, jamais un
+    // timestamp naïf (qui serait interprété dans le fuseau du serveur).
+    // Utilisé par la résolution (aligné sur date_solved) et par la clôture
+    // automatique rétroactive, qui date l'événement du jour où la clôture aurait dû
+    // avoir lieu.
     async log(ticketId, userId, action, fieldName, oldValue, newValue, comment = null, username = null, createdAt = null) {
         if (createdAt) {
             await pgDb.run(`
