@@ -46,7 +46,10 @@ function wrap(font, text, size, maxWidth) {
     return out;
 }
 
-async function buildVirementCreditsPdf(p) {
+// opts.hints (aperçu uniquement) : { 0: 'texte', 1: 'texte' } = repères d'emplacement de la signature dans les cadres « Avis » n°1 et n°2.
+// Jamais utilisé pour le document envoyé au parapheur ni pour le PDF final : le repère n'apparaît que dans la prévisualisation.
+async function buildVirementCreditsPdf(p, opts = {}) {
+    const hints = opts.hints || null;
     const majorer = (p.majorer || []).filter(l => num(l.montant) > 0);
     const minorer = (p.minorer || []).filter(l => num(l.montant) > 0);
     const totalMaj = majorer.reduce((s, l) => s + num(l.montant), 0);
@@ -148,8 +151,16 @@ async function buildVirementCreditsPdf(p) {
         text('Nom et Signature', M + labelW + 90, y - 11, { bold: true, size: 9.5 });
         y -= 18;
     };
+    let avisIdx = 0;
     const drawAvis = (label) => {
-        box(M, y - rowH, W - 2 * M, rowH);
+        const hint = hints && hints[avisIdx++];
+        box(M, y - rowH, W - 2 * M, rowH, hint ? { fill: rgb(0.93, 0.96, 1) } : undefined);
+        if (hint) {
+            const xs = M + labelW + 90;
+            page.drawRectangle({ x: xs, y: y - rowH + 8, width: W - M - xs - 8, height: rowH - 16, borderColor: rgb(0.15, 0.39, 0.92), borderWidth: 1, borderDashArray: [4, 3] });
+            text(safe(hint.title), xs + 8, y - 22, { bold: true, size: 8.5, color: rgb(0.15, 0.39, 0.92) });
+            text(safe(hint.name), xs + 8, y - 36, { size: 8.5, color: rgb(0.28, 0.33, 0.41) });
+        }
         page.drawLine({ start: { x: M + labelW, y }, end: { x: M + labelW, y: y - rowH }, thickness: 0.8, color: black });
         page.drawLine({ start: { x: M + labelW + 82, y }, end: { x: M + labelW + 82, y: y - rowH }, thickness: 0.8, color: black });
         text(label, M + 6, y - 14, { bold: true, size: 9.5 });

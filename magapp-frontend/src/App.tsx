@@ -15,7 +15,8 @@ import PdfToolsHub from './components/PdfTools/PdfToolsHub';
 import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
 import VirementCredits from './components/VirementCredits';
-import { ArrowLeftRight } from 'lucide-react';
+import MesFactures from './components/MesFactures';
+import { ArrowLeftRight, Receipt } from 'lucide-react';
 import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -153,7 +154,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -185,6 +186,9 @@ function App() {
   // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
   const [showVirement, setShowVirement] = useState(false);
   const [virementAllowed, setVirementAllowed] = useState(false);
+  // BETA « Mes factures » : agents ayant des droits SEDIT (ou un accès partagé)
+  const [showMesFactures, setShowMesFactures] = useState(false);
+  const [mesFacturesAllowed, setMesFacturesAllowed] = useState(false);
   // Lien de notification : /?virement=ID ouvre directement la demande
   const [virementDeepLink, setVirementDeepLink] = useState<number | null>(() => { const v = parseInt(new URLSearchParams(window.location.search).get('virement') || '', 10); return Number.isFinite(v) ? v : null; });
   const [rencontres] = useState<any[]>([]);
@@ -254,6 +258,14 @@ function App() {
   const setShowForum = (v: boolean) => { setShowForumState(v); lsSet('magapp_forum_open', v); };
   const setForumPinned = (v: boolean) => { setForumPinnedState(v); lsSet('magapp_forum_pinned', v); };
   const [viewportW, setViewportW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    if (!windowLogin) { setMesFacturesAllowed(false); return; }
+    const token = localStorage.getItem('token') || '';
+    axios.get('/api/magapp/mes-factures/access', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setMesFacturesAllowed(!!r.data?.allowed))
+      .catch(() => setMesFacturesAllowed(false));
+  }, [windowLogin]);
+
   // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT
   useEffect(() => {
     if (!windowLogin) { setVirementAllowed(false); return; }
@@ -476,14 +488,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false, show_virement_credits: settingsData.show_virement_credits ?? false, show_virement_credits_original: settingsData.show_virement_credits_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false, show_virement_credits: settingsData.show_virement_credits ?? false, show_virement_credits_original: settingsData.show_virement_credits_original ?? false, show_mes_factures: settingsData.show_mes_factures ?? false, show_mes_factures_original: settingsData.show_mes_factures_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1779,6 +1791,17 @@ function App() {
                 />
               )}
 
+              {windowLogin && mesFacturesAllowed && (settings.show_mes_factures || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Receipt size={22} color="#0f766e" />}
+                  bg="#ccfbf1"
+                  title="Mes factures"
+                  description="Factures SEDIT de votre périmètre, service fait et DGP"
+                  beta={settings.show_mes_factures && !settings.show_mes_factures_original}
+                  onClick={() => { setShowTools(false); setShowMesFactures(true); }}
+                />
+              )}
+
               {windowLogin && virementAllowed && (settings.show_virement_credits || settings.is_beta_user) && (
                 <ToolCard
                   icon={<ArrowLeftRight size={22} color="#2563eb" />}
@@ -1843,6 +1866,7 @@ function App() {
 
       {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
+      {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
       {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 

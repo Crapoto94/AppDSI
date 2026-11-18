@@ -1856,6 +1856,9 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_virement_credits BOOLEAN DEFAULT false`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_mes_factures BOOLEAN DEFAULT false`);
+    } catch (e) {}
 
     // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)
     try {

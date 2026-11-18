@@ -3,7 +3,7 @@
  *
  * DGP = nombre de jours entre la date de réception (FACTURE.DATENTREE) et la date
  * de paiement effective (FI.MANDAT.DATE_PAIEMENT, atteint via FI.FAIT). Pour les
- * factures non encore payées (non mandatées), on calcule un délai PROVISOIRE =
+ * factures non encore payées (mandatées ou non), on calcule un délai PROVISOIRE =
  * jours écoulés depuis la réception (aujourd'hui - DATENTREE).
  *
  * Ces valeurs sont PRÉCALCULÉES dans `finance.facture_dgp` et rafraîchies une fois
@@ -27,8 +27,13 @@ const RESERVED_WHERE = new Set([
 ]);
 
 const dayNum = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-const toDateStr = (d) => (d && !isNaN(new Date(d).getTime()))
-    ? new Date(d).toISOString().slice(0, 10) : null;
+// Date locale (jour calendaire) : node-oracledb renvoie les DATE à minuit LOCAL ; toISOString() les décalait d'un jour (UTC).
+const toDateStr = (d) => {
+    const x = d ? new Date(d) : null;
+    if (!x || isNaN(x.getTime())) return null;
+    const p = (n) => String(n).padStart(2, '0');
+    return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+};
 
 /** Filtre de périmètre (services) de la synchro FACTURE, préfixé pour l'alias T1. */
 async function getFactureScopeWhere() {
@@ -91,7 +96,6 @@ async function refreshFacturesDgpCache(opts = {}) {
         const fy = Number(row.FY) || null;
         const received = row.DT ? new Date(row.DT) : null;
         const paid = row.DP ? new Date(row.DP) : null;
-        const planned = row.DPP ? new Date(row.DPP) : null;
         const mandate = Number(row.NB) > 0;
 
         let dgp = null;
@@ -99,11 +103,13 @@ async function refreshFacturesDgpCache(opts = {}) {
         if (row.DREJ) {
             // Facture refusée : DGP masqué (refused = true, dgp null).
         } else if (received && !isNaN(received.getTime())) {
+            // Règle : le DGP est définitif UNIQUEMENT une fois la facture PAYÉE (réception → date de paiement). Tant qu'elle n'est pas
+            // payée — y compris mandatée — il est PROVISOIRE : jours écoulés depuis la réception (aujourd'hui − réception). On n'utilise
+            // plus la date de paiement PRÉVUE (DATPAIPREV) : elle donnait un « DGP » futur (ex. 18 j pour une facture reçue la veille).
             let endDay;
             if (paid) { endDay = dayNum(paid); definitive = true; }
-            else if (mandate) { endDay = planned ? dayNum(planned) : nowDay; definitive = true; }
             else { endDay = nowDay; definitive = false; }
-            dgp = Math.round((endDay - dayNum(received)) / 86400000);
+            dgp = Math.max(0, Math.round((endDay - dayNum(received)) / 86400000));
         }
 
         records.push({

@@ -135,7 +135,7 @@ async function senderOf(user) {
     return { name, email };
 }
 
-async function currentPdfBuffer(row, preferSigned) {
+async function currentPdfBuffer(row, preferSigned, opts) {
     if (preferSigned && row.parapheur_id && row.para_status === 'termine') {
         try {
             const parapheur = require('../parapheur/parapheur.service');
@@ -146,7 +146,7 @@ async function currentPdfBuffer(row, preferSigned) {
             }
         } catch (e) { console.warn('[VirementCredits] PDF signé indisponible:', e.message); }
     }
-    return { buffer: await buildVirementCreditsPdf(row.payload), signed: false };
+    return { buffer: await buildVirementCreditsPdf(row.payload, opts), signed: false };
 }
 
 // Le virement de crédits est réservé aux agents ayant un compte SEDIT Finances actif (y compris admin/finances).
@@ -262,7 +262,16 @@ module.exports = {
                 const p = await pool.query('SELECT status FROM hub_parapheur.parapheurs WHERE id = $1', [row.parapheur_id]);
                 row.para_status = p.rows[0] && p.rows[0].status;
             }
-            const { buffer, signed } = await currentPdfBuffer(row, req.query.signed !== '0');
+            // Aperçu MagApp (?hints=1) : repères d'emplacement des signatures dans les cadres « Avis » 1 et 2 (jamais dans le PDF transmis)
+            let opts;
+            if (req.query.hints === '1' && !row.parapheur_id && !row.sent_at) {
+                const nm = (v) => String(v || '').replace(/[^\p{L}\p{N} '’.,-]/gu, '').trim().slice(0, 60);
+                const hints = {};
+                if (nm(req.query.resp)) hints[0] = { title: 'Signature du responsable de service', name: nm(req.query.resp) };
+                if (nm(req.query.dir)) hints[1] = { title: 'Signature du directeur', name: nm(req.query.dir) };
+                opts = { hints };
+            }
+            const { buffer, signed } = await currentPdfBuffer(row, req.query.signed !== '0', opts);
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('X-Pdf-Signed', signed ? '1' : '0');
             res.setHeader('Content-Disposition', 'inline; filename="demande-modification-budgetaire.pdf"');

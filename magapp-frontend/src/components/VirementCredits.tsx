@@ -195,15 +195,21 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
-  const reload = useCallback(async () => {
-    const r = await fetch(API, { headers: authHeaders() });
-    if (r.ok) { const list: Rec[] = await r.json(); setRec(list.find(x => x.id === id) || null); }
-    const p = await fetch(`${API}/${id}/pdf`, { headers: authHeaders() });
+  // Aperçu PDF : tant que la demande n'est pas au parapheur, les cadres « Avis » 1 et 2 indiquent où les signatures seront apposées
+  const loadPdf = useCallback(async (respName: string, dirName: string) => {
+    const qs = new URLSearchParams({ hints: '1' });
+    if (respName) qs.set('resp', respName);
+    if (dirName) qs.set('dir', dirName);
+    const p = await fetch(`${API}/${id}/pdf?${qs}`, { headers: authHeaders() });
     if (p.ok) {
       setPdfSigned(p.headers.get('X-Pdf-Signed') === '1');
       const blob = await p.blob();
       setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
     }
+  }, [id]);
+  const reload = useCallback(async () => {
+    const r = await fetch(API, { headers: authHeaders() });
+    if (r.ok) { const list: Rec[] = await r.json(); setRec(list.find(x => x.id === id) || null); }
   }, [id]);
   useEffect(() => {
     reload().catch(() => {});
@@ -218,6 +224,15 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
   const respEmail = resp ?? sig?.defaults.responsable?.email ?? '';
   const dirEmail = dir ?? sig?.defaults.directeur?.email ?? '';
   const pick = (list: Encadrant[], email: string) => list.find(e => e.email.toLowerCase() === email.toLowerCase()) || null;
+  const respName = sig ? (pick(sig.responsables, respEmail) ? nameOf(pick(sig.responsables, respEmail)!) : '') : '';
+  const dirName = sig ? (pick(sig.directeurs, dirEmail) ? nameOf(pick(sig.directeurs, dirEmail)!) : '') : '';
+  const paraId = rec?.parapheur_id ?? null;
+  const recLoaded = !!rec;
+  useEffect(() => {
+    if (!recLoaded || (!sig && !paraId)) return;
+    const t = setTimeout(() => { loadPdf(paraId ? '' : respName, paraId ? '' : dirName).catch(() => {}); }, 250);
+    return () => clearTimeout(t);
+  }, [recLoaded, paraId, sig, respName, dirName, loadPdf]);
 
   const call = async (path: string, body: unknown) => {
     const r = await fetch(`${API}/${id}/${path}`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body) });

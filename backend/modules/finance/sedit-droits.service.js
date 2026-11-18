@@ -51,22 +51,28 @@ async function resolveSeditUser(user) {
     });
 }
 
-// Couples (budget, service gestionnaire) sur lesquels le compte a le droit de modification.
-async function getModifiableServices(seditUser) {
+// Couples (budget, service gestionnaire) sur lesquels le compte a l'un des accès demandés ('M' seul = modification ;
+// 'I','M' = consultation, c.-à-d. les factures qu'il VOIT dans SEDIT). serviceRoo = FI.SERVICEFI.ROO_IMA_REF (= FACTURE.EF_SERVICE).
+async function loadServices(seditUser, levels) {
     if (!seditUser) return [];
-    return withCache(`droits:${seditUser.roo}`, () => financeShare.withFinanceOracle(async (conn) => {
+    return withCache(`droits:${levels.join('')}:${seditUser.roo}`, () => financeShare.withFinanceOracle(async (conn) => {
+        const binds = { u: seditUser.roo };
+        const marks = levels.map((l, i) => { binds[`a${i}`] = l; return `:a${i}`; });
         const r = await conn.execute(
-            `SELECT f.BUDGET AS BUDGET_ROO, TRIM(bu.LIBELLE) AS BUDGET, TRIM(s.CLEACCES) AS SERVICE, TRIM(s.LIBELLE) AS LIBELLE
+            `SELECT f.BUDGET AS BUDGET_ROO, TRIM(bu.LIBELLE) AS BUDGET, TRIM(s.ROO_IMA_REF) AS SERVICE_ROO, TRIM(s.CLEACCES) AS SERVICE, TRIM(s.LIBELLE) AS LIBELLE
                FROM FI.UTILISATFI f
                JOIN FI.DROITSER d ON TRIM(d.UTILISATFI) = TRIM(f.ROO_IMA_REF)
                JOIN FI.SERVICEFI s ON TRIM(s.ROO_IMA_REF) = TRIM(d.SERVICEFI)
                JOIN FI.BUDGET bu ON TRIM(bu.ROO_IMA_REF) = TRIM(f.BUDGET)
-              WHERE TRIM(f.UTILISAT) = :u AND d.ACCES = 'M'
-              ORDER BY 2, 3`,
-            { u: seditUser.roo }, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 5000 });
-        return (r.rows || []).map(x => ({ budgetRoo: x.BUDGET_ROO, budget: trim(x.BUDGET), service: trim(x.SERVICE), libelle: trim(x.LIBELLE) }));
+              WHERE TRIM(f.UTILISAT) = :u AND d.ACCES IN (${marks.join(',')})
+              ORDER BY 2, 4`,
+            binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 5000 });
+        return (r.rows || []).map(x => ({ budgetRoo: x.BUDGET_ROO, budget: trim(x.BUDGET), serviceRoo: trim(x.SERVICE_ROO), service: trim(x.SERVICE), libelle: trim(x.LIBELLE) }));
     }));
 }
+const getModifiableServices = (seditUser) => loadServices(seditUser, ['M']);
+// Factures visibles dans SEDIT : accès interrogation OU modification
+const getVisibleServices = (seditUser) => loadServices(seditUser, ['I', 'M']);
 
 // Accès complet d'un agent : compte SEDIT + services modifiables (null = pas de compte SEDIT).
 async function getAccess(user) {
@@ -76,4 +82,4 @@ async function getAccess(user) {
     return { sedit, services };
 }
 
-module.exports = { resolveSeditUser, getModifiableServices, getAccess };
+module.exports = { resolveSeditUser, getModifiableServices, getVisibleServices, getAccess };

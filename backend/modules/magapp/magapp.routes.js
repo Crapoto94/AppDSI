@@ -53,6 +53,24 @@ magappBaseRouter.get('/virement-credits/:id/pdf', authenticateJWT, virementMine,
 magappBaseRouter.post('/virement-credits/:id/parapheur', authenticateJWT, virementMine, virements.requireSeditAccount, virements.sendToParapheurChain);
 magappBaseRouter.post('/virement-credits/:id/send-budget', authenticateJWT, virementMine, virements.sendToBudget);
 magappBaseRouter.delete('/virement-credits/:id', authenticateJWT, virementMine, virements.remove);
+// BETA « Mes factures » : factures SEDIT visibles par l'agent (droits DROITSER) + partage d'accès entre agents
+const mesFactures = require('../finance/mes-factures.service');
+const mfFail = (res, e, msg) => { if (e && e.status) return res.status(e.status).json({ message: e.message }); console.error('[MesFactures]', msg, e); res.status(502).json({ message: `${msg} : ${e && e.message}` }); };
+magappBaseRouter.get('/mes-factures/access', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.getAccess(req.user)); } catch (e) { mfFail(res, e, 'SEDIT indisponible'); }
+});
+magappBaseRouter.get('/mes-factures/shares', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.listShares(req.user)); } catch (e) { mfFail(res, e, 'Erreur lecture des partages'); }
+});
+magappBaseRouter.post('/mes-factures/shares', authenticateJWT, async (req, res) => {
+    try { await mesFactures.addShare(req.user, req.body || {}); res.status(201).json(await mesFactures.listShares(req.user)); } catch (e) { mfFail(res, e, 'Erreur de partage'); }
+});
+magappBaseRouter.delete('/mes-factures/shares/:id', authenticateJWT, async (req, res) => {
+    try { await mesFactures.removeShare(req.user, parseInt(req.params.id, 10)); res.json(await mesFactures.listShares(req.user)); } catch (e) { mfFail(res, e, 'Erreur de suppression du partage'); }
+});
+magappBaseRouter.get('/mes-factures', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.listFactures(req.user, req.query)); } catch (e) { mfFail(res, e, 'SEDIT indisponible'); }
+});
 magappBaseRouter.get('/versions', MagAppController.getVersions);
 magappBaseRouter.get('/user-version', authenticateJWT, MagAppController.getUserVersion);
 magappBaseRouter.post('/user-version', authenticateJWT, MagAppController.recordUserVersionSeen);
