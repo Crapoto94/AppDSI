@@ -42,6 +42,8 @@ const MailAnalyseMapFranceWidget = lazy(() => import('./MailAnalyseMapFranceWidg
 const MailAnalyseFailedSigninsWidget = lazy(() => import('./MailAnalyseFailedSigninsWidget'));
 const NotesKpiWidget = lazy(() => import('./NotesKpiWidget'));
 const NotesWordcloudWidget = lazy(() => import('./NotesWordcloudWidget'));
+const EntretiensKpiWidget = lazy(() => import('./EntretiensKpiWidget'));
+const EntretiensStatutsWidget = lazy(() => import('./EntretiensStatutsWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -95,6 +97,8 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   mail_analyse_failed_signins: MailAnalyseFailedSigninsWidget,
   notes_kpi:               NotesKpiWidget,
   notes_wordcloud:         NotesWordcloudWidget,
+  entretiens_kpi:          EntretiensKpiWidget,
+  entretiens_statuts:      EntretiensStatutsWidget,
   // Alias rétro-compatibilité : les tableaux existants enregistrés avec l'ancienne clé
   // unique (carte monde + carte pays empilées) affichent désormais la carte monde.
   mail_analyse_map:        MailAnalyseMapWorldWidget,

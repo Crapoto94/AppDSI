@@ -1,0 +1,527 @@
+/**
+ * Entretiens professionnels — services partagés.
+ *
+ * Toutes les données métier vivent dans le schéma PostgreSQL `hub_entretiens`
+ * (créé dans shared/pg_db.js). Aucune table SQLite n'est utilisée.
+ *
+ * Les dates d'entretien sont stockées en texte « YYYY-MM-DDTHH:mm » (heure de
+ * Paris) : c'est volontaire, cela évite toute conversion de fuseau entre le
+ * serveur (souvent en UTC), PostgreSQL et le navigateur.
+ */
+const { pgDb } = require('../../shared/database');
+const {
+    createOutlookEvent,
+    updateOutlookEvent,
+    deleteOutlookEvent,
+} = require('../rencontres/outlook.service');
+
+const norm = (v) => String(v || '').trim().toLowerCase();
+const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+/** Date/heure locale « YYYY-MM-DDTHH:mm » (fuseau du serveur). */
+function localNow() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function normalizeDateTime(value) {
+    if (!value) return null;
+    const s = String(value).trim().replace(' ', 'T');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return null;
+    return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}`;
+}
+
+/** Normalise une date seule « YYYY-MM-DD » (champs date d'une campagne). */
+function normalizeDate(value) {
+    if (!value) return null;
+    const m = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function formatDateTimeFr(value) {
+    const s = normalizeDateTime(value);
+    if (!s) return '';
+    const [date, time] = s.split('T');
+    const [y, mo, d] = date.split('-');
+    return `${d}/${mo}/${y} à ${time}`;
+}
+
+function fullName(prenom, nom) {
+    return `${String(prenom || '').trim()} ${String(nom || '').trim()}`.trim();
+}
+
+/** Identité de l'utilisateur connecté, complétée depuis hub.users si besoin. */
+async function getActor(req) {
+    const u = req.user || {};
+    const actor = {
+        id: u.id,
+        username: String(u.username || '').trim(),
+        role: String(u.role || '').trim(),
+        email: String(u.email || '').trim(),
+        displayName: String(u.displayName || '').trim(),
+    };
+    if ((!actor.email || !actor.displayName) && actor.username) {
+        try {
+            const row = await pgDb.get(
+                'SELECT email, displayName AS "displayName" FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1',
+                [actor.username]
+            );
+            if (row) {
+                if (!actor.email) actor.email = row.email || '';
+                if (!actor.displayName) actor.displayName = row.displayName || '';
+            }
+        } catch (e) { /* ignore */ }
+    }
+    return actor;
+}
+
+/** Un admin global (admin/superadmin) ou un admin délégué du module. */
+async function isEpAdmin(actor) {
+    if (['admin', 'superadmin'].includes(norm(actor.role))) return true;
+    const clauses = [];
+    const params = [];
+    if (actor.username) { clauses.push('LOWER(username) = LOWER(?)'); params.push(actor.username); }
+    if (actor.email) { clauses.push('LOWER(email) = LOWER(?)'); params.push(actor.email); }
+    if (!clauses.length) return false;
+    try {
+        const row = await pgDb.get(
+            `SELECT 1 FROM hub_entretiens.admins WHERE (${clauses.join(' OR ')}) LIMIT 1`,
+            params
+        );
+        return !!row;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Identités sous lesquelles l'utilisateur peut être désigné évaluateur :
+ * son compte, plus l'éventuel agent du calendrier DSI correspondant (identifiant ou e-mail).
+ */
+async function evaluatorIdentity(actor) {
+    const usernames = new Set();
+    const emails = new Set();
+    const add = (u, e) => { if (u) usernames.add(norm(u)); if (e) emails.add(norm(e)); };
+    add(actor.username, actor.email);
+    if (actor.username || actor.email) {
+        try {
+            const rows = await pgDb.all(
+                'SELECT username, email FROM hub_calendrier.agents_dsi WHERE LOWER(username) = LOWER(?) OR (? <> \'\' AND LOWER(email) = LOWER(?))',
+                [actor.username || '', actor.email || '', actor.email || '']
+            );
+            for (const r of rows || []) add(r.username, r.email);
+        } catch (e) { /* ignore */ }
+    }
+    return { usernames: [...usernames], emails: [...emails] };
+}
+
+/** Clause SQL « l'entretien est évalué par cette identité » (null si aucune identité). */
+function evaluatorClause(identity) {
+    const parts = [];
+    const params = [];
+    if (identity.emails.length) { parts.push(`LOWER(evaluator_email) IN (${identity.emails.map(() => '?').join(',')})`); params.push(...identity.emails); }
+    if (identity.usernames.length) { parts.push(`LOWER(evaluator_username) IN (${identity.usernames.map(() => '?').join(',')})`); params.push(...identity.usernames); }
+    return parts.length ? { sql: `(${parts.join(' OR ')})`, params } : null;
+}
+
+/**
+ * E-mail à l'agent : son entretien est planifié, il doit préparer sa fiche dans l'application.
+ * (L'invitation Outlook seule ne suffit pas : elle n'arrive pas, par exemple, quand l'agent est aussi l'organisateur.)
+ * Best effort : n'échoue jamais.
+ */
+async function sendPreparationMail(entretien, campaign) {
+    try {
+        if (!entretien?.agent_email || !entretien.date_entretien) return { ok: false, skipped: true };
+        const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+        const email = require('./entretiens-email');
+        const tpl = email.preparation({
+            agent: fullName(entretien.agent_prenom, entretien.agent_nom) || 'Madame, Monsieur',
+            annee: campaign?.annee,
+            quand: formatDateTimeFr(entretien.date_entretien),
+            duree: entretien.duree_minutes,
+            lieu: entretien.lieu,
+            evaluateur: entretien.evaluator_nom || entretien.evaluator_email,
+            link: await email.entretiensUrl(),
+        });
+        await sendParapheurEmail(entretien.agent_email, tpl);
+        return { ok: true };
+    } catch (e) {
+        console.warn('[ENTRETIENS] mail de préparation non envoyé:', e.message);
+        return { ok: false, error: e.message };
+    }
+}
+
+/** E-mail à l'évaluateur : un entretien lui est attribué, il doit prendre rendez-vous. Best effort. */
+async function sendEvaluatorMail(entretien, campaign) {
+    try {
+        if (!entretien?.evaluator_email) return { ok: false, skipped: true };
+        const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+        const email = require('./entretiens-email');
+        const base = {
+            evaluateur: entretien.evaluator_nom || entretien.evaluator_email,
+            agent: fullName(entretien.agent_prenom, entretien.agent_nom) || entretien.agent_email || 'un agent',
+            annee: campaign?.annee,
+            service: entretien.service,
+            link: await email.entretiensUrl(),
+        };
+        // Avec une date : confirmation du rendez-vous ; sans date : l'évaluateur doit planifier lui-même.
+        const tpl = entretien.date_entretien
+            ? email.rdvPlanifie({ ...base, quand: formatDateTimeFr(entretien.date_entretien), duree: entretien.duree_minutes, lieu: entretien.lieu })
+            : email.aPlanifier(base);
+        await sendParapheurEmail(entretien.evaluator_email, tpl);
+        return { ok: true };
+    } catch (e) {
+        console.warn('[ENTRETIENS] mail évaluateur non envoyé:', e.message);
+        return { ok: false, error: e.message };
+    }
+}
+
+/** Rôle effectif renvoyé au frontend : admin | evaluator | agent. */
+async function resolveRole(actor) {
+    const admin = await isEpAdmin(actor);
+    let evaluator = false;
+    const clause = evaluatorClause(await evaluatorIdentity(actor));
+    if (clause) {
+        const row = await pgDb.get(`SELECT 1 FROM hub_entretiens.entretiens WHERE deleted_at IS NULL AND ${clause.sql} LIMIT 1`, clause.params);
+        evaluator = !!row;
+    }
+    return { role: admin ? 'admin' : (evaluator ? 'evaluator' : 'agent'), isAdmin: admin, isEvaluator: evaluator };
+}
+
+/**
+ * Vue d'un entretien pour un utilisateur donné : l'agent ne voit ni les notes internes, ni le travail de
+ * l'évaluateur (compte rendu) tant que celui-ci ne lui a pas été envoyé.
+ */
+function forViewer(entretien, access) {
+    if (!entretien || !access) return entretien;
+    if (access.isAdmin || access.isEvaluator) return entretien;
+    const out = { ...entretien };
+    delete out.notes_admin;
+    if (!out.crep_statut || out.crep_statut === 'non_envoye') {
+        delete out.crep;
+        delete out.synthese;
+        delete out.appreciation_generale;
+        delete out.objectifs_suivants;
+        delete out.avis_agent;
+        out.objectifs = (out.objectifs || []).map(o => { const c = { ...o }; delete c.niveau_evaluateur; delete c.commentaire_evaluateur; return c; });
+    }
+    return out;
+}
+
+/** Droits d'accès à un entretien donné. */
+async function buildAccess(actor, entretien, adminFlag) {
+    const admin = adminFlag !== undefined ? adminFlag : await isEpAdmin(actor);
+    const email = norm(actor.email);
+    const username = norm(actor.username);
+    const isAgent = !!(
+        (email && norm(entretien.agent_email) === email) ||
+        (username && norm(entretien.agent_username) === username)
+    );
+    const identity = await evaluatorIdentity(actor);
+    const isEvaluator = !!(
+        (norm(entretien.evaluator_email) && identity.emails.includes(norm(entretien.evaluator_email))) ||
+        (norm(entretien.evaluator_username) && identity.usernames.includes(norm(entretien.evaluator_username)))
+    );
+    if (!admin && !isAgent && !isEvaluator) return null;
+
+    // La préparation reste modifiable jusqu'à 7 jours après la date de
+    // l'entretien (et tant que l'entretien n'est pas réalisé/clôturé).
+    const d = normalizeDateTime(entretien.date_entretien);
+    let withinWindow = true;
+    if (d) {
+        const limit = new Date();
+        limit.setDate(limit.getDate() - 7);
+        const limitStr = `${limit.getFullYear()}-${pad2(limit.getMonth() + 1)}-${pad2(limit.getDate())}T${pad2(limit.getHours())}:${pad2(limit.getMinutes())}`;
+        withinWindow = d >= limitStr;
+    }
+    const lockedStatus = ['realise', 'cloture'].includes(entretien.statut);
+    const canEditPreparation = (isAgent || admin) && !lockedStatus && withinWindow;
+
+    return {
+        isAdmin: admin,
+        isAgent,
+        isEvaluator,
+        canEditPreparation,
+        // Une fois le compte rendu envoyé à l'agent, l'évaluateur ne peut plus le modifier.
+        canEditEvaluation: (isEvaluator || admin) && entretien.statut !== 'cloture' && (!entretien.crep_statut || entretien.crep_statut === 'non_envoye'),
+    };
+}
+
+async function getCurrentCampaign() {
+    try {
+        const row = await pgDb.get(
+            `SELECT * FROM hub_entretiens.campaigns
+             WHERE statut <> 'close'
+             ORDER BY annee DESC, id DESC LIMIT 1`
+        );
+        if (row) return row;
+        return await pgDb.get('SELECT * FROM hub_entretiens.campaigns ORDER BY annee DESC, id DESC LIMIT 1');
+    } catch (e) {
+        return null;
+    }
+}
+
+async function getEntretienById(id) {
+    const row = await pgDb.get('SELECT * FROM hub_entretiens.entretiens WHERE id = ? AND deleted_at IS NULL', [id]);
+    return row || null;
+}
+
+/** Charge les objectifs et formations d'un entretien. */
+async function withRelations(entretien) {
+    if (!entretien) return null;
+    const [objectifs, formations] = await Promise.all([
+        pgDb.all('SELECT * FROM hub_entretiens.objectifs WHERE entretien_id = ? ORDER BY ordre, id', [entretien.id]),
+        pgDb.all('SELECT * FROM hub_entretiens.formations WHERE entretien_id = ? ORDER BY id', [entretien.id]),
+    ]);
+    return {
+        ...entretien,
+        date_entretien_label: formatDateTimeFr(entretien.date_entretien),
+        objectifs: objectifs || [],
+        formations: formations || [],
+    };
+}
+
+/** Liste enrichie (compteurs de préparation) avec filtres facultatifs. */
+async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, search, limit = 2000 } = {}) {
+    const where = [];
+    const params = [];
+    if (campaignId) { where.push('e.campaign_id = ?'); params.push(Number(campaignId)); }
+    if (statut) { where.push('e.statut = ?'); params.push(statut); }
+    if (evaluatorEmail) { where.push('LOWER(e.evaluator_email) = LOWER(?)'); params.push(evaluatorEmail); }
+    if (agentEmail) { where.push('LOWER(e.agent_email) = LOWER(?)'); params.push(agentEmail); }
+    if (search) {
+        const q = `%${String(search).trim()}%`;
+        where.push('(e.agent_nom ILIKE ? OR e.agent_prenom ILIKE ? OR e.agent_email ILIKE ? OR e.evaluator_nom ILIKE ? OR e.evaluator_email ILIKE ?)');
+        params.push(q, q, q, q, q);
+    }
+    const sql = `
+        SELECT e.*,
+          (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id) AS objectifs_total,
+          (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id AND o.niveau IS NOT NULL AND o.niveau <> '') AS objectifs_renseignes,
+          (SELECT COUNT(*) FROM hub_entretiens.formations f WHERE f.entretien_id = e.id) AS formations_total
+        FROM hub_entretiens.entretiens e
+        WHERE e.deleted_at IS NULL${where.length ? ' AND ' + where.join(' AND ') : ''}
+        ORDER BY e.date_entretien NULLS LAST, e.agent_nom, e.agent_prenom
+        LIMIT ${Math.max(1, Math.min(5000, Number(limit) || 2000))}
+    `;
+    const rows = await pgDb.all(sql, params);
+    return (rows || []).map(r => ({
+        ...r,
+        date_entretien_label: formatDateTimeFr(r.date_entretien),
+        objectifs_total: Number(r.objectifs_total || 0),
+        objectifs_renseignes: Number(r.objectifs_renseignes || 0),
+        formations_total: Number(r.formations_total || 0),
+    }));
+}
+
+/** KPIs calculés à partir d'une liste d'entretiens. */
+function computeStats(rows, agentsSansEntretien = 0) {
+    const now = localNow();
+    const in7 = new Date();
+    in7.setDate(in7.getDate() + 7);
+    const in7Str = `${in7.getFullYear()}-${pad2(in7.getMonth() + 1)}-${pad2(in7.getDate())}T${pad2(in7.getHours())}:${pad2(in7.getMinutes())}`;
+
+    let total = 0, planifies = 0, aPlanifier = 0, realises = 0, prepRecues = 0, evalRecues = 0;
+    let aVenir7j = 0, sansEvaluateur = 0, outlookErreurs = 0, enRetard = 0;
+    for (const r of rows || []) {
+        total++;
+        const d = normalizeDateTime(r.date_entretien);
+        if (r.statut === 'realise' || r.statut === 'cloture') realises++;
+        else if (d) planifies++;
+        else aPlanifier++;
+        if (r.preparation_statut === 'soumis') prepRecues++;
+        if (r.evaluation_statut === 'soumis') evalRecues++;
+        if (d && d >= now && d <= in7Str) aVenir7j++;
+        if (!r.evaluator_nom && !r.evaluator_email) sansEvaluateur++;
+        if (r.outlook_status === 'erreur') outlookErreurs++;
+        if (d && d < now && !['realise', 'cloture'].includes(r.statut)) enRetard++;
+    }
+    // Chaque agent DSI doit avoir son entretien : ceux qui n'en ont pas encore sont « à planifier ».
+    total += agentsSansEntretien;
+    aPlanifier += agentsSansEntretien;
+    const tauxRealisation = total ? Math.round((realises / total) * 100) : 0;
+    return {
+        total, planifies, a_planifier: aPlanifier, realises,
+        preparations_recues: prepRecues, evaluations_recues: evalRecues,
+        a_venir_7j: aVenir7j, sans_evaluateur: sansEvaluateur,
+        outlook_erreurs: outlookErreurs, en_retard: enRetard,
+        taux_realisation: tauxRealisation,
+    };
+}
+
+async function getSetting(key) {
+    try {
+        const row = await pgDb.get('SELECT value FROM hub_entretiens.settings WHERE key = ?', [key]);
+        return row?.value || '';
+    } catch (e) { return ''; }
+}
+
+async function setSetting(key, value) {
+    await pgDb.run(
+        `INSERT INTO hub_entretiens.settings (key, value, updated_at)
+         VALUES (?, ?, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key, value]
+    );
+}
+
+async function resolveOrganizerEmail(actor) {
+    if (isEmail(actor.email)) return actor.email.trim();
+    if (actor.username) {
+        const row = await pgDb.get('SELECT email FROM hub.users WHERE LOWER(username) = LOWER(?)', [actor.username]);
+        if (isEmail(row?.email)) return row.email.trim();
+    }
+    const fallback = await getSetting('calendar_organizer_email');
+    return isEmail(fallback) ? fallback.trim() : '';
+}
+
+function isGraphNotFound(err) {
+    const status = err?.response?.status;
+    const code = err?.response?.data?.error?.code || '';
+    return status === 404 || /ErrorItemNotFound|itemNotFound/i.test(code);
+}
+
+function buildEventBody(entretien, campaign, appUrl) {
+    const agent = fullName(entretien.agent_prenom, entretien.agent_nom) || entretien.agent_email || 'Agent';
+    const annee = campaign?.annee || '';
+    return {
+        titre: `Entretien professionnel${annee ? ' ' + annee : ''} — ${agent}`,
+        body: `
+            <p><strong>Entretien professionnel annuel${annee ? ' ' + annee : ''}</strong></p>
+            <p>Agent : <strong>${agent}</strong>${entretien.service ? ' — ' + entretien.service : ''}</p>
+            <p>Évaluateur : <strong>${entretien.evaluator_nom || entretien.evaluator_email || 'à définir'}</strong></p>
+            <p>Merci de préparer votre entretien dans l'application : <a href="${appUrl}">Mes entretiens professionnels</a></p>
+        `,
+    };
+}
+
+/**
+ * Crée ou met à jour l'événement Outlook (invitation dans les calendriers de
+ * l'agent et de l'évaluateur). Ne lève jamais : renvoie un statut exploitable.
+ */
+async function syncOutlook(entretien, actor, campaign, { forceCreate = false } = {}) {
+    if (!entretien?.date_entretien) {
+        return { ok: false, skipped: true, error: "La date de l'entretien n'est pas renseignée." };
+    }
+    try {
+        const organizerEmail = await resolveOrganizerEmail(actor);
+        if (!organizerEmail) {
+            throw new Error("Aucune adresse email O365 disponible pour créer l'invitation (email du compte ou paramètre « organisateur calendrier »).");
+        }
+
+        const organizerNorm = norm(organizerEmail);
+        const attendees = [];
+        const push = (email, name) => {
+            const e = String(email || '').trim();
+            if (!isEmail(e) || norm(e) === organizerNorm) return;
+            if (attendees.some(a => norm(a.email) === norm(e))) return;
+            attendees.push({ email: e, name: name || e });
+        };
+        push(entretien.agent_email, fullName(entretien.agent_prenom, entretien.agent_nom));
+        push(entretien.evaluator_email, entretien.evaluator_nom);
+
+        const { titre, body } = buildEventBody(entretien, campaign, await require('./entretiens-email').entretiensUrl());
+        const common = {
+            organizerEmail,
+            dateReunion: entretien.date_entretien,
+            dureeMinutes: Number(entretien.duree_minutes) || 120,
+            lieu: entretien.lieu || '',
+        };
+
+        let evt = null;
+        let updated = false;
+        if (entretien.outlook_event_id && !forceCreate) {
+            const mailbox = entretien.outlook_organizer || organizerEmail;
+            try {
+                evt = await updateOutlookEvent({
+                    ...common,
+                    organizerEmail: mailbox,
+                    eventId: entretien.outlook_event_id,
+                    titre,
+                    ordreDuJour: body,
+                    attendees,
+                });
+                updated = true;
+            } catch (e) {
+                if (!isGraphNotFound(e)) throw e;
+                evt = null; // événement supprimé côté Outlook → on le recrée
+            }
+        }
+
+        if (!evt) {
+            evt = await createOutlookEvent({
+                ...common,
+                titre,
+                ordreDuJour: body,
+                attendees,
+            });
+        }
+
+        await pgDb.run(
+            `UPDATE hub_entretiens.entretiens
+             SET outlook_event_id = ?, outlook_organizer = ?, outlook_web_link = ?,
+                 outlook_status = 'envoye', outlook_error = NULL, updated_at = NOW()
+             WHERE id = ?`,
+            [evt.id || null, organizerEmail, evt.webLink || null, entretien.id]
+        );
+        return { ok: true, updated, created: !updated, eventId: evt.id, webLink: evt.webLink || null, organizerEmail };
+    } catch (e) {
+        const message = e?.response?.data?.error?.message || e.message || 'Erreur Outlook inconnue';
+        console.error('[ENTRETIENS] Synchro Outlook échouée:', message);
+        try {
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens
+                 SET outlook_status = 'erreur', outlook_error = ?, updated_at = NOW()
+                 WHERE id = ?`,
+                [message, entretien.id]
+            );
+        } catch (e2) { /* ignore */ }
+        return { ok: false, error: message };
+    }
+}
+
+/** Supprime l'événement Outlook associé, sans jamais faire échouer la suppression métier. */
+async function removeOutlook(entretien) {
+    if (!entretien?.outlook_event_id) return;
+    try {
+        await deleteOutlookEvent({
+            organizerEmail: entretien.outlook_organizer,
+            eventId: entretien.outlook_event_id,
+        });
+    } catch (e) {
+        console.warn('[ENTRETIENS] Suppression Outlook échouée:', e?.response?.data?.error?.message || e.message);
+    }
+}
+
+module.exports = {
+    sendEvaluatorMail,
+    sendPreparationMail,
+    forViewer,
+    evaluatorIdentity,
+    evaluatorClause,
+    norm,
+    isEmail,
+    localNow,
+    normalizeDateTime,
+    normalizeDate,
+    formatDateTimeFr,
+    fullName,
+    getActor,
+    isEpAdmin,
+    resolveRole,
+    buildAccess,
+    getCurrentCampaign,
+    getEntretienById,
+    withRelations,
+    listEntretiens,
+    computeStats,
+    getSetting,
+    setSetting,
+    resolveOrganizerEmail,
+    syncOutlook,
+    removeOutlook,
+};

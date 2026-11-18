@@ -347,6 +347,23 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 3, h: 2 },
   },
+  // ── Entretiens professionnels ─────────────────────────────────────────────
+  {
+    key: 'entretiens_kpi',
+    label: 'Entretiens professionnels — KPIs',
+    description: 'Total, planifiés, préparations reçues, réalisés, échéances et retards',
+    module: 'Entretiens professionnels',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'entretiens_statuts',
+    label: 'Entretiens professionnels — statuts',
+    description: 'Répartition de la campagne par statut (à planifier, planifié, préparé, réalisé, clôturé)',
+    module: 'Entretiens professionnels',
+    defaultSize: { w: 5, h: 3 },
+    minSize: { w: 3, h: 2 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',

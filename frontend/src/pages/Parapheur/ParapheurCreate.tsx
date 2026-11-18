@@ -28,6 +28,7 @@ export default function ParapheurCreate() {
 
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
+  const [noQr, setNoQr] = useState(false);
   const [deadline, setDeadline] = useState('');
   const [mode, setMode] = useState<Mode>('parallele');
   const [modeChosen, setModeChosen] = useState(false);
@@ -175,7 +176,7 @@ export default function ParapheurCreate() {
       annexes.forEach(a => fd.append('annexes', a.file, a.name));
       const effectiveMode: Mode = signataires.length >= 2 ? mode : 'parallele';
       const payload = {
-        title, message, mode: effectiveMode, deadline: deadline || null,
+        title, message, mode: effectiveMode, deadline: deadline || null, no_qr: noQr,
         signataires: signataires.map((s) => ({
           agentId: s.id,
           nom: s.displayName,
@@ -233,6 +234,10 @@ export default function ParapheurCreate() {
           <Field label="Échéance (optionnel)">
             <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={{ ...input, maxWidth: 240 }} />
           </Field>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', cursor: 'pointer' }}>
+            <input type="checkbox" checked={noQr} onChange={e => setNoQr(e.target.checked)} />
+            Sans QR code de vérification sur le document signé
+          </label>
           {signataires.some(s => s.external) && (
             <Field label="Lien de signature (signataires extérieurs)">
               <div style={{ fontSize: '0.82rem', color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px' }}>

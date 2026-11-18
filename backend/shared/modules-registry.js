@@ -48,6 +48,7 @@ const MODULES_REGISTRY = [
     { key: 'vibecoding',   title: 'VibeCoding',            icon: 'Terminal',    description: 'Ressources et plan de la formation au développement assisté par IA.', url: '/vibecoding' },
     { key: 'bpmn',         title: 'Modélisation BPMN',     icon: 'Workflow',    description: 'Création et export de processus au format BPMN 2.0 (éditeur bpmn.io).', url: '/bpmn' },
     { key: 'fast',        title: 'Actions rapides',       icon: 'Zap',         description: 'Gestes rapides du quotidien : nouveau ticket, tâche, mot de passe par SMS, gestion de compte AD et analyse mail.', url: '/fast' },
+    { key: 'entretiens',  title: 'Entretiens professionnels', icon: 'ClipboardCheck', description: 'Campagne annuelle des entretiens professionnels : préparation de l’agent, évaluation et compte rendu.', url: '/entretiens', is_public: true },
 ];
 
 module.exports = { MODULES_REGISTRY };

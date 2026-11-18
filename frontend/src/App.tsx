@@ -47,6 +47,7 @@ import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
 import ConsommablesManagement from './pages/ConsommablesManagement';
 import PretsManagement from './pages/Prets/PretsManagement';
+import Entretiens from './pages/Entretiens';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklogMerged from './pages/AdminBacklogMerged';
 import AdminOrganisation from './pages/AdminOrganisation';
@@ -228,6 +229,7 @@ function App() {
         <Route path="/parapheur/nouveau" element={<PrivateRoute path="/parapheur"><ParapheurCreate /></PrivateRoute>} />
         <Route path="/parapheur/:id" element={<PrivateRoute path="/parapheur"><ParapheurDetail /></PrivateRoute>} />
         <Route path="/fast" element={<PrivateRoute path="/fast"><FastActions /></PrivateRoute>} />
+        <Route path="/entretiens" element={<PrivateRoute path="/entretiens"><Entretiens /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 

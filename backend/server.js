@@ -633,7 +633,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         }
 
         // Build authorized URLs for all users
-        const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes (module routes come from tile authorization)
+        const urls = new Set(['/', '/request-access', '/profile', '/entretiens']); // Default allowed routes (module routes come from tile authorization)
 
         // Force l'approbation pour les admins
         if (isAdminLike(user)) {
@@ -6619,6 +6619,9 @@ app.use('/api/backup', require('./modules/backup/backup.routes'));
 
 // DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
+
+// Entretiens professionnels annuels (module public : chaque agent voit son EP)
+app.use('/api/entretiens', require('./modules/entretiens/entretiens.routes'));
 
 // Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
 // Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)

@@ -1526,8 +1526,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     const publicToken = generateToken();
     const pRes = await pgDb.run(
     `INSERT INTO hub_parapheur.parapheurs
-    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service)
-    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service, no_qr)
+    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
     title,
     payload.message || '',
@@ -1539,6 +1539,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     createdByName || null,
     user.email || null,
     payload.service ? String(payload.service).trim().slice(0, 200) : null,
+    payload.no_qr === true || payload.no_qr === 'true',
     ]
     );
     const parapheurId = pRes.lastID;
@@ -2013,7 +2014,8 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
     // authentification) accessible à toute personne disposant du lien.
     let qrImage = null;
     const qrBase = ctx.verifyBaseUrl || ctx.appBaseUrl;
-    if (qrBase && ctx.publicToken) {
+    // ctx.noQr : certains documents (ex. compte-rendu d'entretien professionnel) sont signés sans QR code.
+    if (!ctx.noQr && qrBase && ctx.publicToken) {
         try {
             const url = `${String(qrBase).replace(/\/+$/, '')}${VERIFY_PATH}/${ctx.publicToken}`;
             const qrBuf = await QRCode.toBuffer(url, { type: 'png', width: 260, margin: 1 });
@@ -2183,6 +2185,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
     const documents = await pgDb.all(`SELECT * FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [parapheurId]);
     const publicToken = await ensurePublicToken(parapheurId);
     const verifyBaseUrl = await getVerifyBaseUrl();
+    const noQr = !!(await pgDb.get(`SELECT no_qr FROM hub_parapheur.parapheurs WHERE id = ?`, [parapheurId]))?.no_qr;
     for (const doc of documents) {
         // Ne jamais écraser un PDF déjà porteur d'une signature cryptographique.
         if (doc.has_pades) continue;
@@ -2201,7 +2204,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
         );
         if (sigs.length === 0) continue;
 
-        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), verifyBaseUrl, parapheurId, publicToken });
+        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), verifyBaseUrl, parapheurId, publicToken, noQr });
         let hasPades = false;
         if (secureContext) {
             try {
@@ -3448,7 +3451,7 @@ async function runSignatureDigest({ force } = {}) {
     let rows;
     try {
         rows = await pgDb.all(
-            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id,
+            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id, sg.signature_title,
                     p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service
              FROM hub_parapheur.signataires sg
              JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
@@ -3464,6 +3467,9 @@ async function runSignatureDigest({ force } = {}) {
     }
     if (!rows.length) return { sent: 0 };
 
+    // Un e-mail par destinataire (regroupant ses parapheurs). Quand la même personne figure plusieurs fois dans un même
+    // parapheur (ex. un compte rendu d'entretien cosigné par un agent qui est aussi son évaluateur), chaque signature
+    // fait l'objet de son propre e-mail.
     const byEmail = new Map();
     for (const r of rows) {
         const email = String(r.email || '').toLowerCase();
@@ -3471,11 +3477,20 @@ async function runSignatureDigest({ force } = {}) {
         if (!byEmail.has(email)) byEmail.set(email, []);
         byEmail.get(email).push(r);
     }
+    const batches = [];
+    for (const [email, list] of byEmail) {
+        const groups = [];
+        for (const r of list) {
+            const g = groups.find(x => !x.some(y => y.parapheur_id === r.parapheur_id));
+            if (g) g.push(r); else groups.push([r]);
+        }
+        for (const items of groups) batches.push([email, items]);
+    }
 
     const base = await getSignatureBaseUrl();
     const appBase = await getAppBaseUrl();
     let sent = 0;
-    for (const [email, items] of byEmail) {
+    for (const [email, items] of batches) {
         // Nombre total de parapheurs en attente pour ce signataire.
         let totalPending = items.length;
         try {
@@ -3502,7 +3517,7 @@ async function runSignatureDigest({ force } = {}) {
                 internal: !isExternal,
                 globalLink: isExternal ? null : `${appBase}/parapheur`,
                 parapheurs: items.map(i => ({
-                    title: i.title,
+                    title: i.signature_title ? `${i.title} — signature : ${i.signature_title}` : i.title,
                     reference: i.reference,
                     requester: i.created_by_name || i.created_by_username,
                     deadline: i.deadline,
@@ -3525,6 +3540,7 @@ async function runSignatureDigest({ force } = {}) {
 }
 
 module.exports = {
+    sendParapheurEmail,
     MODULE,
     setSendMail,
     createParapheur,

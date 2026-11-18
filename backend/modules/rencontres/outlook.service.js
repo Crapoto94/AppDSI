@@ -59,6 +59,7 @@ const minToHM = (m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
  * @param {Array<{email:string,name?:string}>} [opts.participants] - participants (email + nom)
  * @param {string[]} [opts.emails] - alternative : simples emails
  * @param {number} opts.durationMinutes
+ * @param {boolean} [opts.includeOrganizer] - compter l'organisateur parmi les personnes à disposer (défaut true)
  * @param {boolean} [opts.afterHours] - étend la plage à 08:00-19:00
  * @param {number} [opts.horizonDays] - profondeur de recherche en jours (défaut 30, max 366)
  * @param {string} [opts.after] - "YYYY-MM-DDTHH:mm" : ne renvoie que des créneaux démarrant strictement après (pagination « suivants »)
@@ -67,7 +68,7 @@ const minToHM = (m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
  * @returns {Promise<Array<{start:string,end:string,label:string,available:number,total:number,unavailable:string[]}>>}
  */
 async function findCommonSlots(opts) {
-    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, strict = false, horizonDays = 30, after = null, count = 5 } = opts;
+    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, includeOrganizer = true, strict = false, horizonDays = 30, after = null, count = 5 } = opts;
     const duration = Number(durationMinutes) || 60;
 
     // Liste unique des personnes à interroger (organisateur + participants), avec leur nom
@@ -81,7 +82,8 @@ async function findCommonSlots(opts) {
         seen.add(low);
         people.push({ email: addr, name: name || addr });
     };
-    pushPerson(organizerEmail, organizerName || 'Organisateur');
+    // includeOrganizer=false : la boîte de l'organisateur sert seulement à interroger getSchedule (ex. entretiens professionnels : agent + évaluateur uniquement).
+    if (includeOrganizer) pushPerson(organizerEmail, organizerName || 'Organisateur');
     if (Array.isArray(participants)) for (const p of participants) pushPerson(p.email, p.name);
     if (Array.isArray(emails)) for (const e of emails) pushPerson(e, null);
     if (people.length === 0) throw new Error('Aucune adresse email valide pour la recherche de créneaux');
@@ -355,16 +357,23 @@ async function createOutlookEvent(opts) {
 }
 
 /**
- * Met à jour un évènement Outlook existant (date/heure/lieu).
+ * Met à jour un évènement Outlook existant.
+ * Les champs `titre`, `ordreDuJour` et `attendees` sont facultatifs : lorsqu'ils
+ * sont fournis, l'objet, le corps et la liste des participants sont remplacés
+ * (utilisé par les entretiens professionnels pour répercuter un changement
+ * d'agent, d'évaluateur ou de date sans recréer l'invitation).
  * @param {Object} opts
  * @param {string} opts.organizerEmail
  * @param {string} opts.eventId
  * @param {string} opts.dateReunion
  * @param {number} opts.dureeMinutes
  * @param {string} [opts.lieu]
+ * @param {string} [opts.titre]
+ * @param {string} [opts.ordreDuJour]
+ * @param {Array<{email:string,name?:string,optional?:boolean}>} [opts.attendees]
  */
 async function updateOutlookEvent(opts) {
-    const { organizerEmail, eventId, dateReunion, dureeMinutes, lieu } = opts;
+    const { organizerEmail, eventId, dateReunion, dureeMinutes, lieu, titre, ordreDuJour, attendees } = opts;
     if (!organizerEmail || !organizerEmail.includes('@')) throw new Error('Email organisateur manquant');
     if (!eventId) throw new Error('Identifiant évènement Outlook manquant');
 
@@ -380,6 +389,25 @@ async function updateOutlookEvent(opts) {
         end: { dateTime: times.endStr, timeZone: 'Europe/Paris' }
     };
     if (lieu !== undefined) patchBody.location = { displayName: lieu || '' };
+    if (typeof titre === 'string' && titre.trim()) patchBody.subject = titre;
+    if (typeof ordreDuJour === 'string') patchBody.body = { contentType: 'HTML', content: ordreDuJour };
+
+    if (Array.isArray(attendees)) {
+        const seen = new Set();
+        const list = [];
+        for (const a of attendees) {
+            const email = String(a?.email || '').trim();
+            if (!email || !email.includes('@')) continue;
+            const key = email.toLowerCase();
+            if (key === organizerEmail.toLowerCase() || seen.has(key)) continue;
+            seen.add(key);
+            list.push({
+                emailAddress: { address: email, name: a.name || email },
+                type: a.optional ? 'optional' : 'required'
+            });
+        }
+        patchBody.attendees = list;
+    }
 
     const res = await axios.patch(
         `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(organizerEmail)}/events/${encodeURIComponent(eventId)}`,
@@ -390,4 +418,21 @@ async function updateOutlookEvent(opts) {
     return { id: res.data.id, webLink: res.data.webLink };
 }
 
-module.exports = { createOutlookEvent, updateOutlookEvent, buildStartEnd, findCommonSlots };
+/** Supprime un évènement Outlook (les participants reçoivent l'annulation). */
+async function deleteOutlookEvent(opts) {
+    const { organizerEmail, eventId } = opts;
+    if (!organizerEmail || !organizerEmail.includes('@')) throw new Error('Email organisateur manquant');
+    if (!eventId) throw new Error('Identifiant évènement Outlook manquant');
+
+    const settings = await getGraphSettings();
+    const axiosOpts = getAxiosOpts();
+    const token = await getGraphToken(settings, axiosOpts);
+
+    await axios.delete(
+        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(organizerEmail)}/events/${encodeURIComponent(eventId)}`,
+        { ...axiosOpts, headers: { Authorization: `Bearer ${token}` } }
+    );
+    return { deleted: true };
+}
+
+module.exports = { createOutlookEvent, updateOutlookEvent, deleteOutlookEvent, buildStartEnd, findCommonSlots };

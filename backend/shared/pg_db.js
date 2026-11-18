@@ -7389,6 +7389,8 @@ async function setupPgDb() {
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_status ON hub_parapheur.parapheurs(status)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
+      // Option « sans QR code de vérification » sur le PDF signé (ex. compte-rendu d'entretien professionnel).
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS no_qr BOOLEAN NOT NULL DEFAULT FALSE`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
       // Durée de validité du lien de signature (minutes). ≤ 60 → accès direct au
@@ -7791,6 +7793,171 @@ async function setupPgDb() {
       // Renommage : « Boîte de réception » → « Mes notes ».
       try { await client.query(`UPDATE hub_notes.notebooks SET title = 'Mes notes' WHERE is_inbox = TRUE AND title = 'Boîte de réception'`); } catch (e) {}
     } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
+
+    // ─── hub_entretiens — Entretiens professionnels annuels ──────────────
+    // Campagnes annuelles, entretiens agent / évaluateur, préparation de
+    // l'agent (bilan des objectifs, réalisations, formations, perspectives)
+    // et compte rendu de l'évaluateur. Les dates/heures sont stockées en
+    // texte « YYYY-MM-DDTHH:mm » (heure de Paris) pour éviter toute
+    // conversion de fuseau entre le serveur, PostgreSQL et le navigateur.
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_entretiens;');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.campaigns (
+          id SERIAL PRIMARY KEY,
+          annee INTEGER NOT NULL UNIQUE,
+          libelle TEXT,
+          date_ouverture TEXT,
+          date_cloture TEXT,
+          date_limite_ep TEXT,
+          statut TEXT NOT NULL DEFAULT 'ouverte',
+          instructions TEXT DEFAULT '',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.admins (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT,
+          display_name TEXT,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.settings (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.entretiens (
+          id SERIAL PRIMARY KEY,
+          campaign_id INTEGER NOT NULL REFERENCES hub_entretiens.campaigns(id) ON DELETE CASCADE,
+          agent_username TEXT DEFAULT '',
+          agent_email TEXT DEFAULT '',
+          agent_nom TEXT NOT NULL DEFAULT '',
+          agent_prenom TEXT DEFAULT '',
+          direction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          poste TEXT DEFAULT '',
+          evaluator_username TEXT DEFAULT '',
+          evaluator_email TEXT DEFAULT '',
+          evaluator_nom TEXT DEFAULT '',
+          date_entretien TEXT,
+          duree_minutes INTEGER DEFAULT 120,
+          lieu TEXT DEFAULT '',
+          statut TEXT NOT NULL DEFAULT 'a_planifier',
+          realisations TEXT DEFAULT '',
+          difficultes TEXT DEFAULT '',
+          pistes_amelioration TEXT DEFAULT '',
+          competences_a_developper TEXT DEFAULT '',
+          perspectives_missions TEXT DEFAULT '',
+          perspectives_responsabilite TEXT DEFAULT '',
+          perspectives_expertise TEXT DEFAULT '',
+          perspectives_projet TEXT DEFAULT '',
+          perspectives_concours TEXT DEFAULT '',
+          commentaire_agent TEXT DEFAULT '',
+          preparation_statut TEXT NOT NULL DEFAULT 'non_commencee',
+          agent_submitted_at TIMESTAMPTZ,
+          synthese TEXT DEFAULT '',
+          appreciation_generale TEXT DEFAULT '',
+          objectifs_suivants TEXT DEFAULT '',
+          avis_agent TEXT DEFAULT '',
+          evaluation_statut TEXT NOT NULL DEFAULT 'non_commencee',
+          evaluator_submitted_at TIMESTAMPTZ,
+          outlook_event_id TEXT,
+          outlook_organizer TEXT,
+          outlook_web_link TEXT,
+          outlook_status TEXT DEFAULT 'non_planifie',
+          outlook_error TEXT,
+          notes_admin TEXT DEFAULT '',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Compte-rendu officiel (CREP) saisi par l'évaluateur : tous les champs du document papier DRH, en JSON.
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep JSONB`);
+      // Circuit du CREP après l'entretien : non_envoye → envoye_agent → en_signature (parapheur).
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_statut TEXT NOT NULL DEFAULT 'non_envoye'`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_sent_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_agent_validated_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_id INTEGER`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_ref TEXT`);
+      // Suppression logique d'un EP (les données saisies par l'agent restent conservées).
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_by TEXT`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_campaign ON hub_entretiens.entretiens(campaign_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_agent_email ON hub_entretiens.entretiens(LOWER(agent_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_evaluator_email ON hub_entretiens.entretiens(LOWER(evaluator_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_date ON hub_entretiens.entretiens(date_entretien)`);
+      // Un agent ne peut avoir qu'un entretien par campagne (quand son email
+      // est connu : les entretiens saisis « à la main » sans email restent
+      // possibles, mais l'agent ne pourra pas les voir dans son espace).
+      try {
+        await client.query(`DROP INDEX IF EXISTS hub_entretiens.uq_ep_entretiens_campaign_agent`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_entretiens_campaign_agent_actif
+          ON hub_entretiens.entretiens(campaign_id, LOWER(agent_email))
+          WHERE agent_email IS NOT NULL AND agent_email <> '' AND deleted_at IS NULL`);
+      } catch (e) { console.warn('[PG DB] index unique entretiens:', e.message); }
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.objectifs (
+          id SERIAL PRIMARY KEY,
+          entretien_id INTEGER NOT NULL REFERENCES hub_entretiens.entretiens(id) ON DELETE CASCADE,
+          ordre INTEGER DEFAULT 0,
+          libelle TEXT NOT NULL DEFAULT '',
+          niveau TEXT,
+          resultats TEXT DEFAULT '',
+          difficultes TEXT DEFAULT '',
+          contexte TEXT DEFAULT '',
+          niveau_evaluateur TEXT,
+          commentaire_evaluateur TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_objectifs_entretien ON hub_entretiens.objectifs(entretien_id, ordre)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.formations (
+          id SERIAL PRIMARY KEY,
+          entretien_id INTEGER NOT NULL REFERENCES hub_entretiens.entretiens(id) ON DELETE CASCADE,
+          competence TEXT DEFAULT '',
+          formation TEXT NOT NULL DEFAULT '',
+          benefices TEXT DEFAULT '',
+          reference_cnfpt TEXT DEFAULT '',
+          statut TEXT NOT NULL DEFAULT 'soumise',
+          avis_evaluateur TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_formations_entretien ON hub_entretiens.formations(entretien_id)`);
+
+      // Campagne par défaut : l'année en cours, pour que le module soit
+      // utilisable immédiatement après le premier démarrage.
+      await client.query(`
+        INSERT INTO hub_entretiens.campaigns (annee, libelle, statut, date_ouverture, date_cloture, date_limite_ep)
+        SELECT EXTRACT(YEAR FROM CURRENT_DATE)::int,
+               'Campagne ' || EXTRACT(YEAR FROM CURRENT_DATE)::int,
+               'ouverte',
+               to_char(CURRENT_DATE, 'YYYY-MM-DD'),
+               EXTRACT(YEAR FROM CURRENT_DATE)::int || '-12-31',
+               EXTRACT(YEAR FROM CURRENT_DATE)::int || '-12-31'
+        WHERE NOT EXISTS (SELECT 1 FROM hub_entretiens.campaigns)
+      `);
+    } catch (e) { console.error('[PG DB] hub_entretiens:', e.message); }
 
     // ─── hub.pdf_edit_projects — fichiers de travail de l'éditeur PDF ────────
     // Conserve le PDF d'origine + le plan des masques/annotations (éditable et
