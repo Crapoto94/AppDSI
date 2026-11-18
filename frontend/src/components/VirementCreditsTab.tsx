@@ -204,10 +204,11 @@ const VirementCreditsTab: React.FC = () => {
     setSection(sec); setSens(sn);
   };
 
-  // Périmètre DSI : services gestionnaires BF* ; en investissement, uniquement les enveloppes ENV16, ENV28 et ENV29
+  // Le serveur ne renvoie que les lignes autorisées à l'agent dans SEDIT (droit de modification par service gestionnaire).
+  // Règle propre à la DSI conservée : en investissement, uniquement les enveloppes ENV16, ENV28 et ENV29 pour les services BF*.
   const scoped = useMemo(
-    () => lines.filter(l => l.Section === section && l.Sens === sens && /^BF/i.test(l['Service Gestionnaire'] || '') && !!l['Référence Fonctionnelle']
-      && (section === 'F' || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
+    () => lines.filter(l => l.Section === section && l.Sens === sens && !!l['Référence Fonctionnelle']
+      && (section === 'F' || !/^BF/i.test(l['Service Gestionnaire'] || '') || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
     [lines, section, sens]
   );
 

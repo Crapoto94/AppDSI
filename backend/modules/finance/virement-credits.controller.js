@@ -2,6 +2,7 @@ const fs = require('fs');
 const { pool, getSqlite } = require('../../shared/database');
 const apmMail = require('../../shared/apm_mail');
 const { buildVirementCreditsPdf } = require('./virement-credits-pdf.service');
+const seditDroits = require('./sedit-droits.service');
 
 const KEY_TO = 'finance.virement_budget_to';
 const KEY_CC = 'finance.virement_budget_cc';
@@ -35,6 +36,8 @@ async function ensureTable() {
 }
 
 const isManager = (u) => u && ['superadmin', 'admin', 'finances', 'compta'].includes(u.role);
+// Dans MagApp (req.onlyMine), chaque agent ne voit que ses propres demandes, même administrateur.
+const seesAll = (req) => isManager(req.user) && !req.onlyMine;
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const splitEmails = (v) => String(v || '').split(/[;,\s]+/).map(e => e.trim()).filter(e => /^[^@\s]+@[^@\s]+$/.test(e));
@@ -68,7 +71,7 @@ async function loadOwned(req, id) {
     const r = await pool.query('SELECT * FROM finance.virements_credits WHERE id = $1', [id]);
     const row = r.rows[0];
     if (!row) return { error: { status: 404, message: 'Demande introuvable' } };
-    if (!isManager(req.user) && row.created_by_username !== req.user.username) {
+    if (!seesAll(req) && row.created_by_username !== req.user.username) {
         return { error: { status: 403, message: 'Accès refusé' } };
     }
     return { row };
@@ -126,6 +129,19 @@ async function currentPdfBuffer(row, preferSigned) {
     return { buffer: await buildVirementCreditsPdf(row.payload), signed: false };
 }
 
+// Le virement de crédits est réservé aux agents ayant un compte SEDIT Finances actif (y compris admin/finances).
+async function requireSeditAccount(req, res, next) {
+    try {
+        const access = await seditDroits.getAccess(req.user);
+        if (!access) return res.status(403).json({ message: 'Fonction réservée aux agents disposant d’un compte SEDIT Finances' });
+        req.seditAccess = access;
+        next();
+    } catch (e) {
+        console.error('[VirementCredits] droits SEDIT:', e.message);
+        res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
+    }
+}
+
 const fail = (res, e, msg) => {
     if (e && e.status) return res.status(e.status).json({ message: e.message });
     console.error('[VirementCredits]', msg, e);
@@ -133,11 +149,29 @@ const fail = (res, e, msg) => {
 };
 
 module.exports = {
+    requireSeditAccount,
+
+    // Accès de l'agent connecté : compte SEDIT + services sur lesquels il peut modifier le budget
+    async access(req, res) {
+        try {
+            const access = await seditDroits.getAccess(req.user);
+            if (!access) return res.json({ allowed: false });
+            res.json({
+                allowed: access.services.length > 0,
+                sedit: { code: access.sedit.code, nom: access.sedit.nom },
+                services: access.services.map(s => ({ budget: s.budget, service: s.service, libelle: s.libelle })),
+            });
+        } catch (e) {
+            console.error('[VirementCredits] accès SEDIT:', e.message);
+            res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
+        }
+    },
+
     // Lignes d'exécution + disponible lus en direct dans SEDIT (schéma FI)
     async liveLines(req, res) {
         try {
             const { getLiveLines } = require('./virement-credits-lines.service');
-            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, allBudgets: req.query.allBudgets === '1' }));
+            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services }));
         } catch (e) {
             console.error('[VirementCredits] lignes SEDIT:', e.message);
             res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
@@ -147,7 +181,7 @@ module.exports = {
     async list(req, res) {
         try {
             await ensureTable();
-            const where = isManager(req.user) ? '' : 'WHERE v.created_by_username = $1';
+            const where = seesAll(req) ? '' : 'WHERE v.created_by_username = $1';
             const r = await pool.query(
                 `SELECT v.id, v.created_by_username, v.created_by_name, v.created_at, v.direction, v.service, v.contact,
                         v.date_demande, v.section, v.sens, v.compense, v.montant, v.motivation, v.payload,
@@ -167,6 +201,10 @@ module.exports = {
             await ensureTable();
             const p = sanitizePayload(req.body || {});
             if (!p.majorer.length && !p.minorer.length) return res.status(400).json({ message: 'Aucune imputation' });
+            // Contrôle serveur : chaque ligne doit relever d'un service que l'agent peut modifier dans SEDIT
+            const okServices = new Set(req.seditAccess.services.map(s => s.service.toUpperCase()));
+            const hors = [...p.majorer, ...p.minorer].find(l => !okServices.has(String(l.activite).trim().toUpperCase()));
+            if (hors) return res.status(403).json({ message: `Ligne non autorisée pour votre compte SEDIT (service ${hors.activite || '?'})` });
             const montant = p.majorer.reduce((a, l) => a + l.montant, 0);
             const { name, email } = await senderOf(req.user);
             const id = req.body && req.body.id ? parseInt(req.body.id, 10) : null;
@@ -240,6 +278,60 @@ module.exports = {
                         nom: sig.nom || sig.email, email: sig.email, service: sig.service, signatureMode: 'simple',
                         positions: [{ documentIndex: 0, page: pos.page || 1, x: pos.x || 73.6, y: pos.y || 72.7, w: 150, h: 46 }],
                     }],
+                },
+                user: req.user,
+                req,
+            });
+            await pool.query('UPDATE finance.virements_credits SET parapheur_id = $1, parapheur_at = now(), updated_at = now() WHERE id = $2', [result.id, row.id]);
+            res.json({ parapheur_id: result.id, reference: result.reference });
+        } catch (e) { fail(res, e, "Erreur d'envoi au parapheur"); }
+    },
+
+    // MagApp : signataires proposés (défaut = chaîne hiérarchique de l'agent ; choix limité aux services/directions autorisés dans SEDIT)
+    async signataires(req, res) {
+        try {
+            const { getSignataires } = require('./virement-credits-signataires.service');
+            res.json(await getSignataires(req.user, req.seditAccess.services));
+        } catch (e) { fail(res, e, 'Erreur lecture des signataires'); }
+    },
+
+    // MagApp : parapheur à deux signatures successives — responsable de service puis directeur (cadres « Avis » du PDF).
+    async sendToParapheurChain(req, res) {
+        try {
+            const { row, error } = await loadOwned(req, parseInt(req.params.id, 10));
+            if (error) return res.status(error.status).json({ message: error.message });
+            if (row.parapheur_id) return res.status(409).json({ message: 'Déjà envoyée au parapheur' });
+            const { getSignataires } = require('./virement-credits-signataires.service');
+            const allowed = await getSignataires(req.user, req.seditAccess.services);
+            const body = req.body || {};
+            const resolve = (wanted, list) => {
+                const email = String(wanted && wanted.email || '').trim().toLowerCase();
+                if (!email) return null;
+                return list.find(e => String(e.email).toLowerCase() === email) || false;
+            };
+            const resp = resolve(body.responsable, allowed.responsables);
+            const dir = resolve(body.directeur, allowed.directeurs);
+            // false = signataire demandé mais hors du périmètre autorisé de l'agent
+            if (resp === false || dir === false) return res.status(403).json({ message: 'Signataire non autorisé pour votre périmètre budgétaire SEDIT' });
+            if (!resp && !dir) return res.status(400).json({ message: 'Choisissez au moins un signataire' });
+            const buffer = await buildVirementCreditsPdf(row.payload);
+            const [y, m, d] = String(row.payload.date).split('-');
+            const parapheur = require('../parapheur/parapheur.service');
+            // Cadres « Avis du responsable de service » et « Avis de la direction » (centre de la signature, en % de la page)
+            const sg = (e, yPct) => ({
+                nom: `${e.prenom || ''} ${e.nom || ''}`.trim() || e.email, email: e.email,
+                service: e.role === 'directeur' ? e.direction_label : e.service_label, signatureMode: 'simple',
+                positions: [{ documentIndex: 0, page: 1, x: 73.6, y: yPct, w: 150, h: 46 }],
+            });
+            const signataires = [resp && sg(resp, 56.5), dir && sg(dir, 63.4)].filter(Boolean);
+            const result = await parapheur.createParapheur({
+                files: [{ buffer, originalname: 'demande-modification-budgetaire.pdf', mimetype: 'application/pdf', size: buffer.length }],
+                annexes: [],
+                payload: {
+                    title: `Demande de modification budgétaire${row.payload.service ? ' - ' + row.payload.service : ''} - ${d}/${m}/${y}`,
+                    message: String(body.message || ''),
+                    mode: 'sequentiel',
+                    signataires,
                 },
                 user: req.user,
                 req,

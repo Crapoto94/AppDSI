@@ -38,9 +38,10 @@ router.get('/debug/orders-sample', authenticateJWT, async (req, res) => {
 const virements = require('./virement-credits.controller');
 router.get('/virement-credits/settings', authenticateJWT, virements.getSettings);
 router.put('/virement-credits/settings', authenticateJWT, virements.saveSettings);
-router.get('/virement-credits/lines', authenticateJWT, virements.liveLines);
+router.get('/virement-credits/access', authenticateJWT, virements.access);
+router.get('/virement-credits/lines', authenticateJWT, virements.requireSeditAccount, virements.liveLines);
 router.get('/virement-credits', authenticateJWT, virements.list);
-router.post('/virement-credits', authenticateJWT, virements.save);
+router.post('/virement-credits', authenticateJWT, virements.requireSeditAccount, virements.save);
 router.get('/virement-credits/:id/pdf', authenticateJWT, virements.pdf);
 router.post('/virement-credits/:id/parapheur', authenticateJWT, virements.sendToParapheur);
 router.post('/virement-credits/:id/send-budget', authenticateJWT, virements.sendToBudget);

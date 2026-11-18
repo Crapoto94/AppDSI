@@ -188,7 +188,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean, show_virement_credits: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -207,6 +207,7 @@ const MagappAdmin: React.FC = () => {
     show_notes: false,
     show_reunions: false,
     show_agent_search: false,
+    show_virement_credits: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -329,6 +330,7 @@ const MagappAdmin: React.FC = () => {
           show_notes: data.show_notes_original ?? data.show_notes ?? false,
           show_reunions: data.show_reunions_original ?? data.show_reunions ?? false,
           show_agent_search: data.show_agent_search_original ?? data.show_agent_search ?? false,
+          show_virement_credits: data.show_virement_credits_original ?? data.show_virement_credits ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2403,7 +2405,7 @@ const MagappAdmin: React.FC = () => {
           )}
 
           {activeTab === 'settings' && (() => {
-            type SettingKey = 'show_tickets' | 'show_health_check' | 'show_create_buttons' | 'show_ideas' | 'show_library' | 'show_consommables' | 'show_chat_live' | 'show_rencontres' | 'show_transcript_manager' | 'show_parapheur' | 'show_pdf_tools' | 'show_subscriptions' | 'show_tool_incident' | 'show_tool_demande' | 'show_tasks' | 'show_notes' | 'show_reunions' | 'show_agent_search';
+            type SettingKey = 'show_tickets' | 'show_health_check' | 'show_create_buttons' | 'show_ideas' | 'show_library' | 'show_consommables' | 'show_chat_live' | 'show_rencontres' | 'show_transcript_manager' | 'show_parapheur' | 'show_pdf_tools' | 'show_subscriptions' | 'show_tool_incident' | 'show_tool_demande' | 'show_tasks' | 'show_notes' | 'show_reunions' | 'show_agent_search' | 'show_virement_credits';
             type ToggleDef = { key: SettingKey; feature: string; label: string; desc: string; color: string; beta?: boolean };
             const mainToggles: ToggleDef[] = [
               { key: 'show_tickets', feature: 'tickets', label: 'Afficher les tickets système (GLPI)', desc: "Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.", color: '#4f46e5' },
@@ -2426,6 +2428,7 @@ const MagappAdmin: React.FC = () => {
               { key: 'show_notes', feature: 'notes', label: 'Mes notes IA', desc: "Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).", color: '#059669', beta: true },
               { key: 'show_reunions', feature: 'reunions', label: 'Mes réunions', desc: "Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).", color: '#0369a1', beta: true },
               { key: 'show_agent_search', feature: 'agent_search', label: "Recherche d'agent", desc: 'Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.', color: '#b45309', beta: true },
+              { key: 'show_virement_credits', feature: 'virement_credits', label: 'Virement de crédits', desc: "Demande de virement de crédits (signature responsable de service + directeur) dans « Mes outils DSI ». Visible uniquement des agents ayant un compte SEDIT Finances avec droit de modification, et limitée à leurs lignes budgétaires. Décoché : réservé aux agents BETA ; coché : disponible pour tous les agents SEDIT.", color: '#2563eb', beta: true },
             ];
             const renderToggle = (t: ToggleDef) => {
               const on = magappSettings[t.key];

@@ -41,6 +41,18 @@ magappBaseRouter.get('/observed-tickets', MagAppController.getObservedTickets);
 magappBaseRouter.get('/icons', authenticateJWT, MagAppController.getIcons);
 // BETA « Recherche d'agent » : annuaire RH Studio (lecture seule)
 magappBaseRouter.get('/agent-search', authenticateJWT, MagAppController.searchRhAgents);
+// BETA « Virement de crédits » (agents ayant un compte SEDIT Finances) : mêmes services que /budget, chaque agent ne voit que ses demandes.
+const virements = require('../finance/virement-credits.controller');
+const virementMine = (req, res, next) => { req.onlyMine = true; next(); };
+magappBaseRouter.get('/virement-credits/access', authenticateJWT, virements.access);
+magappBaseRouter.get('/virement-credits/lines', authenticateJWT, virements.requireSeditAccount, virements.liveLines);
+magappBaseRouter.get('/virement-credits/signataires', authenticateJWT, virements.requireSeditAccount, virements.signataires);
+magappBaseRouter.get('/virement-credits', authenticateJWT, virementMine, virements.list);
+magappBaseRouter.post('/virement-credits', authenticateJWT, virementMine, virements.requireSeditAccount, virements.save);
+magappBaseRouter.get('/virement-credits/:id/pdf', authenticateJWT, virementMine, virements.pdf);
+magappBaseRouter.post('/virement-credits/:id/parapheur', authenticateJWT, virementMine, virements.requireSeditAccount, virements.sendToParapheurChain);
+magappBaseRouter.post('/virement-credits/:id/send-budget', authenticateJWT, virementMine, virements.sendToBudget);
+magappBaseRouter.delete('/virement-credits/:id', authenticateJWT, virementMine, virements.remove);
 magappBaseRouter.get('/versions', MagAppController.getVersions);
 magappBaseRouter.get('/user-version', authenticateJWT, MagAppController.getUserVersion);
 magappBaseRouter.post('/user-version', authenticateJWT, MagAppController.recordUserVersionSeen);

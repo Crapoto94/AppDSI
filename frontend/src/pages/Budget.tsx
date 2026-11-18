@@ -52,6 +52,15 @@ const Budget: React.FC = () => {
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
 
+  // Virement de crédits : réservé aux agents ayant un compte SEDIT Finances (null = vérification en cours)
+  const [virementAllowed, setVirementAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch('/api/budget/virement-credits/access', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : { allowed: false }))
+      .then(a => setVirementAllowed(!!a.allowed))
+      .catch(() => setVirementAllowed(false));
+  }, [token]);
+
   const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes' | 'virements'>(
     () => {
       if (section && SLUG_VIEWS[section]) return SLUG_VIEWS[section] as any;
@@ -1371,6 +1380,7 @@ const Budget: React.FC = () => {
             {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes', 'virements'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
+              if (tab === 'virements' && virementAllowed !== true) return null;
               return (
                 <button 
                   key={tab}
@@ -2648,7 +2658,13 @@ const Budget: React.FC = () => {
             )}
             {view === 'virements' && (
               <div className="animate-fade-in">
-                <VirementCreditsTab />
+                {virementAllowed === true
+                  ? <VirementCreditsTab />
+                  : virementAllowed === false && (
+                    <div className="glass-card" style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                      Le virement de crédits est réservé aux agents disposant d’un compte SEDIT Finances avec un droit de modification budgétaire.
+                    </div>
+                  )}
               </div>
             )}
             {view === 'tiers' && (
