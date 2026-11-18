@@ -7888,6 +7888,26 @@ async function setupPgDb() {
       `);
       // Compte-rendu officiel (CREP) saisi par l'évaluateur : tous les champs du document papier DRH, en JSON.
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep JSONB`);
+      // Reprise des EP de l'année précédente (missions, objectifs du service, objectifs individuels) : valeurs proposées par défaut.
+      // Alimentée par backend/scripts/import_ep_precedent.js à partir d'un dossier local non versionné (EP/).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.reprise_ep (
+          id SERIAL PRIMARY KEY,
+          nom_key TEXT NOT NULL,
+          nom_famille_key TEXT NOT NULL,
+          nom TEXT NOT NULL,
+          prenom TEXT DEFAULT '',
+          annee_source INTEGER NOT NULL DEFAULT 0,
+          fonction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          missions TEXT DEFAULT '',
+          objectifs_service TEXT DEFAULT '',
+          objectifs JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE (nom_key, annee_source)
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_reprise_famille ON hub_entretiens.reprise_ep(nom_famille_key)`);
       // Circuit du CREP après l'entretien : non_envoye → envoye_agent → en_signature (parapheur).
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_statut TEXT NOT NULL DEFAULT 'non_envoye'`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_sent_at TIMESTAMPTZ`);

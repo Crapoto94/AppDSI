@@ -180,6 +180,40 @@ async function sendEvaluatorMail(entretien, campaign) {
     }
 }
 
+const tokenKey = (s) => norm(String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')).replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(Boolean).sort().join(' ');
+
+/**
+ * EP de l'année précédente de l'agent (missions, objectifs du service, objectifs individuels) : valeurs proposées par défaut.
+ * Rapprochement par « prénom + nom », à défaut par nom de famille s'il est unique.
+ */
+async function findReprise(entretien) {
+    try {
+        const full = tokenKey(`${entretien.agent_prenom || ''} ${entretien.agent_nom || ''}`);
+        const fam = tokenKey(entretien.agent_nom);
+        if (!fam) return null;
+        let row = await pgDb.get('SELECT * FROM hub_entretiens.reprise_ep WHERE nom_key = ? ORDER BY annee_source DESC LIMIT 1', [full]);
+        if (!row) {
+            const rows = await pgDb.all('SELECT * FROM hub_entretiens.reprise_ep WHERE nom_famille_key = ? ORDER BY annee_source DESC', [fam]);
+            if (rows.length && rows.every(r => r.nom_key === rows[0].nom_key)) row = rows[0];
+        }
+        if (!row) return null;
+        return {
+            annee: row.annee_source,
+            fonction: row.fonction || '',
+            service: row.service || '',
+            missions: row.missions || '',
+            objectifs_service: row.objectifs_service || '',
+            objectifs: Array.isArray(row.objectifs) ? row.objectifs : [],
+        };
+    } catch (e) { return null; }
+}
+
+/** Ajoute la reprise de l'année précédente à un entretien renvoyé au client. */
+async function attachReprise(entretien) {
+    if (!entretien) return entretien;
+    return { ...entretien, reprise: await findReprise(entretien) };
+}
+
 /** Rôle effectif renvoyé au frontend : admin | evaluator | agent. */
 async function resolveRole(actor) {
     const admin = await isEpAdmin(actor);
@@ -498,6 +532,9 @@ async function removeOutlook(entretien) {
 }
 
 module.exports = {
+    tokenKey,
+    findReprise,
+    attachReprise,
     sendEvaluatorMail,
     sendPreparationMail,
     forViewer,

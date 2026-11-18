@@ -41,6 +41,16 @@ export interface Formation {
   avis_evaluateur?: string | null;
 }
 
+/** EP de l'année précédente de l'agent (missions, rappel des objectifs du service, objectifs fixés) : valeurs proposées par défaut. */
+export interface Reprise {
+  annee: number;
+  fonction: string;
+  service: string;
+  missions: string;
+  objectifs_service: string;
+  objectifs: Array<{ descriptif: string; moyens: string }>;
+}
+
 export interface Entretien {
   id: number;
   campaign_id: number;
@@ -84,6 +94,7 @@ export interface Entretien {
   outlook_error?: string | null;
   notes_admin?: string | null;
   created_at?: string | null;
+  reprise?: Reprise | null;
   crep_statut?: 'non_envoye' | 'envoye_agent' | 'en_signature' | string;
   crep_sent_at?: string | null;
   crep_agent_validated_at?: string | null;

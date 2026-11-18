@@ -12,7 +12,14 @@ type RowFormation = Formation & { _key: string };
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 function initObjectifs(e: Entretien): RowObjectif[] {
-  return (e.objectifs || []).map(o => ({ ...o, _key: `o-${o.id}` }));
+  const saved = (e.objectifs || []).map(o => ({ ...o, _key: `o-${o.id}` }));
+  if (saved.length === 0 && e.reprise?.objectifs?.length) {
+    // Aucun objectif saisi : on propose ceux fixés lors de l'entretien de l'année précédente (à ajuster par l'agent).
+    return e.reprise.objectifs.map((o, i) => ({
+      _key: `r-${i}`, id: 0, ordre: i + 1, libelle: o.descriptif, niveau: '', resultats: '', difficultes: '', contexte: '',
+    }));
+  }
+  return saved;
 }
 
 function initFormations(e: Entretien): RowFormation[] {
@@ -103,6 +110,12 @@ export default function PreparationForm({ entretien, onSaved }: {
 
       <Section number={1} title="Bilan de réalisation des objectifs"
         description="Pour chaque objectif fixé lors du précédent entretien, indiquez son niveau d'atteinte, les résultats obtenus et les éventuelles difficultés. Il ne s'agit pas d'une auto-évaluation définitive mais d'une base de dialogue.">
+        {entretien.reprise && (entretien.objectifs || []).length === 0 && objectifs.length > 0 && (
+          <div style={{ margin: '0 0 12px', padding: '9px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
+            Ces objectifs sont <strong>repris de votre entretien {entretien.reprise.annee}</strong> : ajustez-les si besoin, puis indiquez pour chacun
+            le niveau d’atteinte, les résultats obtenus et les difficultés rencontrées.
+          </div>
+        )}
         {objectifs.length === 0 && (
           <p style={{ margin: '0 0 10px', fontSize: 12.5, color: '#94a3b8' }}>
             Aucun objectif n’a encore été renseigné. Ajoutez ci-dessous les objectifs qui vous avaient été fixés.
@@ -113,8 +126,9 @@ export default function PreparationForm({ entretien, onSaved }: {
             <div key={o._key} style={{ border: `1px solid ${COLORS.border}`, borderRadius: 11, padding: 13, background: '#fcfdff' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 9 }}>
                 <Target size={15} color={COLORS.primary} />
-                <input
-                  style={{ ...input, fontWeight: 600 }}
+                <textarea
+                  style={{ ...textarea, fontWeight: 600, minHeight: 38 }}
+                  rows={Math.min(6, Math.max(1, String(o.libelle || '').split('\n').length))}
                   placeholder={`Libellé de l'objectif ${index + 1}`}
                   value={o.libelle}
                   disabled={readOnly}

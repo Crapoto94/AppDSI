@@ -188,7 +188,7 @@ const entretiensController = {
                 );
                 if (row) {
                     const access = await svc.buildAccess(actor, row, role.isAdmin);
-                    entretien = svc.forViewer(await svc.withRelations(row), access);
+                    entretien = svc.forViewer(await svc.attachReprise(await svc.withRelations(row)), access);
                     entretien.access = access;
                 }
             }
@@ -476,7 +476,7 @@ const entretiensController = {
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
-            res.json({ ...(await attachParapheur(svc.forViewer(await svc.withRelations(row), access))), access });
+            res.json({ ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(row)), access))), access });
         } catch (err) { fail(res, 500, err.message); }
     },
 

@@ -94,6 +94,13 @@ function proposalFromAgent(e: Entretien): Crep {
   const join = (...parts: Array<string | null | undefined | false>) => parts.filter(p => p && String(p).trim()).join('\n');
   const lab = (label: string, v?: string | null) => (v && v.trim() ? `${label} : ${v.trim()}` : '');
   base.evaluateur_nom = e.evaluator_nom || '';
+  // Reprise de l'EP de l'année précédente : missions de l'agent et rappel des objectifs du service proposés par défaut.
+  base.missions = e.reprise?.missions || '';
+  base.objectifs_service = e.reprise?.objectifs_service || '';
+  // Objectifs fixés l'an dernier = objectifs à bilanter cette année (remplacés par la saisie de l'agent dès qu'il a renseigné ses propres objectifs).
+  if (!(e.objectifs || []).length) (e.reprise?.objectifs || []).slice(0, NB_OBJECTIFS).forEach((o, i) => {
+    base.objectifs_ecoules[i] = { objectif: o.descriptif, observations: '', niveau: '' as Niveau };
+  });
   (e.objectifs || []).slice(0, NB_OBJECTIFS).forEach((o, i) => {
     base.objectifs_ecoules[i] = {
       objectif: o.libelle || '',
@@ -128,7 +135,7 @@ export function initialCrep(e: Entretien): Crep {
     ...base,
     grade: saved.grade || '',
     evaluateur_nom: pick(saved.evaluateur_nom, base.evaluateur_nom),
-    missions: saved.missions || '',
+    missions: pick(saved.missions, base.missions),
     objectifs_ecoules: base.objectifs_ecoules.map((o, i) => {
       const m = saved.objectifs_ecoules?.[i];
       return { objectif: pick(m?.objectif, o.objectif), observations: pick(m?.observations, o.observations), niveau: ((m?.niveau || o.niveau || '') as Niveau) };
@@ -136,7 +143,7 @@ export function initialCrep(e: Entretien): Crep {
     observations_complementaires: pick(saved.observations_complementaires, base.observations_complementaires),
     valeur: { ...(saved.valeur || {}) },
     appreciation_generale: pick(saved.appreciation_generale, base.appreciation_generale),
-    objectifs_service: saved.objectifs_service || '',
+    objectifs_service: pick(saved.objectifs_service, base.objectifs_service),
     objectifs_futurs: base.objectifs_futurs.map((o, i) => ({ ...o, ...(saved.objectifs_futurs?.[i] || {}) })),
     formations: {
       obligatoires: saved.formations?.obligatoires || '',
