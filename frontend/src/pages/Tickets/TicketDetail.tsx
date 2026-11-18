@@ -2547,16 +2547,32 @@ export default function TicketDetail() {
                             ><Edit3 size={13} /></button>
                           )}
                         </div>
-                        {isSentToUser && !!c.sent_to && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 5 }}>
-                            <span style={{ fontSize: 11, color: '#a1a1aa' }}>À :</span>
-                            {String(c.sent_to).split(',').map((e: string) => e.trim()).filter(Boolean).map((email: string) => (
-                              <span key={email} style={{ fontSize: 11, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '1px 8px' }}>
-                                {email}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        {isSentToUser && (() => {
+                          // Destinataires enregistrés au moment de l'envoi. Pour les envois
+                          // antérieurs au 08/09/2026 (colonne sent_to ajoutée ensuite), la
+                          // liste est vide : on affiche au minimum le demandeur du ticket,
+                          // avec une mention pour ne pas laisser croire à une liste exhaustive.
+                          const stored = String(c.sent_to || '').split(',').map((e: string) => e.trim()).filter(Boolean);
+                          const recipients = stored.length > 0
+                            ? stored
+                            : [ticket?.requester?.email || ticket?.email_alt || ticket?.requester_email_22 || 'demandeur'];
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 5 }}>
+                              <span style={{ fontSize: 11, color: '#a1a1aa' }}>À :</span>
+                              {recipients.map((email: string) => (
+                                <span key={email} style={{ fontSize: 11, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '1px 8px' }}>
+                                  {email}
+                                </span>
+                              ))}
+                              {stored.length === 0 && (
+                                <span
+                                  title="Envoi antérieur à l'enregistrement des destinataires (septembre 2026) : le demandeur était destinataire ; d'éventuelles copies ne sont pas affichées."
+                                  style={{ fontSize: 10, color: '#a1a1aa', fontStyle: 'italic' }}
+                                >destinataires non historisés</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {editingCommentId === c.id ? (
                           <div>
                             <div style={{ border: '1px solid #d4d4d8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
