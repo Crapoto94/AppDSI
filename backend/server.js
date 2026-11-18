@@ -2390,6 +2390,11 @@ app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
 app.use('/api/boite-idees', require('./modules/boite-idees/boite-idees.routes'));
+app.use('/api/backlog-apps', require('./modules/backlog-apps/backlog-apps.routes')); // vue commune des demandes / bugs de toutes les applications (lecture seule, admin)
+// Synchronisation de la table centrale des demandes des applications : au démarrage puis toutes les 10 minutes (rattrapage des applications qui ne déposent pas elles-mêmes)
+const backlogAppsSync = require('./modules/backlog-apps/backlog-apps.sync');
+setTimeout(() => backlogAppsSync.synchroniser().catch((e) => console.error('[backlog-apps] synchronisation :', e.message)), 20000);
+require('node-cron').schedule('*/10 * * * *', () => { backlogAppsSync.synchroniser().catch((e) => console.error('[backlog-apps] synchronisation :', e.message)); });
 app.use('/api/commande-envoi', require('./modules/commande-envoi/commande-envoi.routes'));
 require('./modules/commande-envoi/commande-envoi.controller').setSendMail(sendMail);
 
