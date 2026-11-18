@@ -301,6 +301,8 @@ async function getDgpWeekly(opts = {}) {
     const year = Number(opts.fiscalYear) || new Date().getFullYear();
     const mode = opts.mode === 'ville' ? 'ville' : 'global';
     const seuil = mode === 'ville' ? 20 : 30;
+    // opts.roos : périmètre d'un agent (MagApp « Mes factures ») au lieu du périmètre de synchro DSI
+    const scoped = Array.isArray(opts.roos);
     // Date de fin du délai et durée en jours selon le mode (dates du cache : réception, mandatement, paiement)
     const endCol = mode === 'ville' ? 'mandate_date' : 'paiement_date';
     const dureeExpr = mode === 'ville' ? '(mandate_date::date - reception_date::date)' : 'dgp';
@@ -308,10 +310,10 @@ async function getDgpWeekly(opts = {}) {
         `SELECT to_char(date_trunc('week', ${endCol}), 'YYYY-MM-DD') AS semaine,
                 COUNT(*)::int AS nb, SUM(${dureeExpr})::int AS somme, COUNT(*) FILTER (WHERE ${dureeExpr} > ${seuil})::int AS nb_hors
            FROM finance.facture_dgp
-          WHERE in_scope AND NOT refused AND ${endCol} IS NOT NULL AND reception_date IS NOT NULL AND ${dureeExpr} IS NOT NULL
+          WHERE ${scoped ? 'facture_roo = ANY($2)' : 'in_scope'} AND NOT refused AND ${endCol} IS NOT NULL AND reception_date IS NOT NULL AND ${dureeExpr} IS NOT NULL
             AND EXTRACT(YEAR FROM ${endCol}) = $1
           GROUP BY 1 ORDER BY 1`,
-        [year]
+        scoped ? [year, opts.roos] : [year]
     );
     const bySemaine = new Map(rows.map(r => [r.semaine, r]));
     const iso = (d) => d.toISOString().slice(0, 10);

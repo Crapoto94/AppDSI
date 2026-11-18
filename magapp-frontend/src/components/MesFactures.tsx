@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight, HelpCircle, Send, CheckCircle2, Upload, Paperclip, Hourglass, Ban } from 'lucide-react';
 import logoDsiHub from '../assets/DSI.png';
 import { HELP_CSS } from './helpStyles';
+import DgpWeeklyChart from './DgpWeeklyChart';
 
 // BETA « Mes factures » : factures SEDIT que l'agent a le droit de voir (droits DROITSER), avec service fait et DGP.
 // Un agent peut donner accès à ses factures à un autre agent : le bénéficiaire voit ce que le donneur voit, EN DIRECT
@@ -43,8 +44,8 @@ const s: Record<string, React.CSSProperties> = {
   td: { padding: '0.5rem', fontSize: '0.84rem', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
 };
 
-const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; color?: string; extra?: React.ReactNode }> = ({ label, value, sub, color = '#0f172a', extra }) => (
-  <div style={{ ...s.card, flex: '1 1 150px' }}>
+const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; color?: string; extra?: React.ReactNode; onClick?: () => void }> = ({ label, value, sub, color = '#0f172a', extra, onClick }) => (
+  <div onClick={onClick} role={onClick ? 'button' : undefined} style={{ ...s.card, flex: '1 1 150px', cursor: onClick ? 'pointer' : undefined, borderColor: onClick ? '#bfdbfe' : undefined }}>
     <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>{label}</div>
     <div style={{ fontSize: '1.5rem', fontWeight: 800, color }}>{value}</div>
     {sub && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{sub}</div>}
@@ -66,22 +67,9 @@ const DgpTrend: React.FC<{ t?: Tendance }> = ({ t }) => {
   const better = t.delta < 0, same = t.delta === 0;
   const color = same ? '#64748b' : better ? '#16a34a' : '#dc2626';
   const arrow = same ? '→' : better ? '↘' : '↗';
-  const pts = t.semaines.map(w => w.moyenne);
-  let spark: React.ReactNode = null;
-  if (pts.length >= 2) {
-    const W = 96, H = 26, min = Math.min(...pts), max = Math.max(...pts), span = max - min || 1;
-    const xy = pts.map((v, i) => `${(i / (pts.length - 1)) * W},${H - 3 - ((v - min) / span) * (H - 6)}`);
-    spark = (
-      <svg width={W} height={H} style={{ display: 'block', marginTop: 2 }} aria-hidden="true">
-        <polyline points={xy.join(' ')} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={xy[xy.length - 1].split(',')[0]} cy={xy[xy.length - 1].split(',')[1]} r="2.5" fill={color} />
-      </svg>
-    );
-  }
   return (
-    <div title={`30 derniers jours : ${t.recent} j (${t.nb_recent} factures payées) — 30 jours précédents : ${t.precedent} j (${t.nb_precedent}). Courbe : moyenne hebdomadaire sur 12 semaines.`} style={{ marginTop: 4, cursor: 'help' }}>
+    <div title={`30 derniers jours : ${t.recent} j (${t.nb_recent} factures payées) — 30 jours précédents : ${t.precedent} j (${t.nb_precedent}). Cliquez pour afficher la courbe hebdomadaire.`} style={{ marginTop: 4, cursor: 'help' }}>
       <div style={{ fontSize: '0.74rem', fontWeight: 700, color }}>{arrow} {t.delta > 0 ? '+' : ''}{String(t.delta).replace('.', ',')} j <span style={{ fontWeight: 400, color: '#94a3b8' }}>vs 30 j précédents</span></div>
-      {spark}
     </div>
   );
 };
@@ -379,6 +367,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
       setHelpHtml(d?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
     } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
   };
+  const [showChart, setShowChart] = useState(false);
   const [sfDialog, setSfDialog] = useState<{ row: Row; mode: 'circuit' | 'self' } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const LIMIT = 50;
@@ -433,7 +422,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           {/* Résumé DGP du périmètre */}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             <Stat label={`Factures ${year}`} value={st ? st.nb_factures : '—'} sub="dans mon périmètre" />
-            <Stat label="DGP moyen (payées)" value={st && st.dgp_moyen != null ? `${st.dgp_moyen} j` : '—'} sub="réception → paiement" color={st && st.dgp_moyen != null && st.dgp_moyen > 30 ? '#dc2626' : '#16a34a'} extra={<DgpTrend t={st?.tendance} />} />
+            <Stat label="DGP moyen (payées) 📈" value={st && st.dgp_moyen != null ? `${st.dgp_moyen} j` : '—'} sub="réception → paiement" color={st && st.dgp_moyen != null && st.dgp_moyen > 30 ? '#dc2626' : '#16a34a'} extra={<DgpTrend t={st?.tendance} />} onClick={() => setShowChart(true)} />
             <Stat label="Payées dans les 30 j" value={st && st.taux_dans_delai != null ? `${st.taux_dans_delai} %` : '—'} sub={st ? `${st.nb_hors_delai} hors délai sur ${st.nb_payees} payées` : ''} color={st && st.taux_dans_delai != null && st.taux_dans_delai < 90 ? '#d97706' : '#16a34a'} />
             <Stat label="En cours de paiement" value={st ? st.nb_non_payees : '—'} sub={st && st.nb_prov_hors_delai ? `dont ${st.nb_prov_hors_delai} déjà > 30 j` : 'DGP provisoire'} color={st && st.nb_prov_hors_delai ? '#d97706' : '#0f172a'} />
             <Stat label="Service fait à traiter" value={data ? data.a_traiter : '—'} sub="non rejetées, SF non validé" color={data && data.a_traiter ? '#d97706' : '#16a34a'} />
@@ -546,6 +535,14 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
         </div>
       </div>
       {sfDialog && <ServiceFaitDialog row={sfDialog.row} mode={sfDialog.mode} onClose={() => setSfDialog(null)} onDone={() => setReloadKey(k => k + 1)} />}
+      {showChart && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowChart(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(1100px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 10px 0' }}><button onClick={() => setShowChart(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button></div>
+            <DgpWeeklyChart year={year} scope={scope} />
+          </div>
+        </div>
+      )}
       {showShare && <ShareDialog canShare={!!access?.canShare} onClose={() => setShowShare(false)} onChanged={() => { loadAccess(); setScope('all'); setOffset(0); }} />}
       {showHelp && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>

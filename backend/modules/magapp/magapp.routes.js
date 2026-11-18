@@ -68,6 +68,9 @@ magappBaseRouter.post('/mes-factures/shares', authenticateJWT, async (req, res) 
 magappBaseRouter.delete('/mes-factures/shares/:id', authenticateJWT, async (req, res) => {
     try { await mesFactures.removeShare(req.user, parseInt(req.params.id, 10)); res.json(await mesFactures.listShares(req.user)); } catch (e) { mfFail(res, e, 'Erreur de suppression du partage'); }
 });
+magappBaseRouter.get('/mes-factures/dgp-weekly', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.getDgpWeeklyForUser(req.user, req.query)); } catch (e) { mfFail(res, e, 'Erreur DGP hebdomadaire'); }
+});
 magappBaseRouter.get('/mes-factures/verifiers', authenticateJWT, async (req, res) => {
     try { res.json(await mesFactures.searchVerifiers(req.user, req.query.q)); } catch (e) { mfFail(res, e, 'Erreur de recherche'); }
 });

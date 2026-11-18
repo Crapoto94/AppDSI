@@ -366,7 +366,7 @@ async function searchVerifiers(user, q) {
           WHERE TRIM("MATRICULE") = ANY($1) AND TRIM("DIRECTION") = $2`, [mats, me.direction_code])).rows;
     const svc = new Map(rows.map(r => [r.m, r.service]));
     return entries
-        .filter(e => e.matricule && svc.has(e.matricule) && e.matricule !== me.matricule)
+        .filter(e => e.matricule && svc.has(e.matricule))
         .slice(0, 12)
         .map(e => ({ username: e.email.split('@')[0], displayName: e.displayName, email: e.email, service: svc.get(e.matricule) || '' }));
 }
@@ -398,4 +398,33 @@ async function getCancellableWorkflowId(user, numero) {
     return wf.id;
 }
 
-module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId };
+// Courbe hebdomadaire du DGP sur le périmètre de l'agent (même courbe que /budget, restreinte à ses factures)
+async function getDgpWeeklyForUser(user, q = {}) {
+    const sources = await getSources(user);
+    const scope = String(q.scope || 'all');
+    const chosen = scope === 'all' ? sources : sources.filter(s => s.key === scope);
+    const year = Number(q.year) || new Date().getFullYear();
+    const byBudget = new Map();
+    for (const src of chosen) for (const sv of src.services) {
+        if (!byBudget.has(sv.budgetRoo)) byBudget.set(sv.budgetRoo, new Set());
+        byBudget.get(sv.budgetRoo).add(sv.serviceRoo);
+    }
+    if (!byBudget.size) return dgp.getDgpWeekly({ fiscalYear: year, mode: q.mode, roos: [] });
+    // Factures reçues dans l'exercice ET celles de l'exercice précédent payées cette année (la courbe est classée par semaine de paiement)
+    const binds = { y0: `${year - 1}-01-01`, y1: `${year + 1}-01-01` };
+    let n = 0, bi = 0;
+    const blocks = [];
+    for (const [roo, set] of byBudget) {
+        const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
+        binds[`b${bi}`] = roo;
+        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        bi++;
+    }
+    const roos = await financeShare.withFinanceOracle(async (conn) => ((await conn.execute(
+        `SELECT TRIM(f.ROO_IMA_REF) AS ROO FROM FI.FACTURE f WHERE f.DATENTREE >= TO_DATE(:y0,'YYYY-MM-DD') AND f.DATENTREE < TO_DATE(:y1,'YYYY-MM-DD') AND (${blocks.join(' OR ')})`,
+        binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 100000 })).rows || []).map(r => r.ROO));
+    await dgp.ensureDgpForRoos(roos).catch(e => console.warn('[MesFactures] DGP à la demande:', e.message));
+    return dgp.getDgpWeekly({ fiscalYear: year, mode: q.mode, roos });
+}
+
+module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser };
