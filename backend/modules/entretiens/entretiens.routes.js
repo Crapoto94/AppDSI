@@ -47,6 +47,7 @@ router.put('/:id/evaluation', authenticateJWT, ctrl.saveEvaluation);
 router.put('/:id/crep', authenticateJWT, ctrl.saveCrep);
 router.put('/:id/planning', authenticateJWT, ctrl.planning);
 router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
+router.post('/:id/crep/check', authenticateJWT, ctrl.crepCheck);
 router.post('/:id/crep/send-to-agent', authenticateJWT, ctrl.crepSendToAgent);
 router.post('/:id/crep/agent-validate', authenticateJWT, ctrl.crepAgentValidate);
 router.post('/:id/ai-draft', authenticateJWT, ctrl.aiDraft);

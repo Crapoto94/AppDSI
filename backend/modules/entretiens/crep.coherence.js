@@ -1,0 +1,106 @@
+/**
+ * Cohérence du compte-rendu d'entretien (CREP) :
+ *  - summarizeCrep : résumé texte de TOUT ce que l'évaluateur a saisi (transmis à l'IA locale) ;
+ *  - coherenceIssues : contrôles déterministes entre la grille d'appréciation, les niveaux des objectifs
+ *    et l'appréciation générale (fiables, sans IA).
+ */
+const { CRITERIA_GROUPS, LEVELS, normalizeCrep } = require('./crep.definition');
+
+const LEVEL_TEXT = { S: 'Satisfaisant', AS: 'Assez satisfaisant', I: 'Insuffisant' };
+const NIVEAU_TEXT = { A: 'Atteint', PA: 'Partiellement atteint', NA: 'Non atteint' };
+
+const has = (v) => String(v || '').trim() !== '';
+
+/** Résumé lisible de l'ensemble du compte rendu, pour l'IA (rubriques vides omises). */
+function summarizeCrep(input, entretien) {
+    const c = normalizeCrep(input);
+    const out = [];
+    const agent = entretien ? `${entretien.agent_prenom || ''} ${entretien.agent_nom || ''}`.trim() : '';
+    if (agent) out.push(`Agent évalué : ${agent}${entretien.poste ? ` — ${entretien.poste}` : ''}`);
+    if (c.grade) out.push(`Grade : ${c.grade}`);
+    if (has(c.missions)) out.push(`Missions : ${c.missions.trim()}`);
+
+    const objs = c.objectifs_ecoules.filter(o => has(o.objectif));
+    if (objs.length) {
+        out.push('Bilan des objectifs de l’année écoulée :');
+        objs.forEach((o, i) => out.push(`- Objectif ${i + 1} : ${o.objectif.trim().replace(/\n+/g, ' / ')} → niveau : ${o.niveau ? NIVEAU_TEXT[o.niveau] : 'non renseigné'}${has(o.observations) ? ` ; observations : ${o.observations.trim().replace(/\n+/g, ' ')}` : ''}`));
+    }
+    if (has(c.observations_complementaires)) out.push(`Observations complémentaires : ${c.observations_complementaires.trim().replace(/\n+/g, ' ')}`);
+
+    const grid = [];
+    for (const g of CRITERIA_GROUPS) {
+        for (const it of g.items) {
+            const v = c.valeur[it.key];
+            if (v) grid.push(`- ${g.title ? `${g.title} — ` : ''}${it.label} : ${LEVEL_TEXT[v]}`);
+        }
+    }
+    if (grid.length) { out.push('Appréciation de la valeur professionnelle (grille) :'); out.push(...grid); }
+
+    if (has(c.appreciation_generale)) out.push(`Appréciation générale actuelle : ${c.appreciation_generale.trim().replace(/\n+/g, ' ')}`);
+    const fut = c.objectifs_futurs.filter(o => has(o.descriptif));
+    if (fut.length) {
+        out.push('Objectifs de l’année à venir :');
+        fut.forEach((o, i) => out.push(`- ${i + 1}. ${o.descriptif.trim().replace(/\n+/g, ' / ')}${has(o.moyens) ? ` (moyens/échéances : ${o.moyens.trim().replace(/\n+/g, ' ')})` : ''}`));
+    }
+    const f = c.formations;
+    if (has(f.obligatoires) || has(f.metiers) || has(f.parcours)) {
+        out.push(`Formations envisagées : obligatoires : ${f.obligatoires.trim() || '—'} ; métiers : ${f.metiers.trim() || '—'} ; parcours/projet : ${f.parcours.trim() || '—'}`.replace(/\n+/g, ' '));
+    }
+    if (has(c.evolution)) out.push(`Évolution des missions / carrière : ${c.evolution.trim().replace(/\n+/g, ' ')}`);
+    if (has(c.mobilite)) out.push(`Mobilité : ${c.mobilite.trim().replace(/\n+/g, ' ')}`);
+    return out.join('\n');
+}
+
+const POSITIF = /\b(excellent|excellente|remarquable|remarquables|très bon|très bonne|tres bon|exemplaire|brillant|brillante|parfaitement|pleinement satisfais)/i;
+const NEGATIF = /\b(insuffisant|insuffisante|insuffisants|décevant|décevante|ne répond pas|n['’]atteint pas|inadapté|inadaptée|lacunes importantes|manque de rigueur|défaillant)/i;
+
+/** Contrôles de cohérence fiables (sans IA). Renvoie une liste de constats lisibles. */
+function coherenceIssues(input) {
+    const c = normalizeCrep(input);
+    const issues = [];
+
+    const answered = Object.values(c.valeur);
+    const nS = answered.filter(v => v === 'S').length;
+    const nAS = answered.filter(v => v === 'AS').length;
+    const nI = answered.filter(v => v === 'I').length;
+    const total = answered.length;
+
+    const objs = c.objectifs_ecoules.filter(o => has(o.objectif));
+    const rated = objs.filter(o => o.niveau);
+    const nA = rated.filter(o => o.niveau === 'A').length;
+    const nNA = rated.filter(o => o.niveau === 'NA').length;
+    const nPA = rated.filter(o => o.niveau === 'PA').length;
+
+    // Objectifs vs grille
+    if (rated.length && nA === rated.length && nI >= 2) {
+        issues.push(`Tous les objectifs sont « Atteints » alors que ${nI} critères de la grille sont jugés « Insuffisants ».`);
+    }
+    if (rated.length && (nNA + nPA) === rated.length && total >= 5 && nS / total >= 0.75) {
+        issues.push(`Aucun objectif n’est pleinement atteint alors que ${nS} critères sur ${total} de la grille sont jugés « Satisfaisants ».`);
+    }
+    objs.forEach((o, i) => {
+        if ((o.niveau === 'NA' || o.niveau === 'PA') && !has(o.observations)) {
+            issues.push(`Objectif ${i + 1} : niveau « ${NIVEAU_TEXT[o.niveau]} » sans observation expliquant cet écart.`);
+        }
+    });
+
+    // Appréciation générale vs grille / objectifs
+    if (has(c.appreciation_generale)) {
+        const txt = c.appreciation_generale;
+        if (POSITIF.test(txt) && total >= 5 && nI >= 3) {
+            issues.push(`L’appréciation générale est très positive alors que ${nI} critères de la grille sont jugés « Insuffisants ».`);
+        }
+        if (NEGATIF.test(txt) && total >= 5 && nI === 0 && nAS === 0) {
+            issues.push('L’appréciation générale évoque des insuffisances alors que tous les critères de la grille sont jugés « Satisfaisants ».');
+        }
+        if (POSITIF.test(txt) && nNA >= 2) {
+            issues.push(`L’appréciation générale est très positive alors que ${nNA} objectifs sont « Non atteints ».`);
+        }
+        if (nI >= 1 && !/\b(progress|améliorer|amélioration|axe|effort|renforcer|insuffis|vigilan|point faible|à travailler|à développer)/i.test(txt)) {
+            issues.push(`${nI} critère(s) jugé(s) « Insuffisant(s) » mais l’appréciation générale ne mentionne aucun axe de progrès.`);
+        }
+    }
+    return issues;
+}
+
+module.exports = { summarizeCrep, coherenceIssues };

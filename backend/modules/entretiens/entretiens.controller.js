@@ -2,7 +2,8 @@ const { pgDb } = require('../../shared/database');
 const svc = require('./entretiens.service');
 const { normalizeCrep, missingFields } = require('./crep.definition');
 const { buildCrepPdf } = require('./crep-pdf.service');
-const { draftComment } = require('./ai.service');
+const { draftComment, reviewCrep } = require('./ai.service');
+const { summarizeCrep, coherenceIssues } = require('./crep.coherence');
 const workflow = require('./crep.workflow');
 
 const PREP_FIELDS = [
@@ -829,12 +830,17 @@ const entretiensController = {
             if (!access || !(access.isEvaluator || access.isAdmin) || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
             const b = req.body || {};
             if (!text(b.notes).trim()) return fail(res, 400, 'Indiquez en quelques mots ce que le commentaire doit exprimer.');
+            // Appréciation générale : l'IA reçoit TOUT ce que l'évaluateur a saisi (grille, objectifs, observations…)
+            // et doit rester cohérente avec cet ensemble.
+            const rubrique = text(b.rubrique) || 'Commentaire';
+            const global = /appréciation générale/i.test(rubrique) && b.crep && typeof b.crep === 'object';
             const result = await draftComment({
-                rubrique: text(b.rubrique) || 'Commentaire',
+                rubrique,
                 notes: text(b.notes),
-                contexte: text(b.contexte),
+                contexte: global ? summarizeCrep(b.crep, row) : text(b.contexte),
                 existant: text(b.existant),
                 agent: svc.fullName(row.agent_prenom, row.agent_nom),
+                coherent: global,
             });
             res.json(result);
         } catch (err) {
@@ -875,6 +881,30 @@ const entretiensController = {
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(id)), outlook });
         } catch (err) {
             console.error('[ENTRETIENS] planning:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+
+    // POST /api/entretiens/:id/crep/check  { crep, ai? }
+    // Vérification globale avant validation : contrôles de cohérence fiables + relecture par l'IA locale (facultative).
+    crepCheck: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
+            const crep = normalizeCrep(req.body?.crep);
+            const out = { missing: missingFields(crep), issues: coherenceIssues(crep), ai: null, ai_error: null };
+            if (req.body?.ai !== false) {
+                try { out.ai = (await reviewCrep(summarizeCrep(crep, row))).items; }
+                catch (e) { out.ai_error = e.message; }
+            }
+            res.json(out);
+        } catch (err) {
+            console.error('[ENTRETIENS] crepCheck:', err.message);
             fail(res, 500, err.message);
         }
     },

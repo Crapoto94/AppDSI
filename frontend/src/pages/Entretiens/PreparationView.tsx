@@ -26,7 +26,23 @@ export default function PreparationView({ entretien }: { entretien: Entretien })
   return (
     <div>
       <Section number={1} title="Bilan de réalisation des objectifs" description="Niveau d'atteinte et éléments factuels renseignés par l'agent.">
-        {objectifs.length === 0 ? (
+        {objectifs.length === 0 && entretien.reprise?.objectifs?.length ? (
+          <div>
+            <p style={{ margin: '0 0 10px', fontSize: 12.5, color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, padding: '8px 11px', lineHeight: 1.5 }}>
+              L’agent n’a pas encore renseigné son bilan : voici les <strong>objectifs fixés lors de l’entretien {entretien.reprise.annee}</strong>,
+              qui lui sont proposés par défaut dans sa préparation.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {entretien.reprise.objectifs.map((o, i) => (
+                <div key={i} style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, fontSize: 13, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                  <Target size={13} style={{ verticalAlign: -2, marginRight: 6, color: COLORS.primary }} />
+                  <strong>{i + 1}.</strong> {o.descriptif}
+                  {o.moyens && <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Moyens et échéances : {o.moyens}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : objectifs.length === 0 ? (
           <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>Aucun objectif renseigné.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

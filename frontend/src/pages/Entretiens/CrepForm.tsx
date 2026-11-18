@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Entretien } from './types';
 import { formatDateHeure } from './types';
@@ -20,11 +20,11 @@ function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
 
 function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
   label?: string; value: string; onChange: (v: string) => void; rows?: number; disabled?: boolean; hint?: string;
-  ai?: { entretienId: number; rubrique: string; contexte?: string };
+  ai?: { entretienId: number; rubrique: string; contexte?: string; crep?: unknown };
 }) {
   const ta = <textarea style={textarea} rows={rows} disabled={disabled} value={value} onChange={e => onChange(e.target.value)} />;
   const assist = ai ? (
-    <CrepAiAssist entretienId={ai.entretienId} rubrique={ai.rubrique} contexte={ai.contexte} value={value} disabled={disabled} onApply={onChange} />
+    <CrepAiAssist entretienId={ai.entretienId} rubrique={ai.rubrique} contexte={ai.contexte} crep={ai.crep} value={value} disabled={disabled} onApply={onChange} />
   ) : null;
   if (!label) return <div>{ta}<div style={{ marginTop: 4 }}>{assist}</div></div>;
   return (
@@ -55,6 +55,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  const [check, setCheck] = useState<{ loading: boolean; missing: string[]; issues: string[]; ai: string[] | null; aiError: string | null } | null>(null);
 
   useEffect(() => { setCrep(initialCrep(entretien)); }, [entretien.id]);
 
@@ -69,6 +70,15 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     if (submit) {
       const m = missingFields(crep);
       if (m.length) { setMissing(m); return; }
+      // Contrôles de cohérence fiables (sans IA) avant validation : l'évaluateur peut passer outre après les avoir lus.
+      try {
+        const chk = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: false }, { headers });
+        const found: string[] = chk.data?.issues || [];
+        if (found.length && !window.confirm(`Des incohérences ont été détectées :\n\n- ${found.join('\n- ')}\n\nValider quand même le compte rendu ?`)) {
+          setCheck({ loading: false, missing: [], issues: found, ai: null, aiError: null });
+          return;
+        }
+      } catch (e) { /* contrôle indisponible : on ne bloque pas la validation */ }
       if (!window.confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.')) return;
     }
     setBusy(submit ? 'submit' : 'save');
@@ -80,6 +90,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       if (Array.isArray(e.response?.data?.missing)) setMissing(e.response.data.missing);
       setMsg({ ok: false, text: e.response?.data?.message || e.message || 'Enregistrement impossible' });
     } finally { setBusy(null); }
+  };
+
+  /** Vérification globale : champs manquants, incohérences fiables, puis relecture par l'IA locale. */
+  const runCheck = async () => {
+    setMsg(null); setMissing([]);
+    setCheck({ loading: true, missing: missingFields(crep), issues: [], ai: null, aiError: null });
+    try {
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep }, { headers });
+      setCheck({ loading: false, missing: r.data.missing || [], issues: r.data.issues || [], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
+    } catch (e: any) {
+      setCheck({ loading: false, missing: missingFields(crep), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
+    }
   };
 
   const sendToAgent = async () => {
@@ -152,7 +174,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       crep.objectifs_ecoules[i].niveau && `Niveau retenu par l’évaluateur : ${crep.objectifs_ecoules[i].niveau}`,
     );
   };
-  const ai = (rubrique: string, contexte?: string) => ({ entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx });
+  const ai = (rubrique: string, contexte?: string, withCrep = false) => ({ entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx, crep: withCrep ? crep : undefined });
 
   return (
     <div>
@@ -215,7 +237,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) auto', gap: 10, alignItems: 'start', marginBottom: 10 }}>
           <Area label={`Objectif ${i + 1}`} rows={3} disabled={dis} value={o.objectif}
             onChange={v => set('objectifs_ecoules', crep.objectifs_ecoules.map((x, k) => k === i ? { ...x, objectif: v } : x))} />
-          <Area label="Observations" rows={3} disabled={dis} value={o.observations} ai={ai(`Observations sur l’objectif ${i + 1}`, objCtx(i))}
+          <Area label="Observations" rows={3} disabled={dis} value={o.observations}
             onChange={v => set('objectifs_ecoules', crep.objectifs_ecoules.map((x, k) => k === i ? { ...x, observations: v } : x))} />
           <Field label="Niveau de réalisation">
             <div style={{ display: 'flex', gap: 5 }}>
@@ -275,9 +297,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         </table>
       </div>
       <div style={{ marginTop: 14 }}>
-        <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions')}
+        <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
-          hint="L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne." />
+          hint="L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne. L’IA s’appuie sur l’ensemble du compte rendu (grille, objectifs, observations)." />
       </div>
 
       {/* Volet 2 */}
@@ -286,23 +308,23 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.text, margin: '16px 0 8px' }}>Objectifs individuels de travail de l’année à venir</div>
       {crep.objectifs_futurs.map((o, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginBottom: 10 }}>
-          <Area label={`${i + 1}. Descriptif`} rows={3} disabled={dis} value={o.descriptif} ai={ai(`Objectif individuel ${i + 1} de l’année à venir : descriptif`)}
+          <Area label={`${i + 1}. Descriptif`} rows={3} disabled={dis} value={o.descriptif}
             onChange={v => set('objectifs_futurs', crep.objectifs_futurs.map((x, k) => k === i ? { ...x, descriptif: v } : x))} />
-          <Area label="Moyens et échéances" rows={3} disabled={dis} value={o.moyens} ai={ai(`Objectif individuel ${i + 1} de l’année à venir : moyens et échéances`, lines(generalCtx, crep.objectifs_futurs[i].descriptif && `Descriptif de l’objectif : ${crep.objectifs_futurs[i].descriptif}`))}
+          <Area label="Moyens et échéances" rows={3} disabled={dis} value={o.moyens}
             onChange={v => set('objectifs_futurs', crep.objectifs_futurs.map((x, k) => k === i ? { ...x, moyens: v } : x))} />
         </div>
       ))}
       <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.text, margin: '16px 0 8px' }}>Actions de formation à envisager <span style={{ fontWeight: 400, color: COLORS.muted }}>(inscriptions à faire ultérieurement)</span></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="Formations obligatoires (statutaires et réglementaires)" rows={2} disabled={dis} ai={ai('Formations obligatoires (statutaires et réglementaires)')} value={crep.formations.obligatoires} onChange={v => set('formations', { ...crep.formations, obligatoires: v })} />
-        <Area label="Autres formations métiers" rows={2} disabled={dis} ai={ai('Autres formations métiers')} value={crep.formations.metiers} onChange={v => set('formations', { ...crep.formations, metiers: v })} />
-        <Area label="Formations liées à l’accompagnement des parcours et/ou à un projet professionnel" rows={2} disabled={dis} ai={ai('Formations liées à l’accompagnement des parcours et/ou à un projet professionnel')} value={crep.formations.parcours} onChange={v => set('formations', { ...crep.formations, parcours: v })} />
+        <Area label="Formations obligatoires (statutaires et réglementaires)" rows={2} disabled={dis} value={crep.formations.obligatoires} onChange={v => set('formations', { ...crep.formations, obligatoires: v })} />
+        <Area label="Autres formations métiers" rows={2} disabled={dis} value={crep.formations.metiers} onChange={v => set('formations', { ...crep.formations, metiers: v })} />
+        <Area label="Formations liées à l’accompagnement des parcours et/ou à un projet professionnel" rows={2} disabled={dis} value={crep.formations.parcours} onChange={v => set('formations', { ...crep.formations, parcours: v })} />
       </div>
 
       <H sub="Missions, carrière et mobilité">Perspectives d’évolution</H>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="1. Évolution des missions et/ou de carrière" rows={3} disabled={dis} ai={ai('Évolution des missions et/ou de carrière')} value={crep.evolution} onChange={v => set('evolution', v)} />
-        <Area label="2. Mobilité" rows={3} disabled={dis} ai={ai('Mobilité')} value={crep.mobilite} onChange={v => set('mobilite', v)} />
+        <Area label="1. Évolution des missions et/ou de carrière" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
+        <Area label="2. Mobilité" rows={3} disabled={dis} value={crep.mobilite} onChange={v => set('mobilite', v)} />
       </div>
 
       {/* Champs réservés à l'agent : renseignés par lui, après réception du compte rendu */}
@@ -317,6 +339,33 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </div>
         </>
       ) : null}
+
+      {check && (
+        <div style={{ marginTop: 14, padding: '12px 14px', background: '#f8fafc', border: `1px solid ${COLORS.border}`, borderRadius: 10, fontSize: 12.5, color: '#334155' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, marginBottom: 6 }}>
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
+            <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
+          </div>
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours (relecture par l’IA locale, quelques secondes)…</div>}
+          {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
+            <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
+          )}
+          {check.missing.length > 0 && (
+            <div style={{ marginTop: 6 }}><strong style={{ color: '#92400e' }}>Rubriques à compléter ({check.missing.length})</strong>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 20, lineHeight: 1.5 }}>{check.missing.map((m, i) => <li key={i}>{m}</li>)}</ul></div>
+          )}
+          {check.issues.length > 0 && (
+            <div style={{ marginTop: 6 }}><strong style={{ color: '#b91c1c' }}>Incohérences détectées ({check.issues.length})</strong>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 20, lineHeight: 1.5 }}>{check.issues.map((m, i) => <li key={i}>{m}</li>)}</ul></div>
+          )}
+          {!check.loading && check.ai && check.ai.length > 0 && (
+            <div style={{ marginTop: 6 }}><strong style={{ color: '#6d28d9' }}>Points à vérifier signalés par l’IA ({check.ai.length})</strong>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 20, lineHeight: 1.5 }}>{check.ai.map((m, i) => <li key={i}>{m}</li>)}</ul>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Relecture automatique, donnée à titre indicatif : à vous d’apprécier.</div></div>
+          )}
+          {check.aiError && <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8' }}>Relecture par l’IA indisponible : {check.aiError}</div>}
+        </div>
+      )}
 
       {missing.length > 0 && (
         <div style={{ marginTop: 14, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e' }}>
@@ -353,6 +402,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             </button>
             <button style={{ ...btnPrimary, background: COLORS.success }} disabled={!!busy} onClick={() => save(true)}>
               {busy === 'submit' ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Valider le compte rendu
+            </button>
+            <button style={btnGhost} disabled={!!busy || !!check?.loading} onClick={runCheck}>
+              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} Vérifier la cohérence
             </button>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>

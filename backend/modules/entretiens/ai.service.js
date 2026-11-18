@@ -42,7 +42,7 @@ const SYSTEM = [
 const userMessage = ({ rubrique, agent, contexte, existant, notes }) => [
     `Rubrique : ${clip(rubrique, 200)}`,
     agent ? `Agent évalué : ${clip(agent, 120)}` : '',
-    contexte ? `Contexte :\n${clip(contexte, 3500)}` : '',
+    contexte ? `Contexte :\n${clip(contexte, 7000)}` : '',
     existant ? `Texte actuellement saisi (à améliorer) :\n${clip(existant, 2500)}` : '',
     `Notes de l’évaluateur : ${clip(notes, 2500)}`,
 ].filter(Boolean).join('\n');
@@ -63,10 +63,11 @@ const EXAMPLE_OUT = '««Agent Exemple a accompli ses missions avec un très bon
  * @param {string} [p.existant] texte déjà présent dans la rubrique (à améliorer)
  * @param {string} [p.agent]    nom de l'agent
  */
-async function draftComment({ rubrique, notes, contexte, existant, agent }) {
+async function draftComment({ rubrique, notes, contexte, existant, agent, coherent }) {
     const host = await ollamaHost();
     const model = await pickModel(host);
-    const question = userMessage({ rubrique, agent, contexte, existant, notes });
+    let question = userMessage({ rubrique, agent, contexte, existant, notes });
+    if (coherent) question += '\nExigence : le texte doit être parfaitement cohérent avec l’ensemble des éléments du contexte, en particulier avec les niveaux attribués aux critères de la grille d’appréciation et aux objectifs : ne les contredis pas, appuie-toi sur les points forts et signale les axes de progrès qu’ils révèlent.';
     try {
         let out;
         if (/qwen3/i.test(model)) {
@@ -77,7 +78,7 @@ async function draftComment({ rubrique, notes, contexte, existant, agent }) {
                 // Le texte est amorcé par « (marqueur ouvrant) : le modèle écrit directement le texte final et s'arrête à »».
                 + `<|im_start|>user\n${question}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n««`;
             const r = await axios.post(`${host}/api/generate`,
-                { model, prompt: raw, raw: true, stream: false, options: { temperature: 0.4, num_predict: 400, num_ctx: 6144, stop: ['»»', '<|im_end|>'] } },
+                { model, prompt: raw, raw: true, stream: false, options: { temperature: 0.4, num_predict: 400, num_ctx: 8192, stop: ['»»', '<|im_end|>'] } },
                 { timeout: TIMEOUT_MS });
             out = String(r.data?.response || '');
         } else {
@@ -97,4 +98,48 @@ async function draftComment({ rubrique, notes, contexte, existant, agent }) {
     }
 }
 
-module.exports = { draftComment };
+const REVIEW_SYSTEM = [
+    'Tu es relecteur RH pour une mairie. Tu vérifies la cohérence interne d’un compte rendu d’entretien professionnel.',
+    'Repère UNIQUEMENT les incohérences réelles entre les rubriques : appréciation générale qui contredit les niveaux de la grille ou des objectifs, observations qui contredisent le niveau d’un objectif, objectifs futurs sans rapport avec le bilan, etc.',
+    'N’invente rien, ne reformule pas le compte rendu, ne donne pas d’avis sur la qualité du texte. Si tout est cohérent, réponds « Aucune incohérence détectée. »',
+    'Réponds par une liste à puces (une incohérence par ligne, 5 au maximum, en une phrase claire), placée entre «« et »».',
+].join(' ');
+const REVIEW_EX_IN = 'Compte rendu :\nBilan des objectifs :\n- Objectif 1 : Migrer la messagerie → niveau : Non atteint ; observations : projet abandonné\nAppréciation de la valeur professionnelle (grille) :\n- Sens des responsabilités : Insuffisant\n- Qualités rédactionnelles : Insuffisant\n- Travail en équipe : Satisfaisant\nAppréciation générale actuelle : Agent remarquable, qui a pleinement atteint ses objectifs.';
+const REVIEW_EX_OUT = '««- L’appréciation générale indique que les objectifs sont pleinement atteints alors que l’objectif 1 est « Non atteint ».\n- L’appréciation générale est très élogieuse alors que deux critères de la grille sont jugés « Insuffisants ».»»';
+
+/**
+ * Relecture de cohérence par l'IA locale : liste d'incohérences (vide si aucune). Complète les contrôles déterministes.
+ * @param {string} summary résumé de tout le compte rendu (cf. crep.coherence.js#summarizeCrep)
+ */
+async function reviewCrep(summary) {
+    const host = await ollamaHost();
+    const model = await pickModel(host);
+    const question = `Compte rendu :\n${clip(summary, 9000)}`;
+    try {
+        let out;
+        if (/qwen3/i.test(model)) {
+            const raw = `<|im_start|>system\n${REVIEW_SYSTEM}<|im_end|>\n`
+                + `<|im_start|>user\n${REVIEW_EX_IN}<|im_end|>\n<|im_start|>assistant\n${REVIEW_EX_OUT}<|im_end|>\n`
+                + `<|im_start|>user\n${question}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n««`;
+            const r = await axios.post(`${host}/api/generate`,
+                { model, prompt: raw, raw: true, stream: false, options: { temperature: 0.2, num_predict: 500, num_ctx: 8192, stop: ['»»', '<|im_end|>'] } },
+                { timeout: TIMEOUT_MS });
+            out = String(r.data?.response || '');
+        } else {
+            const r = await axios.post(`${host}/api/generate`,
+                { model, prompt: `${REVIEW_SYSTEM}\n\n${question}\n\nRéponse (entre «« et ») :\n««`, stream: false, options: { temperature: 0.2, num_predict: 500, stop: ['»»'] } },
+                { timeout: TIMEOUT_MS });
+            out = String(r.data?.response || '').replace(/<think>[\s\S]*?<\/think>/g, '');
+        }
+        out = out.replace(/^[\s«»]+/, '').split('»»')[0].trim();
+        if (!out || /aucune incoh[ée]rence/i.test(out)) return { items: [], model };
+        const items = out.split('\n').map(l => l.replace(/^\s*[-•*\d.)]+\s*/, '').trim()).filter(l => l.length > 12).slice(0, 6);
+        return { items, model };
+    } catch (e) {
+        if (e.code === 'ECONNREFUSED' || e.code === 'ENOTFOUND') throw new Error(`Serveur d’IA locale (Ollama) injoignable sur ${host}.`);
+        if (e.code === 'ECONNABORTED') throw new Error('Délai dépassé : l’IA locale met trop de temps à répondre.');
+        throw new Error(e.response?.data?.error || e.message);
+    }
+}
+
+module.exports = { draftComment, reviewCrep };

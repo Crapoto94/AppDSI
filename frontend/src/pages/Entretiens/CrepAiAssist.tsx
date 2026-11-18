@@ -8,11 +8,13 @@ import { COLORS, btnGhost, btnPrimary, textarea } from './ui';
  * Aide à la rédaction par l'IA locale (Ollama) : l'évaluateur indique en substance ce que le
  * commentaire doit exprimer, l'IA rédige une proposition qu'il peut utiliser, compléter ou refuser.
  */
-export default function CrepAiAssist({ entretienId, rubrique, contexte, value, disabled, onApply }: {
+export default function CrepAiAssist({ entretienId, rubrique, contexte, crep, value, disabled, onApply }: {
   entretienId: number;
   rubrique: string;
   /** Éléments factuels fournis à l'IA (objectif, saisie de l'agent…). */
   contexte?: string;
+  /** Compte rendu complet (appréciation générale) : l'IA reçoit tout ce qui a été saisi et reste cohérente avec l'ensemble. */
+  crep?: unknown;
   /** Texte actuellement saisi dans la rubrique. */
   value: string;
   disabled?: boolean;
@@ -32,7 +34,7 @@ export default function CrepAiAssist({ entretienId, rubrique, contexte, value, d
     setBusy(true); setError('');
     try {
       const r = await axios.post(`/api/entretiens/${entretienId}/ai-draft`,
-        { rubrique, notes, contexte, existant: value }, { headers: { Authorization: `Bearer ${token}` } });
+        { rubrique, notes, contexte, crep, existant: value }, { headers: { Authorization: `Bearer ${token}` } });
       setProposal(r.data.text || '');
     } catch (e: any) {
       setError(e.response?.data?.message || 'L’IA locale n’a pas pu rédiger de proposition.');
