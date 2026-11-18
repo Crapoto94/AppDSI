@@ -106,4 +106,4 @@ async function getSignataires(user, services) {
     return { me: placement, responsables, directeurs, defaults: { responsable: defaultResp, directeur: defaultDir } };
 }
 
-module.exports = { getSignataires };
+module.exports = { getSignataires, rhPlacement };
