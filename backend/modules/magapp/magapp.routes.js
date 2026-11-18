@@ -68,6 +68,44 @@ magappBaseRouter.post('/mes-factures/shares', authenticateJWT, async (req, res) 
 magappBaseRouter.delete('/mes-factures/shares/:id', authenticateJWT, async (req, res) => {
     try { await mesFactures.removeShare(req.user, parseInt(req.params.id, 10)); res.json(await mesFactures.listShares(req.user)); } catch (e) { mfFail(res, e, 'Erreur de suppression du partage'); }
 });
+magappBaseRouter.get('/mes-factures/verifiers', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.searchVerifiers(req.user, req.query.q)); } catch (e) { mfFail(res, e, 'Erreur de recherche'); }
+});
+magappBaseRouter.get('/mes-factures/:num/mandatement', authenticateJWT, async (req, res) => {
+    try { res.json(await mesFactures.getMandatement(req.user, req.params.num)); } catch (e) { mfFail(res, e, 'Erreur lecture mandatement'); }
+});
+// Service fait depuis « Mes factures » : mêmes workflows que le DSI Hub (service-fait.controller), ouverts aux agents ayant un droit de
+// MODIFICATION SEDIT sur le service de la facture. Les données de la facture sont relues dans SEDIT (jamais celles du client).
+const sfController = require('../finance/service-fait/service-fait.controller');
+const sfBody = async (req, res, extra) => {
+    const inv = await mesFactures.getInvoiceForAction(req.user, req.params.num);
+    req.body = { ...inv, service_fait_date: (req.body || {}).service_fait_date || '', ...extra };
+    return inv;
+};
+magappBaseRouter.post('/mes-factures/:num/service-fait', authenticateJWT, async (req, res) => {
+    try {
+        const b = req.body || {};
+        const email = String(b.verifier_email || '').trim().toLowerCase();
+        if (!b.verifier_username || !/^[^@\s]+@ivry94\.fr$/.test(email)) return res.status(400).json({ message: 'Choisissez un vérificateur (agent de la Ville avec une adresse @ivry94.fr)' });
+        await mesFactures.assertVerifierInDirection(req.user, email);
+        await sfBody(req, res, { verifier_username: String(b.verifier_username), director_mode: null });
+        req.magappVerifier = { email, name: String(b.verifier_name || '').slice(0, 120) };
+        return sfController.createWorkflow(req, res);
+    } catch (e) { mfFail(res, e, 'Erreur service fait'); }
+});
+magappBaseRouter.post('/mes-factures/:num/service-fait/cancel', authenticateJWT, async (req, res) => {
+    try {
+        req.params.id = await mesFactures.getCancellableWorkflowId(req.user, req.params.num);
+        return sfController.cancelWorkflow(req, res);
+    } catch (e) { mfFail(res, e, 'Erreur d’annulation'); }
+});
+magappBaseRouter.post('/mes-factures/:num/service-fait/self', authenticateJWT, uploadMemory.array('files', 10), async (req, res) => {
+    try {
+        const comment = String((req.body || {}).comment || '');
+        await sfBody(req, res, { comment, demande_pj_ids: '[]' });
+        return sfController.createSelfWorkflow(req, res);
+    } catch (e) { mfFail(res, e, 'Erreur service fait'); }
+});
 magappBaseRouter.get('/mes-factures', authenticateJWT, async (req, res) => {
     try { res.json(await mesFactures.listFactures(req.user, req.query)); } catch (e) { mfFail(res, e, 'SEDIT indisponible'); }
 });

@@ -47,6 +47,124 @@ async function getFactureScopeWhere() {
     )) + ')';
 }
 
+/** Ligne Oracle (FACTURE + FAIT/MANDAT agreges) -> enregistrement du cache. */
+function rowToRecord(row) {
+    const nowDay = dayNum(new Date());
+    const roo = String(row.FROO || '').trim();
+    if (!roo) return null;
+    const fy = Number(row.FY) || null;
+    const received = row.DT ? new Date(row.DT) : null;
+    const paid = row.DP ? new Date(row.DP) : null;
+    const mandate = Number(row.NB) > 0;
+
+    let dgp = null;
+    let definitive = false;
+    if (row.DREJ) {
+        // Facture REJETEE : le delai s'arrete a la date de rejet (reception -> rejet), definitif ; refused = true la distingue des payees.
+        const rejected = new Date(row.DREJ);
+        if (received && !isNaN(received.getTime()) && !isNaN(rejected.getTime())) {
+            dgp = Math.max(0, Math.round((dayNum(rejected) - dayNum(received)) / 86400000));
+            definitive = true;
+        }
+    } else if (received && !isNaN(received.getTime())) {
+        // Regle : le DGP est definitif UNIQUEMENT une fois la facture PAYEE (reception -> date de paiement). Tant qu'elle n'est pas
+        // payee - y compris mandatee - il est PROVISOIRE : jours ecoules depuis la reception (aujourd'hui - reception). On n'utilise
+        // plus la date de paiement PREVUE (DATPAIPREV) : elle donnait un DGP futur (ex. 18 j pour une facture recue la veille).
+        let endDay;
+        if (paid) { endDay = dayNum(paid); definitive = true; }
+        else { endDay = nowDay; definitive = false; }
+        dgp = Math.max(0, Math.round((endDay - dayNum(received)) / 86400000));
+    }
+    return {
+        roo, num: String(row.NUM || '').trim(), fy,
+        reception: toDateStr(row.DT), paiement: toDateStr(row.DP), dgp, definitive, refused: !!row.DREJ,
+        mandate_date: toDateStr(row.DMAND), mandated: mandate, in_scope: Number(row.IN_SCOPE) === 1,
+    };
+}
+
+/** Upsert par lots dans finance.facture_dgp (sur facture_roo). */
+async function upsertRecords(client, records) {
+    const BATCH = 500;
+    for (let i = 0; i < records.length; i += BATCH) {
+        const batch = records.slice(i, i + BATCH);
+        const values = [];
+        const placeholders = batch.map((r, j) => {
+            const b = j * 11;
+            values.push(r.roo, r.num, r.fy, r.reception, r.paiement, r.dgp, r.definitive, r.refused, r.mandate_date, r.mandated, r.in_scope);
+            return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11})`;
+        });
+        await client.query(
+            `INSERT INTO finance.facture_dgp
+               (facture_roo, facture_num, fiscal_year, reception_date, paiement_date, dgp, definitive, refused, mandate_date, mandated, in_scope)
+             VALUES ${placeholders.join(',')}
+             ON CONFLICT (facture_roo) DO UPDATE SET
+               facture_num = EXCLUDED.facture_num, fiscal_year = EXCLUDED.fiscal_year, reception_date = EXCLUDED.reception_date,
+               paiement_date = EXCLUDED.paiement_date, dgp = EXCLUDED.dgp, definitive = EXCLUDED.definitive, refused = EXCLUDED.refused,
+               mandate_date = EXCLUDED.mandate_date, mandated = EXCLUDED.mandated, in_scope = finance.facture_dgp.in_scope OR EXCLUDED.in_scope,
+               updated_at = NOW()`,
+            values
+        );
+    }
+}
+
+/**
+ * DGP A LA DEMANDE (MagApp « Mes factures ») : calcule et met en cache le DGP des seules factures demandees qui manquent au cache
+ * ou dont le calcul a plus de `maxAgeHours` heures. Evite un recalcul de toute la collectivite : ~1-2 s pour quelques centaines de
+ * factures (le scan de FI.FAIT est restreint a la liste). Les lignes creees ici sont hors perimetre DSI (in_scope = false) et
+ * n'alterent donc pas les statistiques /budget. Les appels concurrents s'executent a la suite (pas de double calcul).
+ */
+let ensureChain = Promise.resolve();
+function ensureDgpForRoos(roos, opts = {}) {
+    const run = () => ensureDgpForRoosNow(roos, opts);
+    const p = ensureChain.then(run, run);
+    ensureChain = p.catch(() => {});
+    return p;
+}
+async function ensureDgpForRoosNow(roos, { maxAgeHours = 6 } = {}) {
+    const list = Array.from(new Set((roos || []).map(r => String(r || '').trim()).filter(Boolean)));
+    if (!list.length) return 0;
+    const fresh = await pool.query(
+        `SELECT facture_roo FROM finance.facture_dgp WHERE facture_roo = ANY($1) AND updated_at > NOW() - ($2 || ' hours')::interval`,
+        [list, String(maxAgeHours)]
+    );
+    const freshSet = new Set(fresh.rows.map(r => r.facture_roo));
+    const todo = list.filter(r => !freshSet.has(r));
+    if (!todo.length) return 0;
+
+    const CHUNK = 500;
+    const records = [];
+    await financeShare.withFinanceOracle(async (conn) => {
+        for (let i = 0; i < todo.length; i += CHUNK) {
+            const chunk = todo.slice(i, i + CHUNK);
+            const binds = {};
+            const marks = chunk.map((r, k) => { binds['r' + k] = r; return ':r' + k; }).join(',');
+            const res = await conn.execute(
+                `SELECT TRIM(f.ROO_IMA_REF) AS FROO, TRIM(f.FACTURE) AS NUM, f.DATENTREE AS DT, f.DATE_REJET AS DREJ,
+                        EXTRACT(YEAR FROM f.DATENTREE) AS FY, 0 AS IN_SCOPE, p.NB AS NB, p.DP AS DP, p.DMAND AS DMAND
+                   FROM FI.FACTURE f
+                   LEFT JOIN (
+                       SELECT TRIM(fa.FACTURE_ID_CS) AS FROO, COUNT(fa.MANDAT_ID_CS) AS NB,
+                              MAX(mm.DATE_PAIEMENT) AS DP, MAX(mm.DATMANDAT) AS DMAND
+                         FROM FI.FAIT fa
+                         LEFT JOIN FI.MANDAT mm ON TRIM(mm.ROO_IMA_REF) = TRIM(fa.MANDAT_ID_CS)
+                        WHERE TRIM(fa.FACTURE_ID_CS) IN (${marks})
+                        GROUP BY TRIM(fa.FACTURE_ID_CS)
+                   ) p ON p.FROO = TRIM(f.ROO_IMA_REF)
+                  WHERE TRIM(f.ROO_IMA_REF) IN (${marks})`,
+                binds
+            );
+            for (const row of res.rows) { const rec = rowToRecord(row); if (rec) records.push(rec); }
+        }
+    });
+    if (records.length) {
+        const client = await pool.connect();
+        try { await client.query('BEGIN'); await upsertRecords(client, records); await client.query('COMMIT'); }
+        catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+        finally { client.release(); }
+    }
+    return records.length;
+}
+
 /**
  * Recalcule le cache `finance.facture_dgp` depuis Sedit pour les exercices demandés
  * (année en cours + n-1 par défaut). Une passe Oracle « set-based » (le scan de
@@ -71,6 +189,7 @@ async function refreshFacturesDgpCache(opts = {}) {
             `SELECT TRIM(f.ROO_IMA_REF) AS FROO, TRIM(f.FACTURE) AS NUM,
                     f.DATENTREE AS DT, f.DATPAIPREV AS DPP, f.DATE_REJET AS DREJ,
                     EXTRACT(YEAR FROM f.DATENTREE) AS FY,
+                    ${scopeWhere ? `CASE WHEN ${scopeWhere.replace(/\bT1\./g, 'f.')} THEN 1 ELSE 0 END` : '1'} AS IN_SCOPE,
                     p.NB AS NB, p.DP AS DP, p.DMAND AS DMAND
                FROM FI.FACTURE f
                LEFT JOIN (
@@ -88,65 +207,14 @@ async function refreshFacturesDgpCache(opts = {}) {
         return res.rows;
     });
 
-    const nowDay = dayNum(new Date());
-    const records = [];
-    for (const row of rows) {
-        const roo = String(row.FROO || '').trim();
-        if (!roo) continue;
-        const fy = Number(row.FY) || null;
-        const received = row.DT ? new Date(row.DT) : null;
-        const paid = row.DP ? new Date(row.DP) : null;
-        const mandate = Number(row.NB) > 0;
+    const records = rows.map(rowToRecord).filter(Boolean);
 
-        let dgp = null;
-        let definitive = false;
-        if (row.DREJ) {
-            // Facture refusée : DGP masqué (refused = true, dgp null).
-        } else if (received && !isNaN(received.getTime())) {
-            // Règle : le DGP est définitif UNIQUEMENT une fois la facture PAYÉE (réception → date de paiement). Tant qu'elle n'est pas
-            // payée — y compris mandatée — il est PROVISOIRE : jours écoulés depuis la réception (aujourd'hui − réception). On n'utilise
-            // plus la date de paiement PRÉVUE (DATPAIPREV) : elle donnait un « DGP » futur (ex. 18 j pour une facture reçue la veille).
-            let endDay;
-            if (paid) { endDay = dayNum(paid); definitive = true; }
-            else { endDay = nowDay; definitive = false; }
-            dgp = Math.max(0, Math.round((endDay - dayNum(received)) / 86400000));
-        }
-
-        records.push({
-            roo,
-            num: String(row.NUM || '').trim(),
-            fy,
-            reception: toDateStr(row.DT),
-            paiement: toDateStr(row.DP),
-            dgp,
-            definitive,
-            refused: !!row.DREJ,
-            mandate_date: toDateStr(row.DMAND),
-            mandated: mandate,
-        });
-    }
-
-    // Remplacement atomique des exercices recalculés (DELETE puis INSERT par lots).
+    // Remplacement atomique des exercices recalcules pour le PERIMETRE DSI (les lignes calculees a la demande, hors perimetre, sont conservees).
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        await client.query('DELETE FROM finance.facture_dgp WHERE fiscal_year = ANY($1)', [years]);
-        const BATCH = 500;
-        for (let i = 0; i < records.length; i += BATCH) {
-            const batch = records.slice(i, i + BATCH);
-            const values = [];
-            const placeholders = batch.map((r, j) => {
-                const b = j * 10;
-                values.push(r.roo, r.num, r.fy, r.reception, r.paiement, r.dgp, r.definitive, r.refused, r.mandate_date, r.mandated);
-                return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`;
-            });
-            await client.query(
-                `INSERT INTO finance.facture_dgp
-                   (facture_roo, facture_num, fiscal_year, reception_date, paiement_date, dgp, definitive, refused, mandate_date, mandated)
-                 VALUES ${placeholders.join(',')}`,
-                values
-            );
-        }
+        await client.query('DELETE FROM finance.facture_dgp WHERE fiscal_year = ANY($1) AND in_scope', [years]);
+        await upsertRecords(client, records);
         await client.query('COMMIT');
     } catch (e) {
         await client.query('ROLLBACK').catch(() => {});
@@ -200,7 +268,7 @@ async function getDgpStats(opts = {}) {
                 COUNT(*) FILTER (WHERE definitive AND dgp > 30)::int AS nb_hors,
                 COUNT(*) FILTER (WHERE NOT definitive AND dgp > 30)::int AS nb_prov
            FROM finance.facture_dgp
-          WHERE fiscal_year = $1 AND NOT refused`,
+          WHERE fiscal_year = $1 AND NOT refused AND in_scope`,
         [fiscalYear]
     );
     const r = rows[0] || {};
@@ -240,7 +308,7 @@ async function getDgpWeekly(opts = {}) {
         `SELECT to_char(date_trunc('week', ${endCol}), 'YYYY-MM-DD') AS semaine,
                 COUNT(*)::int AS nb, SUM(${dureeExpr})::int AS somme, COUNT(*) FILTER (WHERE ${dureeExpr} > ${seuil})::int AS nb_hors
            FROM finance.facture_dgp
-          WHERE NOT refused AND ${endCol} IS NOT NULL AND reception_date IS NOT NULL AND ${dureeExpr} IS NOT NULL
+          WHERE in_scope AND NOT refused AND ${endCol} IS NOT NULL AND reception_date IS NOT NULL AND ${dureeExpr} IS NOT NULL
             AND EXTRACT(YEAR FROM ${endCol}) = $1
           GROUP BY 1 ORDER BY 1`,
         [year]
@@ -296,4 +364,4 @@ async function getMandateInfoByRoos(roos) {
     return out;
 }
 
-module.exports = { getDgpStats, getDgpWeekly, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };
+module.exports = { ensureDgpForRoos, getDgpStats, getDgpWeekly, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };

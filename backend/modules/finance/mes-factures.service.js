@@ -178,15 +178,20 @@ async function listFactures(user, q = {}) {
         return { total, rows, roos, aTraiter };
     });
 
+    // DGP calcule A LA DEMANDE pour les factures du perimetre qui manquent au cache (ou plus de 6 h) : pas de recalcul de toute la collectivite
+    await dgp.ensureDgpForRoos(data.roos).catch(e => console.warn('[MesFactures] DGP a la demande:', e.message));
+
     // Enrichissements : circuit SEDIT (rapprochement / service fait / rejet / mandat), workflow AppDSI, DGP
     const nums = data.rows.map(r => r.NUM);
     const roosPage = data.rows.map(r => r.ROO);
     const [facsuivi, wf, dgpMap] = await Promise.all([
         nums.length ? financeShare.getFacsuiviStatus(nums).catch(() => ({})) : {},
-        nums.length ? pool.query(`SELECT DISTINCT ON (invoice_ref) invoice_ref, status FROM finance.service_fait_workflows WHERE invoice_ref = ANY($1) ORDER BY invoice_ref, updated_at DESC`, [nums]).then(r => r.rows).catch(() => []) : [],
+        nums.length ? pool.query(`SELECT DISTINCT ON (invoice_ref) id, invoice_ref, status, verifier_name, requested_by, created_at FROM finance.service_fait_workflows WHERE invoice_ref = ANY($1) ORDER BY invoice_ref, updated_at DESC`, [nums]).then(r => r.rows).catch(() => []) : [],
         dgp.getFacturesDgp(roosPage).catch(() => ({})),
     ]);
     const wfMap = new Map(wf.map(r => [r.invoice_ref, r.status]));
+    const wfInfo = new Map(wf.map(r => [r.invoice_ref, r]));
+    const ONGOING = ['en_attente', 'en_cours', 'transfere', 'en_pause', 'en_attente_visa'];
 
     // Stats DGP du périmètre (cache finance.facture_dgp, rafraîchi chaque nuit)
     let stats = null;
@@ -200,7 +205,25 @@ async function listFactures(user, q = {}) {
                FROM finance.facture_dgp WHERE facture_roo = ANY($1) AND NOT refused`, [data.roos]);
         const r = rows[0] || {};
         const nbPayees = Number(r.nb_payees) || 0, nbHors = Number(r.nb_hors) || 0;
+        // Tendance du DGP moyen : factures payées ces 30 derniers jours vs les 30 jours précédents + moyenne hebdomadaire sur 12 semaines
+        const tr = await pool.query(
+            `SELECT ROUND(AVG(dgp) FILTER (WHERE paiement_date > CURRENT_DATE - 30), 1) AS recent, COUNT(*) FILTER (WHERE paiement_date > CURRENT_DATE - 30)::int AS nb_recent,
+                    ROUND(AVG(dgp) FILTER (WHERE paiement_date <= CURRENT_DATE - 30 AND paiement_date > CURRENT_DATE - 60), 1) AS precedent,
+                    COUNT(*) FILTER (WHERE paiement_date <= CURRENT_DATE - 30 AND paiement_date > CURRENT_DATE - 60)::int AS nb_precedent
+               FROM finance.facture_dgp WHERE facture_roo = ANY($1) AND definitive AND NOT refused AND paiement_date > CURRENT_DATE - 60`, [data.roos]);
+        const wk = await pool.query(
+            `SELECT to_char(date_trunc('week', paiement_date), 'YYYY-MM-DD') AS semaine, ROUND(AVG(dgp), 1) AS moyenne, COUNT(*)::int AS nb
+               FROM finance.facture_dgp WHERE facture_roo = ANY($1) AND definitive AND NOT refused AND paiement_date > CURRENT_DATE - 84
+              GROUP BY 1 ORDER BY 1`, [data.roos]);
+        const t = tr.rows[0] || {};
+        const recent = t.recent != null ? Number(t.recent) : null, precedent = t.precedent != null ? Number(t.precedent) : null;
+        const tendance = {
+            recent, precedent, nb_recent: Number(t.nb_recent) || 0, nb_precedent: Number(t.nb_precedent) || 0,
+            delta: recent != null && precedent != null ? Math.round((recent - precedent) * 10) / 10 : null,
+            semaines: wk.rows.map(x => ({ semaine: x.semaine, moyenne: Number(x.moyenne), nb: x.nb })),
+        };
         stats = {
+            tendance,
             nb_factures: data.roos.length, nb_payees: nbPayees, nb_non_payees: Number(r.nb_non_payees) || 0,
             dgp_moyen: r.dgp_moyen != null ? Number(r.dgp_moyen) : null,
             nb_hors_delai: nbHors, nb_prov_hors_delai: Number(r.nb_prov) || 0,
@@ -208,6 +231,9 @@ async function listFactures(user, q = {}) {
         };
     }
 
+    // Actions service fait : réservées aux droits de MODIFICATION propres à l'agent (un accès partagé = consultation seule)
+    const ownSedit = await seditDroits.resolveSeditUser(user).catch(() => null);
+    const modPairs = new Set((await seditDroits.getModifiableServices(ownSedit).catch(() => [])).map(x => `${x.budgetRoo}|${x.serviceRoo}`));
     const labelOf = new Map(sources.map(s => [s.key, s.label]));
     const rows = data.rows.map(r => {
         const fs = facsuivi[r.NUM];
@@ -221,11 +247,155 @@ async function listFactures(user, q = {}) {
             service_fait_date: (fs && fs.service_fait && fs.service_fait.date) || null,
             rejetee: !!r.DATE_REJET,
             workflow: wfMap.get(r.NUM) || null,
-            dgp: d && !d.refuse ? d.dgp : null, dgp_definitif: !!(d && d.def),
+            dgp: d ? d.dgp : null, dgp_definitif: !!(d && d.def), dgp_rejete: !!(d && d.refuse),
             via: via ? [...via.via].map(k => labelOf.get(k) || k) : [],
+            // SF en cours de circuit (vérificateur désigné, pas encore de décision) : annulable par le demandeur ou un agent ayant le droit de modification
+            circuit: (() => {
+                const w = wfInfo.get(r.NUM);
+                if (!w || !ONGOING.includes(w.status) || (fs && fs.service_fait && fs.service_fait.done)) return null;
+                return { status: w.status, verificateur: w.verifier_name || '', depuis: w.created_at, demandeur: w.requested_by,
+                    can_cancel: low(w.requested_by) === low(user.username) || modPairs.has(`${r.BUDGET_ROO}|${r.SERVICE_ROO}`) };
+            })(),
+            can_sf: modPairs.has(`${r.BUDGET_ROO}|${r.SERVICE_ROO}`) && !(fs && fs.service_fait && fs.service_fait.done) && !r.DATE_REJET
+                && !(fs && fs.mandate && fs.mandate.done) && (!wfMap.get(r.NUM) || ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(wfMap.get(r.NUM))),
         };
     });
     return { rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
 }
 
-module.exports = { getAccess, listFactures, listShares, addShare, removeShare };
+// Mandatement d'une facture (infobulle), uniquement si la facture est dans le périmètre de l'agent
+const dstr = (d) => {
+    if (!d) return null;
+    const x = new Date(d);
+    if (isNaN(x.getTime())) return String(d);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+};
+async function getMandatement(user, numero) {
+    const num = clean(numero);
+    const sources = await getSources(user);
+    const byBudget = new Map();
+    for (const src of sources) for (const sv of src.services) {
+        if (!byBudget.has(sv.budgetRoo)) byBudget.set(sv.budgetRoo, new Set());
+        byBudget.get(sv.budgetRoo).add(sv.serviceRoo);
+    }
+    if (!num || !byBudget.size) { const e = new Error('Facture hors de votre périmètre'); e.status = 403; throw e; }
+    const binds = { n: num };
+    let n = 0, bi = 0;
+    const blocks = [];
+    for (const [roo, set] of byBudget) {
+        const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
+        binds[`b${bi}`] = roo;
+        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        bi++;
+    }
+    const ok = await financeShare.withFinanceOracle(async (conn) => Number((await conn.execute(
+        `SELECT COUNT(*) AS N FROM FI.FACTURE f WHERE TRIM(f.FACTURE) = :n AND (${blocks.join(' OR ')})`, binds,
+        { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows[0].N) > 0);
+    if (!ok) { const e = new Error('Facture hors de votre périmètre'); e.status = 403; throw e; }
+    const res = await require('./sedit-mandat.service').getMandatementByFacture(num);
+    return { numero: num, mandats: res.mandats.map(m => ({
+        ...m, date_emission: dstr(m.date_emission), date_transmission: dstr(m.date_transmission), date_paiement: dstr(m.date_paiement),
+    })) };
+}
+
+// Facture sur laquelle l'agent peut AGIR (service fait) : budget × service en accès 'M' de SON compte SEDIT, pas via un partage.
+async function getInvoiceForAction(user, numero) {
+    const num = clean(numero);
+    const sedit = await seditDroits.resolveSeditUser(user);
+    const mod = sedit ? await seditDroits.getModifiableServices(sedit) : [];
+    const forbid = () => { const e = new Error('Vous n’avez pas le droit de modification SEDIT sur le service de cette facture'); e.status = 403; return e; };
+    if (!num || !mod.length) throw forbid();
+    const byBudget = new Map();
+    for (const sv of mod) { if (!byBudget.has(sv.budgetRoo)) byBudget.set(sv.budgetRoo, new Set()); byBudget.get(sv.budgetRoo).add(sv.serviceRoo); }
+    const binds = { n: num };
+    let n = 0, bi = 0;
+    const blocks = [];
+    for (const [roo, set] of byBudget) {
+        const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
+        binds[`b${bi}`] = roo;
+        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        bi++;
+    }
+    const row = await financeShare.withFinanceOracle(async (conn) => (await conn.execute(
+        `SELECT TRIM(f.FACTURE) AS NUM, TRIM(f.LIBELLE1) AS LIBELLE, f.MONTANTTC_E AS MONTANT,
+                TRIM(REGEXP_SUBSTR(t.POBJ_EXTRACT, '[^' || CHR(1) || ']+', 1, 2)) AS TIERS
+           FROM FI.FACTURE f LEFT JOIN FI.TIERS t ON t.ROO_IMA_REF = f.TIERS
+          WHERE TRIM(f.FACTURE) = :n AND (${blocks.join(' OR ')})`, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows[0]);
+    if (!row) throw forbid();
+    return { invoice_ref: row.NUM, invoice_number: row.NUM, invoice_label: row.LIBELLE || '', invoice_supplier: row.TIERS || '', invoice_amount: row.MONTANT != null ? String(row.MONTANT) : '', invoice_section: '' };
+}
+
+// ───────── Vérificateurs du service fait : agents de MA direction uniquement ─────────
+async function searchVerifiers(user, q) {
+    const query = clean(q);
+    if (query.length < 2) return [];
+    const { rhPlacement } = require('./virement-credits-signataires.service');
+    const me = await rhPlacement(user);
+    if (!me || !me.direction_code) return [];
+    const rhStudio = require('../../shared/rh_studio');
+    // Candidats : annuaire AD (adresse e-mail), complété par RH Studio quand il connaît l'e-mail
+    const cands = new Map(); // email -> { displayName, matricule? }
+    try {
+        const { getSqlite } = require('../../shared/database');
+        const { searchADUsersByQuery } = require('../../shared/ad_helper');
+        const db = getSqlite();
+        const ad = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+        if (ad && ad.is_enabled) {
+            for (const u of ((await searchADUsersByQuery(query, ad)) || []).slice(0, 25)) {
+                const e = clean(u.email).toLowerCase();
+                if (/@ivry94\.fr$/.test(e)) cands.set(e, { displayName: clean(u.displayName) || e });
+            }
+        }
+    } catch { /* AD indisponible : RH Studio seul */ }
+    for (const a of ((await rhStudio.searchAgents(query).catch(() => [])) || [])) {
+        const e = clean(a.email).toLowerCase();
+        if (/@ivry94\.fr$/.test(e)) cands.set(e, { displayName: [a.prenom, a.nom].filter(Boolean).join(' ') || e, matricule: clean(a.matricule) });
+    }
+    if (!cands.size) return [];
+    // Matricule RH de chaque candidat (par e-mail), puis filtre sur MA direction
+    const entries = await Promise.all([...cands.entries()].map(async ([email, c]) => {
+        let mat = c.matricule;
+        if (!mat) { const ag = await rhStudio.findAgentByEmail(email).catch(() => null); mat = ag ? clean(ag.matricule) : ''; }
+        return { email, displayName: c.displayName, matricule: mat };
+    }));
+    const mats = entries.map(e => e.matricule).filter(Boolean);
+    if (!mats.length) return [];
+    const rows = (await pool.query(
+        `SELECT DISTINCT TRIM("MATRICULE") AS m, TRIM("SERVICE_L") AS service FROM oracle.rh_v_extract_dsi
+          WHERE TRIM("MATRICULE") = ANY($1) AND TRIM("DIRECTION") = $2`, [mats, me.direction_code])).rows;
+    const svc = new Map(rows.map(r => [r.m, r.service]));
+    return entries
+        .filter(e => e.matricule && svc.has(e.matricule) && e.matricule !== me.matricule)
+        .slice(0, 12)
+        .map(e => ({ username: e.email.split('@')[0], displayName: e.displayName, email: e.email, service: svc.get(e.matricule) || '' }));
+}
+
+// Le vérificateur choisi doit appartenir à la direction de l'agent (contrôle serveur, pas seulement l'affichage)
+async function assertVerifierInDirection(user, email) {
+    const { rhPlacement } = require('./virement-credits-signataires.service');
+    const me = await rhPlacement(user);
+    const rhStudio = require('../../shared/rh_studio');
+    const ag = await rhStudio.findAgentByEmail(clean(email)).catch(() => null);
+    const mat = ag && clean(ag.matricule);
+    let ok = false;
+    if (me && me.direction_code && mat) {
+        const r = await pool.query(`SELECT 1 FROM oracle.rh_v_extract_dsi WHERE TRIM("MATRICULE") = $1 AND TRIM("DIRECTION") = $2 LIMIT 1`, [mat, me.direction_code]);
+        ok = r.rows.length > 0;
+    }
+    if (!ok) { const e = new Error('Le vérificateur doit appartenir à votre direction'); e.status = 403; throw e; }
+}
+
+// Annulation d'un circuit de service fait en cours : par le demandeur, ou par un agent ayant le droit de modification SEDIT sur la facture
+async function getCancellableWorkflowId(user, numero) {
+    const num = clean(numero);
+    const r = await pool.query(
+        `SELECT id, requested_by FROM finance.service_fait_workflows
+          WHERE invoice_ref = $1 AND status IN ('en_attente','en_cours','transfere','en_pause','en_attente_visa') ORDER BY id DESC LIMIT 1`, [num]);
+    const wf = r.rows[0];
+    if (!wf) { const e = new Error('Aucun circuit de service fait en cours pour cette facture'); e.status = 404; throw e; }
+    if (low(wf.requested_by) !== low(user.username)) await getInvoiceForAction(user, num); // sinon : droit de modification requis (403 sinon)
+    return wf.id;
+}
+
+module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId };

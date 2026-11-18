@@ -3741,6 +3741,10 @@ async function setupPgDb() {
     // « mandaté » de la synthèse mensuelle (contour vert + infobulle date de mandatement).
     await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandate_date DATE;`);
     await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandated BOOLEAN DEFAULT FALSE;`);
+    // Le cache couvre toute la collectivite (MagApp Mes factures) ; in_scope = perimetre de synchro (DSI) utilise par les stats /budget et le widget.
+    await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS in_scope BOOLEAN NOT NULL DEFAULT TRUE;`);
+    // Origine du workflow de service fait ('magapp' : liens de validation sous le domaine MagApp)
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
 
     // ── Service Fait validation workflow ──
     await client.query(`

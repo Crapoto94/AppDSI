@@ -6,7 +6,10 @@ const financeShareController = require('../finance-share.controller');
 const { getFacsuiviStatus: getSeditFacsuiviStatus } = financeShareController;
 const seditPj = require('./sedit-pj.service');
 const encadrantsController = require('../../rh/encadrants.controller');
-const { getAppBaseUrl } = require('../../../shared/app_url');
+const { getAppBaseUrl, getMagappBaseUrl } = require('../../../shared/app_url');
+
+// Domaine des liens de validation : workflows lancés depuis MagApp (origin = 'magapp') -> magapp.ivry.local, sinon le DSI Hub.
+const linkBaseFor = (origin) => (origin === 'magapp' ? getMagappBaseUrl() : getAppBaseUrl());
 
 const DECISION_LABELS = {
     valide: 'Validé',
@@ -349,10 +352,14 @@ const controller = {
                 'SELECT username, nom, email FROM hub_calendrier.agents_dsi WHERE username = $1',
                 [verifier_username]
             );
-            if (agentRes.rowCount === 0) {
+            let agent = agentRes.rows[0];
+            if (!agent && req.magappVerifier && req.magappVerifier.email) {
+                // MagApp : le vérificateur peut être n'importe quel agent de la Ville (hors liste DSI), identifié par son e-mail interne
+                agent = { username: verifier_username, nom: req.magappVerifier.name || verifier_username, email: req.magappVerifier.email };
+            }
+            if (!agent) {
                 return res.status(400).json({ message: 'Agent vérificateur non trouvé dans la liste DSI' });
             }
-            const agent = agentRes.rows[0];
 
             const existing = await pool.query(
                 `SELECT id, status FROM finance.service_fait_workflows
@@ -371,8 +378,8 @@ const controller = {
                  (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
                   status, requested_by, verifier_username, verifier_name, verifier_email,
                   entity_code, entity_label, director_mode, director_username, director_name, director_email,
-                  service_fait_date)
-                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                  service_fait_date, origin)
+                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                  RETURNING id`,
                 [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
                  invoice_amount || null, invoice_section || '', req.user.username,
@@ -380,7 +387,7 @@ const controller = {
                  entity_code || 'DSI', director ? director.entity_label || '' : '',
                  directorMode, director ? director.director_username : null,
                  director ? director.director_name : '', director ? director.director_email : '',
-                 normalizeServiceFaitDate(service_fait_date)]
+                 normalizeServiceFaitDate(service_fait_date), req.magappVerifier ? 'magapp' : null]
             );
             const workflowId = insResult.rows[0].id;
 
@@ -404,7 +411,7 @@ const controller = {
                 [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`, getClientIp(req), req.headers['user-agent'] || '']
             );
 
-            const appUrl = await getAppBaseUrl();
+            const appUrl = await linkBaseFor(req.magappVerifier ? 'magapp' : null);
             const verifierUrl = `${appUrl}/service-fait-verifier/${token}`;
 
             if (sendMailFn && agent.email) {
@@ -660,7 +667,7 @@ const controller = {
             const wf = wfRes.rows[0];
             // Lien public de validation à transmettre au vérificateur (identifie au lien
             // envoyé par e-mail, pour pouvoir le rediffuser depuis la modale de suivi).
-            const appUrl = await getAppBaseUrl();
+            const appUrl = await linkBaseFor(wf.origin);
             const verifierUrl = wf.token ? `${appUrl}/service-fait-verifier/${wf.token}` : null;
 
             res.json({
@@ -814,7 +821,7 @@ const controller = {
     submitDecision: async (req, res) => {
         try {
             const { token } = req.params;
-            const { decision, comment, transfer_to_username, pj_files } = req.body;
+            const { decision, comment, transfer_to_username, pj_files, service_fait_date: decisionSfDate } = req.body;
 
             const decoded = verifyToken(token);
             if (!decoded) return res.status(400).json({ message: 'Lien invalide ou expiré' });
@@ -906,6 +913,15 @@ const controller = {
                 [newStatus, comment || '', newVerifierUsername, newVerifierName, newVerifierEmail, newToken, wf.id]
             );
 
+            // Date de service fait : saisie par le VERIFICATEUR à sa décision positive (elle prime sur celle éventuellement proposée au lancement).
+            if (['valide', 'valide_avec_reserves'].includes(decision) && decisionSfDate) {
+                const sfDate = normalizeServiceFaitDate(decisionSfDate);
+                if (sfDate) {
+                    await pool.query('UPDATE finance.service_fait_workflows SET service_fait_date = $1 WHERE id = $2', [sfDate, wf.id]);
+                    wf.service_fait_date = sfDate;
+                }
+            }
+
             await pool.query(
                 `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -933,12 +949,12 @@ const controller = {
                     [directorToken, dirExpires, wf.id]
                 );
                 newStatus = 'en_attente_visa';
-                directorVisaUrl = `${await getAppBaseUrl()}/service-fait-visa/${directorToken}`;
+                directorVisaUrl = `${await linkBaseFor(wf.origin)}/service-fait-visa/${directorToken}`;
             } else if (isPositive) {
                 seditSync = await syncServiceFaitToSedit({ wf, decision, comment });
             }
 
-            const appUrl = await getAppBaseUrl();
+            const appUrl = await linkBaseFor(wf.origin);
             const subjectMap = {
                 'valide': 'Service fait validé',
                 'valide_avec_reserves': 'Service fait validé avec réserves',

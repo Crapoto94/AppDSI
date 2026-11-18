@@ -404,10 +404,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
     // DGP (délai global de paiement) : pastille. Contour PLEIN = définitif (facture
     // mandatée/payée), contour POINTILLÉ = provisoire (facture non encore mandatée).
-    // Rouge au-delà de 30 jours. Masqué pour les factures refusées. Calculé en différé
+    // Rouge au-delà de 30 jours. Facture refusée : délai réception → rejet (✕). Calculé en différé
     // (chargement progressif) : « … » tant que la valeur n'est pas revenue du serveur.
     if (col.display_type === 'dgp') {
-      if (row && row._DGP_REFUSE) return '';
       if (row && !row._DGP_LOADED) return <span style={{ color: '#cbd5e1' }}>…</span>;
       if (value === null || value === undefined || value === '') return '';
       const num = parseFloat(String(value));
@@ -418,15 +417,17 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       const bg = late ? '#fef2f2' : '#f0fdf4';
       return (
         <span
-          title={definitive
-            ? 'Délai global de paiement (réception → paiement/mandatement)'
-            : 'Délai provisoire — facture non encore mandatée (jours écoulés depuis la réception)'}
+          title={row && row._DGP_REFUSE
+            ? 'Facture rejetée — délai arrêté à la date de rejet (réception → rejet)'
+            : definitive
+              ? 'Délai global de paiement (réception → paiement)'
+              : 'Délai provisoire — facture non encore payée (jours écoulés depuis la réception)'}
           style={{
             display: 'inline-block', padding: '1px 8px', borderRadius: 10,
             border: `1.5px ${definitive ? 'solid' : 'dotted'} ${color}`,
             background: bg, color, fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
           }}>
-          {num} j
+          {num} j{row && row._DGP_REFUSE ? ' ✕' : ''}
         </span>
       );
     }

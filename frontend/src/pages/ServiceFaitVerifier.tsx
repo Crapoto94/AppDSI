@@ -59,6 +59,7 @@ export default function ServiceFaitVerifier() {
   const [decision, setDecision] = useState('');
   const [comment, setComment] = useState('');
   const [transferTo, setTransferTo] = useState('');
+  const [sfDate, setSfDate] = useState<string>(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
   const [pjFiles, setPjFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -93,6 +94,7 @@ export default function ServiceFaitVerifier() {
     try {
       const body: any = { decision };
       if (comment.trim()) body.comment = comment.trim();
+      if (['valide', 'valide_avec_reserves'].includes(decision) && sfDate) body.service_fait_date = sfDate;
       if (decision === 'transfere') {
         if (!transferTo) { setError('Veuillez sélectionner un agent pour le transfert.'); setSending(false); return; }
         body.transfer_to_username = transferTo;
@@ -295,6 +297,17 @@ export default function ServiceFaitVerifier() {
                             <option key={a.username} value={a.username}>{a.nom || a.username}</option>
                           ))}
                         </select>
+                      </div>
+                    )}
+
+                    {['valide', 'valide_avec_reserves'].includes(decision) && (
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                          Date de service fait <span style={{ color: '#dc2626' }}>*</span>
+                        </label>
+                        <input type="date" value={sfDate} onChange={e => setSfDate(e.target.value)} required
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', background: '#fff' }} />
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Date de réalisation de la prestation, reportée dans Sedit.</div>
                       </div>
                     )}
 

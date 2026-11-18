@@ -71,6 +71,7 @@ router.get('/:page', async (req, res) => {
             '/boites-partagees':       'GUIDE-BOITES-PARTAGEES.md',
             '/parapheur':              'GUIDE-PARAPHEUR.md',
             '/magapp/virement-credits': 'GUIDE-VIREMENT-CREDITS.md',
+            '/magapp/mes-factures':     'GUIDE-MES-FACTURES.md',
         };
 
         const fileName = MAP[page];

@@ -6,6 +6,28 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Pages publiques du DSI Hub servies sous le domaine MagApp : liens de validation du service fait envoyés par mail
+    # (workflows lancés depuis « Mes factures »). La page est celle du Hub (proxy vers son conteneur) ; ses scripts
+    # /assets/* absents de MagApp sont aussi relayés. Variable + resolver : MagApp démarre même si le Hub est arrêté.
+    location ~ ^/(service-fait-verifier|service-fait-visa)/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $hub_front ${HUB_FRONTEND_URL};
+        proxy_pass $hub_front;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /assets/ {
+        try_files $uri @hub_assets;
+    }
+
+    location @hub_assets {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $hub_front ${HUB_FRONTEND_URL};
+        proxy_pass $hub_front;
+        proxy_set_header Host $host;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
