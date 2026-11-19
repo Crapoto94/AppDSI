@@ -1725,7 +1725,7 @@ function App() {
       {/* Modal « Mes outils DSI » */}
       {showTools && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: 'white', maxWidth: '660px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="tools-modal" style={{ background: 'white', maxWidth: '1000px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
             <button
               onClick={() => setShowTools(false)}
               style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -1741,7 +1741,15 @@ function App() {
               <p style={{ color: '#64748b', fontSize: '0.95rem', marginTop: '8px' }}>Accédez rapidement à vos services et outils DSI</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+            <style>{`
+              .tools-modal { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+              .tools-modal::-webkit-scrollbar { width: 8px; }
+              .tools-modal::-webkit-scrollbar-track { background: transparent; margin: 18px 0; }
+              .tools-modal::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+              .tools-modal::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+            `}</style>
+            {/* 3 colonnes sur grand écran (2 puis 1 quand la fenêtre se rétrécit) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: '12px' }}>
               {((settings.show_rencontres && (hasRencontresAccess || !settings.show_rencontres_original)) || settings.is_beta_user) && (
                 <ToolCard
                   icon={<BarChart3 size={22} color="#0284c7" />}
