@@ -6646,6 +6646,7 @@ app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.rou
 
 // Entretiens professionnels annuels (module public : chaque agent voit son EP)
 app.use('/api/entretiens', require('./modules/entretiens/entretiens.routes'));
+app.use('/api/ep-ville', require('./modules/ep-ville/ep-ville.routes'));
 
 // Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
 // Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)

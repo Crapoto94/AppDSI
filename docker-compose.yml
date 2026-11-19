@@ -52,6 +52,10 @@ services:
       - DATAQUERY_SESSION_SECRET=${DATAQUERY_SESSION_SECRET:-}
       - DATAQUERY_ALLOWED_USERS=${DATAQUERY_ALLOWED_USERS:-}
       - DATAQUERY_SESSION_TTL_HOURS=${DATAQUERY_SESSION_TTL_HOURS:-8}
+      # API SEDIT RH (agents, grades, organisation) : entretiens professionnels de MagApp. Valeurs dans le .env a cote de ce fichier.
+      # En Docker, "localhost" designe le conteneur : mettre l'adresse reelle de l'API.
+      - SEDITRH_API_URL=${SEDITRH_API_URL:-}
+      - SEDITRH_API_KEY=${SEDITRH_API_KEY:-}
     volumes:
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads

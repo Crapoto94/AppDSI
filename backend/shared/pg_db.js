@@ -7977,6 +7977,58 @@ async function setupPgDb() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_formations_entretien ON hub_entretiens.formations(entretien_id)`);
 
+      // ─── EP Ville (MagApp) : valideurs et rattachement des agents ────────
+      // Valideur = directeur / DGA / DG désigné par un administrateur ; il joue le rôle d'évaluateur des agents qu'il choisit.
+      // `directions` : codes SEDIT RH des directions de son périmètre (proposées en priorité dans sa liste d'agents).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.valideurs (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          email TEXT DEFAULT '',
+          display_name TEXT DEFAULT '',
+          matricule TEXT DEFAULT '',
+          grade TEXT DEFAULT '',
+          niveau TEXT NOT NULL DEFAULT 'direction',
+          direction_code TEXT DEFAULT '',
+          direction_libelle TEXT DEFAULT '',
+          directions JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_valideurs_username ON hub_entretiens.valideurs(LOWER(username))`);
+      // Un agent n'a qu'un seul valideur : unicité du matricule SEDIT RH (les agents saisis à la volée n'ont pas de matricule).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.rattachements (
+          id SERIAL PRIMARY KEY,
+          valideur_id INTEGER NOT NULL REFERENCES hub_entretiens.valideurs(id) ON DELETE CASCADE,
+          agent_matricule TEXT DEFAULT '',
+          agent_nom TEXT NOT NULL DEFAULT '',
+          agent_prenom TEXT DEFAULT '',
+          agent_grade TEXT DEFAULT '',
+          agent_email TEXT DEFAULT '',
+          direction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          poste TEXT DEFAULT '',
+          saisi_a_la_volee BOOLEAN NOT NULL DEFAULT FALSE,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_rattachement_matricule ON hub_entretiens.rattachements(agent_matricule) WHERE agent_matricule <> ''`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_rattachement_valideur ON hub_entretiens.rattachements(valideur_id)`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_matricule TEXT DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_grade TEXT DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS rattachement_id INTEGER`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'hub'`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_rattachement ON hub_entretiens.entretiens(rattachement_id)`);
+      // Un seul EP actif par agent et par campagne, y compris les agents sans e-mail (identifiés par leur rattachement).
+      try {
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_entretiens_campaign_rattachement
+          ON hub_entretiens.entretiens(campaign_id, rattachement_id)
+          WHERE rattachement_id IS NOT NULL AND deleted_at IS NULL`);
+      } catch (e) { console.warn('[PG DB] index unique rattachement entretiens:', e.message); }
+
       // Campagne par défaut : l'année en cours, pour que le module soit
       // utilisable immédiatement après le premier démarrage.
       await client.query(`

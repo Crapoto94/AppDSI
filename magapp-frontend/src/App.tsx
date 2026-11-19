@@ -17,7 +17,8 @@ import AgentSearch from './components/AgentSearch';
 import VirementCredits from './components/VirementCredits';
 import MesFactures from './components/MesFactures';
 import { HelpButton } from './components/HelpButton';
-import { ArrowLeftRight, Receipt } from 'lucide-react';
+import { ArrowLeftRight, Receipt, ClipboardCheck } from 'lucide-react';
+import EpVille from './ep/EpVille';
 import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -187,6 +188,9 @@ function App() {
   // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
   const [showVirement, setShowVirement] = useState(false);
   const [virementAllowed, setVirementAllowed] = useState(false);
+  // Entretiens professionnels de la Ville : administrateurs (désignation des valideurs) et valideurs désignés
+  const [showEp, setShowEp] = useState(false);
+  const [epAllowed, setEpAllowed] = useState(false);
   // BETA « Mes factures » : agents ayant des droits SEDIT (ou un accès partagé)
   const [showMesFactures, setShowMesFactures] = useState(false);
   const [mesFacturesAllowed, setMesFacturesAllowed] = useState(false);
@@ -265,6 +269,14 @@ function App() {
     axios.get('/api/magapp/mes-factures/access', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setMesFacturesAllowed(!!r.data?.allowed))
       .catch(() => setMesFacturesAllowed(false));
+  }, [windowLogin]);
+
+  useEffect(() => {
+    if (!windowLogin) { setEpAllowed(false); return; }
+    const token = localStorage.getItem('token') || '';
+    axios.get('/api/ep-ville/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setEpAllowed(!!(r.data?.isAdmin || r.data?.isValideur)))
+      .catch(() => setEpAllowed(false));
   }, [windowLogin]);
 
   // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT
@@ -1848,6 +1860,16 @@ function App() {
                 />
               )}
 
+              {windowLogin && epAllowed && (
+                <ToolCard
+                  icon={<ClipboardCheck size={22} color="#4f46e5" />}
+                  bg="#e0e7ff"
+                  title="Entretiens professionnels"
+                  description="Valideurs désignés : choisissez vos agents et conduisez leurs entretiens"
+                  onClick={() => { setShowTools(false); setShowEp(true); }}
+                />
+              )}
+
               {windowLogin && (settings.show_agent_search || settings.is_beta_user) && (
                 <ToolCard
                   icon={<UserSearch size={22} color="#b45309" />}
@@ -1902,6 +1924,7 @@ function App() {
       {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
+      {showEp && <EpVille onClose={() => setShowEp(false)} />}
       {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
