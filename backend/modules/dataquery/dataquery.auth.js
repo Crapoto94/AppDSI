@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { pool, getSqlite } = require('../../shared/database');
 const adAuth = require('../../shared/ad_auth');
+const rights = require('./dataquery.rights');
 
 const SESSION_HEADER = 'x-dq-session';
 const MIN_SECRET_LENGTH = 32;
@@ -53,6 +54,13 @@ function addFailure(k) { failures.set(k, [...(failures.get(k) || []), Date.now()
 // ── Autorisation (rôle revérifié à chaque requête, cache 60 s) ──────────────
 const authzCache = new Map();
 async function isAuthorized(username) {
+    // Agent bloqué depuis /admin/mcp : refus, même s'il figure dans DATAQUERY_ALLOWED_USERS.
+    try {
+        if ((await rights.rightsFor(username)).mode === 'blocked') return false;
+    } catch (e) {
+        console.error('[DATAQUERY] droits illisibles, refus par prudence:', e.message);
+        return false;
+    }
     const allow = (process.env.DATAQUERY_ALLOWED_USERS || '').split(',').map(cleanUsername).filter(Boolean);
     if (allow.includes(username)) return true;
     const c = authzCache.get(username);
@@ -106,10 +114,9 @@ module.exports = (audit, clientIp) => ({
         }
         if (!adUser) return fail(401, 'Identifiants incorrects');
         if (!(await isAuthorized(username))) {
-            return fail(403, 'Compte non autorisé à interroger les données (compte absent du DSIHUB)', 'non autorisé');
+            return fail(403, 'Compte non autorisé à interroger les données (compte absent du DSIHUB ou bloqué)', 'non autorisé');
         }
         failures.delete(`u:${username}`);
-
         const jti = crypto.randomUUID();
         const hours = ttlHours();
         const expiresAt = new Date(Date.now() + hours * 3600 * 1000);

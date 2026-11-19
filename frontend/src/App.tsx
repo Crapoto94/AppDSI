@@ -80,6 +80,7 @@ import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
+import McpAdmin from './pages/Admin/McpAdmin';
 import AdminNotes from './pages/Admin/AdminNotes';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
@@ -289,6 +290,7 @@ function App() {
           <Route path="infra" element={<AdminInfra />} />
           <Route path="security" element={<SecurityMenu />} />
           <Route path="api-keys" element={<ApiKeysAdmin />} />
+          <Route path="mcp" element={<McpAdmin />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

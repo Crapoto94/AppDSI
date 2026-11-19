@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle, NotebookPen
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle, NotebookPen, Plug
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -61,6 +61,7 @@ const AdminLayout: React.FC = () => {
     { title: "GED / Alfresco", icon: HardDrive, path: "/admin/ged" },
     ...(isSuperAdmin ? [{ title: "Sécurité & Sauvegarde", icon: AlertCircle, path: "/admin/security" }] : []),
     { title: "Clés API", icon: Key, path: "/admin/api-keys" },
+    { title: "Serveur MCP", icon: Plug, path: "/admin/mcp" },
     { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];
 

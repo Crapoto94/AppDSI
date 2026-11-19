@@ -20,6 +20,7 @@
  */
 const { pool } = require('../../shared/database');
 const { getReadOnlyPool, checkRoleSafety } = require('./dataquery.pool');
+const rights = require('./dataquery.rights');
 
 // Schéma PostgreSQL → module fonctionnel de l'application (aide à la navigation).
 const SCHEMA_MODULES = {
@@ -132,10 +133,21 @@ async function runReadOnly(text, values = [], rowMode) {
     }
 }
 
+/** Schémas (et tables) réellement lus par une requête, d'après son plan (EXPLAIN JSON). */
+function relationsInPlan(node, out = []) {
+    if (Array.isArray(node)) { node.forEach(n => relationsInPlan(n, out)); return out; }
+    if (node && typeof node === 'object') {
+        if (node['Relation Name']) out.push({ schema: node['Schema'] || 'public', table: node['Relation Name'] });
+        for (const v of Object.values(node)) if (v && typeof v === 'object') relationsInPlan(v, out);
+    }
+    return out;
+}
+
 module.exports = {
     SCHEMA_MODULES,
     audit,
     clientIp,
+    runReadOnly,
 
     /** Garde « clé » : module activé, clé dataquery valide et non expirable, rôle sûr. */
     async guard(req, res, next) {
@@ -181,7 +193,8 @@ module.exports = {
     async catalog(req, res) {
         const schema = req.query.schema ? String(req.query.schema) : null;
         try {
-            const { rows } = await runReadOnly(`
+            const myRights = await rights.rightsFor(req.dqUser.username);
+            const { rows: allRows } = await runReadOnly(`
                 SELECT n.nspname AS schema, c.relname AS table,
                        CASE c.relkind WHEN 'r' THEN 'table' WHEN 'p' THEN 'table' WHEN 'v' THEN 'vue'
                                       WHEN 'm' THEN 'vue matérialisée' WHEN 'f' THEN 'table externe' END AS kind,
@@ -195,6 +208,8 @@ module.exports = {
                   AND ($1::text IS NULL OR n.nspname = $1)
                   AND has_any_column_privilege(c.oid, 'SELECT')
                 ORDER BY n.nspname, c.relname`, [schema]);
+            // Droits par agent : un agent restreint ne voit que ses modules.
+            const rows = allRows.filter(r => rights.schemaAllowed(myRights, r.schema));
             const modules = {};
             for (const r of rows) {
                 if (!modules[r.schema]) modules[r.schema] = { schema: r.schema, module: SCHEMA_MODULES[r.schema] || null, tables: [] };
@@ -216,6 +231,10 @@ module.exports = {
     async describe(req, res) {
         const { schema, table } = req.params;
         try {
+            if (!rights.schemaAllowed(await rights.rightsFor(req.dqUser.username), schema)) {
+                await audit(req, { action: 'describe', sql: `${schema}.${table}`, error: 'module non autorisé pour cet agent' });
+                return res.status(403).json({ error: `Vous n'avez pas accès au module « ${schema} »` });
+            }
             const cols = await runReadOnly(`
                 SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
                        NOT a.attnotnull AS nullable, pg_get_expr(d.adbin, d.adrelid) AS default,
@@ -279,6 +298,26 @@ module.exports = {
         // pour savoir si le résultat a été tronqué.
         const isExplain = /^\s*explain\b/i.test(cleaned);
         const text = isExplain ? body : `SELECT * FROM (\n${body}\n) AS _dq LIMIT ${maxRows + 1}`;
+
+        // Droits par agent : on lit le plan (EXPLAIN) pour connaître les tables réellement
+        // touchées (vues et jointures comprises) et on refuse si l'une est hors de ses modules.
+        // Les catalogues système (pg_catalog, information_schema) comptent comme hors module.
+        try {
+            const myRights = await rights.rightsFor(req.dqUser.username);
+            if (myRights.mode === 'blocked') return reject('Accès bloqué pour cet agent');
+            if (myRights.mode === 'restricted') {
+                if (isExplain) return reject('EXPLAIN n\'est pas disponible avec des droits restreints');
+                const plan = await runReadOnly(`EXPLAIN (FORMAT JSON) ${body}`, params || [], 'array');
+                const refused = [...new Set(relationsInPlan(plan.rows[0][0])
+                    .filter(r => !rights.schemaAllowed(myRights, r.schema)).map(r => r.schema))];
+                if (refused.length) {
+                    return reject(`Accès refusé : vous n'avez pas les droits sur le(s) module(s) ${refused.join(', ')}`);
+                }
+            }
+        } catch (e) {
+            await audit(req, { action: 'query', sql, error: `contrôle des droits : ${e.message}` });
+            return res.status(400).json({ error: e.message });
+        }
 
         const t0 = Date.now();
         try {

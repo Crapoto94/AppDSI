@@ -6962,6 +6962,19 @@ async function setupPgDb() {
           revoked_reason VARCHAR(200)
         )
       `);
+      // Droits par agent (modules interrogeables). Ligne '*' = droits par défaut.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_rights (
+          username    VARCHAR(100) PRIMARY KEY,
+          mode        VARCHAR(20) NOT NULL DEFAULT 'all',
+          schemas     TEXT[] NOT NULL DEFAULT '{}',
+          note        TEXT,
+          updated_by  VARCHAR(100),
+          updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Droits d'ÉCRITURE du MCP par agent et par action (tickets | tasks | reunions) ; vide = lecture seule
+      await client.query(`ALTER TABLE hub.dataquery_rights ADD COLUMN IF NOT EXISTS write_actions TEXT[] NOT NULL DEFAULT '{}'`);
       await applyDataqueryGrants(client);
     } catch (e) { console.error('[PG DB] dataquery:', e.message); }
 
