@@ -15,6 +15,7 @@ const ctrl = require('./dataquery.controller');
  *   GET  /api/dataquery/catalog[?schema=xxx]     modules (schémas) et tables accessibles
  *   GET  /api/dataquery/catalog/:schema/:table   colonnes, PK, FK d'une table
  *   POST /api/dataquery/query                    { sql, params?, max_rows? }
+ *   POST /api/dataquery/actions/{tickets,tasks,reunions}   création (clé read_write + droit d'écriture de l'agent)
  */
 const auth = require('./dataquery.auth')(ctrl.audit, ctrl.clientIp);
 
@@ -29,5 +30,10 @@ router.get('/health', ctrl.health);
 router.get('/catalog', ctrl.catalog);
 router.get('/catalog/:schema/:table', ctrl.describe);
 router.post('/query', express.json({ limit: '100kb' }), ctrl.query);
+// Écriture (tickets, tâches, réunions) : clé read_write + droit d'écriture de l'agent, cf. dataquery.actions.js
+const actions = require('./dataquery.actions');
+router.post('/actions/tickets', express.json({ limit: '50kb' }), actions.createTicket);
+router.post('/actions/tasks', express.json({ limit: '50kb' }), actions.createTask);
+router.post('/actions/reunions', express.json({ limit: '50kb' }), actions.createReunion);
 
 module.exports = router;

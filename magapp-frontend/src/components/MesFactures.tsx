@@ -3,6 +3,7 @@ import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight,
 import logoDsiHub from '../assets/DSI.png';
 import { HelpButton, HelpModal } from './HelpButton';
 import DgpWeeklyChart from './DgpWeeklyChart';
+import { appAlert, appPrompt } from './AppDialogs';
 
 // BETA « Mes factures » : factures SEDIT que l'agent a le droit de voir (droits DROITSER), avec service fait et DGP.
 // Un agent peut donner accès à ses factures à un autre agent : le bénéficiaire voit ce que le donneur voit, EN DIRECT
@@ -545,11 +546,11 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
   }, [year, searchApplied, sf, scope, offset, reloadKey, kpi, budget]);
 
   const cancelCircuit = async (r: Row) => {
-    const motif = window.prompt(`Annuler le circuit de service fait de la facture ${r.num} ?\nMotif (optionnel) :`, '');
+    const motif = (await appPrompt(`Annuler le circuit de service fait de la facture ${r.num} ?\nMotif (optionnel) :`));
     if (motif === null) return;
     const res = await fetch(`${API}/${encodeURIComponent(r.num)}/service-fait/cancel`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ comment: motif }) });
     if (res.ok) setReloadKey(k => k + 1);
-    else window.alert((await res.json().catch(() => ({}))).message || "Annulation impossible");
+    else appAlert((await res.json().catch(() => ({}))).message || "Annulation impossible");
   };
 
   const total = data?.total || 0;

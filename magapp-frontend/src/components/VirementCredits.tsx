@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import logoDsiHub from '../assets/DSI.png';
 import { HelpButton, HelpModal } from './HelpButton';
 import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight, Copy } from 'lucide-react';
+import { appAlert, appConfirm } from './AppDialogs';
 
 // BETA « Virement de crédits » : demande de modification budgétaire pour les agents ayant un compte SEDIT Finances.
 // - lignes proposées = celles que l'agent peut modifier dans SEDIT (filtrées côté serveur) ;
@@ -231,7 +232,7 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
   };
   const sendToBudget = async () => {
     if (!rec) return;
-    if (!pdfSigned && !window.confirm("Le document n'est pas encore signé. L'envoyer quand même au service budget ?")) return;
+    if (!pdfSigned && !(await appConfirm("Le document n'est pas encore signé. L'envoyer quand même au service budget ?", { confirmLabel: 'Continuer' }))) return;
     setBusy('mail'); setError(''); setInfo('');
     try {
       const r = await call('send-budget', { message: mailMessage });
@@ -428,9 +429,9 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   };
 
   const remove = async (id: number) => {
-    if (!window.confirm('Supprimer ce brouillon ?')) return;
+    if (!(await appConfirm('Supprimer ce brouillon ?', { title: 'Supprimer', confirmLabel: 'Supprimer', danger: true }))) return;
     const r = await fetch(`${API}/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (r.ok) loadRows(); else alert((await r.json().catch(() => ({}))).message || 'Suppression impossible');
+    if (r.ok) loadRows(); else appAlert((await r.json().catch(() => ({}))).message || 'Suppression impossible');
   };
 
   const tabBtn = (m: 'new' | 'history', label: string) => (

@@ -351,7 +351,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
       <H sub="Missions, carrière et mobilité">Perspectives d’évolution</H>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="1. Évolution des missions et/ou de carrière" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
+        <Area label="1. Évolution des missions et/ou de carrière (facultatif)" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
         <Area label="2. Mobilité" rows={3} disabled={dis} value={crep.mobilite} onChange={v => set('mobilite', v)} />
       </div>
 

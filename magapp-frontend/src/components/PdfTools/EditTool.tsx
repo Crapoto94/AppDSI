@@ -9,6 +9,7 @@ import {
   createEditProject, listEditProjects, getEditProject, saveEditProject, deleteEditProject,
   renderEditProjectPage, flattenEditProject, type EditProject,
 } from './pdfToolsApi';
+import { appConfirm } from '../AppDialogs';
 
 interface EditToolProps { onClose: () => void }
 
@@ -122,7 +123,7 @@ export default function EditTool({ onClose }: EditToolProps) {
 
   const openProjectById = (id: number) => { openProject(id); };
   const removeProject = async (id: number) => {
-    if (!window.confirm('Supprimer ce fichier de travail ? (le PDF d\'origine associé sera supprimé)')) return;
+    if (!(await appConfirm('Supprimer ce fichier de travail ? (le PDF d\'origine associé sera supprimé)', { title: 'Supprimer', confirmLabel: 'Supprimer', danger: true }))) return;
     try { await deleteEditProject(id); if (projectId === id) { setProjectId(null); setAdditions([]); } loadProjects(); } catch (e: any) { setError(e.message); }
   };
 
@@ -281,7 +282,7 @@ export default function EditTool({ onClose }: EditToolProps) {
 
   const onGenerate = async () => {
     if (!projectId) return;
-    if (!window.confirm("Générer un nouveau PDF va « aplatir » vos masques et annotations : ils seront définitivement intégrés et NE POURRONT PLUS être modifiés.\n\nPour garder la possibilité de modifier, utilisez « Enregistrer » (fichier de travail).\n\nContinuer ?")) return;
+    if (!(await appConfirm("Générer un nouveau PDF va « aplatir » vos masques et annotations : ils seront définitivement intégrés et NE POURRONT PLUS être modifiés.\n\nPour garder la possibilité de modifier, utilisez « Enregistrer » (fichier de travail).\n\nContinuer ?", { confirmLabel: 'Continuer' }))) return;
     setGenerating(true); setError(null); setResult(null);
     try {
       if (dirty) await saveEditProject(projectId, { additions }, title);

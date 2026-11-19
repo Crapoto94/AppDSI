@@ -3,6 +3,7 @@ import { Library, Search, Trash2, Download, Eye, FileText, Loader2, AlertCircle,
 import PdfToolShell, { errorBox, btnPrimary, btnSecondary } from './PdfToolShell';
 import PdfViewerModal from './PdfViewerModal';
 import { getLibrary, deleteLibraryItem, getLibraryBlob, downloadBlob, sendLibraryItem, type LibraryDoc } from './pdfToolsApi';
+import { appConfirm } from '../AppDialogs';
 
 interface PdfLibraryProps { onClose: () => void }
 
@@ -64,7 +65,7 @@ export default function PdfLibrary({ onClose }: PdfLibraryProps) {
   };
 
   const handleDelete = async (d: LibraryDoc) => {
-    if (!window.confirm(`Supprimer définitivement « ${d.title || d.originalName} » de la PDFothèque ?`)) return;
+    if (!(await appConfirm(`Supprimer définitivement « ${d.title || d.originalName} » de la PDFothèque ?`, { title: 'Supprimer', confirmLabel: 'Supprimer', danger: true }))) return;
     setBusyId(d.id);
     setError(null);
     try { await deleteLibraryItem(d.id); setDocs((prev) => prev.filter((x) => x.id !== d.id)); }

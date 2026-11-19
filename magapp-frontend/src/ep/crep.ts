@@ -179,7 +179,6 @@ export function missingFields(c: Crep): string[] {
   if (empty(c.formations.obligatoires)) out.push('Formations obligatoires (indiquer « Néant » si aucune)');
   if (empty(c.formations.metiers)) out.push('Autres formations métiers (indiquer « Néant » si aucune)');
   if (empty(c.formations.parcours)) out.push('Formations liées à l’accompagnement des parcours (indiquer « Néant » si aucune)');
-  if (empty(c.evolution)) out.push('Évolution des missions et/ou de carrière');
   if (empty(c.mobilite)) out.push('Mobilité');
   return out;
 }

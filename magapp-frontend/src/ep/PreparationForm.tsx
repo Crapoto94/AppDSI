@@ -4,7 +4,7 @@ import { Plus, Trash2, Save, Send, Target, Loader2, CheckCircle2 } from 'lucide-
 import { useAuth } from './useAuth';
 import type { Entretien, Formation, Objectif } from './types';
 import { NIVEAUX } from './types';
-import { COLORS, Field, Section, btnGhost, btnPrimary, input, textarea } from './ui';
+import { COLORS, Field, Section, btnGhost, btnPrimary, input, textarea, useConfirm } from './ui';
 
 type RowObjectif = Objectif & { _key: string };
 type RowFormation = Formation & { _key: string };
@@ -32,6 +32,7 @@ export default function PreparationForm({ entretien, onSaved }: {
 }) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
+  const [confirm, confirmDialog] = useConfirm();
 
   const [objectifs, setObjectifs] = useState<RowObjectif[]>(() => initObjectifs(entretien));
   const [formations, setFormations] = useState<RowFormation[]>(() => initFormations(entretien));
@@ -63,7 +64,7 @@ export default function PreparationForm({ entretien, onSaved }: {
 
   const save = async (submit: boolean) => {
     setError(null);
-    if (submit && !window.confirm('Transmettre votre préparation à votre responsable ? Vous pourrez encore la corriger tant que l’entretien n’a pas eu lieu.')) return;
+    if (submit && !(await confirm('Transmettre votre préparation à votre responsable ? Vous pourrez encore la corriger tant que l’entretien n’a pas eu lieu.', { title: 'Transmettre ma préparation', confirmLabel: 'Transmettre' }))) return;
     submit ? setSubmitting(true) : setSaving(true);
     try {
       const r = await axios.put(`/api/entretiens/${entretien.id}/preparation`, payload, { headers });
@@ -102,6 +103,7 @@ export default function PreparationForm({ entretien, onSaved }: {
 
   return (
     <div>
+      {confirmDialog}
       {readOnly && (
         <div style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: '10px 13px', fontSize: 12.5, marginBottom: 14 }}>
           Votre préparation n’est plus modifiable (entretien réalisé ou délai dépassé). Contactez un administrateur du module si une correction est nécessaire.

@@ -8,7 +8,7 @@ import type { Crep } from './crep';
 import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields } from './crep';
 import CrepAiAssist from './CrepAiAssist';
 import { AttitudesSynthese } from './attitudes';
-import { COLORS, Field, btnGhost, btnPrimary, input, textarea } from './ui';
+import { COLORS, Field, btnGhost, btnPrimary, input, textarea, useConfirm } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
   return (
@@ -52,6 +52,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const isAgent = mode === 'agent';
+  const [confirm, confirmDialog] = useConfirm();
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
   const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -82,12 +83,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       try {
         const chk = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: false }, { headers });
         const found: string[] = chk.data?.issues || [];
-        if (found.length && !window.confirm(`Des incohérences ont été détectées :\n\n- ${found.join('\n- ')}\n\nValider quand même le compte rendu ?`)) {
+        if (found.length && !(await confirm(`Des incohérences ont été détectées :\n\n- ${found.join('\n- ')}\n\nValider quand même le compte rendu ?`, { title: 'Incohérences détectées', confirmLabel: 'Valider quand même' }))) {
           setCheck({ loading: false, missing: [], issues: found, ai: null, aiError: null });
           return;
         }
       } catch (e) { /* contrôle indisponible : on ne bloque pas la validation */ }
-      if (!window.confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.')) return;
+      if (!(await confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.', { title: 'Valider le compte rendu', confirmLabel: 'Valider' }))) return;
     }
     setBusy(submit ? 'submit' : 'save');
     try {
@@ -111,7 +112,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   };
 
   const recall = async () => {
-    if (!window.confirm('Rappeler le compte rendu ? Il ne sera plus visible par l’agent (qui en sera informé) et vous pourrez le corriger avant de le renvoyer.')) return;
+    if (!(await confirm('Rappeler le compte rendu ? Il ne sera plus visible par l’agent (qui en sera informé) et vous pourrez le corriger avant de le renvoyer.', { title: 'Rappeler le compte rendu', confirmLabel: 'Rappeler' }))) return;
     setBusy('recall'); setMsg(null);
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/recall`, {}, { headers });
@@ -140,7 +141,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   };
 
   const sendToAgent = async () => {
-    if (!window.confirm('Envoyer le compte rendu à l’agent ? Il pourra le relire, renseigner ses observations puis le valider pour signature. Vous ne pourrez plus le modifier.')) return;
+    if (!(await confirm('Envoyer le compte rendu à l’agent ? Il pourra le relire, renseigner ses observations puis le valider pour signature. Vous ne pourrez plus le modifier.', { title: 'Envoyer à l’agent', confirmLabel: 'Envoyer' }))) return;
     setBusy('send'); setMsg(null);
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/send-to-agent`, {}, { headers });
@@ -158,7 +159,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     if (!crep.obs_agent_entretien.trim()) obsMissing.push('Observations de l’agent sur l’entretien (« Néant » si rien à signaler)');
     if (obsMissing.length) { setMissing(obsMissing); setMsg(null); return; }
     setMissing([]);
-    if (!window.confirm('Validez-vous toutes ces informations ?\n\nSi vous validez, le compte rendu est envoyé au parapheur pour être cosigné par vous et par votre évaluateur (signature simple). Vous ne pourrez plus le modifier.')) return;
+    if (!(await confirm('Validez-vous toutes ces informations ?\n\nSi vous validez, le compte rendu est envoyé au parapheur pour être cosigné par vous et par votre évaluateur (signature simple). Vous ne pourrez plus le modifier.', { title: 'Valider et envoyer pour signature', confirmLabel: 'Valider' }))) return;
     setBusy('agent'); setMsg(null);
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/agent-validate`, {
@@ -199,7 +200,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
   const uploadSigned = async (file: File | undefined) => {
     if (!file) return;
-    if (!window.confirm(`Téléverser « ${file.name} » comme compte rendu signé ?${entretien.crep_signed_at ? '\n\nIl remplacera la version déjà téléversée.' : ''}`)) { if (fileRef.current) fileRef.current.value = ''; return; }
+    if (!(await confirm(`Téléverser « ${file.name} » comme compte rendu signé ?${entretien.crep_signed_at ? '\n\nIl remplacera la version déjà téléversée.' : ''}`, { title: 'Compte rendu signé', confirmLabel: 'Téléverser' }))) { if (fileRef.current) fileRef.current.value = ''; return; }
     setBusy('upload'); setMsg(null);
     try {
       const fd = new FormData(); fd.append('file', file);
@@ -240,6 +241,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
   return (
     <div>
+      {confirmDialog}
       {/* En-tête du document */}
       <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7 }}>
         <div><strong>Agent :</strong> {agent}</div>
@@ -395,7 +397,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
       <H sub="Missions, carrière et mobilité">Perspectives d’évolution</H>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="1. Évolution des missions et/ou de carrière" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
+        <Area label="1. Évolution des missions et/ou de carrière (facultatif)" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
         <Area label="2. Mobilité" rows={3} disabled={dis} value={crep.mobilite} onChange={v => set('mobilite', v)} />
       </div>
 

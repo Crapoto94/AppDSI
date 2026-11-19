@@ -43,7 +43,12 @@ function preparation({ agent, annee, quand, duree, lieu, evaluateur, link }) {
 /** À l'agent : le compte rendu rédigé par l'évaluateur est disponible. */
 function compteRenduEnvoye({ agent, annee, evaluateur, link }) {
     const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>${esc(evaluateur || 'votre évaluateur')} vous a transmis le compte rendu de votre entretien professionnel${annee ? ` ${esc(annee)}` : ''}.`;
-    const bodyHtml = `<p style="font-size:14px;color:#334155;">Merci de le <strong>relire</strong>, de renseigner vos observations, puis de le <strong>valider</strong> : il sera alors transmis dans le parapheur pour être cosigné par vous et par votre évaluateur.</p>
+    const bodyHtml = `<p style="font-size:14px;color:#334155;">Merci de le <strong>relire</strong>, puis de faire les deux étapes suivantes :</p>
+      <ol style="font-size:14px;color:#334155;line-height:1.7;padding-left:20px;">
+        <li><strong>Renseigner les deux cases qui vous sont réservées</strong>, en bas du compte rendu (indiquer « Néant » s’il n’y a rien à signaler) :
+          <ul style="margin:4px 0;padding-left:18px;"><li>vos observations sur les conditions de travail et le fonctionnement du service ;</li><li>vos observations sur l’entretien.</li></ul></li>
+        <li><strong>Valider</strong> avec le bouton « Valider et envoyer pour signature » : le compte rendu est alors transmis dans le parapheur pour être cosigné par vous et par votre évaluateur. Vous recevrez ensuite votre lien de signature par e-mail.</li>
+      </ol>
       ${button(link, 'Relire et valider mon compte rendu', '#4f46e5')}`;
     return { subject: `📄 Votre compte rendu d’entretien professionnel est disponible`, ...render('#4f46e5', '📄 Compte rendu à valider', intro, bodyHtml, FOOTER) };
 }

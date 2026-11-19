@@ -9,7 +9,7 @@ import Evaluations from './Evaluations';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
-import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input } from './ui';
+import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input, useConfirm } from './ui';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -269,6 +269,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
 }
 
 function ValideursAdmin() {
+  const [confirm, confirmDialog] = useConfirm();
   const [items, setItems] = useState<Valideur[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -288,7 +289,7 @@ function ValideursAdmin() {
   const openAdd = () => { setAdding(true); setMsg(null); };
 
   const remove = async (v: Valideur) => {
-    if (!window.confirm(`Retirer ${v.display_name} de la liste des valideurs ?`)) return;
+    if (!(await confirm(`Retirer ${v.display_name} de la liste des valideurs ?`, { title: 'Retirer un valideur', confirmLabel: 'Retirer', danger: true }))) return;
     try { await axios.delete(`/api/ep-ville/valideurs/${v.id}`, { headers: api() }); setMsg({ ok: true, text: 'Valideur retiré.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Suppression impossible.') }); }
   };
@@ -366,6 +367,7 @@ function ValideursAdmin() {
 
   return (
     <div>
+      {confirmDialog}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12.5, color: COLORS.muted, maxWidth: 640 }}>
           Les valideurs sont les directeurs, DGA et DG de la collectivité. Chacun choisit ensuite les agents dont il valide l’entretien.
@@ -562,6 +564,7 @@ function LierAd({ agent, onClose, onDone }: { agent: MonAgent; onClose: () => vo
 }
 
 function MesAgents({ campaignLabel }: { campaignLabel: string }) {
+  const [confirm, confirmDialog] = useConfirm();
   const [agents, setAgents] = useState<MonAgent[]>([]);
   const [sousAgents, setSousAgents] = useState<(MonAgent & { valideur_id: number })[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -608,7 +611,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   useEffect(load, [load]);
 
   const remove = async (a: MonAgent) => {
-    if (!window.confirm(`Retirer ${fullName(a)} de votre liste ?`)) return;
+    if (!(await confirm(`Retirer ${fullName(a)} de votre liste ?`, { title: 'Retirer de ma liste', confirmLabel: 'Retirer', danger: true }))) return;
     try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}`, { headers: api() }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Suppression impossible.') }); }
   };
@@ -624,7 +627,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   };
 
   const demote = async (a: MonAgent) => {
-    if (!window.confirm(`Retirer la fonction de valideur à ${fullName(a)} ? Il restera dans votre liste.`)) return;
+    if (!(await confirm(`Retirer la fonction de valideur à ${fullName(a)} ? Il restera dans votre liste.`, { title: 'Retirer la fonction de valideur', confirmLabel: 'Retirer', danger: true }))) return;
     try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}/valideur`, { headers: api() }); setMsg({ ok: true, text: 'Fonction de valideur retirée.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Retrait impossible.') }); }
   };
@@ -688,6 +691,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
 
   return (
     <div>
+      {confirmDialog}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12.5, color: COLORS.muted }}>
           {campaignLabel} · {agents.length} agent{agents.length > 1 ? 's' : ''}{agents.length ? ` · ${realises} entretien${realises > 1 ? 's' : ''} réalisé${realises > 1 ? 's' : ''}` : ''}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { initiales } from './types';
 import type { StatutMeta } from './types';
 
@@ -158,4 +158,31 @@ export function Th({ children, style }: { children?: React.ReactNode; style?: Re
 
 export function Td({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) {
   return <td style={{ padding: '10px', fontSize: 12.5, color: '#334155', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle', ...style }}>{children}</td>;
+}
+
+/**
+ * Confirmation dans l'application (remplace window.confirm) :
+ *   const [confirm, confirmDialog] = useConfirm();  …  if (!(await confirm('Message ?', { title: '…', confirmLabel: 'Valider' }))) return;
+ * et afficher {confirmDialog} dans le rendu du composant.
+ */
+export function useConfirm() {
+  const [state, setState] = useState<{ message: string; title?: string; confirmLabel?: string; danger?: boolean; resolve: (v: boolean) => void } | null>(null);
+  const confirm = useCallback((message: string, opts?: { title?: string; confirmLabel?: string; danger?: boolean }) =>
+    new Promise<boolean>(resolve => setState({ message, ...opts, resolve })), []);
+  const close = (v: boolean) => { if (state) state.resolve(v); setState(null); };
+  const dialog = state ? (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onMouseDown={e => { if (e.target === e.currentTarget) close(false); }}
+      onKeyDown={e => { if (e.key === 'Escape') close(false); }}>
+      <div role="dialog" aria-modal="true" style={{ ...card, width: '100%', maxWidth: 480, boxShadow: '0 25px 50px -12px rgba(0,0,0,.35)' }}>
+        <div style={{ padding: '16px 20px 6px', fontWeight: 800, fontSize: 15, color: COLORS.text }}>{state.title || 'Confirmation'}</div>
+        <div style={{ padding: '6px 20px 16px', fontSize: 13.5, color: '#334155', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{state.message}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: `1px solid ${COLORS.border}`, background: '#f8fafc', borderRadius: '0 0 12px 12px' }}>
+          <button type="button" style={btnGhost} onClick={() => close(false)}>Annuler</button>
+          <button type="button" autoFocus style={{ ...btnPrimary, background: state.danger ? COLORS.danger : COLORS.primary }} onClick={() => close(true)}>{state.confirmLabel || 'Confirmer'}</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  return [confirm, dialog] as const;
 }
