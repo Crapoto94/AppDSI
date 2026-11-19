@@ -9,7 +9,7 @@ import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, 
 //   uniquement les responsables / directeurs des services et directions autorisés à l'agent.
 
 interface BudgetLine {
-  Code: string; 'Libellé': string; Sens: string; Section: string;
+  Code: string; Budget?: string; 'Libellé': string; Sens: string; Section: string;
   'Article par nature': string; 'Chapitre par nature': string; 'Référence Fonctionnelle': string;
   "Opération d'équipement": string; 'Service Gestionnaire': string; EQUIPEMENT: string;
   'Budget voté': number; Disponible: number; 'Mt. prévision': number;
@@ -349,10 +349,26 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
     } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
   };
 
+  // Budgets sur lesquels l'agent a un droit de modification (Ville = principal, annexes : CMPP, Cinéma Le Luxy, Restauration…)
+  const [budgets, setBudgets] = useState<string[]>([]);
+  const [budget, setBudget] = useState('');
+  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Ville (budget principal)' : b);
   useEffect(() => {
-    fetch(`${API}/lines`, { headers: authHeaders() })
+    fetch(`${API}/access`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(a => {
+      const list: string[] = [...new Set<string>(((a && a.services) || []).map((x: { budget: string }) => x.budget))].filter(Boolean).sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y)));
+      setBudgets(list);
+      setBudget(prev => prev || list.find(b => /^PRINCIPAL$/i.test(b)) || list[0] || '');
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!budget) return;
+    setLoading(true); setLiveError('');
+    fetch(`${API}/lines?budget=${encodeURIComponent(budget)}`, { headers: authHeaders() })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible'); return r.json(); })
       .then(setLines).catch((e: Error) => { setLines([]); setLiveError(e.message); }).finally(() => setLoading(false));
+  }, [budget]);
+  useEffect(() => {
     fetch(`${API}/signataires`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(setSig).catch(() => {});
   }, []);
 
@@ -366,11 +382,12 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   const service = sig?.me?.service_label || '';
   const contact = sig?.me ? `${sig.me.prenom || ''} ${sig.me.nom || ''}`.trim() : userName;
 
+  const changeBudget = (b: string) => { if (b !== budget) { setMinorer([]); setMajorer([]); } setBudget(b); };
   const changeScope = (sec: 'I' | 'F', sn: 'D' | 'R') => { if (sec !== section || sn !== sens) { setMinorer([]); setMajorer([]); } setSection(sec); setSens(sn); };
 
   // Le serveur ne renvoie que les lignes autorisées à l'agent. Règle DSI conservée : enveloppes ENV16/28/29 en investissement pour les services BF*.
   const scoped = useMemo(
-    () => lines.filter(l => l.Section === section && l.Sens === sens && !!l['Référence Fonctionnelle']
+    () => lines.filter(l => l.Section === section && l.Sens === sens && (!!l['Référence Fonctionnelle'] || !/^PRINCIPAL$/i.test(l.Budget || ''))
       && (section === 'F' || !/^BF/i.test(l['Service Gestionnaire'] || '') || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
     [lines, section, sens]);
   const taken = useMemo(() => new Set([...majorer, ...minorer].map(p => p.line.Code)), [majorer, minorer]);
@@ -411,7 +428,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
       const res = await fetch(API, {
         method: 'POST', headers: jsonHeaders(),
         body: JSON.stringify({
-          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation,
+          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget,
           majorer: majorer.map(p => toPayloadLine(p, 1)), minorer: minorer.map(p => toPayloadLine(p, -1)),
         }),
       });
@@ -488,6 +505,10 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
             <>
               <div style={s.card}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+                  <div><label style={s.label}>Budget</label>
+                    <select style={s.input} value={budget} onChange={e => changeBudget(e.target.value)}>
+                      {budgets.map(b => <option key={b} value={b}>{budgetLabel(b)}</option>)}
+                    </select></div>
                   <div><label style={s.label}>Section</label>
                     <select style={s.input} value={section} onChange={e => changeScope(e.target.value as 'I' | 'F', sens)}><option value="I">Investissement</option><option value="F">Fonctionnement</option></select></div>
                   <div><label style={s.label}>Sens</label>

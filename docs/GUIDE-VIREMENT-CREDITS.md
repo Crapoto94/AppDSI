@@ -19,7 +19,7 @@ Vous ne voyez **que vos propres demandes**, quel que soit votre rôle dans l'app
 ### 1. Créer la demande
 
 1. Ouvrez **Mes outils → Virement de crédits**, onglet **Nouvelle demande**.
-2. Choisissez la **section** (Investissement / Fonctionnement) et le **sens** (Dépenses / Recettes). Changer l'un des deux vide les lignes déjà choisies.
+2. Choisissez le **budget** (liste affichée selon vos droits SEDIT : **Ville** = budget principal, puis les budgets annexes comme CMPP, Cinéma Le Luxy, Restauration municipale…), puis la **section** (Investissement / Fonctionnement) et le **sens** (Dépenses / Recettes). Changer l'un des deux vide les lignes déjà choisies.
 3. **Direction, service et personne contact** sont remplis automatiquement à partir de vos informations RH (non modifiables). Renseignez la **date**, l'éventuelle **activité / projet / opération** impacté et la **motivation**.
 4. Choisissez les imputations :
    - **à minorer (−)** : lignes dont on retire des crédits (elles doivent avoir plus de 50 € de disponible) ;
@@ -28,7 +28,7 @@ Vous ne voyez **que vos propres demandes**, quel que soit votre rôle dans l'app
 5. Surveillez le bandeau du bas : totaux, **écart** et alertes.
 6. Cliquez sur **Prévisualiser** : la demande est enregistrée en **brouillon** et le PDF s'affiche.
 
-Les lignes proposées sont **uniquement celles que vous avez le droit de modifier dans SEDIT** (budget principal, exercice en cours). Les disponibles sont lus en direct dans SEDIT.
+Les lignes proposées sont **uniquement celles que vous avez le droit de modifier dans SEDIT**, pour le **budget choisi** (exercice en cours). Changer de budget vide les lignes déjà sélectionnées ; le budget figure sur le PDF. Les disponibles sont lus en direct dans SEDIT.
 
 ### 2. Faire signer
 

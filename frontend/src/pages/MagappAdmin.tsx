@@ -177,6 +177,31 @@ const VirementMailSettings: React.FC<{ token: string | null }> = ({ token }) => 
   );
 };
 
+// URL publique de MagApp : base des liens des mails (validation de service fait, notifications…) — SQLite app_settings.magapp_base_url
+const MagappBaseUrlSettings: React.FC<{ token: string | null }> = ({ token }) => {
+  const [url, setUrl] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    fetch('/api/magapp/base-url', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).then(d => d && setUrl(d.url)).catch(() => {});
+  }, [token]);
+  const save = async () => {
+    const r = await fetch('/api/magapp/base-url', { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setUrl(d.url); setMsg('Enregistré.'); } else setMsg(d.message || "Échec de l'enregistrement.");
+  };
+  return (
+    <div className="mgs-card" style={{ marginTop: 16 }}>
+      <strong style={{ fontSize: '0.98rem', color: '#0f172a' }}>URL publique de MagApp</strong>
+      <p className="mgs-desc">Adresse utilisée dans les liens des mails envoyés depuis MagApp (validation du service fait, rappels, notifications). Le lien ne contient aucun jeton : l'agent s'identifie dans MagApp puis est redirigé vers la validation. À modifier si MagApp change d'adresse.</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://magapp.ivry.local" style={{ flex: '1 1 280px', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: '0.9rem' }} />
+        <button type="button" onClick={save} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Enregistrer</button>
+        {msg && <span style={{ alignSelf: 'center', fontSize: '0.82rem', color: msg === 'Enregistré.' ? '#16a34a' : '#dc2626' }}>{msg}</span>}
+      </div>
+    </div>
+  );
+};
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -2534,6 +2559,8 @@ const MagappAdmin: React.FC = () => {
                     <Save size={18} /> Mettre à jour les paramètres
                   </button>
                 </div>
+
+                <MagappBaseUrlSettings token={token} />
 
                 <NewsBannerAdmin token={token} />
 

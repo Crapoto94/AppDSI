@@ -93,6 +93,7 @@ async function buildVirementCreditsPdf(p, opts = {}) {
 
     for (const [label, val] of [
         ['Direction :', p.direction], ['Service :', p.service],
+        ['Budget :', /^PRINCIPAL$/i.test(p.budget || '') || !p.budget ? 'Ville (budget principal)' : p.budget],
         ['Date de la demande :', fmtDate(p.date)], ['Personne contact :', p.contact],
     ]) {
         text(label, M, y, { bold: true });

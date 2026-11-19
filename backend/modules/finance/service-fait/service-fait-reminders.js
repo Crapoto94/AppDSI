@@ -35,8 +35,8 @@ async function run() {
     let sent = 0;
     for (const w of r.rows) {
         try {
-            const base = w.origin === 'magapp' ? await getMagappBaseUrl() : await getAppBaseUrl();
-            const url = `${base}/service-fait-verifier/${w.token}`;
+            // MagApp : lien sans token (identification MagApp) ; Hub : lien public à token
+            const url = w.origin === 'magapp' ? `${await getMagappBaseUrl()}/?sf=${w.id}` : `${await getAppBaseUrl()}/service-fait-verifier/${w.token}`;
             const age = Math.max(1, Math.round((Date.now() - new Date(w.created_at).getTime()) / 86400000));
             const amount = w.invoice_amount ? parseFloat(w.invoice_amount).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '-';
             await sendMailFn(w.verifier_email, 'Rappel : validation du service fait en attente',

@@ -275,6 +275,29 @@ function App() {
       .catch(() => setVirementAllowed(false));
   }, [windowLogin]);
 
+  // Lien d'un mail de validation de service fait : `/?sf=<id>` (aucun token dans le lien). On mémorise l'id (le login recharge la page, le SSO peut
+  // rediriger) ; une fois identifié par MagApp, le backend vérifie que l'agent est bien le vérificateur désigné et renvoie la page de validation.
+  const [sfPending, setSfPending] = useState<number | null>(() => {
+    try {
+      const fromUrl = parseInt(new URLSearchParams(window.location.search).get('sf') || '', 10);
+      if (Number.isFinite(fromUrl)) { sessionStorage.setItem('magapp_pending_sf', String(fromUrl)); return fromUrl; }
+      const stored = parseInt(sessionStorage.getItem('magapp_pending_sf') || '', 10);
+      return Number.isFinite(stored) ? stored : null;
+    } catch { return null; }
+  });
+  const [sfError, setSfError] = useState('');
+  useEffect(() => {
+    if (!sfPending || !windowLogin) return;
+    const token = localStorage.getItem('token') || '';
+    axios.post(`/api/magapp/service-fait/${sfPending}/open`, {}, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        sessionStorage.removeItem('magapp_pending_sf');
+        if (r.data?.url) window.location.replace(r.data.url);
+      })
+      .catch(e => setSfError(e.response?.data?.message || 'Impossible d’ouvrir cette demande de validation.'));
+  }, [sfPending, windowLogin]);
+  const leaveSf = () => { sessionStorage.removeItem('magapp_pending_sf'); setSfPending(null); setSfError(''); window.history.replaceState(null, '', window.location.pathname); };
+
   useEffect(() => {
     const onResize = () => setViewportW(window.innerWidth);
     window.addEventListener('resize', onResize);
@@ -654,6 +677,23 @@ function App() {
 
   if (!isLoggedIn) {
     return <Login isAutoLogging={isAutoLogging} />;
+  }
+
+  if (sfPending) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', padding: 20 }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: '28px 32px', maxWidth: 460, width: '100%', boxShadow: '0 10px 30px rgba(0,0,0,.08)', textAlign: 'center' }}>
+          <img src={logoDsiHub} alt="DSI" style={{ height: 50, marginBottom: 12 }} />
+          <h2 style={{ margin: '0 0 8px', fontSize: '1.15rem', color: '#1e293b' }}>Validation du service fait</h2>
+          {sfError ? (
+            <>
+              <p style={{ color: '#b91c1c', fontSize: '0.92rem', lineHeight: 1.5 }}>{sfError}</p>
+              <button onClick={leaveSf} style={{ marginTop: 8, padding: '10px 18px', border: 'none', borderRadius: 10, background: '#0078a4', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Aller au Magasin d'Applications</button>
+            </>
+          ) : <p style={{ color: '#64748b', fontSize: '0.92rem' }}>Ouverture de votre demande de validation…</p>}
+        </div>
+      </div>
+    );
   }
 
   if (loading) {

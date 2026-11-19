@@ -50,7 +50,7 @@ Deux façons de traiter une facture, sur les factures de vos services **où vous
 À utiliser quand **quelqu'un d'autre** doit attester que la prestation a bien été réalisée.
 
 1. Cliquez sur l'icône **Lancer SF** (➤), puis **cherchez le vérificateur** : seuls les agents de **votre direction** sont proposés.
-2. Validez : le vérificateur reçoit un **e-mail avec un lien** (valable 30 jours, ouvert sur le domaine MagApp). Les pièces jointes de la facture dans SEDIT lui sont mises à disposition.
+2. Validez : le vérificateur reçoit un **e-mail avec un lien vers MagApp** (adresse paramétrée par l'administrateur dans `/admin/magapp`). Le lien **ne contient aucun jeton** : le vérificateur **s'identifie dans MagApp** (si son appareil n'a pas déjà une session MagApp, il se connecte, puis il est redirigé automatiquement vers la validation). Seul le vérificateur désigné peut ouvrir la demande ; un autre agent reçoit un message l'en informant. Les pièces jointes de la facture dans SEDIT lui sont mises à disposition.
 3. Sur la page du lien, le vérificateur choisit une décision :
    - **Valider** ;
    - **Valider avec réserves** (commentaire obligatoire) ;
@@ -96,7 +96,7 @@ Tant que le vérificateur n'a pas décidé, l'icône **Annuler le circuit** (⊘
 
 - **« Un workflow est déjà en cours »** : un circuit existe déjà pour cette facture ; annulez-le d'abord si besoin.
 - **Vérificateur introuvable** : la recherche est limitée à votre direction ; il doit avoir une adresse e-mail de la Ville.
-- **Le vérificateur indique « Lien invalide ou expiré »** : le lien a plus de 30 jours ou le circuit a été annulé / déjà clôturé. Annulez et relancez un circuit.
+- **Le vérificateur ne peut pas ouvrir la demande** : « destinée à un autre agent » (il n'est pas le vérificateur désigné : transférez ou relancez avec le bon agent) ou « déjà validée / refusée / annulée » (le circuit est clôturé). Un lien dont l'échéance est passée est renouvelé automatiquement à l'ouverture par le vérificateur identifié.
 - **Facture d'un contrat télécom** : elle suit son propre parcours dans le module Télécom ; le service fait ne peut pas être lancé ici.
 - **Pas de boutons SF** : vous n'avez pas le droit de **modification** sur le service de cette facture (consultation seule, ou accès partagé).
 

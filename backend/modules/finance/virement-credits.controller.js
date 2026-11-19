@@ -117,6 +117,7 @@ function sanitizePayload(b) {
     });
     return {
         direction: String(b.direction || ''), service: String(b.service || ''), contact: String(b.contact || ''),
+        budget: String(b.budget || '').slice(0, 80),
         date: String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
         section: b.section === 'F' ? 'F' : 'I', sens: b.sens === 'R' ? 'R' : 'D',
         compense: b.compense !== false, activite: String(b.activite || ''), motivation: String(b.motivation || ''),
@@ -193,7 +194,7 @@ module.exports = {
     async liveLines(req, res) {
         try {
             const { getLiveLines } = require('./virement-credits-lines.service');
-            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services }));
+            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, budget: req.query.budget, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services }));
         } catch (e) {
             console.error('[VirementCredits] lignes SEDIT:', e.message);
             res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });

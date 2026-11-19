@@ -11,6 +11,18 @@ const { getAppBaseUrl, getMagappBaseUrl } = require('../../../shared/app_url');
 // Domaine des liens de validation : workflows lancés depuis MagApp (origin = 'magapp') -> magapp.ivry.local, sinon le DSI Hub.
 const linkBaseFor = (origin) => (origin === 'magapp' ? getMagappBaseUrl() : getAppBaseUrl());
 
+/**
+ * Lien de validation envoyé au vérificateur / au directeur.
+ * - circuit lancé depuis MagApp : lien SANS TOKEN vers MagApp (`<URL MagApp>/?sf=<id>`) — l'identification est celle de MagApp ; si l'appareil
+ *   n'a pas de session MagApp, l'agent s'identifie puis est redirigé vers la validation (POST /api/magapp/service-fait/:id/open). L'URL de base
+ *   est un paramètre (SQLite `magapp_base_url`, /admin/magapp), pas une valeur codée en dur ;
+ * - circuit lancé depuis le DSI Hub : lien public à token, comme avant.
+ */
+async function sfLink(origin, id, kind, token) {
+    if (origin === 'magapp') return `${await getMagappBaseUrl()}/?sf=${id}`;
+    return `${await getAppBaseUrl()}/service-fait-${kind}/${token}`;
+}
+
 const DECISION_LABELS = {
     valide: 'Validé',
     valide_avec_reserves: 'Validé avec réserves',
@@ -411,8 +423,7 @@ const controller = {
                 [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`, getClientIp(req), req.headers['user-agent'] || '']
             );
 
-            const appUrl = await linkBaseFor(req.magappVerifier ? 'magapp' : null);
-            const verifierUrl = `${appUrl}/service-fait-verifier/${token}`;
+            const verifierUrl = await sfLink(req.magappVerifier ? 'magapp' : null, workflowId, 'verifier', token);
 
             if (sendMailFn && agent.email) {
                 const html = `
@@ -667,8 +678,7 @@ const controller = {
             const wf = wfRes.rows[0];
             // Lien public de validation à transmettre au vérificateur (identifie au lien
             // envoyé par e-mail, pour pouvoir le rediffuser depuis la modale de suivi).
-            const appUrl = await linkBaseFor(wf.origin);
-            const verifierUrl = wf.token ? `${appUrl}/service-fait-verifier/${wf.token}` : null;
+            const verifierUrl = wf.token ? await sfLink(wf.origin, wf.id, 'verifier', wf.token) : null;
 
             res.json({
                 ...wf,
@@ -949,12 +959,11 @@ const controller = {
                     [directorToken, dirExpires, wf.id]
                 );
                 newStatus = 'en_attente_visa';
-                directorVisaUrl = `${await linkBaseFor(wf.origin)}/service-fait-visa/${directorToken}`;
+                directorVisaUrl = await sfLink(wf.origin, wf.id, 'visa', directorToken);
             } else if (isPositive) {
                 seditSync = await syncServiceFaitToSedit({ wf, decision, comment });
             }
 
-            const appUrl = await linkBaseFor(wf.origin);
             const subjectMap = {
                 'valide': 'Service fait validé',
                 'valide_avec_reserves': 'Service fait validé avec réserves',
@@ -965,7 +974,7 @@ const controller = {
             };
 
             if (decision === 'transfere' && newToken && sendMailFn && newVerifierEmail) {
-                const verifierUrl = `${appUrl}/service-fait-verifier/${newToken}`;
+                const verifierUrl = await sfLink(wf.origin, wf.id, 'verifier', newToken);
                 const html = `
                     <p>Bonjour ${newVerifierName},</p>
                     <p>La demande de validation du service fait pour la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> vous a été transférée par ${wf.verifier_name}.</p>

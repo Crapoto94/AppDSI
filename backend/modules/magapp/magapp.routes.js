@@ -74,6 +74,59 @@ magappBaseRouter.get('/mes-factures/:num/documents', authenticateJWT, async (req
 magappBaseRouter.get('/mes-factures/:num/documents/:docId', authenticateJWT, async (req, res) => {
     try { await mesFactures.streamDocument(req.user, req.params.num, req.params.docId, res); } catch (e) { if (!res.headersSent) mfFail(res, e, 'Erreur de lecture de la pièce jointe'); }
 });
+// ─── Validation d'un service fait depuis le lien reçu par mail (identification = session MagApp, aucun token dans le lien) ───
+// Le lien du mail est `<URL MagApp>/?sf=<id>`. Le front MagApp l'ouvre après identification (login si l'appareil n'a pas de session) :
+// ce point d'entrée vérifie que l'agent connecté EST le vérificateur désigné (ou le directeur pour un visa), renouvelle au besoin
+// l'échéance du lien et renvoie le chemin de la page de validation, que MagApp ouvre sous son propre domaine.
+magappBaseRouter.post('/service-fait/:id/open', authenticateJWT, async (req, res) => {
+    try {
+        const { pool } = require('../../shared/database');
+        const id = parseInt(req.params.id, 10);
+        const r = await pool.query('SELECT * FROM finance.service_fait_workflows WHERE id = $1', [id]);
+        const wf = r.rows[0];
+        if (!wf) return res.status(404).json({ message: 'Demande de validation introuvable' });
+        // Identité de l'agent connecté : e-mail du jeton + e-mail du référentiel (par username) + login
+        const username = String(req.user.username || '').trim().toLowerCase();
+        const emails = new Set([String(req.user.email || '').trim().toLowerCase()].filter(Boolean));
+        try {
+            const u = await pool.query('SELECT email FROM hub.users WHERE LOWER(TRIM(username)) = $1 LIMIT 1', [username]);
+            if (u.rows[0] && u.rows[0].email) emails.add(String(u.rows[0].email).trim().toLowerCase());
+        } catch { /* repli sur le jeton */ }
+        const is = (mail, login) => (mail && emails.has(String(mail).trim().toLowerCase())) || (login && String(login).trim().toLowerCase() === username);
+        const addDays = (n) => new Date(Date.now() + n * 86400000);
+        if (['en_attente', 'en_cours', 'transfere', 'en_pause'].includes(wf.status)) {
+            if (!is(wf.verifier_email, wf.verifier_username)) return res.status(403).json({ message: 'Cette demande de validation est destinée à ' + (wf.verifier_name || 'un autre agent') + ' : vous n’en êtes pas le vérificateur.' });
+            if (!wf.token) return res.status(409).json({ message: 'Cette demande n’a plus de lien de validation actif.' });
+            if (wf.token_expires_at && new Date(wf.token_expires_at) < new Date()) await pool.query('UPDATE finance.service_fait_workflows SET token_expires_at = $1 WHERE id = $2', [addDays(30), id]);
+            return res.json({ url: `/service-fait-verifier/${wf.token}`, step: 'validation', invoice: wf.invoice_number || wf.invoice_ref });
+        }
+        if (wf.status === 'en_attente_visa') {
+            if (!is(wf.director_email, wf.director_username)) return res.status(403).json({ message: 'Ce visa est destiné à ' + (wf.director_name || 'un autre agent') + ' : vous n’êtes pas le directeur désigné.' });
+            if (!wf.director_token) return res.status(409).json({ message: 'Ce visa n’a plus de lien actif.' });
+            if (wf.director_token_expires_at && new Date(wf.director_token_expires_at) < new Date()) await pool.query('UPDATE finance.service_fait_workflows SET director_token_expires_at = $1 WHERE id = $2', [addDays(30), id]);
+            return res.json({ url: `/service-fait-visa/${wf.director_token}`, step: 'visa', invoice: wf.invoice_number || wf.invoice_ref });
+        }
+        const labels = { valide: 'déjà validée', non_valide: 'déjà refusée', ne_me_concerne_pas: 'déjà retournée', annule: 'annulée' };
+        return res.status(409).json({ message: `Cette demande de validation est ${labels[wf.status] || 'clôturée'} (facture ${wf.invoice_number || wf.invoice_ref}).`, status: wf.status });
+    } catch (e) { console.error('[SF open]', e.message); res.status(500).json({ message: 'Erreur d’ouverture de la validation' }); }
+});
+
+// URL publique de MagApp (liens des mails) : paramétrable — SQLite app_settings.magapp_base_url (défaut https://magapp.ivry.local)
+magappBaseRouter.get('/base-url', authenticateMagappControl, async (req, res) => {
+    try { res.json({ url: await require('../../shared/app_url').getMagappBaseUrl() }); } catch (e) { res.status(500).json({ message: e.message }); }
+});
+magappBaseRouter.put('/base-url', authenticateMagappControl, async (req, res) => {
+    try {
+        const { normalizeAppBaseUrl, getMagappBaseUrl } = require('../../shared/app_url');
+        const url = normalizeAppBaseUrl(req.body && req.body.url);
+        if (!url || !/^https?:\/\/[^\s]+$/i.test(url)) return res.status(400).json({ message: 'URL invalide (ex. https://magapp.ivry.local)' });
+        const db = getSqlite();
+        await db.run(`INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('magapp_base_url', ?, 'URL publique de MagApp (liens des mails de validation de service fait)')
+                      ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value`, [url]);
+        res.json({ url: await getMagappBaseUrl() });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 magappBaseRouter.get('/mes-factures/dgp-weekly', authenticateJWT, async (req, res) => {
     try { res.json(await mesFactures.getDgpWeeklyForUser(req.user, req.query)); } catch (e) { mfFail(res, e, 'Erreur DGP hebdomadaire'); }
 });
