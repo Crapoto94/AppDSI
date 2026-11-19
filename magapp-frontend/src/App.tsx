@@ -16,6 +16,7 @@ import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
 import VirementCredits from './components/VirementCredits';
 import MesFactures from './components/MesFactures';
+import { HelpButton } from './components/HelpButton';
 import { ArrowLeftRight, Receipt } from 'lucide-react';
 import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
@@ -842,7 +843,7 @@ function App() {
     if (helpContentHtml !== null || helpLoading) return;
     setHelpLoading(true);
     try {
-      const res = await axios.get(`/api/page-help/${encodeURIComponent('/magapp')}`);
+      const res = await axios.get('/api/page-help', { params: { page: '/magapp' } });
       setHelpContentHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
     } catch (error) {
       console.error("Erreur de chargement de l'aide", error);
@@ -1687,21 +1688,7 @@ function App() {
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
-            <button
-              onClick={handleOpenHelp}
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                padding: '10px',
-                borderRadius: '10px',
-                color: '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-              title="Aide"
-            >
-              <HelpCircle size={20} />
-            </button>
+            <HelpButton onClick={handleOpenHelp} title="Aide" />
 
             <button
               onClick={handleLogout}

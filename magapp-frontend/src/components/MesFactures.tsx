@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight, HelpCircle, Send, CheckCircle2, Upload, Paperclip, Hourglass, Ban, ExternalLink, Files, Download } from 'lucide-react';
+import { X, Search, Share2, Trash2, Receipt, Loader2, ChevronLeft, ChevronRight, Send, CheckCircle2, Upload, Paperclip, Hourglass, Ban, ExternalLink, Files, Download } from 'lucide-react';
 import logoDsiHub from '../assets/DSI.png';
-import { HELP_CSS } from './helpStyles';
+import { HelpButton, HelpModal } from './HelpButton';
 import DgpWeeklyChart from './DgpWeeklyChart';
 
 // BETA « Mes factures » : factures SEDIT que l'agent a le droit de voir (droits DROITSER), avec service fait et DGP.
@@ -514,16 +514,6 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
   const [error, setError] = useState('');
   const [showShare, setShowShare] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [helpHtml, setHelpHtml] = useState<string | null>(null);
-  const openHelp = async () => {
-    setShowHelp(true);
-    if (helpHtml !== null) return;
-    try {
-      const r = await fetch(`/api/page-help/${encodeURIComponent('/magapp/mes-factures')}`);
-      const d = r.ok ? await r.json() : null;
-      setHelpHtml(d?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
-    } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
-  };
   const [showChart, setShowChart] = useState(false);
   const [piecesRow, setPiecesRow] = useState<Row | null>(null);
   const [sfDialog, setSfDialog] = useState<{ rows: Row[]; mode: 'circuit' | 'self' } | null>(null);
@@ -579,7 +569,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
           <span style={{ flex: 1 }} />
           <button style={{ ...s.btn, background: '#0f766e' }} onClick={() => setShowShare(true)} title="Donner accès à mes factures à un autre agent"><Share2 size={16} /> Partager mes factures</button>
           <img src={logoDsiHub} alt="DSI" style={{ height: 46, marginLeft: 4 }} />
-          <button onClick={openHelp} title="Aide" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: 10, borderRadius: 10, color: '#475569', cursor: 'pointer', display: 'flex' }}><HelpCircle size={20} /></button>
+          <HelpButton onClick={() => setShowHelp(true)} title="Aide" />
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
         </div>
 
@@ -738,18 +728,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
         </div>
       )}
       {showShare && <ShareDialog canShare={!!access?.canShare} onClose={() => setShowShare(false)} onChanged={() => { loadAccess(); setScope('all'); setOffset(0); }} />}
-      {showHelp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>
-          <style>{HELP_CSS}</style>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(860px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
-              <HelpCircle size={20} color="#0078a4" /><strong style={{ flex: 1 }}>Aide — Mes factures</strong>
-              <button onClick={() => setShowHelp(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button>
-            </div>
-            <div className="vc-help" style={{ padding: '14px 20px', overflowY: 'auto', color: '#1e293b' }} dangerouslySetInnerHTML={{ __html: helpHtml ?? 'Chargement…' }} />
-          </div>
-        </div>
-      )}
+      {showHelp && <HelpModal page="/magapp/mes-factures" title="Aide — Mes factures" onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

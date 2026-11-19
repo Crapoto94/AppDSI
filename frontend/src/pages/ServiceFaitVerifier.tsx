@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, PauseCircle, FileText, Files, Paperclip, History, Loader, Upload, X as CloseIcon, Eye, Download } from 'lucide-react';
+import { HelpCircle, X as HelpClose, CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, PauseCircle, FileText, Files, Paperclip, History, Loader, Upload, X as CloseIcon, Eye, Download } from 'lucide-react';
 import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
 
 const STATUT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -53,6 +53,16 @@ function fileUrl(dbPath: string) {
 export default function ServiceFaitVerifier() {
   const { token } = useParams();
   const [data, setData] = useState<any>(null);
+  // Aide : guide « Le service fait » (hub.page_help, page /service-fait)
+  const [showHelp, setShowHelp] = useState(false);
+  const [helpHtml, setHelpHtml] = useState<string | null>(null);
+  const openHelp = () => {
+    setShowHelp(true);
+    if (helpHtml !== null) return;
+    axios.get('/api/page-help', { params: { page: '/service-fait' } })
+      .then(r => setHelpHtml(r.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>"))
+      .catch(() => setHelpHtml('<p>Aide momentanément indisponible.</p>'));
+  };
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -151,7 +161,22 @@ export default function ServiceFaitVerifier() {
               </div>
             </>
           )}
+          <button onClick={openHelp} title="Aide" aria-label="Aide"
+            style={{ marginLeft: 'auto', background: '#f8fafc', border: '1px solid #cbd5e1', padding: 10, borderRadius: 10, color: '#475569', cursor: 'pointer', display: 'flex' }}><HelpCircle size={20} /></button>
         </div>
+
+        {showHelp && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>
+            <style>{`.sf-help{font-size:14.5px;color:#334155;line-height:1.7}.sf-help h1{font-size:1.5rem;font-weight:800;color:#0f172a;margin:0 0 6px}.sf-help h2{font-size:1.18rem;font-weight:800;color:#1e293b;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #eef2f7}.sf-help h3{font-size:1.02rem;font-weight:700;margin:18px 0 6px}.sf-help ul,.sf-help ol{padding-left:22px}.sf-help code{background:#f1f5f9;color:#be123c;padding:1px 6px;border-radius:5px;font-size:.85em}.sf-help table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}.sf-help th,.sf-help td{border:1px solid #e9eef5;padding:9px 12px;text-align:left;vertical-align:top}.sf-help th{background:#f1f5f9;font-weight:700}.sf-help tbody tr:nth-child(even){background:#f8fafc}`}</style>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(860px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
+                <HelpCircle size={20} color="#0078a4" /><strong style={{ flex: 1 }}>Aide — Le service fait</strong>
+                <button onClick={() => setShowHelp(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><HelpClose size={20} /></button>
+              </div>
+              <div className="sf-help" style={{ padding: '14px 20px', overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: helpHtml ?? 'Chargement…' }} />
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import logoDsiHub from '../assets/DSI.png';
-import { HELP_CSS } from './helpStyles';
-import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight, HelpCircle, Copy } from 'lucide-react';
+import { HelpButton, HelpModal } from './HelpButton';
+import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight, Copy } from 'lucide-react';
 
 // BETA « Virement de crédits » : demande de modification budgétaire pour les agents ayant un compte SEDIT Finances.
 // - lignes proposées = celles que l'agent peut modifier dans SEDIT (filtrées côté serveur) ;
@@ -335,19 +335,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
   const [rows, setRows] = useState<Rec[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
-  const [helpHtml, setHelpHtml] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
-
-  // Aide : guide Markdown (modifiable dans /admin/aides, page « /magapp/virement-credits »)
-  const openHelp = async () => {
-    setShowHelp(true);
-    if (helpHtml !== null) return;
-    try {
-      const r = await fetch(`/api/page-help/${encodeURIComponent('/magapp/virement-credits')}`);
-      const d = r.ok ? await r.json() : null;
-      setHelpHtml(d?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
-    } catch { setHelpHtml('<p>Aide momentanément indisponible.</p>'); }
-  };
 
   // Budgets sur lesquels l'agent a un droit de modification (Ville = principal, annexes : CMPP, Cinéma Le Luxy, Restauration…)
   const [budgets, setBudgets] = useState<string[]>([]);
@@ -451,7 +439,6 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
-      <style>{HELP_CSS}</style>
       <div style={{ background: '#f8fafc', width: 'min(1280px, 100%)', height: '94vh', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
           <div style={{ width: 40, height: 40, background: '#dbeafe', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowLeftRight size={22} color="#2563eb" /></div>
@@ -459,10 +446,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
           {beta && <span style={{ background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: 6, letterSpacing: '0.05em' }}>BETA</span>}
           <span style={{ flex: 1 }} />
           <img src={logoDsiHub} alt="DSI" style={{ height: 46, marginRight: 8 }} />
-          <button onClick={openHelp} title="Aide sur cette page" className="vc-help-pulse"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #2563eb, #4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13, boxShadow: '0 4px 14px -4px rgba(37,99,235,0.55)' }}>
-            <HelpCircle size={18} /> Aide
-          </button>
+          <HelpButton onClick={() => setShowHelp(true)} title="Aide" />
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -561,17 +545,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
           )}
         </div>
       </div>
-      {showHelp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(820px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
-              <HelpCircle size={20} color="#0078a4" /><strong style={{ flex: 1 }}>Aide — Virement de crédits</strong>
-              <button onClick={() => setShowHelp(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button>
-            </div>
-            <div className="vc-help" style={{ padding: '14px 20px', overflowY: 'auto', color: '#1e293b', lineHeight: 1.55, fontSize: '0.92rem' }} dangerouslySetInnerHTML={{ __html: helpHtml ?? 'Chargement…' }} />
-          </div>
-        </div>
-      )}
+      {showHelp && <HelpModal page="/magapp/virement-credits" title="Aide — Virement de crédits" onClose={() => setShowHelp(false)} />}
       {openId != null && <Detail id={openId} sig={sig} onClose={() => { setOpenId(null); if (mode === 'history') loadRows(); }} onChanged={() => { if (mode === 'history') loadRows(); }} />}
     </div>
   );
