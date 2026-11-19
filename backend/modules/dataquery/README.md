@@ -28,7 +28,7 @@ et au CLI sur le LAN.
    (`hub.dataquery_sessions`). Les jetons du chat ne sont **pas** acceptés : le
    `guest-login` public permet d'en obtenir un avec un nom/email quelconques.
 
-Personnes autorisées : rôle `superadmin` dans `hub.users`, ou liste
+Personnes autorisées : tout compte du DSIHUB, c'est-à-dire présent dans la table `users` de SQLite (quel que soit son rôle), ou liste
 `DATAQUERY_ALLOWED_USERS` (revérifié à chaque requête). Anti brute-force :
 5 échecs / 15 min par identifiant, 20 par IP.
 
