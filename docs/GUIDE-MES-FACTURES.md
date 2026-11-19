@@ -50,7 +50,7 @@ Deux façons de traiter une facture, sur les factures de vos services **où vous
 À utiliser quand **quelqu'un d'autre** doit attester que la prestation a bien été réalisée.
 
 1. Cliquez sur l'icône **Lancer SF** (➤), puis **cherchez le vérificateur** : seuls les agents de **votre direction** sont proposés.
-2. Validez : le vérificateur reçoit un **e-mail avec un lien vers MagApp** (adresse paramétrée par l'administrateur dans `/admin/magapp`). Le lien **ne contient aucun jeton** : le vérificateur **s'identifie dans MagApp** (si son appareil n'a pas déjà une session MagApp, il se connecte, puis il est redirigé automatiquement vers la validation). Seul le vérificateur désigné peut ouvrir la demande ; un autre agent reçoit un message l'en informant. Les pièces jointes de la facture dans SEDIT lui sont mises à disposition.
+2. Validez : le vérificateur reçoit un **e-mail avec un lien vers MagApp** (adresse paramétrée par l'administrateur dans `/admin/magapp`). Le lien **ne contient aucun jeton** : le vérificateur **s'identifie dans MagApp** (si son appareil n'a pas déjà une session MagApp, il se connecte, puis il est redirigé automatiquement vers la validation). Seul le vérificateur désigné peut ouvrir la demande ; un autre agent reçoit un message l'en informant. Les mails partent avec le **gabarit de la Ville** (logo Ville) et la page de validation affiche aussi le logo de la Ville. Les pièces jointes de la facture dans SEDIT lui sont mises à disposition.
 3. Sur la page du lien, le vérificateur choisit une décision :
    - **Valider** ;
    - **Valider avec réserves** (commentaire obligatoire) ;

@@ -39,7 +39,9 @@ async function run() {
             const url = w.origin === 'magapp' ? `${await getMagappBaseUrl()}/?sf=${w.id}` : `${await getAppBaseUrl()}/service-fait-verifier/${w.token}`;
             const age = Math.max(1, Math.round((Date.now() - new Date(w.created_at).getTime()) / 86400000));
             const amount = w.invoice_amount ? parseFloat(w.invoice_amount).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '-';
-            await sendMailFn(w.verifier_email, 'Rappel : validation du service fait en attente',
+            // Circuit MagApp : mail par l'API Ville (template Ville) ; sinon mail du Hub
+            const send = w.origin === 'magapp' ? (to, subject, content) => require('../../../shared/apm_mail').sendMail({ to, subject, content }) : sendMailFn;
+            await send(w.verifier_email, 'Rappel : validation du service fait en attente',
                 `<p>Bonjour ${esc(w.verifier_name || '')},</p>
                  <p>Une validation de service fait vous attend depuis <strong>${age} jour${age > 1 ? 's' : ''}</strong> (demandée par ${esc(w.requested_by)}) :</p>
                  <ul><li><strong>N° facture :</strong> ${esc(w.invoice_number || w.invoice_ref)}</li><li><strong>Fournisseur :</strong> ${esc(w.invoice_supplier || '-')}</li><li><strong>Montant TTC :</strong> ${esc(amount)}</li></ul>

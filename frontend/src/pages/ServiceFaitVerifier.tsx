@@ -133,11 +133,24 @@ export default function ServiceFaitVerifier() {
       <div style={{ maxWidth: 760, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <FileText size={28} color="#6366f1" />
-          <div>
-            <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, letterSpacing: '0.05em' }}>DSI · Direction des Systèmes d'Information</div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>Validation du service fait</div>
-          </div>
+          {/* Circuit lancé depuis MagApp : identité visuelle de la Ville (logo Ville) ; sinon DSI */}
+          {data?.workflow?.origin === 'magapp' ? (
+            <>
+              <img src="/img/Ivry.png" alt="Ville d'Ivry-sur-Seine" style={{ height: 52 }} />
+              <div>
+                <div style={{ fontSize: 14, color: '#1d4ed8', fontWeight: 700, letterSpacing: '0.03em' }}>Ville d'Ivry-sur-Seine</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>Validation du service fait</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <FileText size={28} color="#6366f1" />
+              <div>
+                <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, letterSpacing: '0.05em' }}>DSI · Direction des Systèmes d'Information</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>Validation du service fait</div>
+              </div>
+            </>
+          )}
         </div>
 
         {loading && (

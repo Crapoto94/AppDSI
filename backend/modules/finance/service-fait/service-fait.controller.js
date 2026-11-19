@@ -157,6 +157,19 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
 const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 let sendMailFn = null;
+/**
+ * Envoi d'un mail de service fait. Circuit lancé depuis MagApp (origin = 'magapp') : mail envoyé par l'API Ville (APM), donc avec le template
+ * global de la Ville (logo Ville) et non le template DSI du Hub. Repli sur le mail du Hub si l'API Ville est indisponible.
+ */
+async function sendSfMail(origin, to, subject, html) {
+    if (origin === 'magapp') {
+        try { return await require('../../../shared/apm_mail').sendMail({ to, subject, content: html }); }
+        catch (e) { console.warn('[ServiceFait] API Ville indisponible, repli sur le mail du Hub :', e.message); }
+    }
+    if (!sendMailFn) return undefined;
+    return sendMailFn(to, subject, html);
+}
+
 const setSendMail = (fn) => { sendMailFn = fn; try { require('./service-fait-reminders').setSendMail(fn); } catch { /* rappels optionnels */ } };
 
 function makeToken(workflowId, verifierEmail) {
@@ -441,7 +454,7 @@ const controller = {
                     <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
-                    await sendMailFn(agent.email, 'Demande de validation du service fait', html);
+                    await sendSfMail(req.magappVerifier ? 'magapp' : null, agent.email, 'Demande de validation du service fait', html);
                 } catch (e) {
                     console.error('[ServiceFait] Email send error:', e.message);
                 }
@@ -989,7 +1002,7 @@ const controller = {
                     <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
-                    await sendMailFn(newVerifierEmail, subjectMap[decision], html);
+                    await sendSfMail(wf.origin, newVerifierEmail, subjectMap[decision], html);
                 } catch (e) {
                     console.error('[ServiceFait] Transfer email error:', e.message);
                 }
@@ -1014,7 +1027,7 @@ const controller = {
                         ${wf.origin === 'magapp' ? `<p><a href="${await getMagappBaseUrl()}/">Ouvrir MagApp › Mes factures</a></p>` : ''}
                     `;
                     try {
-                        await sendMailFn(requesterEmail, subjectMap[decision], html);
+                        await sendSfMail(wf.origin, requesterEmail, subjectMap[decision], html);
                     } catch (e) {
                         console.error('[ServiceFait] Notification email error:', e.message);
                     }
@@ -1038,7 +1051,7 @@ const controller = {
                             </p>
                             <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${directorVisaUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${directorVisaUrl}</a></p>
                         `;
-                        await sendMailFn(wf.director_email, 'Visa du service fait requis', html);
+                        await sendSfMail(wf.origin, wf.director_email, 'Visa du service fait requis', html);
                     } else if (wf.director_mode === 'informe') {
                         const statusLabels = {
                             'valide': '✅ Validé', 'valide_avec_reserves': '⚠️ Validé avec réserves',
@@ -1052,7 +1065,7 @@ const controller = {
                             ${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}
                             <p style="font-size:12px;color:#94a3b8">Décision de ${wf.verifier_name || wf.verifier_username}</p>
                         `;
-                        await sendMailFn(wf.director_email, `${subjectMap[decision]} — information`, html);
+                        await sendSfMail(wf.origin, wf.director_email, `${subjectMap[decision]} — information`, html);
                     }
                 } catch (e) {
                     console.error('[ServiceFait] Director email error:', e.message);
@@ -1099,7 +1112,7 @@ const controller = {
                         ${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}
                     `;
                     try {
-                        await sendMailFn(requesterEmail, 'Processus de validation du service fait annulé', html);
+                        await sendSfMail(wf.origin, requesterEmail, 'Processus de validation du service fait annulé', html);
                     } catch (e) {
                         console.error('[ServiceFait] Cancel notification email error:', e.message);
                     }
@@ -1236,7 +1249,7 @@ const controller = {
                         ? `<p>Bonjour ${wf.requested_by},</p><p>Le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été visé par le directeur ${actorName} et certifié dans Sedit.</p>${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}`
                         : `<p>Bonjour ${wf.requested_by},</p><p>Le directeur ${actorName} n'a pas visé le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong>.</p>${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}`;
                     try {
-                        await sendMailFn(requesterEmail, decision === 'valide' ? 'Service fait visé par le directeur' : 'Service fait non visé par le directeur', html);
+                        await sendSfMail(wf.origin, requesterEmail, decision === 'valide' ? 'Service fait visé par le directeur' : 'Service fait non visé par le directeur', html);
                     } catch (e) { console.error('[ServiceFait] director decision requester email:', e.message); }
                 }
             }
