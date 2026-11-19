@@ -15,6 +15,8 @@ export interface Access {
   isEvaluator: boolean;
   canEditPreparation: boolean;
   canEditEvaluation: boolean;
+  /** Valideur situé au-dessus de l'évaluateur (ou directeur de la direction) : lecture seule. */
+  isSuperieur?: boolean;
 }
 
 export interface Objectif {
@@ -97,12 +99,15 @@ export interface Entretien {
   notes_admin?: string | null;
   created_at?: string | null;
   reprise?: Reprise | null;
+  crep?: { valeur?: Record<string, string> } | null;
   crep_statut?: 'non_envoye' | 'envoye_agent' | 'en_signature' | string;
   crep_sent_at?: string | null;
   crep_agent_validated_at?: string | null;
   crep_parapheur_id?: number | null;
   crep_parapheur_ref?: string | null;
   crep_parapheur_status?: string | null;
+  crep_signed_at?: string | null;
+  crep_signed_name?: string | null;
   objectifs?: Objectif[];
   formations?: Formation[];
   objectifs_total?: number;
@@ -228,6 +233,7 @@ export function crepMeta(e: { statut?: string; crep_statut?: string | null; crep
     if (e.crep_parapheur_status === 'annule') return { label: 'Parapheur annulé', color: '#64748b', bg: '#f1f5f9' };
     return { label: 'En signature', color: '#2563eb', bg: '#dbeafe' };
   }
+  if (st === 'signe_papier') return { label: 'Signé (papier)', color: '#16a34a', bg: '#dcfce7' };
   if (st === 'envoye_agent') return { label: 'Envoyé à l’agent', color: '#b45309', bg: '#fef3c7' };
   return e.statut === 'realise' ? { label: 'À envoyer', color: '#64748b', bg: '#f1f5f9' } : null;
 }

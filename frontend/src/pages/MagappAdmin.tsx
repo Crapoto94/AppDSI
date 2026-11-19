@@ -241,7 +241,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean, show_virement_credits: boolean, show_mes_factures: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean, show_virement_credits: boolean, show_mes_factures: boolean, show_entretiens_pro: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -262,6 +262,7 @@ const MagappAdmin: React.FC = () => {
     show_agent_search: false,
     show_virement_credits: false,
     show_mes_factures: false,
+    show_entretiens_pro: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -386,6 +387,7 @@ const MagappAdmin: React.FC = () => {
           show_agent_search: data.show_agent_search_original ?? data.show_agent_search ?? false,
           show_virement_credits: data.show_virement_credits_original ?? data.show_virement_credits ?? false,
           show_mes_factures: data.show_mes_factures_original ?? data.show_mes_factures ?? false,
+          show_entretiens_pro: data.show_entretiens_pro_original ?? data.show_entretiens_pro ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2460,7 +2462,7 @@ const MagappAdmin: React.FC = () => {
           )}
 
           {activeTab === 'settings' && (() => {
-            type SettingKey = 'show_tickets' | 'show_health_check' | 'show_create_buttons' | 'show_ideas' | 'show_library' | 'show_consommables' | 'show_chat_live' | 'show_rencontres' | 'show_transcript_manager' | 'show_parapheur' | 'show_pdf_tools' | 'show_subscriptions' | 'show_tool_incident' | 'show_tool_demande' | 'show_tasks' | 'show_notes' | 'show_reunions' | 'show_agent_search' | 'show_virement_credits' | 'show_mes_factures';
+            type SettingKey = 'show_tickets' | 'show_health_check' | 'show_create_buttons' | 'show_ideas' | 'show_library' | 'show_consommables' | 'show_chat_live' | 'show_rencontres' | 'show_transcript_manager' | 'show_parapheur' | 'show_pdf_tools' | 'show_subscriptions' | 'show_tool_incident' | 'show_tool_demande' | 'show_tasks' | 'show_notes' | 'show_reunions' | 'show_agent_search' | 'show_virement_credits' | 'show_mes_factures' | 'show_entretiens_pro';
             type ToggleDef = { key: SettingKey; feature: string; label: string; desc: string; color: string; beta?: boolean };
             const mainToggles: ToggleDef[] = [
               { key: 'show_tickets', feature: 'tickets', label: 'Afficher les tickets système (GLPI)', desc: "Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.", color: '#4f46e5' },
@@ -2485,6 +2487,7 @@ const MagappAdmin: React.FC = () => {
               { key: 'show_agent_search', feature: 'agent_search', label: "Recherche d'agent", desc: 'Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.', color: '#b45309', beta: true },
               { key: 'show_virement_credits', feature: 'virement_credits', label: 'Virement de crédits', desc: "Demande de virement de crédits (signature responsable de service + directeur) dans « Mes outils DSI ». Visible uniquement des agents ayant un compte SEDIT Finances avec droit de modification, et limitée à leurs lignes budgétaires. Décoché : réservé aux agents BETA ; coché : disponible pour tous les agents SEDIT.", color: '#2563eb', beta: true },
               { key: 'show_mes_factures', feature: 'mes_factures', label: 'Mes factures', desc: "Factures SEDIT visibles par l'agent (selon ses droits SEDIT), avec service fait et DGP, et partage d'accès à un autre agent. Visible uniquement des agents ayant un compte SEDIT (ou un accès partagé). Décoché : réservé aux agents BETA ; coché : disponible pour tous.", color: '#0f766e', beta: true },
+              { key: 'show_entretiens_pro', feature: 'entretiens_pro', label: 'Entretiens professionnels', desc: "Entretiens professionnels de toute la Ville dans « Mes outils DSI » : les administrateurs désignent des valideurs (directeurs, DGA, DG) qui choisissent les agents (SEDIT RH) dont ils valident l'entretien. Décoché : réservé aux agents BETA ; coché : disponible pour tous (administrateurs et valideurs désignés).", color: '#4f46e5', beta: true },
             ];
             const renderToggle = (t: ToggleDef) => {
               const on = magappSettings[t.key];

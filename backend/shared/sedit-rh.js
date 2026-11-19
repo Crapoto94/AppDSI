@@ -130,6 +130,62 @@ async function searchAgents(query, limit = 15) {
         .slice(0, limit);
 }
 
+/** Recherche étendue (nom, prénom, matricule, direction, service, secteur, poste, grade) : tous les mots saisis doivent figurer. */
+async function searchAgentsFull(query, limit = 30) {
+    const words = fold(query).split(' ').filter(Boolean);
+    if (!words.length || Math.max(...words.map(w => w.length)) < 2) return [];
+    const out = [];
+    for (const a of await allAgents()) {
+        const hay = fold([a.nom, a.prenom, a.matricule, lab(a, 'direction'), lab(a, 'service'), lab(a, 'secteur'), lab(a, 'affectation'), lab(a, 'poste'), lab(a, 'grade')].join(' '));
+        if (words.every(w => hay.includes(w))) out.push(summary(a));
+    }
+    return out.sort((x, y) => (x.nom + x.prenom).localeCompare(y.nom + y.prenom)).slice(0, limit);
+}
+
+/** Fiches (résumés) de plusieurs agents en poste par matricule, depuis le cache mémoire : Map(matricule -> résumé). */
+async function agentsByMatricule(matricules) {
+    const wanted = new Set((matricules || []).map(clean).filter(Boolean));
+    const out = new Map();
+    if (!wanted.size) return out;
+    for (const a of await allAgents()) { const m = clean(a.matricule); if (wanted.has(m)) out.set(m, summary(a)); }
+    return out;
+}
+
+const nameKey = (prenom, nom) => fold(`${prenom || ''} ${nom || ''}`).split(' ').filter(Boolean).sort().join(' ');
+/** Distance d'édition (Levenshtein) entre deux chaînes courtes. */
+function editDistance(x, y) {
+    const m = x.length, n = y.length; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+        prev = cur;
+    }
+    return prev[n];
+}
+
+/**
+ * Agents en poste par identité : Map(nameKey(prénom, nom) -> résumé).
+ * 1) prénom + nom identiques (sans tenir compte de l'ordre ni des accents), si unique ;
+ * 2) à défaut, même nom de famille et prénom à une lettre près (Franck / Frank), si un seul agent correspond.
+ */
+async function agentsByName(pairs) {
+    const wanted = new Map();
+    for (const p of pairs || []) { const k = nameKey(p.prenom, p.nom); if (k) wanted.set(k, p); }
+    const found = new Map();
+    if (!wanted.size) return found;
+    const all = (await allAgents()).map(a => ({ a, key: nameKey(a.prenom, a.nom), nom: fold(a.nom), prenom: fold(a.prenom) }));
+    for (const [k, p] of wanted) {
+        const exact = all.filter(x => x.key === k);
+        if (exact.length === 1) { found.set(k, summary(exact[0].a)); continue; }
+        if (exact.length > 1) continue;
+        const nom = fold(p.nom), prenom = fold(p.prenom);
+        if (!nom || !prenom) continue;
+        const near = all.filter(x => x.nom === nom && x.prenom && editDistance(x.prenom, prenom) <= 1);
+        if (near.length === 1) found.set(k, summary(near[0].a));
+    }
+    return found;
+}
+
 /** Fiche d'un agent par matricule (même s'il n'est plus en poste) ; null s'il est inconnu. */
 async function getAgent(matricule) {
     const m = clean(matricule);
@@ -151,6 +207,16 @@ async function agentsOfDirections(directionCodes) {
         .sort((x, y) => (x.nom + x.prenom).localeCompare(y.nom + y.prenom));
 }
 
+/** Agents en poste d'unités quelconques (codes de direction, service, secteur ou affectation) : périmètre d'un sous-valideur. */
+async function agentsOfUnits(unitCodes) {
+    const set = new Set((unitCodes || []).map(clean).filter(Boolean));
+    if (!set.size) return [];
+    return (await allAgents())
+        .filter(a => ['direction', 'service', 'secteur', 'affectation'].some(k => set.has(code(a, k))))
+        .map(summary)
+        .sort((x, y) => (x.nom + x.prenom).localeCompare(y.nom + y.prenom));
+}
+
 /** Directeurs / DG / DGA en poste : candidats à la fonction de valideur. */
 async function candidatsValideurs() {
     return (await allAgents()).filter(a => estDirecteur(a) || estDgDga(a)).map(summary)
@@ -167,4 +233,4 @@ async function directions() {
     return [...map.entries()].map(([c, l]) => ({ code: c, libelle: l })).sort((x, y) => x.libelle.localeCompare(y.libelle));
 }
 
-module.exports = { SeditError, configured, searchAgents, getAgent, agentsOfDirections, candidatsValideurs, directions, summary };
+module.exports = { SeditError, configured, searchAgents, searchAgentsFull, agentsByMatricule, agentsByName, nameKey, getAgent, agentsOfDirections, agentsOfUnits, candidatsValideurs, directions, summary };

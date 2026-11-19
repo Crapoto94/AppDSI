@@ -43,14 +43,14 @@ export const textarea: React.CSSProperties = {
 };
 
 export const btnPrimary: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 7,
+  display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
   padding: '9px 16px', borderRadius: 8, border: 'none',
   background: COLORS.primary, color: '#fff', fontSize: 13, fontWeight: 600,
   cursor: 'pointer',
 };
 
 export const btnGhost: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
+  display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
   padding: '8px 13px', borderRadius: 8,
   border: `1px solid ${COLORS.border}`, background: '#fff',
   color: '#334155', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
@@ -86,10 +86,10 @@ export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
 
 export function KpiCard({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: string; color: string }) {
   return (
-    <div style={{ ...card, padding: '12px 14px', borderLeft: `4px solid ${color}` }}>
-      <div style={{ fontSize: 24, fontWeight: 800, color, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginTop: 4 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{sub}</div>}
+    <div style={{ ...card, padding: '9px 10px', borderLeft: `4px solid ${color}`, minWidth: 0 }}>
+      <div style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{value}</div>
+      <div title={label} style={{ fontSize: 11.5, fontWeight: 700, color: '#334155', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      {sub && <div title={sub} style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>}
     </div>
   );
 }

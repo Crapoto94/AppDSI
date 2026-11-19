@@ -15,6 +15,9 @@ import { COLORS, btnGhost, card } from './ui';
 
 type Tab = 'moi' | 'evaluations' | 'pilotage' | 'reglages';
 
+// Adresse d'arrivée dans l'application : un lien de mail (ancienne adresse DSI Hub /entretiens) est redirigé vers MagApp.
+const ARRIVAL_PATH = typeof window !== 'undefined' ? window.location.pathname : '';
+
 export default function Entretiens() {
   const { token } = useAuth();
   const [me, setMe] = useState<MeData | null>(null);
@@ -33,6 +36,13 @@ export default function Entretiens() {
       setMe(r.data);
       if (!initialized.current) {
         initialized.current = true;
+        // Ancien lien de mail : les agents et évaluateurs travaillent désormais dans MagApp ; l'administration du module reste ici.
+        if (!r.data.isAdmin && ARRIVAL_PATH.replace(/\/+$/, '') === '/entretiens' && !sessionStorage.getItem('ep_magapp_redirected')) {
+          try {
+            const m = await axios.get('/api/entretiens/magapp-url', { headers: { Authorization: `Bearer ${token}` } });
+            if (m.data?.url) { sessionStorage.setItem('ep_magapp_redirected', '1'); window.location.replace(`${String(m.data.url).replace(/\/+$/, '')}/?ep=auto`); return; }
+          } catch { /* pas de redirection : on reste sur le DSI Hub */ }
+        }
         if (r.data.isAdmin) setTab('pilotage');
         else if (r.data.isEvaluator) setTab('evaluations');
         else setTab('moi');

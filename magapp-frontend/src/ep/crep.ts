@@ -94,6 +94,7 @@ function proposalFromAgent(e: Entretien): Crep {
   const join = (...parts: Array<string | null | undefined | false>) => parts.filter(p => p && String(p).trim()).join('\n');
   const lab = (label: string, v?: string | null) => (v && v.trim() ? `${label} : ${v.trim()}` : '');
   base.evaluateur_nom = e.evaluator_nom || '';
+  base.grade = e.agent_grade || '';
   // Reprise de l'EP de l'année précédente : missions de l'agent et rappel des objectifs du service proposés par défaut.
   base.missions = e.reprise?.missions || '';
   base.objectifs_service = e.reprise?.objectifs_service || '';
@@ -133,7 +134,7 @@ export function initialCrep(e: Entretien): Crep {
   const pick = (mine: string | undefined, proposed: string) => (filled(mine) ? (mine as string) : proposed);
   return {
     ...base,
-    grade: saved.grade || '',
+    grade: saved.grade || e.agent_grade || '',
     evaluateur_nom: pick(saved.evaluateur_nom, base.evaluateur_nom),
     missions: pick(saved.missions, base.missions),
     objectifs_ecoules: base.objectifs_ecoules.map((o, i) => {

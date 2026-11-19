@@ -46,11 +46,14 @@ async function runReminders({ dryRun = false } = {}) {
     if (!campaign) return result;
 
     const { sendParapheurEmail } = require('../parapheur/parapheur.service');
-    const link = await email.entretiensUrl();
+    const linkAgent = await email.entretiensUrl('moi');
+    const linkEval = await email.entretiensUrl('evaluations');
     const rows = await svc.listEntretiens({ campaignId: campaign.id });
     const now = Date.now();
     const nameOf = (r) => svc.fullName(r.agent_prenom, r.agent_nom) || r.agent_email || 'Agent';
-    const send = async (to, tpl, label) => {
+    const epBeta = require('../../shared/ep-beta-mail');
+    const send = async (to, tpl, label, row) => {
+        if (row && !(await epBeta.allowedForEntretien(row, to, 'relance'))) return false;
         result.details.push(`${label} → ${to}`);
         if (dryRun) return true;
         try { await sendParapheurEmail(to, tpl); return true; }
@@ -64,7 +67,7 @@ async function runReminders({ dryRun = false } = {}) {
         if (!t || t < now || t - now > 7 * DAY) continue;
         const ls = await lastSent(r.id, 'prep_agent');
         if (now - ls.last < 3 * DAY) continue;
-        if (await send(r.agent_email, email.relancePreparation({ agent: nameOf(r), annee: campaign.annee, quand: svc.formatDateTimeFr(r.date_entretien), link }), `Préparation ${nameOf(r)}`)) {
+        if (await send(r.agent_email, email.relancePreparation({ agent: nameOf(r), annee: campaign.annee, quand: svc.formatDateTimeFr(r.date_entretien), link: linkAgent }), `Préparation ${nameOf(r)}`, r)) {
             if (!dryRun) await log(r.id, 'prep_agent');
             result.agentPreparation++;
         }
@@ -76,17 +79,24 @@ async function runReminders({ dryRun = false } = {}) {
         if (now - new Date(r.crep_sent_at).getTime() < 3 * DAY) continue;
         const ls = await lastSent(r.id, 'valid_agent');
         if (ls.n >= 4 || now - ls.last < 3 * DAY) continue;
-        if (await send(r.agent_email, email.relanceValidation({ agent: nameOf(r), annee: campaign.annee, evaluateur: r.evaluator_nom, link }), `Validation ${nameOf(r)}`)) {
+        if (await send(r.agent_email, email.relanceValidation({ agent: nameOf(r), annee: campaign.annee, evaluateur: r.evaluator_nom, link: linkAgent }), `Validation ${nameOf(r)}`, r)) {
             if (!dryRun) await log(r.id, 'valid_agent');
             result.agentValidation++;
         }
     }
 
     // 3) Évaluateur : synthèse hebdomadaire
+    const betaOk = (e) => betaSet.has(e);
+    const betaSet = new Set();
+    for (const r of rows) {
+        const e = String(r.evaluator_email || '').toLowerCase();
+        if (r.source === 'ville' && e && !betaSet.has(e) && await epBeta.allowed(e)) betaSet.add(e);
+    }
     const byEvaluator = new Map();
     const push = (r, section, detail) => {
         const key = String(r.evaluator_email || '').toLowerCase();
         if (!key) return;
+        if (r.source === 'ville' && !betaOk(key)) return;
         if (!byEvaluator.has(key)) byEvaluator.set(key, { name: r.evaluator_nom || key, to: r.evaluator_email, plan: [], late: [], cr: [], ids: [] });
         const g = byEvaluator.get(key);
         g[section].push({ agent: nameOf(r), detail });
@@ -113,7 +123,7 @@ async function runReminders({ dryRun = false } = {}) {
         for (const id of ids) { if (now - (await lastSent(id, 'eval_digest')).last >= 7 * DAY) { due = true; break; } }
         if (!due) continue;
         const tpl = email.relanceEvaluateur({
-            evaluateur: g.name, annee: campaign.annee, link,
+            evaluateur: g.name, annee: campaign.annee, link: linkEval,
             sections: [{ title: 'À planifier', items: g.plan }, { title: 'Date dépassée', items: g.late }, { title: 'Compte rendu à traiter', items: g.cr }],
         });
         if (await send(g.to, tpl, `Synthèse évaluateur ${g.name}`)) {

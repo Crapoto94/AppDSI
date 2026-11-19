@@ -141,6 +141,7 @@ const SYSTEM = [
     'Tu es rédacteur RH pour une mairie. Tu rédiges le compte rendu officiel d’un entretien professionnel annuel à partir des quelques mots donnés par l’évaluateur (N+1).',
     'Écris en français correct (corrige les fautes de frappe des notes), au style professionnel, clair, factuel et bienveillant, à la troisième personne.',
     'N’ajoute aucun fait, chiffre ou date absent des notes ou du contexte. Respecte le sens et la tonalité des notes (positif, réservé, critique…).',
+    'LES NOTES DE L’ÉVALUATEUR PRIMENT SUR TOUT : le texte doit en exprimer clairement le fond et la tonalité, y compris quand elle est négative (formulée alors avec tact, de façon professionnelle et non blessante). Le contexte ne sert qu’à étayer ces notes : ne le substitue jamais à elles, ne pars pas dans une autre direction et n’invente pas de pistes (formations, etc.) que l’évaluateur n’a pas évoquées.',
     'Réponds UNIQUEMENT par le texte final de la rubrique (2 à 5 phrases, sans titre, sans introduction, sans explication, sans mise en forme), placé entre «« et »».',
 ].join(' ');
 
@@ -171,30 +172,19 @@ const EXAMPLE_OUT = '««Camille Martin a accompli ses missions avec un très bo
 async function draftComment({ rubrique, notes, contexte, existant, agent, coherent, crep }) {
     let question = userMessage({ rubrique, agent, contexte, existant, notes });
     if (coherent) {
-        question += '\nExigences : (1) la tonalité du texte doit correspondre à la SYNTHÈSE DE LA GRILLE du contexte, qui fait référence ; (2) ne cite comme axes de progrès que les points faibles listés dans cette synthèse, et aucun s’il n’y en a pas ; (3) si les notes de l’évaluateur contredisent la grille ou les niveaux des objectifs, suis la grille et n’écris pas l’élément contradictoire ; (4) n’invente aucun fait ; (5) synthétise en 3 à 5 phrases, sans énumérer les critères un par un et sans citer la « synthèse » ni ces consignes.';
+        question += '\nExigences : (1) le texte exprime avant tout ce que dit l’évaluateur dans ses notes, avec la même tonalité ; (2) la grille et le contexte ne servent qu’à compléter ou illustrer les notes, sans jamais les contredire ni les remplacer ; (3) si les notes diffèrent de la grille, écris tout de même ce que dit l’évaluateur (c’est son jugement : un avertissement lui sera affiché) ; (4) n’invente aucun fait ni piste (pas de formation, d’objectif ou de reproche non mentionnés dans les notes) ; (5) synthétise en 3 à 5 phrases, sans énumérer les critères un par un et sans citer la « synthèse » ni ces consignes.';
     }
     const warnings = [];
     // Contradiction entre les notes de l'évaluateur et la grille : signalée à l'évaluateur (le texte suit la grille).
     if (coherent && crep && sentimentIssues(crep, notes).length) {
-        warnings.push('Vos notes semblent contredire la grille d’appréciation que vous avez renseignée : le texte proposé suit la grille. Corrigez la grille ou vos notes si ce n’est pas ce que vous voulez dire.');
+        warnings.push('Vos notes semblent contredire la grille d’appréciation que vous avez renseignée : le texte proposé reprend vos notes. Corrigez la grille ou vos notes pour que le compte rendu reste cohérent.');
     }
     let { out, model } = await complete({ system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT, question });
     let text = cleanName(coherent ? stripLeaks(extractAnswer(out)) : extractAnswer(out), agent);
     if (!text) throw new Error('L’IA n’a renvoyé aucun texte.');
     if (coherent && crep) {
-        // Contrôle du texte proposé face à la grille ; une régénération corrective si nécessaire.
-        let issues = draftIssues(crep, text);
-        // Jusqu'à 3 régénérations correctives : on garde la première proposition sans écart, sinon la dernière (avec avertissement).
-        for (let attempt = 0; attempt < 3 && issues.length; attempt++) {
-            const retry = await complete({
-                system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT,
-                question: `${question}\nATTENTION : ta proposition précédente était incohérente avec la grille (${issues.join(' ')}). Propose un nouveau texte strictement conforme à la SYNTHÈSE DE LA GRILLE, sans « cependant » ni « toutefois » ni axe de progrès qui n’y figure pas.`,
-            });
-            const t2 = cleanName(stripLeaks(extractAnswer(retry.out)), agent);
-            if (!t2) continue;
-            text = t2; model = retry.model; issues = draftIssues(crep, text);
-        }
-        issues.forEach(i => warnings.push(`À vérifier : ${i}`));
+        // Les notes de l'évaluateur priment : on ne régénère pas le texte pour le plier à la grille, on signale seulement l'écart.
+        draftIssues(crep, text).forEach(i => warnings.push(`À vérifier : ${i}`));
     }
     return { text, model, warnings };
 }

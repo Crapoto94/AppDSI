@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import logoVille from '../assets/Ivry.png'; // embarqué dans le front : s'affiche même si le serveur est injoignable
 
 // Si le serveur (backend) est injoignable ou en erreur, le Magasin d'applications affiche un message de maintenance au lieu d'un écran vide
 // ou d'erreurs techniques. L'état est vérifié au chargement puis toutes les 30 s ; en maintenance, nouvel essai toutes les 10 s et rechargement
@@ -50,7 +51,7 @@ export default function MaintenanceGate({ children }: { children: React.ReactNod
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #f1f5f9, #e0f2fe)', padding: 24, fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>
       <div style={{ background: '#fff', borderRadius: 24, padding: '40px 44px', maxWidth: 520, width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.18)' }}>
-        <img src="/img/Ivry.png" alt="Ville d'Ivry-sur-Seine" style={{ height: 72, marginBottom: 18 }} />
+        <img src={logoVille} alt="Ville d'Ivry-sur-Seine" style={{ height: 72, marginBottom: 18 }} />
         <div style={{ fontSize: 44, marginBottom: 6 }} aria-hidden="true">🛠️</div>
         <h1 style={{ margin: '0 0 10px', fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>Magasin d'applications en maintenance</h1>
         <p style={{ margin: 0, color: '#475569', fontSize: '1.02rem', lineHeight: 1.6 }}>Revenez dans quelques minutes, merci.</p>

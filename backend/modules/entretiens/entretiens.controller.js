@@ -2,6 +2,7 @@ const { pgDb } = require('../../shared/database');
 const svc = require('./entretiens.service');
 const { normalizeCrep, missingFields } = require('./crep.definition');
 const { buildCrepPdf } = require('./crep-pdf.service');
+const storage = require('../../shared/storage');
 const { draftComment, reviewCrep } = require('./ai.service');
 const { summarizeCrep, coherenceIssues } = require('./crep.coherence');
 const workflow = require('./crep.workflow');
@@ -167,6 +168,12 @@ async function attachParapheur(entretien) {
 const entretiensController = {
 
     // ─── Espace agent / rôle ─────────────────────────────────────────────
+
+    // GET /api/entretiens/magapp-url — adresse de MagApp : les anciens liens DSI Hub (/entretiens) y sont redirigés
+    magappUrl: async (req, res) => {
+        try { res.json({ url: await require('../../shared/app_url').getMagappBaseUrl() }); }
+        catch (err) { fail(res, 500, err.message); }
+    },
 
     // GET /api/entretiens/me
     me: async (req, res) => {
@@ -395,6 +402,7 @@ const entretiensController = {
                 statut: text(req.query.statut) || undefined,
                 search: text(req.query.q) || undefined,
             };
+            if (role.isAdmin) filters.excludeVille = true;
             if (!role.isAdmin) filters.evaluatorEmail = actor.email || '__none__';
             if (!role.isAdmin && !actor.email && actor.username) {
                 // Repli : filtre sur le username évaluateur.
@@ -411,7 +419,7 @@ const entretiensController = {
 
             let aProgrammer = [];
             if (role.isAdmin && campaign) {
-                const all = filters.statut || filters.search ? await svc.listEntretiens({ campaignId: campaign.id }) : rows;
+                const all = filters.statut || filters.search ? await svc.listEntretiens({ campaignId: campaign.id, excludeVille: true }) : rows;
                 aProgrammer = await agentsSansEntretien(all).catch(() => []);
             }
             res.json({ campaign, stats: svc.computeStats(rows, aProgrammer.length), items: rows, a_programmer: aProgrammer });
@@ -436,7 +444,7 @@ const entretiensController = {
                     return (svc.norm(r.evaluator_email) && identity.emails.includes(svc.norm(r.evaluator_email)))
                         || (svc.norm(r.evaluator_username) && identity.usernames.includes(svc.norm(r.evaluator_username)));
                 });
-            res.json({ campaign, stats: svc.computeStats(rows), items: rows });
+            res.json({ campaign, stats: svc.computeStats(rows), items: await require('./ep-rh-enrich').enrichFromRh(rows) });
         } catch (err) { fail(res, 500, err.message); }
     },
 
@@ -444,7 +452,7 @@ const entretiensController = {
     stats: async (req, res) => {
         try {
             const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
-            const rows = await svc.listEntretiens({ campaignId: campaign?.id });
+            const rows = await svc.listEntretiens({ campaignId: campaign?.id, excludeVille: true });
             const sans = campaign ? await agentsSansEntretien(rows).catch(() => []) : [];
             const stats = svc.computeStats(rows, sans.length);
 
@@ -477,7 +485,8 @@ const entretiensController = {
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
-            res.json({ ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(row)), access))), access });
+            const [rich] = await require('./ep-rh-enrich').enrichFromRh([row]);
+            res.json({ ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(rich)), access))), access });
         } catch (err) { fail(res, 500, err.message); }
     },
 
@@ -895,7 +904,7 @@ const entretiensController = {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
             const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
-            const rows = await svc.listEntretiens({ campaignId: campaign?.id });
+            const rows = await svc.listEntretiens({ campaignId: campaign?.id, excludeVille: true });
             const ExcelJS = require('exceljs');
             const wb = new ExcelJS.Workbook();
             const ws = wb.addWorksheet(`Entretiens ${campaign?.annee || ''}`.trim());
@@ -1057,7 +1066,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
-            if (!access.isAdmin && !access.isEvaluator && (!row.crep_statut || row.crep_statut === 'non_envoye')) return fail(res, 403, 'Le compte rendu ne vous a pas encore été envoyé.');
+            if (!access.isAdmin && !access.isEvaluator && !access.isSuperieur && (!row.crep_statut || row.crep_statut === 'non_envoye')) return fail(res, 403, 'Le compte rendu ne vous a pas encore été envoyé.');
             const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
             const pdf = await buildCrepPdf(row, campaign?.annee);
             const name = `CREP-${campaign?.annee || ''}-${svc.fullName(row.agent_prenom, row.agent_nom)}`.replace(/[^\w\-]+/g, '_');
@@ -1066,6 +1075,72 @@ const entretiensController = {
             res.send(pdf);
         } catch (err) {
             console.error('[ENTRETIENS] crepPdf:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // GET /api/entretiens/:id/crep-signe.pdf — PDF signé : version téléversée (signée sur papier) sinon PDF co-signé du parapheur
+    crepSignedPdf: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            const base = `CREP-${campaign?.annee || ''}-${svc.fullName(row.agent_prenom, row.agent_nom)}`.replace(/[^\w\-]+/g, '_');
+            let f = null;
+            if (row.crep_signed_path) {
+                f = await storage.getFileForServe(row.crep_signed_path);
+            } else if (row.crep_parapheur_id) {
+                const p = await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]);
+                if (p?.status === 'termine') {
+                    const doc = await pgDb.get('SELECT id FROM hub_parapheur.documents WHERE parapheur_id = ? AND COALESCE(is_annexe, FALSE) = FALSE ORDER BY sort_order, id LIMIT 1', [row.crep_parapheur_id]);
+                    if (doc) f = await require('../parapheur/parapheur.service').getSignedDocument(row.crep_parapheur_id, doc.id, { signed: true });
+                }
+            }
+            if (!f) return fail(res, 404, 'Aucun compte rendu signé n’est disponible pour cet entretien.');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${base}_signe.pdf"`);
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            res.send(f.buffer);
+        } catch (err) {
+            console.error('[ENTRETIENS] crepSignedPdf:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/:id/crep/signed-upload — l'évaluateur téléverse le CREP imprimé puis signé à la main (agent sans e-mail, hors parapheur)
+    crepSignedUpload: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            if (!(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut téléverser le compte rendu signé.');
+            if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') return fail(res, 400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
+            const f = req.file;
+            if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
+            if (f.buffer.slice(0, 5).toString('latin1') !== '%PDF-') return fail(res, 400, 'Le fichier doit être un PDF.');
+            if (row.crep_statut === 'en_signature') {
+                const p = row.crep_parapheur_id ? await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]) : null;
+                if (p && !['refuse', 'annule'].includes(p.status)) return fail(res, 409, 'Ce compte rendu est en cours de signature dans le parapheur : attendez la fin du circuit (ou annulez-le) avant de téléverser une version papier.');
+            }
+            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent : rappelez-le d’abord pour passer par une signature papier.');
+            const saved = await storage.saveFile('entretiens', row.id, { buffer: f.buffer, originalname: f.originalname || 'crep-signe.pdf' });
+            const previous = row.crep_signed_path;
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens SET crep_signed_path = ?, crep_signed_name = ?, crep_signed_at = NOW(), crep_signed_by = ?, crep_statut = 'signe_papier', updated_at = NOW() WHERE id = ?`,
+                [saved.dbPath, f.originalname || 'crep-signe.pdf', actor.username || actor.email || '', row.id]);
+            if (previous && previous !== saved.dbPath) { try { await storage.deleteFile(previous); } catch (e) { /* ancien fichier : sans conséquence */ } }
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ok: true, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) {
+            console.error('[ENTRETIENS] crepSignedUpload:', err.message);
             fail(res, 500, err.message);
         }
     },

@@ -88,8 +88,18 @@ const setSendMail = (fn) => { sendMailFn = fn; };
  * @param {string} to
  * @param {{ subject:string, content?:string, html?:string }} tpl
  */
-async function sendParapheurEmail(to, tpl) {
+async function sendParapheurEmail(to, tpl, parapheurId) {
     if (!to || !tpl) return;
+    // Parapheur issu d'une fonctionnalité en BETA (mail_scope) : pas de mail vers un agent hors BETA.
+    if (parapheurId) {
+        try {
+            const p = await pgDb.get('SELECT mail_scope FROM hub_parapheur.parapheurs WHERE id = ?', [parapheurId]);
+            if (p && p.mail_scope === 'entretiens_pro' && !(await require('../../shared/ep-beta-mail').allowed(to))) {
+                console.log(`[EP BETA] mail du parapheur ${parapheurId} non envoyé à ${to} : fonctionnalité en BETA, destinataire hors BETA.`);
+                return;
+            }
+        } catch (e) { console.error('[PARAPHEUR] garde BETA:', e.message); return; }
+    }
     const { subject, content, html } = tpl;
     let apmErr = null;
     try {
@@ -162,7 +172,12 @@ async function estCompteInterne(email) {
  */
 async function getSignatureBaseUrl() {
     const s = await getParapheurSettings();
-    const base = s.effective_base_url || await getAppBaseUrl();
+    let base = s.effective_base_url || await getAppBaseUrl();
+    // Le parapheur est en DMZ : un lien de signature doit être joignable depuis l'extérieur (signature depuis une adresse e-mail externe).
+    // Une adresse interne (*.local, sans domaine public) est donc remplacée par l'adresse externe par défaut.
+    if (/^https?:\/\/[^/]*\.(local|lan|intra|internal)(:|\/|$)/i.test(base) || !/^https?:\/\/[^/]*\./.test(base)) {
+        base = String(process.env.PARAPHEUR_PUBLIC_URL || DEFAULT_PARAPHEUR_PUBLIC_URL).trim().replace(/\/+$/, '');
+    }
     // URL localhost = aucune URL publique valable sur CETTE instance : un lien de signature
     // en localhost est inutilisable pour le destinataire. On refuse d'envoyer (les signataires
     // restent « à notifier » et le mail part dès que l'URL est renseignée) plutôt que d'envoyer un lien cassé.
@@ -174,6 +189,7 @@ async function getSignatureBaseUrl() {
 }
 
 const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
+const DEFAULT_PARAPHEUR_PUBLIC_URL = 'https://parapheur.ivry94.fr';
 const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
 const BULK_SIGN_MENTION_KEY = 'parapheur.bulk_sign_mention';
 const NOTIFY_INTERVAL_KEY = 'parapheur.notify_interval_minutes';
@@ -460,7 +476,7 @@ async function requestEmailOtp(token) {
             code,
             title: parapheur.title,
         });
-        await sendParapheurEmail(signataire.email, tpl);
+        await sendParapheurEmail(signataire.email, tpl, signataire.parapheur_id);
     } catch (e) {
         console.error('[PARAPHEUR] envoi code e-mail échoué:', e.message);
         throw { status: 502, message: "L'envoi du code par e-mail a échoué. Réessayez." };
@@ -1483,7 +1499,7 @@ async function sendSignerMail(parapheur, signataire) {
             mode: parapheur.mode,
             frontUrl: base,
         });
-        await sendParapheurEmail(signataire.email, tpl);
+        await sendParapheurEmail(signataire.email, tpl, parapheur.id);
     } catch (e) {
         console.warn('[PARAPHEUR] envoi mail signataire échoué:', e.message);
     }
@@ -1526,8 +1542,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     const publicToken = generateToken();
     const pRes = await pgDb.run(
     `INSERT INTO hub_parapheur.parapheurs
-    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service, no_qr)
-    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service, no_qr, mail_scope)
+    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
     title,
     payload.message || '',
@@ -1540,6 +1556,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     user.email || null,
     payload.service ? String(payload.service).trim().slice(0, 200) : null,
     payload.no_qr === true || payload.no_qr === 'true',
+    payload.mail_scope ? String(payload.mail_scope).slice(0, 50) : null,
     ]
     );
     const parapheurId = pRes.lastID;
@@ -2255,7 +2272,7 @@ async function notifyRequester(parapheur, signataireNom, done) {
             mode: parapheur.mode,
             link: `${base}/parapheur/${parapheur.id}`,
         });
-        await sendParapheurEmail(parapheur.created_by_email, tpl);
+        await sendParapheurEmail(parapheur.created_by_email, tpl, parapheur.id);
     } catch (e) {
         console.warn('[PARAPHEUR] notification demandeur échouée:', e.message);
     }
@@ -2324,7 +2341,7 @@ async function notifySignersCompleted(parapheur, signataires) {
                 mode: parapheur.mode,
                 link,
             });
-            await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') });
+            await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') }, parapheur.id);
         }
     } catch (e) {
         console.warn('[PARAPHEUR] notification signataires terminé échouée:', e.message);
@@ -2817,7 +2834,7 @@ async function rejectWithToken(token, { comment, delegation, req }) {
                 comment: cleanComment,
                 link: `${base}/parapheur/${parapheur.id}`,
             });
-            await sendParapheurEmail(parapheur.created_by_email, tpl);
+            await sendParapheurEmail(parapheur.created_by_email, tpl, parapheur.id);
         } catch (e) {
             console.warn('[PARAPHEUR] notification refus échouée:', e.message);
         }
@@ -2851,7 +2868,7 @@ async function relance(parapheurId, { manual, req }) {
                 link: `${base}/signature/${s.token}`,
                 deadline: parapheur.deadline,
             });
-            await sendParapheurEmail(s.email, tpl);
+            await sendParapheurEmail(s.email, tpl, parapheur.id);
             // La relance réinitialise la validité : extérieur 7 jours, interne 30 jours,
             // et relance la fenêtre d'accès direct (1re heure).
         const ms = (await isExternalSigner(s))
@@ -3419,7 +3436,7 @@ async function runReminders() {
                 link: `${base}/signature/${s.token}`,
                 deadline: s.deadline,
             });
-            await sendParapheurEmail(s.email, tpl);
+            await sendParapheurEmail(s.email, tpl, s.p_id);
             await pgDb.run(`UPDATE hub_parapheur.signataires SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = ?`, [s.id]);
             sent++;
         } catch (e) {
@@ -3452,7 +3469,7 @@ async function runSignatureDigest({ force } = {}) {
     try {
         rows = await pgDb.all(
             `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id, sg.signature_title,
-                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service
+                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service, p.mail_scope
              FROM hub_parapheur.signataires sg
              JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
              WHERE sg.status = 'en_cours'
@@ -3474,6 +3491,7 @@ async function runSignatureDigest({ force } = {}) {
     for (const r of rows) {
         const email = String(r.email || '').toLowerCase();
         if (!email) continue;
+        if (r.mail_scope === 'entretiens_pro' && !(await require('../../shared/ep-beta-mail').allowed(email))) continue;
         if (!byEmail.has(email)) byEmail.set(email, []);
         byEmail.get(email).push(r);
     }

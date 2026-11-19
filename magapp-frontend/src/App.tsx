@@ -156,7 +156,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false, show_entretiens_pro: false, show_entretiens_pro_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -191,6 +191,14 @@ function App() {
   // Entretiens professionnels de la Ville : administrateurs (désignation des valideurs) et valideurs désignés
   const [showEp, setShowEp] = useState(false);
   const [epAllowed, setEpAllowed] = useState(false);
+  // Lien d'un mail des entretiens professionnels : /?ep=moi | evaluations | auto (mémorisé : le login recharge la page)
+  const [epPending, setEpPending] = useState<string | null>(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('ep');
+      if (fromUrl !== null) { sessionStorage.setItem('magapp_pending_ep', fromUrl || 'auto'); return fromUrl || 'auto'; }
+      return sessionStorage.getItem('magapp_pending_ep');
+    } catch { return null; }
+  });
   // BETA « Mes factures » : agents ayant des droits SEDIT (ou un accès partagé)
   const [showMesFactures, setShowMesFactures] = useState(false);
   const [mesFacturesAllowed, setMesFacturesAllowed] = useState(false);
@@ -274,9 +282,12 @@ function App() {
   useEffect(() => {
     if (!windowLogin) { setEpAllowed(false); return; }
     const token = localStorage.getItem('token') || '';
-    axios.get('/api/ep-ville/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setEpAllowed(!!(r.data?.isAdmin || r.data?.isValideur)))
-      .catch(() => setEpAllowed(false));
+    const headers = { Authorization: `Bearer ${token}` };
+    // Administrateur / valideur (Ville), ou agent / évaluateur d'un entretien existant (module DSI : mêmes tables)
+    Promise.all([
+      axios.get('/api/ep-ville/me', { headers }).then(r => !!(r.data?.isAdmin || r.data?.isValideur)).catch(() => false),
+      axios.get('/api/entretiens/me', { headers }).then(r => !!(r.data?.entretien || r.data?.isEvaluator)).catch(() => false),
+    ]).then(([ville, dsi]) => { setEpAllowed(ville || dsi); if ((ville || dsi) && epPending) setShowEp(true); });
   }, [windowLogin]);
 
   // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT
@@ -524,14 +535,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false, show_entretiens_pro: false, show_entretiens_pro_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false, show_virement_credits: settingsData.show_virement_credits ?? false, show_virement_credits_original: settingsData.show_virement_credits_original ?? false, show_mes_factures: settingsData.show_mes_factures ?? false, show_mes_factures_original: settingsData.show_mes_factures_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false, show_virement_credits: settingsData.show_virement_credits ?? false, show_virement_credits_original: settingsData.show_virement_credits_original ?? false, show_mes_factures: settingsData.show_mes_factures ?? false, show_mes_factures_original: settingsData.show_mes_factures_original ?? false, show_entretiens_pro: settingsData.show_entretiens_pro ?? false, show_entretiens_pro_original: settingsData.show_entretiens_pro_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1860,12 +1871,13 @@ function App() {
                 />
               )}
 
-              {windowLogin && epAllowed && (
+              {windowLogin && epAllowed && (settings.show_entretiens_pro || settings.is_beta_user) && (
                 <ToolCard
                   icon={<ClipboardCheck size={22} color="#4f46e5" />}
                   bg="#e0e7ff"
                   title="Entretiens professionnels"
-                  description="Valideurs désignés : choisissez vos agents et conduisez leurs entretiens"
+                  beta={settings.show_entretiens_pro && !settings.show_entretiens_pro_original}
+                  description="Votre entretien, ceux que vous conduisez, et les agents dont vous êtes valideur"
                   onClick={() => { setShowTools(false); setShowEp(true); }}
                 />
               )}
@@ -1924,7 +1936,7 @@ function App() {
       {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
-      {showEp && <EpVille onClose={() => setShowEp(false)} />}
+      {showEp && <EpVille initialTab={epPending} onClose={() => { setShowEp(false); setEpPending(null); try { sessionStorage.removeItem('magapp_pending_ep'); window.history.replaceState(null, '', window.location.pathname); } catch { /* ignore */ } }} />}
       {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 

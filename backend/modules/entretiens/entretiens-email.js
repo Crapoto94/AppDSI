@@ -4,16 +4,20 @@
  * Les liens pointent vers l'URL publique de l'application (app_base_url), jamais une adresse en dur.
  */
 const { render, esc, button } = require('../parapheur/parapheur-email');
-const { getAppBaseUrl } = require('../../shared/app_url');
+const { getMagappBaseUrl } = require('../../shared/app_url');
 
-const DEFAULT_PUBLIC_URL = 'https://dsihub.ivry.local';
+const DEFAULT_MAGAPP_URL = 'https://magapp.ivry.local';
 
-/** Lien vers le module (page « Entretiens professionnels ») : URL publique configurée, à défaut dsihub.ivry.local. */
-async function entretiensUrl() {
+/**
+ * Lien vers le module dans MagApp (les agents s'y connectent ; ce n'est plus le DSI Hub).
+ * `vue` : « moi » (mon entretien d'agent : préparation, compte rendu à valider), « evaluations » (mes EP d'évaluateur / valideur),
+ * « auto » ou vide (MagApp choisit selon la situation de l'agent). L'ouverture directe évite d'arriver sur la liste des agents évalués.
+ */
+async function entretiensUrl(vue) {
     let base = '';
-    try { base = await getAppBaseUrl(); } catch (e) { /* ignore */ }
-    if (!base || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(base)) base = DEFAULT_PUBLIC_URL;
-    return `${String(base).replace(/\/+$/, '')}/entretiens`;
+    try { base = await getMagappBaseUrl(); } catch (e) { /* ignore */ }
+    if (!base || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(base)) base = DEFAULT_MAGAPP_URL;
+    return `${String(base).replace(/\/+$/, '')}/?ep=${encodeURIComponent(vue || 'auto')}`;
 }
 
 function infoBlock(title, rows) {
@@ -25,7 +29,7 @@ function infoBlock(title, rows) {
     </div>`;
 }
 
-const FOOTER = 'Entretiens professionnels — Hub DSI. Message automatique, merci de ne pas y répondre.';
+const FOOTER = 'Entretiens professionnels — MagApp. Message automatique, merci de ne pas y répondre.';
 
 /** À l'agent : son entretien est planifié, il doit préparer sa fiche. */
 function preparation({ agent, annee, quand, duree, lieu, evaluateur, link }) {

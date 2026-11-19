@@ -19,18 +19,22 @@ const SIG_Y_PCT = (606 / 841.89) * 100;
 const AGENT_POS = { documentIndex: 0, page: SIG_PAGE, x: (163.8 / 595.28) * 100, y: SIG_Y_PCT, w: SIG_W, h: SIG_H };
 const EVALUATOR_POS = { documentIndex: 0, page: SIG_PAGE, x: (431.3 / 595.28) * 100, y: SIG_Y_PCT, w: SIG_W, h: SIG_H };
 
+const epBeta = require('../../shared/ep-beta-mail');
+
 const err = (status, message) => ({ status, message });
 
 async function sendToAgent({ row, access }) {
     if (!(access.isEvaluator || access.isAdmin)) throw err(403, 'Seul l’évaluateur peut envoyer le compte rendu à l’agent.');
     if (row.crep_statut && row.crep_statut !== 'non_envoye') throw err(409, 'Le compte rendu a déjà été envoyé à l’agent.');
     if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') throw err(400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
+    if (!row.evaluator_email) throw err(400, 'L’évaluateur n’a pas d’adresse e-mail : imprimez le compte rendu, faites-le signer, puis téléversez le PDF signé.');
     if (!row.agent_email) throw err(400, 'L’adresse e-mail de l’agent est inconnue : impossible de lui envoyer le compte rendu.');
 
     await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep_statut = 'envoye_agent', crep_sent_at = NOW(), updated_at = NOW() WHERE id = ?`, [row.id]);
 
     let mail = { ok: true };
     try {
+        if (!(await epBeta.allowedForEntretien(row, row.agent_email, 'compte rendu'))) return { ok: false, skipped: true, beta: true, error: 'Mail non envoyé : fonctionnalité en BETA et agent hors BETA (le statut a bien été mis à jour).' };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
         const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
@@ -38,7 +42,7 @@ async function sendToAgent({ row, access }) {
             agent: svc.fullName(row.agent_prenom, row.agent_nom) || 'Madame, Monsieur',
             annee: campaign?.annee,
             evaluateur: row.evaluator_nom || row.evaluator_email,
-            link: await email.entretiensUrl(),
+            link: await email.entretiensUrl('moi'),
         }));
     } catch (e) {
         mail = { ok: false, error: e.message };
@@ -96,6 +100,8 @@ async function agentValidate({ row, access, body, actor, req }) {
             signataires,
             no_qr: true,
             service: 'DSI',
+            // Entretien de la Ville en BETA : les mails du parapheur (signature, relances, résultat) ne partent qu'aux agents de la BETA.
+            mail_scope: fresh.source === 'ville' ? epBeta.SCOPE : null,
         },
         user: { username: actor.username, email: actor.email || agentEmail, displayName: agentName },
         req,
@@ -128,7 +134,7 @@ async function recall({ row, access }) {
     await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep_statut = 'non_envoye', crep_sent_at = NULL, updated_at = NOW() WHERE id = ?`, [row.id]);
     let mail = { ok: true };
     try {
-        if (row.agent_email) {
+        if (row.agent_email && await epBeta.allowedForEntretien(row, row.agent_email, 'rappel de compte rendu')) {
             const { sendParapheurEmail } = require('../parapheur/parapheur.service');
             const email = require('./entretiens-email');
             const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);

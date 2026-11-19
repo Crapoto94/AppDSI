@@ -1858,6 +1858,7 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_mes_factures BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_entretiens_pro BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)
@@ -7592,6 +7593,8 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_sig_certs_parapheur ON hub_parapheur.signature_certificates(parapheur_id)`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS seal_serial TEXT`);
+      // Portée BETA des mails (ex. 'entretiens_pro') : tant que la fonctionnalité n'est pas publiée, seuls les agents de la BETA reçoivent les mails.
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS mail_scope TEXT`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.audit_log (
@@ -7926,6 +7929,11 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_agent_validated_at TIMESTAMPTZ`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_id INTEGER`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_ref TEXT`);
+      // CREP signé hors parapheur (imprimé, signé à la main puis numérisé et téléversé)
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_path TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_name TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_by TEXT`);
       // Suppression logique d'un EP (les données saisies par l'agent restent conservées).
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_by TEXT`);
@@ -8017,6 +8025,15 @@ async function setupPgDb() {
       `);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_rattachement_matricule ON hub_entretiens.rattachements(agent_matricule) WHERE agent_matricule <> ''`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_rattachement_valideur ON hub_entretiens.rattachements(valideur_id)`);
+      // Compte Active Directory de l'agent (null = agent inconnu de l'AD) et date de la dernière tentative de rapprochement automatique
+      await client.query(`ALTER TABLE hub_entretiens.rattachements ADD COLUMN IF NOT EXISTS agent_username TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.rattachements ADD COLUMN IF NOT EXISTS ad_checked_at TIMESTAMPTZ`);
+      // Cascade : un valideur désigne des sous-valideurs parmi SES agents (niveau 'sous'). `parent_valideur_id` = qui l'a désigné
+      // (NULL = désigné par un administrateur), `rattachement_id` = la ligne de la liste du parent qui le concerne.
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS parent_valideur_id INTEGER REFERENCES hub_entretiens.valideurs(id)`);
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS rattachement_id INTEGER`);
+      // Libellés des directions couvertes (directeur / DGA / DG) : un directeur voit tous les EP de sa direction, en lecture seule.
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS perimetre_libelles JSONB NOT NULL DEFAULT '[]'::jsonb`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_matricule TEXT DEFAULT ''`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_grade TEXT DEFAULT ''`);
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS rattachement_id INTEGER`);

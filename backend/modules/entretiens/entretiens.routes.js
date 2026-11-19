@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const ctrl = require('./entretiens.controller');
 const { authenticateJWT } = require('../../shared/middleware');
+const multer = require('multer');
+const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 // Toutes les routes exigent un utilisateur connecté. Le module est « public »
 // (visible par tous les agents via sa tuile), mais chaque route applique
@@ -9,6 +11,7 @@ const { authenticateJWT } = require('../../shared/middleware');
 
 // Espace personnel et rôle
 router.get('/me', authenticateJWT, ctrl.me);
+router.get('/magapp-url', authenticateJWT, ctrl.magappUrl);
 
 // Tableaux de bord
 router.get('/stats', authenticateJWT, ctrl.stats);
@@ -52,6 +55,8 @@ router.put('/:id/evaluation', authenticateJWT, ctrl.saveEvaluation);
 router.put('/:id/crep', authenticateJWT, ctrl.saveCrep);
 router.put('/:id/planning', authenticateJWT, ctrl.planning);
 router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
+router.get('/:id/crep-signe.pdf', authenticateJWT, ctrl.crepSignedPdf);
+router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
 router.post('/:id/crep/check', authenticateJWT, ctrl.crepCheck);
 router.post('/:id/crep/send-to-agent', authenticateJWT, ctrl.crepSendToAgent);
 router.put('/:id/crep/agent-draft', authenticateJWT, ctrl.crepAgentDraft);

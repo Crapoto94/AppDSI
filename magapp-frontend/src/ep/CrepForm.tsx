@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2 } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2, Upload } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Entretien } from './types';
 import { formatDateHeure } from './types';
 import type { Crep } from './crep';
 import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields } from './crep';
 import CrepAiAssist from './CrepAiAssist';
+import { AttitudesSynthese } from './attitudes';
 import { COLORS, Field, btnGhost, btnPrimary, input, textarea } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -52,7 +53,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const headers = { Authorization: `Bearer ${token}` };
   const isAgent = mode === 'agent';
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
-  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
   const checkRef = useRef<HTMLDivElement>(null);
@@ -63,7 +65,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const set = <K extends keyof Crep>(key: K, value: Crep[K]) => setCrep(c => ({ ...c, [key]: value }));
   const dis = !canEdit || isAgent;
   const crepStatut = entretien.crep_statut || 'non_envoye';
-  const canSend = !isAgent && canEdit && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis' && crepStatut === 'non_envoye';
+  // Agent ou évaluateur sans adresse e-mail : pas de circuit parapheur, on imprime, on fait signer puis on téléverse le PDF signé.
+  const noMail = !(entretien.agent_email || '').trim() || !(entretien.evaluator_email || '').trim();
+  const canSend = !isAgent && canEdit && !noMail && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis' && crepStatut === 'non_envoye';
+  const hasSigned = !!entretien.crep_signed_at || (crepStatut === 'en_signature' && entretien.crep_parapheur_status === 'termine');
+  const canUploadSigned = !isAgent && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis'
+    && (crepStatut === 'non_envoye' || crepStatut === 'signe_papier' || (crepStatut === 'en_signature' && ['refuse', 'annule'].includes(entretien.crep_parapheur_status || '')));
   const agentCanValidate = isAgent && crepStatut === 'envoye_agent';
 
   const save = async (submit: boolean) => {
@@ -178,6 +185,32 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     } finally { setBusy(null); }
   };
 
+  const openSignedPdf = async () => {
+    setBusy('signedpdf'); setMsg(null);
+    try {
+      const r = await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      setMsg({ ok: false, text: 'PDF signé indisponible.' });
+    } finally { setBusy(null); }
+  };
+
+  const uploadSigned = async (file: File | undefined) => {
+    if (!file) return;
+    if (!window.confirm(`Téléverser « ${file.name} » comme compte rendu signé ?${entretien.crep_signed_at ? '\n\nIl remplacera la version déjà téléversée.' : ''}`)) { if (fileRef.current) fileRef.current.value = ''; return; }
+    setBusy('upload'); setMsg(null);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/signed-upload`, fd, { headers });
+      onSaved(r.data.entretien);
+      setMsg({ ok: true, text: 'Compte rendu signé enregistré.' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message || 'Téléversement impossible.' });
+    } finally { setBusy(null); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
   const agent = `${entretien.agent_prenom || ''} ${entretien.agent_nom}`.trim();
 
   // Éléments factuels transmis à l'IA locale pour chaque rubrique (saisie de l'agent dans sa préparation).
@@ -233,6 +266,15 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             {crepStatut === 'envoye_agent'
               ? <>Compte rendu envoyé à l’agent{entretien.crep_sent_at ? ` le ${new Date(entretien.crep_sent_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} : en attente de sa relecture et de sa validation.</>
               : <>Validé par l’agent{entretien.crep_agent_validated_at ? ` le ${new Date(entretien.crep_agent_validated_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} et transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}{entretien.crep_parapheur_status ? ` — statut : ${entretien.crep_parapheur_status}` : ''}. Pensez à le signer dans votre parapheur.</>}
+          </span>
+        </div>
+      )}
+      {!isAgent && noMail && crepStatut === 'non_envoye' && (
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
+          <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            {!(entretien.agent_email || '').trim() && !(entretien.evaluator_email || '').trim() ? 'L’agent et l’évaluateur n’ont pas d’adresse e-mail' : !(entretien.agent_email || '').trim() ? 'L’agent n’a pas d’adresse e-mail' : 'L’évaluateur n’a pas d’adresse e-mail'} :
+            le compte rendu ne peut pas passer par le parapheur. <strong>Imprimez-le</strong> (bouton « Imprimer / PDF »), faites-le signer, puis <strong>téléversez le PDF signé</strong>.
           </span>
         </div>
       )}
@@ -325,6 +367,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </tbody>
         </table>
       </div>
+      <AttitudesSynthese valeur={crep.valeur} />
       <div style={{ marginTop: 14 }}>
         <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
@@ -457,6 +500,19 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
               </button>
             )}
           </>
+        )}
+        {canUploadSigned && (
+          <>
+            <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }} onChange={e => uploadSigned(e.target.files?.[0])} />
+            <button style={btnGhost} disabled={!!busy} onClick={() => fileRef.current?.click()} title="Compte rendu imprimé puis signé à la main (agent sans e-mail, hors parapheur)">
+              {busy === 'upload' ? <Loader2 size={14} /> : <Upload size={14} />} {entretien.crep_signed_at ? 'Remplacer le PDF signé' : 'Téléverser le PDF signé'}
+            </button>
+          </>
+        )}
+        {hasSigned && (
+          <button style={{ ...btnPrimary, background: COLORS.success }} disabled={!!busy} onClick={openSignedPdf}>
+            {busy === 'signedpdf' ? <Loader2 size={14} /> : <FileDown size={14} />} PDF signé
+          </button>
         )}
         <button style={{ ...btnGhost, marginLeft: 'auto' }} disabled={!!busy} onClick={openPdf}>
           {busy === 'pdf' ? <Loader2 size={14} /> : <FileDown size={14} />} Imprimer / PDF (4 pages)

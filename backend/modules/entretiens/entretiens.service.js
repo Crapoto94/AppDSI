@@ -15,6 +15,8 @@ const {
     deleteOutlookEvent,
 } = require('../rencontres/outlook.service');
 
+const epBeta = require('../../shared/ep-beta-mail');
+
 const norm = (v) => String(v || '').trim().toLowerCase();
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 
@@ -136,6 +138,7 @@ function evaluatorClause(identity) {
 async function sendPreparationMail(entretien, campaign) {
     try {
         if (!entretien?.agent_email || !entretien.date_entretien) return { ok: false, skipped: true };
+        if (!(await epBeta.allowedForEntretien(entretien, entretien.agent_email, 'mail de préparation'))) return { ok: false, skipped: true, beta: true };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
         const tpl = email.preparation({
@@ -145,7 +148,7 @@ async function sendPreparationMail(entretien, campaign) {
             duree: entretien.duree_minutes,
             lieu: entretien.lieu,
             evaluateur: entretien.evaluator_nom || entretien.evaluator_email,
-            link: await email.entretiensUrl(),
+            link: await email.entretiensUrl('moi'),
         });
         await sendParapheurEmail(entretien.agent_email, tpl);
         return { ok: true };
@@ -159,6 +162,7 @@ async function sendPreparationMail(entretien, campaign) {
 async function sendEvaluatorMail(entretien, campaign) {
     try {
         if (!entretien?.evaluator_email) return { ok: false, skipped: true };
+        if (!(await epBeta.allowedForEntretien(entretien, entretien.evaluator_email, 'mail évaluateur'))) return { ok: false, skipped: true, beta: true };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
         const base = {
@@ -166,7 +170,7 @@ async function sendEvaluatorMail(entretien, campaign) {
             agent: fullName(entretien.agent_prenom, entretien.agent_nom) || entretien.agent_email || 'un agent',
             annee: campaign?.annee,
             service: entretien.service,
-            link: await email.entretiensUrl(),
+            link: await email.entretiensUrl('evaluations'),
         };
         // Avec une date : confirmation du rendez-vous ; sans date : l'évaluateur doit planifier lui-même.
         const tpl = entretien.date_entretien
@@ -232,7 +236,7 @@ async function resolveRole(actor) {
  */
 function forViewer(entretien, access) {
     if (!entretien || !access) return entretien;
-    if (access.isAdmin || access.isEvaluator) return entretien;
+    if (access.isAdmin || access.isEvaluator || access.isSuperieur) return entretien;
     const out = { ...entretien };
     delete out.notes_admin;
     if (!out.crep_statut || out.crep_statut === 'non_envoye') {
@@ -248,7 +252,8 @@ function forViewer(entretien, access) {
 
 /** Droits d'accès à un entretien donné. */
 async function buildAccess(actor, entretien, adminFlag) {
-    const admin = adminFlag !== undefined ? adminFlag : await isEpAdmin(actor);
+    // Les administrateurs n'ont pas accès au contenu des EP de la Ville (ils ne font que désigner des valideurs).
+    const admin = (adminFlag !== undefined ? adminFlag : await isEpAdmin(actor)) && entretien.source !== 'ville';
     const email = norm(actor.email);
     const username = norm(actor.username);
     const isAgent = !!(
@@ -260,7 +265,9 @@ async function buildAccess(actor, entretien, adminFlag) {
         (norm(entretien.evaluator_email) && identity.emails.includes(norm(entretien.evaluator_email))) ||
         (norm(entretien.evaluator_username) && identity.usernames.includes(norm(entretien.evaluator_username)))
     );
-    if (!admin && !isAgent && !isEvaluator) return null;
+    // Valideur situé au-dessus de l'évaluateur direct (cascade) : lecture seule de l'EP, jamais de modification.
+    const isSuperieur = (!admin && !isAgent && !isEvaluator) ? await require('../ep-ville/ep-ville.hierarchy').isSuperieur(actor, entretien).catch(() => false) : false;
+    if (!admin && !isAgent && !isEvaluator && !isSuperieur) return null;
 
     // La préparation reste modifiable jusqu'à 7 jours après la date de
     // l'entretien (et tant que l'entretien n'est pas réalisé/clôturé).
@@ -279,6 +286,7 @@ async function buildAccess(actor, entretien, adminFlag) {
         isAdmin: admin,
         isAgent,
         isEvaluator,
+        isSuperieur,
         canEditPreparation,
         // Une fois le compte rendu envoyé à l'agent, l'évaluateur ne peut plus le modifier.
         canEditEvaluation: (isEvaluator || admin) && entretien.statut !== 'cloture' && (!entretien.crep_statut || entretien.crep_statut === 'non_envoye'),
@@ -320,9 +328,11 @@ async function withRelations(entretien) {
 }
 
 /** Liste enrichie (compteurs de préparation) avec filtres facultatifs. */
-async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, search, limit = 2000 } = {}) {
+async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, search, excludeVille, ratIds, limit = 2000 } = {}) {
     const where = [];
     const params = [];
+    if (excludeVille) where.push("COALESCE(e.source, 'hub') <> 'ville'");
+    if (Array.isArray(ratIds)) { if (!ratIds.length) return []; where.push(`e.rattachement_id IN (${ratIds.map(() => '?').join(',')})`); params.push(...ratIds.map(Number)); }
     if (campaignId) { where.push('e.campaign_id = ?'); params.push(Number(campaignId)); }
     if (statut) { where.push('e.statut = ?'); params.push(statut); }
     if (evaluatorEmail) { where.push('LOWER(e.evaluator_email) = LOWER(?)'); params.push(evaluatorEmail); }
@@ -456,10 +466,12 @@ async function syncOutlook(entretien, actor, campaign, { forceCreate = false } =
             if (attendees.some(a => norm(a.email) === norm(e))) return;
             attendees.push({ email: e, name: name || e });
         };
-        push(entretien.agent_email, fullName(entretien.agent_prenom, entretien.agent_nom));
-        push(entretien.evaluator_email, entretien.evaluator_nom);
+        const okAgent = await epBeta.allowedForEntretien(entretien, entretien.agent_email, 'invitation Outlook');
+        const okEval = await epBeta.allowedForEntretien(entretien, entretien.evaluator_email, 'invitation Outlook');
+        if (okAgent) push(entretien.agent_email, fullName(entretien.agent_prenom, entretien.agent_nom));
+        if (okEval) push(entretien.evaluator_email, entretien.evaluator_nom);
 
-        const { titre, body } = buildEventBody(entretien, campaign, await require('./entretiens-email').entretiensUrl());
+        const { titre, body } = buildEventBody(entretien, campaign, await require('./entretiens-email').entretiensUrl('auto'));
         const common = {
             organizerEmail,
             dateReunion: entretien.date_entretien,

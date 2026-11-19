@@ -110,7 +110,7 @@ async function searchADUsersByQuery(query, config) {
             const opts = {
                 filter,
                 scope: 'sub',
-                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'],
+                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company', 'employeeID', 'employeeNumber'],
                 sizeLimit: 25
             };
 
@@ -127,7 +127,9 @@ async function searchADUsersByQuery(query, config) {
                             // `mail` peut être multivalué (tableau) en LDAP.
                             email: decodeLDAPString(Array.isArray(user.mail) ? user.mail[0] : (user.mail || '')) || '',
                             service: user.department || '',
-                            direction: user.company || ''
+                            direction: user.company || '',
+                            // Matricule RH quand l'AD le porte (employeeID / employeeNumber) : sert à faire le lien avec SEDIT RH.
+                            matricule: String(Array.isArray(user.employeeID) ? user.employeeID[0] : (user.employeeID || (Array.isArray(user.employeeNumber) ? user.employeeNumber[0] : user.employeeNumber) || '')).trim()
                         });
                     }
                 });
