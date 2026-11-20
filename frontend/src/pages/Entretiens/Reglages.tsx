@@ -29,17 +29,18 @@ type AiFeatureKey = 'draft' | 'review';
 
 interface AiFeatureUi {
   enabled: boolean;
+  all: boolean;
   evaluators: AiEvaluatorRef[];
   query: string;
   msg: { ok: boolean; text: string } | null;
-  saving: 'enable' | 'disable' | null;
+  saving: 'all' | 'selection' | 'disable' | null;
 }
 
-const emptyAiFeature = (): AiFeatureUi => ({ enabled: false, evaluators: [], query: '', msg: null, saving: null });
+const emptyAiFeature = (): AiFeatureUi => ({ enabled: false, all: false, evaluators: [], query: '', msg: null, saving: null });
 
 function AccessCard({
   title, description, entriesLabel, entryOne, entryMany,
-  enabled, entries, candidates, query, msg, saving, onQuery, onToggle, onSave,
+  enabled, all, entries, candidates, query, msg, saving, onQuery, onToggle, onSave,
 }: {
   title: string;
   description: string;
@@ -47,14 +48,15 @@ function AccessCard({
   entryOne: string;
   entryMany: string;
   enabled: boolean;
+  all: boolean;
   entries: AiEvaluatorRef[];
   candidates: AiEvaluatorRef[];
   query: string;
   msg: { ok: boolean; text: string } | null;
-  saving: 'enable' | 'disable' | null;
+  saving: 'all' | 'selection' | 'disable' | null;
   onQuery: (v: string) => void;
   onToggle: (e: AiEvaluatorRef) => void;
-  onSave: (mode: 'enable' | 'disable') => void;
+  onSave: (mode: 'all' | 'selection' | 'disable') => void;
 }) {
   const q = query.trim().toLowerCase();
   const visible = q
@@ -69,15 +71,15 @@ function AccessCard({
             fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '2px 9px',
             background: enabled ? '#dcfce7' : '#f1f5f9', color: enabled ? '#166534' : '#64748b',
           }}>
-            {enabled ? `Activée · ${entries.length} ${entries.length > 1 ? entryMany : entryOne}` : 'Désactivée'}
+            {!enabled ? 'Désactivée' : all ? `Activée pour tous les ${entryMany}` : `Activée · ${entries.length} ${entries.length > 1 ? entryMany : entryOne}`}
           </span>
         </div>
         <button
           style={enabled ? btnDanger : btnPrimary}
           disabled={saving !== null}
-          onClick={() => onSave(enabled ? 'disable' : 'enable')}
+          onClick={() => onSave(enabled ? 'disable' : 'all')}
         >
-          {saving !== null ? <Loader2 size={14} /> : <Power size={14} />} {enabled ? 'Désactiver pour tous' : 'Réactiver pour tous'}
+          {saving === 'disable' || saving === 'all' ? <Loader2 size={14} /> : <Power size={14} />} {enabled ? 'Désactiver pour tous' : 'Réactiver pour tous'}
         </button>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>{description}</p>
@@ -131,9 +133,9 @@ function AccessCard({
         </div>
 
         <div style={{ display: 'flex', gap: 9, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-          <button style={btnPrimary} disabled={saving !== null || entries.length === 0} onClick={() => onSave('enable')}>
-            {saving === 'enable' ? <Loader2 size={15} /> : <Sparkles size={15} />}
-            {enabled ? 'Enregistrer la sélection' : 'Activer pour la sélection'}
+          <button style={btnPrimary} disabled={saving !== null || entries.length === 0} onClick={() => onSave('selection')}>
+            {saving === 'selection' ? <Loader2 size={15} /> : <Sparkles size={15} />}
+            {enabled && !all ? 'Enregistrer la sélection' : 'Activer pour la sélection'}
           </button>
           <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{entries.length} {entries.length > 1 ? entryMany : entryOne} sélectionné{entries.length > 1 ? 's' : ''}</span>
         </div>
@@ -194,8 +196,6 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [campMsg, setCampMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [admins, setAdmins] = useState<AdminRow[]>([]);
-  const [dsiAgents, setDsiAgents] = useState<AgentOption[]>([]);
-  const [dirLoading, setDirLoading] = useState(true);
   const [adminKey, setAdminKey] = useState(0);
   const [adminMsg, setAdminMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -240,6 +240,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       const toUi = (feature: AiFeatureKey, prev: AiFeatureUi): AiFeatureUi => ({
         ...prev,
         enabled: !!remote[feature]?.enabled,
+        all: !!remote[feature]?.all,
         evaluators: Array.isArray(remote[feature]?.evaluators) ? remote[feature].evaluators : [],
       });
       setAi(prev => ({ draft: toUi('draft', prev.draft), review: toUi('review', prev.review) }));
@@ -248,6 +249,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       setSelf(prev => ({
         ...prev,
         enabled: !!remoteSelf.enabled,
+        all: !!remoteSelf.all,
         evaluators: Array.isArray(remoteSelf.agents) ? remoteSelf.agents : [],
       }));
       setSelfCandidates(Array.isArray(remoteSelf.candidates) ? remoteSelf.candidates : []);
@@ -255,6 +257,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       setEsign(prev => ({
         ...prev,
         enabled: !!remoteEsign.enabled,
+        all: !!remoteEsign.all,
         evaluators: Array.isArray(remoteEsign.agents) ? remoteEsign.agents : [],
       }));
       setEsignCandidates(Array.isArray(remoteEsign.candidates) ? remoteEsign.candidates : []);
@@ -268,20 +271,6 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     const c = campaigns.find(x => x.id === selectedId);
     if (c) setCampForm(toForm(c));
   }, [selectedId, campaigns]);
-
-  // Les administrateurs du module sont choisis parmi les agents du calendrier DSI.
-  useEffect(() => {
-    let alive = true;
-    axios.get('/api/entretiens/directory', { headers })
-      .then(r => {
-        if (!alive) return;
-        const list: any[] = Array.isArray(r.data?.agents) ? r.data.agents : [];
-        setDsiAgents(list.map(a => ({ username: a.username, displayName: `${a.prenom} ${a.nom}`.trim(), email: a.email, service: a.service })));
-      })
-      .catch(() => { if (alive) setDsiAgents([]); })
-      .finally(() => { if (alive) setDirLoading(false); });
-    return () => { alive = false; };
-  }, [token]);
 
   const saveCampaign = async () => {
     setCampMsg(null);
@@ -355,11 +344,11 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     });
   };
 
-  const saveAi = async (feature: AiFeatureKey, mode: 'enable' | 'disable') => {
+  const saveAi = async (feature: AiFeatureKey, mode: 'all' | 'selection' | 'disable') => {
     const meta = AI_CARDS.find(c => c.key === feature)!;
     const current = ai[feature];
     if (mode === 'disable' && !window.confirm(`Désactiver ${meta.noun} pour tous les évaluateurs ?`)) return;
-    if (mode === 'enable' && current.evaluators.length === 0) {
+    if (mode === 'selection' && current.evaluators.length === 0) {
       patchAi(feature, { msg: { ok: false, text: 'Sélectionnez au moins un évaluateur avant d’activer l’IA.' } });
       return;
     }
@@ -367,18 +356,23 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     try {
       const payload = mode === 'disable'
         ? { [`ai_${feature}_enabled`]: false }
-        : { [`ai_${feature}_enabled`]: true, [`ai_${feature}_evaluators`]: current.evaluators };
+        : mode === 'all'
+          ? { [`ai_${feature}_enabled`]: true, [`ai_${feature}_all`]: true }
+          : { [`ai_${feature}_enabled`]: true, [`ai_${feature}_all`]: false, [`ai_${feature}_evaluators`]: current.evaluators };
       const r = await axios.put('/api/entretiens/settings', payload, { headers });
       const next = r.data.ai?.[feature];
       patchAi(feature, {
         enabled: !!next?.enabled,
+        all: !!next?.all,
         evaluators: Array.isArray(next?.evaluators) ? next.evaluators : [],
         saving: null,
         msg: {
           ok: true,
           text: mode === 'disable'
             ? `${meta.title} désactivée pour tous les évaluateurs.`
-            : `${meta.title} activée pour ${(next?.evaluators || []).length} évaluateur(s).`,
+            : mode === 'all'
+              ? `${meta.title} activée pour tous les évaluateurs.`
+              : `${meta.title} activée pour ${(next?.evaluators || []).length} évaluateur(s).`,
         },
       });
       setAiCandidates(Array.isArray(r.data.ai?.candidates) ? r.data.ai.candidates : aiCandidates);
@@ -395,9 +389,9 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       evaluators: isSelected ? self.evaluators.filter(x => aiKey(x) !== aiKey(e)) : [...self.evaluators, e],
     });
   };
-  const saveSelf = async (mode: 'enable' | 'disable') => {
+  const saveSelf = async (mode: 'all' | 'selection' | 'disable') => {
     if (mode === 'disable' && !window.confirm('Fermer « Mon entretien » pour tous les agents ?')) return;
-    if (mode === 'enable' && self.evaluators.length === 0) {
+    if (mode === 'selection' && self.evaluators.length === 0) {
       patchSelf({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».' } });
       return;
     }
@@ -405,18 +399,23 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     try {
       const payload = mode === 'disable'
         ? { self_enabled: false }
-        : { self_enabled: true, self_agents: self.evaluators };
+        : mode === 'all'
+          ? { self_enabled: true, self_all: true }
+          : { self_enabled: true, self_all: false, self_agents: self.evaluators };
       const r = await axios.put('/api/entretiens/settings', payload, { headers });
       const next = r.data.self || {};
       patchSelf({
         enabled: !!next.enabled,
+        all: !!next.all,
         evaluators: Array.isArray(next.agents) ? next.agents : [],
         saving: null,
         msg: {
           ok: true,
           text: mode === 'disable'
             ? '« Mon entretien » est fermé pour tous les agents.'
-            : `« Mon entretien » est ouvert à ${(next.agents || []).length} agent(s).`,
+            : mode === 'all'
+              ? '« Mon entretien » est ouvert à tous les agents.'
+              : `« Mon entretien » est ouvert à ${(next.agents || []).length} agent(s).`,
         },
       });
       setSelfCandidates(Array.isArray(next.candidates) ? next.candidates : selfCandidates);
@@ -433,9 +432,9 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       evaluators: isSelected ? esign.evaluators.filter(x => aiKey(x) !== aiKey(e)) : [...esign.evaluators, e],
     });
   };
-  const saveEsign = async (mode: 'enable' | 'disable') => {
+  const saveEsign = async (mode: 'all' | 'selection' | 'disable') => {
     if (mode === 'disable' && !window.confirm('Fermer la signature électronique du compte rendu pour tous les agents ?')) return;
-    if (mode === 'enable' && esign.evaluators.length === 0) {
+    if (mode === 'selection' && esign.evaluators.length === 0) {
       patchEsign({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.' } });
       return;
     }
@@ -443,18 +442,23 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     try {
       const payload = mode === 'disable'
         ? { esign_enabled: false }
-        : { esign_enabled: true, esign_agents: esign.evaluators };
+        : mode === 'all'
+          ? { esign_enabled: true, esign_all: true }
+          : { esign_enabled: true, esign_all: false, esign_agents: esign.evaluators };
       const r = await axios.put('/api/entretiens/settings', payload, { headers });
       const next = r.data.esign || {};
       patchEsign({
         enabled: !!next.enabled,
+        all: !!next.all,
         evaluators: Array.isArray(next.agents) ? next.agents : [],
         saving: null,
         msg: {
           ok: true,
           text: mode === 'disable'
             ? 'Signature électronique fermée pour tous les agents.'
-            : `Signature électronique ouverte à ${(next.agents || []).length} agent(s).`,
+            : mode === 'all'
+              ? 'Signature électronique ouverte à tous les agents.'
+              : `Signature électronique ouverte à ${(next.agents || []).length} agent(s).`,
         },
       });
       setEsignCandidates(Array.isArray(next.candidates) ? next.candidates : esignCandidates);
@@ -560,13 +564,14 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         </div>
         <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
           En plus des administrateurs généraux de l’application, ces utilisateurs peuvent programmer et gérer les
-          entretiens de tous les agents. Les encadrants, eux, n’ont pas besoin d’être déclarés ici : il suffit qu’ils
-          soient désignés comme évaluateurs sur au moins un entretien.
+          entretiens de tous les agents. Ils peuvent être n’importe quel agent de l’annuaire, pas seulement ceux du
+          calendrier DSI. Les encadrants, eux, n’ont pas besoin d’être déclarés ici : il suffit qu’ils soient désignés
+          comme évaluateurs sur au moins un entretien.
         </p>
 
         <div style={{ marginBottom: 10, maxWidth: 520 }}>
-          <AgentSearch key={adminKey} agents={dsiAgents} loading={dirLoading} hidePresence
-            placeholder="Ajouter un agent du calendrier DSI…" onSelect={addAdmin} />
+          <AgentSearch key={adminKey} hidePresence
+            placeholder="Rechercher n’importe quel agent (nom, login ou e-mail)…" onSelect={addAdmin} />
         </div>
 
         {adminMsg && (
@@ -602,6 +607,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
             entriesLabel="Activer pour des évaluateurs"
             entryOne="évaluateur" entryMany="évaluateurs"
             enabled={st.enabled}
+            all={st.all}
             entries={st.evaluators}
             candidates={aiCandidates}
             query={st.query}
@@ -621,6 +627,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         entriesLabel="Ouvrir pour des agents"
         entryOne="agent" entryMany="agents"
         enabled={self.enabled}
+        all={self.all}
         entries={self.evaluators}
         candidates={selfCandidates}
         query={self.query}
@@ -638,6 +645,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         entriesLabel="Ouvrir pour des agents"
         entryOne="agent" entryMany="agents"
         enabled={esign.enabled}
+        all={esign.all}
         entries={esign.evaluators}
         candidates={esignCandidates}
         query={esign.query}

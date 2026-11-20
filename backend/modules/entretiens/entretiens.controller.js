@@ -393,11 +393,14 @@ const entretiensController = {
             for (const feature of ['draft', 'review']) {
                 const enabledKey = `ai_${feature}_enabled`;
                 const listKey = `ai_${feature}_evaluators`;
-                if (b[enabledKey] === undefined && b[listKey] === undefined) continue;
+                const allKey = `ai_${feature}_all`;
+                if (b[enabledKey] === undefined && b[listKey] === undefined && b[allKey] === undefined) continue;
 
                 const currentRaw = (await svc.getSetting(enabledKey)).trim().toLowerCase();
                 let enabled = currentRaw === 'true' || currentRaw === '1';
                 if (b[enabledKey] !== undefined) enabled = parseBool(b[enabledKey]);
+                let all = ['true', '1'].includes((await svc.getSetting(allKey)).trim().toLowerCase());
+                if (b[allKey] !== undefined) all = parseBool(b[allKey]);
 
                 let evaluators;
                 if (b[listKey] !== undefined) {
@@ -419,18 +422,21 @@ const entretiensController = {
                     evaluators = await svc.getAiEvaluators(feature);
                 }
 
-                if (enabled && !evaluators.length) {
+                if (enabled && !all && !evaluators.length) {
                     return fail(res, 400, `Sélectionnez au moins un évaluateur avant d’activer l’IA (${feature === 'draft' ? 'rédaction' : 'évaluation des compétences'}).`);
                 }
                 if (b[enabledKey] !== undefined) updates[enabledKey] = enabled ? 'true' : 'false';
+                if (b[allKey] !== undefined) updates[allKey] = all ? 'true' : 'false';
                 if (b[listKey] !== undefined) updates[listKey] = JSON.stringify(evaluators);
             }
 
-            // Accès à « Mon entretien » : fermé par défaut, ouvert à des agents choisis.
-            if (b.self_enabled !== undefined || b.self_agents !== undefined) {
+            // Accès à « Mon entretien » : fermé par défaut, ouvert à des agents ou à tous.
+            if (b.self_enabled !== undefined || b.self_agents !== undefined || b.self_all !== undefined) {
                 const currentRaw = (await svc.getSetting('self_enabled')).trim().toLowerCase();
                 let enabled = currentRaw === 'true' || currentRaw === '1';
                 if (b.self_enabled !== undefined) enabled = parseBool(b.self_enabled);
+                let all = ['true', '1'].includes((await svc.getSetting('self_all')).trim().toLowerCase());
+                if (b.self_all !== undefined) all = parseBool(b.self_all);
 
                 let agents;
                 if (b.self_agents !== undefined) {
@@ -452,18 +458,21 @@ const entretiensController = {
                     agents = await svc.getSelfAgents();
                 }
 
-                if (enabled && !agents.length) {
+                if (enabled && !all && !agents.length) {
                     return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».');
                 }
                 if (b.self_enabled !== undefined) updates.self_enabled = enabled ? 'true' : 'false';
+                if (b.self_all !== undefined) updates.self_all = all ? 'true' : 'false';
                 if (b.self_agents !== undefined) updates.self_agents = JSON.stringify(agents);
             }
 
-            // Signature électronique du CREP : fermée par défaut, ouverte à des agents choisis.
-            if (b.esign_enabled !== undefined || b.esign_agents !== undefined) {
+            // Signature électronique du CREP : fermée par défaut, ouverte à des agents ou à tous.
+            if (b.esign_enabled !== undefined || b.esign_agents !== undefined || b.esign_all !== undefined) {
                 const currentRaw = (await svc.getSetting('esign_enabled')).trim().toLowerCase();
                 let enabled = currentRaw === 'true' || currentRaw === '1';
                 if (b.esign_enabled !== undefined) enabled = parseBool(b.esign_enabled);
+                let all = ['true', '1'].includes((await svc.getSetting('esign_all')).trim().toLowerCase());
+                if (b.esign_all !== undefined) all = parseBool(b.esign_all);
 
                 let agents;
                 if (b.esign_agents !== undefined) {
@@ -485,10 +494,11 @@ const entretiensController = {
                     agents = await svc.getEsignAgents();
                 }
 
-                if (enabled && !agents.length) {
+                if (enabled && !all && !agents.length) {
                     return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.');
                 }
                 if (b.esign_enabled !== undefined) updates.esign_enabled = enabled ? 'true' : 'false';
+                if (b.esign_all !== undefined) updates.esign_all = all ? 'true' : 'false';
                 if (b.esign_agents !== undefined) updates.esign_agents = JSON.stringify(agents);
             }
 
@@ -949,7 +959,6 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut renseigner le compte rendu.');
             if (!access.canEditEvaluation) return fail(res, 403, row.crep_statut && row.crep_statut !== 'non_envoye' ? 'Le compte rendu a été envoyé à l’agent : il n’est plus modifiable.' : 'Cet entretien est clôturé.');
-
             const crep = normalizeCrep(req.body?.crep);
             const submit = req.body?.submit === true || req.body?.submit === 'true';
             if (submit) {

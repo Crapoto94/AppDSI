@@ -427,8 +427,8 @@ async function setSetting(key, value) {
 //  - draft  : rédaction assistée des rubriques du compte rendu ;
 //  - review : relecture / évaluation assistée des compétences du compte rendu.
 const AI_FEATURES = {
-    draft: { enabledKey: 'ai_draft_enabled', evaluatorsKey: 'ai_draft_evaluators' },
-    review: { enabledKey: 'ai_review_enabled', evaluatorsKey: 'ai_review_evaluators' },
+    draft: { enabledKey: 'ai_draft_enabled', evaluatorsKey: 'ai_draft_evaluators', allKey: 'ai_draft_all' },
+    review: { enabledKey: 'ai_review_enabled', evaluatorsKey: 'ai_review_evaluators', allKey: 'ai_review_all' },
 };
 const aiFeature = (feature) => AI_FEATURES[feature] || AI_FEATURES.draft;
 
@@ -461,9 +461,11 @@ async function aiAccessFor(actor, feature = 'draft') {
     const cfg = aiFeature(feature);
     const rawEnabled = norm(await getSetting(cfg.enabledKey));
     const enabled = rawEnabled === 'true' || rawEnabled === '1';
-    if (!enabled) return { feature, enabled: false, allowed: false, reason: 'disabled' };
+    if (!enabled) return { feature, enabled: false, all: false, allowed: false, reason: 'disabled' };
+    const all = ['true', '1'].includes(norm(await getSetting(cfg.allKey)));
+    if (all) return { feature, enabled: true, all: true, allowed: true, reason: 'all' };
     const evaluators = await getAiEvaluators(feature);
-    if (!evaluators.length) return { feature, enabled: true, allowed: false, reason: 'no_evaluators' };
+    if (!evaluators.length) return { feature, enabled: true, all: false, allowed: false, reason: 'no_evaluators' };
     const identity = await evaluatorIdentity(actor);
     const usernames = new Set(identity.usernames.map(norm));
     const emails = new Set(identity.emails.map(norm));
@@ -471,7 +473,7 @@ async function aiAccessFor(actor, feature = 'draft') {
         (e.username && usernames.has(norm(e.username)))
         || (e.email && emails.has(norm(e.email)))
     ));
-    return { feature, enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
+    return { feature, enabled: true, all: false, allowed, reason: allowed ? 'ok' : 'not_selected' };
 }
 
 /** Évaluateurs proposés à l'administrateur : ceux déjà désignés et les valideurs de la Ville. */
@@ -523,6 +525,7 @@ async function getAiSettings() {
         const raw = norm(await getSetting(cfg.enabledKey));
         return {
             enabled: raw === 'true' || raw === '1',
+            all: ['true', '1'].includes(norm(await getSetting(cfg.allKey))),
             evaluators: await getAiEvaluators(feature),
         };
     };
@@ -541,9 +544,11 @@ async function getSelfAgents() {
 async function selfAccessFor(actor) {
     const rawEnabled = norm(await getSetting('self_enabled'));
     const enabled = rawEnabled === 'true' || rawEnabled === '1';
-    if (!enabled) return { enabled: false, allowed: false, reason: 'disabled' };
+    if (!enabled) return { enabled: false, all: false, allowed: false, reason: 'disabled' };
+    const all = ['true', '1'].includes(norm(await getSetting('self_all')));
+    if (all) return { enabled: true, all: true, allowed: true, reason: 'all' };
     const agents = await getSelfAgents();
-    if (!agents.length) return { enabled: true, allowed: false, reason: 'no_agents' };
+    if (!agents.length) return { enabled: true, all: false, allowed: false, reason: 'no_agents' };
     const identity = await evaluatorIdentity(actor);
     const usernames = new Set(identity.usernames.map(norm));
     const emails = new Set(identity.emails.map(norm));
@@ -593,6 +598,7 @@ async function getSelfSettings() {
     const raw = norm(await getSetting('self_enabled'));
     return {
         enabled: raw === 'true' || raw === '1',
+        all: ['true', '1'].includes(norm(await getSetting('self_all'))),
         agents: await getSelfAgents(),
         candidates: await listAgentCandidates(),
     };
@@ -622,6 +628,7 @@ async function getEsignSettings() {
     const raw = norm(await getSetting('esign_enabled'));
     return {
         enabled: raw === 'true' || raw === '1',
+        all: ['true', '1'].includes(norm(await getSetting('esign_all'))),
         agents: await getEsignAgents(),
         candidates: await listAgentCandidates(),
     };
