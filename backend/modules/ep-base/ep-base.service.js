@@ -873,7 +873,7 @@ const parseCandidates = (v) => {
 };
 
 /** Valideurs possibles pour un agent : propositions liées à son unité, valideur actuel et, à défaut, encadrants de sa direction. */
-async function candidatesForAgent(matricule) {
+async function candidatesForAgent(matricule, { all = false } = {}) {
     await ensureSchema();
     const a = await pgDb.get(
         `SELECT matricule, nom_prenom, valideur_candidats, valideur_matricule, email,
@@ -890,11 +890,14 @@ async function candidatesForAgent(matricule) {
         const cur = await pgDb.get('SELECT matricule, nom_prenom, poste_fonction, poste, email FROM hub_entretiens.base_agents WHERE matricule = ?', [a.valideur_matricule]);
         if (cur) add(cur.matricule, cur.nom_prenom, cur.poste_fonction, cur.poste, cur.email);
     }
-    if (!by.size && a.direction) {
+    if ((all || !by.size) && a.direction) {
+        // `all` : tout agent de la même direction peut devenir évaluateur (le valideur peut ainsi
+        // promouvoir un agent qu'il évalue, qui choisira ensuite ses propres agents).
         const rows = await pgDb.all(
             `SELECT matricule, nom_prenom, poste_fonction, poste, email FROM hub_entretiens.base_agents
-             WHERE a_conserver AND est_valideur AND split_part(chemin, chr(92), 1) = ? AND matricule <> ?
-             ORDER BY nom_prenom LIMIT 50`, [a.direction, matricule]);
+             WHERE a_conserver AND split_part(chemin, chr(92), 1) = ? AND matricule <> ?
+               ${all ? '' : 'AND est_valideur'}
+             ORDER BY est_valideur DESC, nom_prenom LIMIT ${all ? 800 : 50}`, [a.direction, matricule]);
         for (const r of rows) add(r.matricule, r.nom_prenom, r.poste_fonction, r.poste, r.email);
     }
     return [...by.values()].sort((x, y) => (x.nom || '').localeCompare(y.nom || '', 'fr'));

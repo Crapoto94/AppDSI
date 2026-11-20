@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X } from 'lucide-react';
+import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
 import { STATUTS, formatDateCourte, nomComplet } from './types';
@@ -117,6 +117,9 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [reassignCandidates, setReassignCandidates] = useState<Array<{ matricule: string; nom: string; fonction?: string; poste?: string; email?: string }>>([]);
   const [reassignBusy, setReassignBusy] = useState(false);
   const [reassignMsg, setReassignMsg] = useState<string | null>(null);
+  const [reassignQ, setReassignQ] = useState('');
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [linkFor, setLinkFor] = useState<Entretien | null>(null);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
@@ -168,12 +171,13 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
       await axios.post(`/api/entretiens/evaluateur/agents/${id}/claim`, {}, { headers });
       await load();
       setShowAdd(false);
+      setNotice({ ok: true, text: 'Agent ajouté : vous êtes désormais son évaluateur.' });
     } catch (e: any) { setAddMsg(e.response?.data?.message || 'Ajout impossible.'); }
     finally { setAddBusy(false); }
   };
 
   const openReassign = async (e: Entretien) => {
-    setReassignFor(e); setReassignMsg(null); setReassignCandidates([]);
+    setReassignFor(e); setReassignMsg(null); setReassignCandidates([]); setReassignQ('');
     try {
       const r = await axios.get(`/api/entretiens/${e.id}/evaluator-candidates`, { headers });
       setReassignCandidates(Array.isArray(r.data?.candidates) ? r.data.candidates : []);
@@ -185,6 +189,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     try {
       await axios.post(`/api/entretiens/${reassignFor.id}/reassign-evaluator`, { evaluator_matricule: matricule }, { headers });
       await load();
+      setNotice({ ok: true, text: 'Évaluateur changé avec succès.' });
       setReassignFor(null);
     } catch (e: any) { setReassignMsg(e.response?.data?.message || 'Changement impossible.'); }
     finally { setReassignBusy(false); }
@@ -229,6 +234,10 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   useEffect(() => { setPage(1); }, [q, statut, onlyTodo, valideur, fDir, fSvc, fSec, fCat, pilotage]);
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
   const paged = pilotage ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered;
+  const qr = reassignQ.trim().toLowerCase();
+  const visibleReassign = qr
+    ? reassignCandidates.filter(c => `${c.nom || ''} ${c.matricule || ''} ${c.email || ''} ${c.poste || ''} ${c.fonction || ''}`.toLowerCase().includes(qr))
+    : reassignCandidates;
 
   return (
     <div>
@@ -293,7 +302,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
       </div>
 
       <div style={{ ...card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {!readOnly && !pilotage && (
+        {!pilotage && (
           <button style={btnPrimary} onClick={openAdd}>
             <UserPlus size={14} /> Ajouter un agent
           </button>
@@ -309,6 +318,13 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
           {printBusy === 'filled' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP renseignés
         </button>
       </div>
+
+      {notice && (
+        <div style={{ ...card, padding: '9px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: notice.ok ? COLORS.success : COLORS.danger }}>
+          {notice.ok ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />} {notice.text}
+          <button style={{ ...btnGhost, marginLeft: 'auto', padding: '2px 7px' }} onClick={() => setNotice(null)}><X size={12} /></button>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ ...card, padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>
@@ -327,6 +343,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                   <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />
                 </Th>
                 <Th>Agent</Th>
+                <Th>E-mail</Th>
                 {readOnly && <Th>Valideur</Th>}
                 <Th>Date de l’entretien</Th>
                 <Th>Statut</Th>
@@ -356,6 +373,11 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                           </div>
                         </div>
                       </div>
+                    </Td>
+                    <Td>
+                      {e.agent_email
+                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#475569' }}><Mail size={12} />{e.agent_email}</span>
+                        : <button style={{ ...btnGhost, padding: '3px 7px', fontSize: 11 }} onClick={() => setLinkFor(e)} title="Rattacher un compte AD"><Link2 size={12} /> Lier l’AD</button>}
                     </Td>
                     {readOnly && <Td><span style={{ fontSize: 12.5, color: '#334155' }}>{e.evaluator_nom || e.evaluator_email || '—'}</span></Td>}
                     <Td>
@@ -460,7 +482,10 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{nomComplet(a)}</div>
                       <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[a.poste, a.direction || a.service].filter(Boolean).join(' · ')}</div>
                     </div>
-                    <button style={btnPrimary} onClick={() => claim(a.id)} disabled={addBusy}>Ajouter</button>
+                    <button style={btnPrimary} disabled={addBusy}
+                      onClick={() => { if (readOnly) { setShowAdd(false); openReassign(a); } else claim(a.id); }}>
+                      {readOnly ? 'Choisir l’évaluateur' : 'Ajouter'}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -469,22 +494,33 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
         </div>
       )}
 
+      {linkFor && (
+        <LinkAdModal entretien={linkFor} headers={headers} onClose={() => setLinkFor(null)}
+          onLinked={() => { setLinkFor(null); load(); setNotice({ ok: true, text: 'Compte AD rattaché à l’agent.' }); }} />
+      )}
+
       {reassignFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }} onMouseDown={ev => { if (ev.target === ev.currentTarget) setReassignFor(null); }}>
           <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ fontSize: 16, fontWeight: 800 }}>Changer l’évaluateur</div>
+              <div style={{ fontSize: 16, fontWeight: 800 }}>
+                {reassignFor.evaluator_nom || reassignFor.evaluator_email ? 'Changer l’évaluateur' : 'Choisir l’évaluateur'}
+              </div>
               <button style={btnGhost} onClick={() => setReassignFor(null)}><X size={15} /></button>
             </div>
             <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 12 }}>
-              {nomComplet(reassignFor)} · évaluateur actuel : <strong>{reassignFor.evaluator_nom || reassignFor.evaluator_email || '—'}</strong>
+              {nomComplet(reassignFor)}{reassignFor.evaluator_nom || reassignFor.evaluator_email ? <> · évaluateur actuel : <strong>{reassignFor.evaluator_nom || reassignFor.evaluator_email}</strong></> : ''}
             </div>
             {reassignMsg && <div style={{ fontSize: 12.5, color: COLORS.danger, marginBottom: 8 }}>{reassignMsg}</div>}
-            {reassignCandidates.length === 0 ? (
-              <div style={{ padding: 16, fontSize: 12.5, color: '#94a3b8' }}>Aucun autre évaluateur proposé pour cet agent.</div>
+            <div style={{ position: 'relative', marginBottom: 8 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
+              <input style={{ ...input, paddingLeft: 31 }} placeholder="Rechercher un évaluateur (nom, matricule, e-mail)…" value={reassignQ} onChange={e => setReassignQ(e.target.value)} />
+            </div>
+            {visibleReassign.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12.5, color: '#94a3b8' }}>Aucun évaluateur proposé pour cet agent.</div>
             ) : (
               <div style={{ maxHeight: 380, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9 }}>
-                {reassignCandidates.map(c => (
+                {visibleReassign.map(c => (
                   <div key={c.matricule} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 11px', borderBottom: `1px solid ${COLORS.border}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{c.nom || c.matricule}</div>
@@ -500,6 +536,75 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Rattachement d'un compte AD à un agent sans e-mail (même logique que l'ajout d'un administrateur). */
+function LinkAdModal({ entretien, headers, onClose, onLinked }: {
+  entretien: Entretien;
+  headers: Record<string, string>;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<Array<{ username: string; displayName: string; email: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2) { setResults([]); setLoading(false); return; }
+    let alive = true;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await axios.get('/api/ad/search', { params: { q: query }, headers });
+        if (alive) setResults(Array.isArray(r.data) ? r.data : []);
+      } catch { if (alive) setResults([]); }
+      finally { if (alive) setLoading(false); }
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, headers]);
+  const link = async (u: { username: string; displayName: string; email: string }) => {
+    setBusy(true); setError('');
+    try {
+      await axios.post(`/api/entretiens/${entretien.id}/link-ad`, { username: u.username }, { headers });
+      onLinked();
+    } catch (e: any) { setError(e.response?.data?.message || 'Rattachement impossible.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2050, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Lier un compte AD</div>
+          <button style={btnGhost} onClick={onClose}><X size={15} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 10 }}>
+          {nomComplet(entretien)} n’a pas d’adresse e-mail. Recherchez son compte dans l’annuaire pour le rattacher.
+        </div>
+        <div style={{ position: 'relative', marginBottom: 8 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
+          <input style={{ ...input, paddingLeft: 31 }} placeholder="Nom, login ou e-mail AD…" value={q} onChange={e => setQ(e.target.value)} />
+          {loading && <Loader2 size={14} className="spin" style={{ position: 'absolute', right: 10, top: 10, color: '#94a3b8' }} />}
+        </div>
+        {error && <div style={{ fontSize: 12.5, color: COLORS.danger, marginBottom: 8 }}>{error}</div>}
+        <div style={{ maxHeight: 340, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9 }}>
+          {results.length === 0 ? (
+            <div style={{ padding: 14, fontSize: 12.5, color: '#94a3b8' }}>{q.trim().length < 2 ? 'Saisissez au moins 2 caractères.' : 'Aucun compte trouvé.'}</div>
+          ) : results.map(u => (
+            <div key={u.username} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 11px', borderBottom: `1px solid ${COLORS.border}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{u.displayName}</div>
+                <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[u.username, u.email].filter(Boolean).join(' · ')}</div>
+              </div>
+              <button style={btnPrimary} disabled={busy} onClick={() => link(u)}>{busy ? <Loader2 size={13} /> : <Link2 size={13} />} Lier</button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

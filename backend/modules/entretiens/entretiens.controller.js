@@ -124,6 +124,25 @@ async function replaceFormations(entretienId, formations) {
 const capitalize = (v) => String(v || '').toLowerCase().replace(/(^|[\s-])(\S)/g, (m, a, b) => a + b.toUpperCase());
 
 /** Agents du calendrier DSI, enrichis (direction / service / poste) depuis l'extraction RH par matricule. */
+/** Direction (base des agents à évaluer) de l'utilisateur connecté. */
+async function baseDirectionOf(actor) {
+    const mat = await epBase.meMatricule(actor);
+    if (!mat) return '';
+    const row = await pgDb.get('SELECT direction FROM hub_entretiens.base_agents WHERE matricule = ?', [mat]);
+    return text(row?.direction);
+}
+
+/** Un valideur peut gérer un agent sans évaluateur de sa direction, même avant son rattachement. */
+async function canManageUnassigned(actor, row) {
+    if (!row || row.evaluator_email || row.evaluator_username) return false;
+    const direction = await baseDirectionOf(actor);
+    if (!direction) return false;
+    if (text(row.direction) === direction) return true;
+    if (!row.agent_matricule) return false;
+    const base = await pgDb.get('SELECT direction FROM hub_entretiens.base_agents WHERE matricule = ?', [row.agent_matricule]);
+    return !!base && text(base.direction) === direction;
+}
+
 async function loadDirectory() {
     const agentsRows = await pgDb.all('SELECT username, nom, email, service, matricule FROM hub_calendrier.agents_dsi ORDER BY LOWER(nom)');
     const matricules = agentsRows.map(a => a.matricule).filter(Boolean);
@@ -1454,22 +1473,22 @@ const entretiensController = {
             const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
             if (!campaign) return res.json({ campaign: null, items: [] });
             const q = text(req.query.q).trim().toLowerCase();
-            const rows = await pgDb.all(
-                `SELECT * FROM hub_entretiens.entretiens
-                 WHERE deleted_at IS NULL AND campaign_id = ?
-                   AND COALESCE(evaluator_email, '') = '' AND COALESCE(evaluator_username, '') = ''
-                 ORDER BY LOWER(agent_nom), LOWER(agent_prenom)`, [campaign.id]);
-            let items = rows || [];
-            if (!role.isAdmin) {
-                const matricule = await epBase.meMatricule(actor);
-                if (!matricule) return res.json({ campaign, items: [] });
-                const kept = [];
-                for (const r of items) {
-                    const cands = await epBase.candidatesForAgent(r.agent_matricule || '');
-                    if (cands.some(c => String(c.matricule) === String(matricule))) kept.push(r);
-                }
-                items = kept;
+            const direction = !role.isAdmin ? await baseDirectionOf(actor) : '';
+            if (!role.isAdmin && !direction) return res.json({ campaign, items: [] });
+            const params = [campaign.id];
+            let where = `e.deleted_at IS NULL AND e.campaign_id = ?
+                AND COALESCE(e.evaluator_email, '') = '' AND COALESCE(e.evaluator_username, '') = ''`;
+            if (direction) {
+                where += ` AND (e.direction = ? OR EXISTS (
+                    SELECT 1 FROM hub_entretiens.base_agents b
+                    WHERE b.matricule = e.agent_matricule AND b.direction = ?))`;
+                params.push(direction, direction);
             }
+            const rows = await pgDb.all(
+                `SELECT e.* FROM hub_entretiens.entretiens e
+                 WHERE ${where}
+                 ORDER BY LOWER(e.agent_nom), LOWER(e.agent_prenom)`, params);
+            let items = rows || [];
             if (q) items = items.filter(r => `${r.agent_prenom || ''} ${r.agent_nom || ''} ${r.agent_email || ''} ${r.service || ''} ${r.direction || ''}`.toLowerCase().includes(q));
             res.json({ campaign, items });
         } catch (err) {
@@ -1489,9 +1508,8 @@ const entretiensController = {
             const matricule = await epBase.meMatricule(actor);
             if (!role.isAdmin) {
                 if (!matricule) return fail(res, 403, 'Vous n’êtes pas reconnu comme valideur dans la base des agents.');
-                const cands = await epBase.candidatesForAgent(row.agent_matricule || '');
-                if (!cands.some(c => String(c.matricule) === String(matricule))) {
-                    return fail(res, 403, 'Cet agent n’est pas dans votre périmètre de validation.');
+                if (!(await canManageUnassigned(actor, row))) {
+                    return fail(res, 403, 'Cet agent n’est pas dans votre direction.');
                 }
             }
             const evaluatorName = actor.displayName || actor.username || actor.email || 'Évaluateur';
@@ -1520,10 +1538,10 @@ const entretiensController = {
             const row = await svc.getEntretienById(Number(req.params.id));
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
-            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) {
-                return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
-            }
-            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '');
+            const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
+                || await canManageUnassigned(actor, row);
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '', { all: true });
             res.json({ candidates, current: { username: row.evaluator_username || '', email: row.evaluator_email || '', nom: row.evaluator_nom || '' } });
         } catch (err) { fail(res, 500, err.message); }
     },
@@ -1536,13 +1554,13 @@ const entretiensController = {
             const row = await svc.getEntretienById(Number(req.params.id));
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
-            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) {
-                return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
-            }
+            const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
+                || await canManageUnassigned(actor, row);
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
             const matricule = text(req.body?.evaluator_matricule).trim();
             if (!matricule) return fail(res, 400, 'Choisissez le nouvel évaluateur.');
             if (String(matricule) === String(row.agent_matricule)) return fail(res, 400, 'Un agent ne peut pas être son propre évaluateur.');
-            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '');
+            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '', { all: true });
             const chosen = candidates.find(c => String(c.matricule) === String(matricule));
             if (!chosen) return fail(res, 400, 'Cet agent ne fait pas partie des évaluateurs possibles pour cet entretien.');
             const evaluator = await pgDb.get('SELECT matricule, nom_prenom, email, ad_username FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
@@ -1564,6 +1582,37 @@ const entretiensController = {
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
         } catch (err) {
             console.error('[ENTRETIENS] reassignEvaluator:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/:id/link-ad  { username } - rattache le compte AD de l'agent (e-mail, login).
+    linkAgentAd: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
+                || await canManageUnassigned(actor, row);
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            if (!row.agent_matricule) return fail(res, 400, 'Cet agent n’est pas rattaché à la base des agents : impossible de lier un compte AD.');
+            const username = text(req.body?.username).trim();
+            if (!username) return fail(res, 400, 'Choisissez un compte AD.');
+            const linked = await epBase.linkAd(row.agent_matricule, username);
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens SET agent_email = ?, agent_username = ?, updated_at = NOW() WHERE id = ?`,
+                [linked?.email || '', linked?.username || username, row.id]
+            );
+            await svc.logAudit({
+                actor, action: 'agent_ad_lie', entretien: row,
+                details: { username: linked?.username || username, email: linked?.email || '' },
+            });
+            res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
+        } catch (err) {
+            if (err && err.status) return fail(res, err.status, err.message);
+            console.error('[ENTRETIENS] linkAgentAd:', err.message);
             fail(res, 500, err.message);
         }
     },

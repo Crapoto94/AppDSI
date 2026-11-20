@@ -52,6 +52,7 @@ router.post('/', authenticateJWT, ctrl.create);
 // Routes paramétrées — déclarées après les chemins spécifiques
 router.get('/:id/evaluator-candidates', authenticateJWT, ctrl.evaluatorCandidates);
 router.post('/:id/reassign-evaluator', authenticateJWT, ctrl.reassignEvaluator);
+router.post('/:id/link-ad', authenticateJWT, ctrl.linkAgentAd);
 router.get('/:id', authenticateJWT, ctrl.getOne);
 router.put('/:id', authenticateJWT, ctrl.update);
 router.delete('/:id', authenticateJWT, ctrl.remove);
