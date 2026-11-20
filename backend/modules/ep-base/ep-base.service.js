@@ -287,7 +287,8 @@ async function importWorkbook(buffer, filename, actor) {
         const o = old.get(a.matricule);
         const candIds = a.candidats.map(c => c.matricule);
         let chosen = '', source = '';
-        if (o && o.valideur_source === 'admin' && o.valideur_matricule && candIds.includes(o.valideur_matricule)) { chosen = o.valideur_matricule; source = 'admin'; }
+        // Choix manuel de l'admin : conservé tant que le valideur choisi existe encore dans le classeur (même hors des propositions automatiques).
+        if (o && o.valideur_source === 'admin' && o.valideur_matricule && agents.some(x => x.matricule === o.valideur_matricule)) { chosen = o.valideur_matricule; source = 'admin'; }
         else if (candIds.length === 1) { chosen = candIds[0]; source = 'auto'; }
         a.valideur_matricule = chosen; a.valideur_source = source;
         a.email = o ? o.email || '' : ''; a.ad_username = o ? o.ad_username || '' : ''; a.ad_status = o ? o.ad_status || 'non_verifie' : 'non_verifie'; a.email_deduit = !!(o && o.email_deduit);
