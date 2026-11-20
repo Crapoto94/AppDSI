@@ -72,8 +72,12 @@ function AccessCard({
             {enabled ? `Activée · ${entries.length} ${entries.length > 1 ? entryMany : entryOne}` : 'Désactivée'}
           </span>
         </div>
-        <button style={btnDanger} disabled={!enabled || saving !== null} onClick={() => onSave('disable')}>
-          {saving === 'disable' ? <Loader2 size={14} /> : <Power size={14} />} Désactiver pour tous
+        <button
+          style={enabled ? btnDanger : btnPrimary}
+          disabled={saving !== null}
+          onClick={() => onSave(enabled ? 'disable' : 'enable')}
+        >
+          {saving !== null ? <Loader2 size={14} /> : <Power size={14} />} {enabled ? 'Désactiver pour tous' : 'Réactiver pour tous'}
         </button>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>{description}</p>
