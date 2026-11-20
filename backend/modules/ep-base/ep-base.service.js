@@ -891,12 +891,13 @@ async function candidatesForAgent(matricule, { all = false } = {}) {
         if (cur) add(cur.matricule, cur.nom_prenom, cur.poste_fonction, cur.poste, cur.email);
     }
     if ((all || !by.size) && a.direction) {
-        // `all` : tout agent de la même direction peut devenir évaluateur (le valideur peut ainsi
-        // promouvoir un agent qu'il évalue, qui choisira ensuite ses propres agents).
+        // `all` : uniquement les évaluateurs de la même direction (encadrants ou agents ayant déjà des agents à évaluer).
         const rows = await pgDb.all(
             `SELECT matricule, nom_prenom, poste_fonction, poste, email FROM hub_entretiens.base_agents
              WHERE a_conserver AND split_part(chemin, chr(92), 1) = ? AND matricule <> ?
-               ${all ? '' : 'AND est_valideur'}
+               AND (est_valideur OR matricule IN (
+                   SELECT DISTINCT valideur_matricule FROM hub_entretiens.base_agents
+                   WHERE a_conserver AND valideur_matricule <> ''))
              ORDER BY est_valideur DESC, nom_prenom LIMIT ${all ? 800 : 50}`, [a.direction, matricule]);
         for (const r of rows) add(r.matricule, r.nom_prenom, r.poste_fonction, r.poste, r.email);
     }

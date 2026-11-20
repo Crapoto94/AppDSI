@@ -123,6 +123,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
                   aiEnabled={!!entretien.ai_access?.draft?.allowed}
                   aiReviewEnabled={!!entretien.ai_access?.review?.allowed}
                   eSignEnabled={!!entretien.esign_access?.allowed}
+                  eSignGloballyEnabled={!!entretien.esign_access?.enabled}
                   onSaved={(e) => { setEntretien(prev => ({ ...(prev as Entretien), ...e, access: (e as any).access || prev?.access })); onSaved?.(); }} />
               )}
             </>

@@ -1474,11 +1474,13 @@ const entretiensController = {
             if (!campaign) return res.json({ campaign: null, items: [] });
             const q = text(req.query.q).trim().toLowerCase();
             const direction = !role.isAdmin ? await baseDirectionOf(actor) : '';
-            if (!role.isAdmin && !direction) return res.json({ campaign, items: [] });
+            if (!role.isAdmin && !direction && !q) return res.json({ campaign, items: [] });
             const params = [campaign.id];
             let where = `e.deleted_at IS NULL AND e.campaign_id = ?
                 AND COALESCE(e.evaluator_email, '') = '' AND COALESCE(e.evaluator_username, '') = ''`;
-            if (direction) {
+            // Par défaut : uniquement ma direction. Dès qu'une recherche est saisie, on cherche
+            // parmi tous les agents sans entretien (nom, e-mail, service).
+            if (direction && !q) {
                 where += ` AND (e.direction = ? OR EXISTS (
                     SELECT 1 FROM hub_entretiens.base_agents b
                     WHERE b.matricule = e.agent_matricule AND b.direction = ?))`;
@@ -1508,9 +1510,6 @@ const entretiensController = {
             const matricule = await epBase.meMatricule(actor);
             if (!role.isAdmin) {
                 if (!matricule) return fail(res, 403, 'Vous n’êtes pas reconnu comme valideur dans la base des agents.');
-                if (!(await canManageUnassigned(actor, row))) {
-                    return fail(res, 403, 'Cet agent n’est pas dans votre direction.');
-                }
             }
             const evaluatorName = actor.displayName || actor.username || actor.email || 'Évaluateur';
             if (matricule && row.agent_matricule) {
@@ -1538,8 +1537,11 @@ const entretiensController = {
             const row = await svc.getEntretienById(Number(req.params.id));
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
+            const unassigned = !row.evaluator_email && !row.evaluator_username;
+            const baseValideur = unassigned ? !!(await epBase.meValideur(actor).catch(() => ({ isValideur: false }))).isValideur : false;
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
-                || await canManageUnassigned(actor, row);
+                || await canManageUnassigned(actor, row)
+                || (unassigned && (role.isEvaluator || baseValideur));
             if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
             const candidates = await epBase.candidatesForAgent(row.agent_matricule || '', { all: true });
             res.json({ candidates, current: { username: row.evaluator_username || '', email: row.evaluator_email || '', nom: row.evaluator_nom || '' } });
@@ -1554,8 +1556,11 @@ const entretiensController = {
             const row = await svc.getEntretienById(Number(req.params.id));
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
+            const unassigned = !row.evaluator_email && !row.evaluator_username;
+            const baseValideur = unassigned ? !!(await epBase.meValideur(actor).catch(() => ({ isValideur: false }))).isValideur : false;
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
-                || await canManageUnassigned(actor, row);
+                || await canManageUnassigned(actor, row)
+                || (unassigned && (role.isEvaluator || baseValideur));
             if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
             const matricule = text(req.body?.evaluator_matricule).trim();
             if (!matricule) return fail(res, 400, 'Choisissez le nouvel évaluateur.');
@@ -1594,8 +1599,11 @@ const entretiensController = {
             const row = await svc.getEntretienById(Number(req.params.id));
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const access = await svc.buildAccess(actor, row, role.isAdmin);
+            const unassigned = !row.evaluator_email && !row.evaluator_username;
+            const baseValideur = unassigned ? !!(await epBase.meValideur(actor).catch(() => ({ isValideur: false }))).isValideur : false;
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
-                || await canManageUnassigned(actor, row);
+                || await canManageUnassigned(actor, row)
+                || (unassigned && (role.isEvaluator || baseValideur));
             if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
             if (!row.agent_matricule) return fail(res, 400, 'Cet agent n’est pas rattaché à la base des agents : impossible de lier un compte AD.');
             const username = text(req.body?.username).trim();

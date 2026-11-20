@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2 } from 'lucide-react';
+import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
-import { STATUTS, formatDateCourte, nomComplet } from './types';
+import { STATUTS, formatDateCourte, nomComplet, repairText } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, KpiCard, Td, Th, btnGhost, btnPrimary, card, input } from './ui';
@@ -104,6 +104,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [valideur, setValideur] = useState('');
   const [onlyTodo, setOnlyTodo] = useState(true);
   const [page, setPage] = useState(1);
+  const [openEvaluators, setOpenEvaluators] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
   const [planning, setPlanning] = useState<Entretien | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -236,8 +237,29 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const paged = pilotage ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered;
   const qr = reassignQ.trim().toLowerCase();
   const visibleReassign = qr
-    ? reassignCandidates.filter(c => `${c.nom || ''} ${c.matricule || ''} ${c.email || ''} ${c.poste || ''} ${c.fonction || ''}`.toLowerCase().includes(qr))
+    ? reassignCandidates.filter(c => repairText(`${c.nom || ''} ${c.matricule || ''} ${c.email || ''} ${c.poste || ''}`).toLowerCase().includes(qr))
     : reassignCandidates;
+
+  // « EP de mon équipe » : arborescence évaluateur → agents évalués.
+  const teamGroups = useMemo(() => {
+    const m = new Map<string, Entretien[]>();
+    for (const e of filtered) {
+      const k = valideurLabel(e);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'));
+  }, [filtered, readOnly]);
+  useEffect(() => { setOpenEvaluators(new Set()); }, [q, statut, valideur, campaign?.id]);
+  const displayItems: Array<{ kind: 'evaluator'; key: string; name: string; count: number } | { kind: 'ep'; key: string; e: Entretien }> = [];
+  if (readOnly) {
+    for (const [name, list] of teamGroups) {
+      displayItems.push({ kind: 'evaluator', key: 'g:' + name, name, count: list.length });
+      if (openEvaluators.has(name)) for (const e of list) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e });
+    }
+  } else {
+    for (const e of paged) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e });
+  }
 
   return (
     <div>
@@ -353,7 +375,25 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
               </tr>
             </thead>
             <tbody>
-              {paged.map(e => {
+              {displayItems.map(item => {
+                if (item.kind === 'evaluator') {
+                  const isOpen = openEvaluators.has(item.name);
+                  return (
+                    <tr key={item.key} onClick={() => setOpenEvaluators(prev => { const n = new Set(prev); if (n.has(item.name)) n.delete(item.name); else n.add(item.name); return n; })}
+                      style={{ background: '#f1f5f9', cursor: 'pointer' }}>
+                      <td colSpan={9} style={{ padding: '9px 12px', borderBottom: `1px solid ${COLORS.border}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: COLORS.text }}>
+                          {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                          <span>{item.name}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
+                            {item.count} agent{item.count > 1 ? 's' : ''} évalué{item.count > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+                const e = item.e;
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
@@ -523,8 +563,8 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                 {visibleReassign.map(c => (
                   <div key={c.matricule} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 11px', borderBottom: `1px solid ${COLORS.border}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{c.nom || c.matricule}</div>
-                      <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[c.fonction, c.poste, c.email].filter(Boolean).join(' · ')}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{repairText(c.nom) || c.matricule}</div>
+                      <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[repairText(c.poste), c.email].filter(Boolean).join(' · ')}</div>
                     </div>
                     <button style={btnGhost} onClick={() => doReassign(c.matricule)} disabled={reassignBusy}>
                       {reassignBusy ? <Loader2 size={13} /> : <UserCog size={13} />} Choisir

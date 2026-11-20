@@ -28,6 +28,9 @@ const wrap = (fn) => async (req, res) => {
 router.get('/me', authenticateJWT, wrap(async (req, res) => res.json(await svc.meValideur(await ent.getActor(req)))));
 router.get('/equipe', authenticateJWT, wrap(async (req, res) => res.json(await svc.equipeEntretiens(await ent.getActor(req)))));
 router.get('/pilotage', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.pilotageEntretiens())));
+router.get('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.listDelegations())));
+router.post('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => { await svc.addDelegation(String(req.body?.secretaire_matricule || ''), String(req.body?.directeur_matricule || ''), req.actor); res.json({ ok: true }); }));
+router.delete('/delegations/:id', authenticateJWT, requireAdmin, wrap(async (req, res) => { await svc.removeDelegation(req.params.id); res.json({ ok: true }); }));
 router.get('/stats', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.stats())));
 router.get('/tree', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ nodes: await svc.tree() })));
 router.get('/templates', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ templates: await svc.listTemplates() })));

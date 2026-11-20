@@ -7,8 +7,9 @@ import {
 import { useAuth } from './useAuth';
 import type { Campaign } from './types';
 import { formatDateFr } from './types';
-import { COLORS, Field, btnDanger, btnGhost, btnPrimary, card, input, textarea } from './ui';
+import { COLORS, Field, btnDanger, btnGhost, btnPrimary, card, input } from './ui';
 import BaseAgents from './BaseAgents';
+import MiniRichEditor from './MiniRichEditor';
 
 interface AgentOption { username: string; displayName: string; email: string; service?: string }
 
@@ -542,8 +543,8 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         </div>
         <div style={{ marginTop: 11 }}>
           <Field label="Consignes affichées aux agents" hint="Visible par tous les agents sur leur page de préparation.">
-            <textarea style={textarea} rows={4} value={campForm.instructions} placeholder="Consignes pour la préparation de l’entretien…"
-              onChange={e => setCampForm(f => ({ ...f, instructions: e.target.value }))} />
+            <MiniRichEditor value={campForm.instructions} placeholder="Consignes pour la préparation de l’entretien…"
+              onChange={html => setCampForm(f => ({ ...f, instructions: html }))} />
           </Field>
         </div>
 

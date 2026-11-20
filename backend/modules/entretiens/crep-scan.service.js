@@ -127,12 +127,64 @@ async function structure(raw, o) {
     }
 }
 
+// ─── API IA Ville : modèle multimodal (lecture du manuscrit + structuration en un seul appel) ──────────
+const VISION_RE = /omni|vision|vl|llava|minicpm-v/i;
+
+async function pickVisionModel(apm) {
+    const ai = require('./ai.service');
+    const svc = require('./entretiens.service');
+    const configured = String(await svc.getSetting('ai_vision_model')).trim();
+    if (configured) return configured;
+    const models = await apm.listModels();
+    const name = models.find(m => /omni/i.test(m)) || models.find(m => VISION_RE.test(m));
+    if (!name) throw new Error('Aucun modèle multimodal sur l’API IA Ville (réglage « ai_vision_model » du module pour en désigner un).');
+    void ai;
+    return name;
+}
+
+function visionPrompt() {
+    const schema = SCHEMA.replace('{', '{"transcription": "texte complet lu, page par page", ');
+    return 'Tu lis un compte rendu d’entretien professionnel (formulaire imprimé, rempli à la main) fourni en image. '
+        + 'Lis TOUT le texte manuscrit et imprimé, puis réponds UNIQUEMENT par un objet JSON valide de cette forme (rubrique absente = chaîne vide, au plus 4 objectifs) :\n'
+        + schema
+        + '\n\nRègles : ne rien inventer ; [illisible] pour un mot illisible ; corriger seulement les fautes de lecture évidentes ; garder le sens et le vocabulaire de l’auteur ; '
+        + 'ne pas déduire les cases cochées de la grille d’appréciation.';
+}
+
+/** Lecture directe par un modèle multimodal de l'API Ville (fournisseurs internes uniquement : ce sont des données RH). */
+async function readWithApmVision(buffer, mimetype, name) {
+    const apm = require('../../shared/apm_ai');
+    const model = await pickVisionModel(apm);
+    const out = await apm.queryAi(visionPrompt(), model, {
+        attachments: [{ name: name || 'compte-rendu', data: buffer.toString('base64') }],
+        pdf_mode: 'complet', max_tokens: 6000, temperature: 0.1, providers: ['ollama', 'vllm'],
+    });
+    const json = extractJson(out);
+    const raw = String(json.transcription || '').trim();
+    delete json.transcription;
+    void mimetype;
+    return { json, raw, model: `${model} (API Ville, vision)` };
+}
+
 /**
  * @returns {{ raw: string, fields: object, engine: { lecture: string, structuration: string }, warnings: string[] }}
  */
 async function scanToProposal(buffer, mimetype, definition) {
     const warnings = [];
     const log = (m) => console.log('[ENTRETIENS] scan CREP :', m);
+
+    // 1) API IA Ville, modèle multimodal : lit le manuscrit et range le contenu en un seul appel.
+    try {
+        const v = await readWithApmVision(buffer, mimetype);
+        const fields = normalizeCrep(v.json, definition);
+        warnings.push('Les cases cochées de la grille d’appréciation ne sont pas reconnues : à renseigner dans le formulaire.');
+        return { raw: v.raw || '(transcription non fournie par le modèle)', fields, engine: { lecture: v.model, structuration: v.model }, warnings };
+    } catch (e) {
+        log(`API Ville (vision) indisponible : ${e.message}`);
+        warnings.push(`Lecture par le modèle multimodal de l’API Ville impossible (${e.message}) : lecture locale utilisée.`);
+    }
+
+    // 2) Repli : lecture locale (vision Ollama, sinon OCR) puis structuration par l'IA interne.
     const pages = await renderPages(buffer, mimetype);
     if (!pages.length) throw new Error('Aucune page lisible dans ce document.');
 

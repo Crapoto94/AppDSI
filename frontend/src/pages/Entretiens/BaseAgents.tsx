@@ -64,7 +64,7 @@ function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers:
             {hits.map(h => (
               <button key={h.matricule} onClick={() => { onChoose(h.matricule); setOpen(false); setQ(''); }}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 6px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12 }}>
-                <b>{h.nom}</b> <span style={{ color: COLORS.muted }}>· {h.poste || h.fonction || h.matricule}</span>
+                <b>{h.nom}</b> <span style={{ color: COLORS.muted }}>· {h.poste || h.matricule}</span>
               </button>
             ))}
             {q.trim().length >= 2 && !hits.length && <div style={{ fontSize: 12, color: COLORS.muted, padding: 4 }}>Aucun agent trouvé.</div>}

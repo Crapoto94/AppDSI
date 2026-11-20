@@ -50,7 +50,7 @@ const isoDay = (v?: string | null): string => {
   return d && !isNaN(d.getTime()) ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
 };
 
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, prepEnabled = true }: {
+export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, eSignGloballyEnabled = true, prepEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
@@ -60,6 +60,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   aiReviewEnabled?: boolean;
   /** La signature électronique du CREP est ouverte pour l'agent (paramétrage du module). */
   eSignEnabled?: boolean;
+  /** La signature électronique est activée globalement (sinon on n'affiche pas le rappel papier). */
+  eSignGloballyEnabled?: boolean;
   /** « Mon entretien » est ouvert : les agents préparent leur entretien (le compte rendu est pré-rempli avec leur saisie). */
   prepEnabled?: boolean;
   /** « agent » : relecture du compte rendu envoyé par l'évaluateur, saisie des 2 champs réservés, validation → parapheur. */
@@ -276,7 +278,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           <span>
             {agentCanValidate
               ? <>Votre évaluateur vous a transmis le compte rendu de votre entretien. <strong>Relisez-le</strong>, renseignez vos observations en bas de page, puis <strong>validez-le</strong> : il sera alors envoyé au parapheur pour être cosigné par vous et par votre évaluateur.</>
-              : (isAgent && !eSignEnabled && crepStatut === 'envoye_agent')
+              : (isAgent && !eSignEnabled && eSignGloballyEnabled && crepStatut === 'envoye_agent')
                 ? <>La signature électronique n’est pas activée pour vous. Imprimez le compte rendu, faites-le signer, puis transmettez le PDF signé à votre évaluateur.</>
                 : crepStatut === 'en_signature'
                   ? <>Vous avez validé ce compte rendu : il a été transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}. Retrouvez-le dans votre parapheur (« À signer »).</>
@@ -303,7 +305,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </span>
         </div>
       )}
-      {canEdit && !isAgent && !eSignEnabled && crepStatut === 'non_envoye' && (
+      {canEdit && !isAgent && !eSignEnabled && eSignGloballyEnabled && crepStatut === 'non_envoye' && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
