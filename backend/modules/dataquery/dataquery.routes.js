@@ -14,6 +14,7 @@ const ctrl = require('./dataquery.controller');
  *   GET  /api/dataquery/health                   état du module et du rôle lecture seule
  *   GET  /api/dataquery/catalog[?schema=xxx]     modules (schémas) et tables accessibles
  *   GET  /api/dataquery/catalog/:schema/:table   colonnes, PK, FK d'une table
+ *   GET  /api/dataquery/guides[?module=xxx]      guides de modules : tables clés, règles, requêtes types (parc, télécom, contrats, boîtes partagées, vols/pertes)
  *   POST /api/dataquery/query                    { sql, params?, max_rows? }
  *   POST /api/dataquery/actions/{tickets,tasks,reunions}   création (clé read_write + droit d'écriture de l'agent)
  */
@@ -28,6 +29,7 @@ router.use(auth.requireSession);
 router.post('/auth/logout', auth.logout);
 router.get('/health', ctrl.health);
 router.get('/catalog', ctrl.catalog);
+router.get('/guides', ctrl.guides);
 router.get('/catalog/:schema/:table', ctrl.describe);
 router.post('/query', express.json({ limit: '100kb' }), ctrl.query);
 // Écriture (tickets, tâches, réunions) : clé read_write + droit d'écriture de l'agent, cf. dataquery.actions.js

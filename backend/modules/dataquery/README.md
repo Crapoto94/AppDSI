@@ -18,6 +18,7 @@ et au CLI sur le LAN.
 | GET  | `/api/dataquery/health` | état du module, personne connectée |
 | GET  | `/api/dataquery/catalog[?schema=hub_tickets]` | modules (schémas) et tables accessibles |
 | GET  | `/api/dataquery/catalog/:schema/:table` | colonnes, PK, FK |
+| GET  | `/api/dataquery/guides[?module=parc\|telecom\|contrats\|boites_partagees\|vols_pertes]` | guides de modules (tables clés, règles, requêtes types), filtrés par les droits de l'agent |
 | POST | `/api/dataquery/query` | `{ "sql": "...", "params": [...], "max_rows": 500 }` |
 
 **Double authentification**, exigée à chaque requête :
@@ -105,3 +106,9 @@ node backend/scripts/dataquery-cli.js query "SELECT status, count(*) FROM hub_ti
 - Données SQLite (paramètres AD/Azure, miroir utilisateurs) : non exposées.
 - Écriture : aucune. Une future création de ticket passera par des actions
   dédiées appelant les services métier, pas par ce module.
+
+## Guides de modules (`dataquery.guides.js`)
+
+Les modules **parc**, **télécom**, **contrats**, **boîtes partagées** (tables `hub.shared_mailboxes*`) et **vols et pertes** (`hub_vols`) sont documentés pour le MCP : l'outil `dsi_module_guide` renvoie, par module, les tables clés, les règles d'interprétation (typage, valeurs à vérifier) et des requêtes types. Un guide n'est présenté que si **tous** ses schémas sont autorisés pour l'agent (droits `/admin/mcp`). Le catalogue étiquette aussi `hub.shared_mailboxes` comme « Boîtes partagées » (`module_hint`).
+
+Après toute évolution du schéma de ces modules : `node backend/scripts/check-dataquery-guides.js` (vérifie, contre le DDL de `shared/pg_db.js`, que les tables, colonnes et requêtes types existent).

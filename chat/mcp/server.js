@@ -311,8 +311,8 @@ function buildServer(req) {
         { name: 'appdsi-dataquery', version: '1.0.0' },
         { instructions:
             'Lecture des données PostgreSQL (écriture limitée à la CRÉATION de tickets, tâches et réunions, si la personne y est autorisée) : accès aux données PostgreSQL de l\'application DSI de la Ville d\'Ivry ' +
-            '(tickets, transcript manager, photocopieurs, contrats, projets, consommables, finance, parc, réseau…). ' +
-            'Démarche : 1) dsi_catalog pour trouver le module (schéma) et les tables ; 2) dsi_describe_table pour les colonnes ; ' +
+            '(tickets, transcript manager, photocopieurs, contrats, projets, consommables, finance, parc, réseau, télécom, boîtes partagées, vols et pertes de matériel…). ' +
+            'Démarche : 1) dsi_catalog pour trouver le module (schéma) et les tables — pour parc, telecom, contrats, boites_partagees et vols_pertes, appeler d\'abord dsi_module_guide (tables clés, règles, requêtes types) ; 2) dsi_describe_table pour les colonnes ; ' +
             '3) dsi_query avec du SQL PostgreSQL (SELECT/WITH uniquement, noms qualifiés schema.table, paramètres $1…). ' +
             'Les colonnes sensibles (mots de passe, jetons…) sont masquées. Toutes les requêtes sont tracées au nom de la personne connectée.' },
     );
@@ -347,6 +347,14 @@ function buildServer(req) {
         },
         annotations: ro,
     }, ({ sql, params, max_rows }) => call('POST', '/query', { sql, params, max_rows }));
+    server.registerTool('dsi_module_guide', {
+        title: 'Guide d\'un module métier',
+        description: 'Guide des modules métier : parc (matériel, lignes mobiles), telecom (lignes fixes, factures, coûts), contrats (échéances, montants), boites_partagees, vols_pertes (vol et perte de matériel). ' +
+            'Sans paramètre : liste des modules documentés. Avec module : tables clés et colonnes importantes, règles d\'interprétation (pièges de typage, valeurs à vérifier) et REQUÊTES TYPES prêtes à adapter pour dsi_query. ' +
+            'À consulter AVANT d\'écrire du SQL sur ces modules.',
+        inputSchema: { module: z.string().max(50).optional().describe('parc | telecom | contrats | boites_partagees | vols_pertes. Vide = liste.') },
+        annotations: ro,
+    }, ({ module }) => call('GET', `/guides${module ? `?module=${encodeURIComponent(module)}` : ''}`));
     // ── Écriture (création uniquement, jamais de suppression ni de modification) ──
     // Exige une clé API read_write + le droit d'écriture de la personne (admin /admin/mcp) ; créé AU NOM de la personne connectée.
     const wr = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };

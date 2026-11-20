@@ -21,6 +21,7 @@
 const { pool } = require('../../shared/database');
 const { getReadOnlyPool, checkRoleSafety } = require('./dataquery.pool');
 const rights = require('./dataquery.rights');
+const guidesLib = require('./dataquery.guides');
 
 // Schéma PostgreSQL → module fonctionnel de l'application (aide à la navigation).
 const SCHEMA_MODULES = {
@@ -213,15 +214,38 @@ module.exports = {
             const modules = {};
             for (const r of rows) {
                 if (!modules[r.schema]) modules[r.schema] = { schema: r.schema, module: SCHEMA_MODULES[r.schema] || null, tables: [] };
+                const hint = guidesLib.TABLE_MODULES[`${r.schema}.${r.table}`];
                 modules[r.schema].tables.push({
                     table: r.table, kind: r.kind, estimated_rows: Number(r.estimated_rows),
                     comment: r.comment, columns_masked: !r.full_access,
+                    ...(hint ? { module_hint: hint } : {}),   // ex. hub.shared_mailboxes → « Boîtes partagées »
                 });
             }
             await audit(req, { action: 'catalog', sql: schema, rowCount: rows.length });
             res.json({ modules: Object.values(modules) });
         } catch (e) {
             await audit(req, { action: 'catalog', sql: schema, error: e.message });
+            res.status(400).json({ error: e.message });
+        }
+    },
+
+    // GET /api/dataquery/guides[?module=parc|telecom|contrats|boites_partagees|vols_pertes]
+    // Sans paramètre : liste des modules documentés. Avec module : tables clés, règles d'interprétation et requêtes types.
+    // Respecte les droits de l'agent (un module n'est présenté que si tous ses schémas lui sont autorisés).
+    async guides(req, res) {
+        const key = req.query.module ? String(req.query.module) : null;
+        try {
+            const myRights = await rights.rightsFor(req.dqUser.username);
+            const visible = guidesLib.guidesFor(myRights, rights.schemaAllowed, key);
+            if (key && visible.length === 0) {
+                const known = guidesLib.GUIDES.some((g) => g.key === key);
+                await audit(req, { action: 'guides', sql: key, error: known ? 'module non autorisé pour cet agent' : 'module inconnu' });
+                return res.status(known ? 403 : 404).json({ error: known ? `Vous n'avez pas accès au module « ${key} »` : `Module inconnu : ${key}`, available: guidesLib.guidesFor(myRights, rights.schemaAllowed).map((g) => g.key) });
+            }
+            await audit(req, { action: 'guides', sql: key, rowCount: visible.length });
+            res.json(key ? { guide: visible[0] } : { modules: visible.map(guidesLib.summary) });
+        } catch (e) {
+            await audit(req, { action: 'guides', sql: key, error: e.message });
             res.status(400).json({ error: e.message });
         }
     },
