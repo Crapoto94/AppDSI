@@ -3307,6 +3307,7 @@ setupDb().then(async database => {
 
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
+    try { await require('./modules/ep-base/ep-base.service').loadTemplateCache(); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
     // Initialiser Mail Collector
     try {
@@ -6649,6 +6650,7 @@ app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.rou
 // Entretiens professionnels annuels (module public : chaque agent voit son EP)
 app.use('/api/entretiens', require('./modules/entretiens/entretiens.routes'));
 app.use('/api/ep-ville', require('./modules/ep-ville/ep-ville.routes'));
+app.use('/api/ep-base', require('./modules/ep-base/ep-base.routes'));
 
 // Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
 // Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)

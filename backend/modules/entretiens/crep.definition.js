@@ -54,6 +54,22 @@ const CRITERIA_GROUPS = [
 
 const NB_OBJECTIFS = 4;
 
+// ─── Modèles (un par onglet « Template_* » du classeur déposé par l'administrateur) ───
+// Sans modèle connu pour l'entretien : grille historique (catégories A et B) ci-dessus.
+let TEMPLATE_DEFS = {};
+const setTemplateDefs = (map) => { TEMPLATE_DEFS = map && typeof map === 'object' ? map : {}; };
+/** Définition du formulaire d'un modèle (nom d'onglet) ; la grille par défaut si le modèle est inconnu. */
+const definitionFor = (modele) => TEMPLATE_DEFS[modele]
+    || { name: modele || '', categorie: 'A&B', criteria_groups: CRITERIA_GROUPS, levels: LEVELS, flags: { objectifs_service: true } };
+const groupsOf = (d) => (d && d.criteria_groups) || CRITERIA_GROUPS;
+/** Sans définition précise : toutes les clés de critères connues (grille historique + modèles) sont conservées, rien n'est perdu à la normalisation. */
+const allCriteria = () => {
+    const out = [];
+    for (const g of CRITERIA_GROUPS) out.push(...g.items);
+    for (const d of Object.values(TEMPLATE_DEFS)) for (const g of d.criteria_groups || []) out.push(...g.items);
+    return out;
+};
+
 const emptyCrep = () => ({
     grade: '',
     evaluateur_nom: '',
@@ -78,7 +94,7 @@ const str = (v, max = 8000) => (v === null || v === undefined ? '' : String(v)).
 const isoDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
 
 /** Normalise / assainit le contenu reçu du frontend (jamais de confiance sur la structure). */
-function normalizeCrep(input) {
+function normalizeCrep(input, definition) {
     const src = input && typeof input === 'object' ? input : {};
     const base = emptyCrep();
     const out = { ...base };
@@ -91,7 +107,8 @@ function normalizeCrep(input) {
     });
     out.observations_complementaires = str(src.observations_complementaires);
     out.valeur = {};
-    for (const g of CRITERIA_GROUPS) for (const it of g.items) {
+    const items = definition ? groupsOf(definition).flatMap(g => g.items) : allCriteria();
+    for (const it of items) {
         const v = src.valeur && src.valeur[it.key];
         if (VALID_LEVELS.has(v)) out.valeur[it.key] = v;
     }
@@ -112,8 +129,8 @@ function normalizeCrep(input) {
 }
 
 /** Rubriques obligatoires non renseignées (le compte rendu ne peut être validé que s'il est complet). */
-function missingFields(crep) {
-    const c = normalizeCrep(crep);
+function missingFields(crep, definition) {
+    const c = normalizeCrep(crep, definition);
     const empty = (v) => !String(v || '').trim();
     const out = [];
     if (empty(c.grade)) out.push('Grade actuel');
@@ -125,10 +142,10 @@ function missingFields(crep) {
     objs.forEach((o, i) => { if (empty(o.objectif) && (!empty(o.observations) || o.niveau)) out.push(`Objectif ${i + 1} de l’année écoulée : description à renseigner`); });
     if (empty(c.observations_complementaires)) out.push('Observations complémentaires (contexte, faits marquants, acquis professionnels)');
     const noAnswer = [];
-    for (const g of CRITERIA_GROUPS) for (const it of g.items) if (!c.valeur[it.key]) noAnswer.push(it.label);
+    for (const g of groupsOf(definition)) for (const it of g.items) if (!c.valeur[it.key]) noAnswer.push(it.label);
     if (noAnswer.length) out.push(`Grille d’appréciation de la valeur professionnelle : ${noAnswer.length} critère(s) sans réponse`);
     if (empty(c.appreciation_generale)) out.push('Appréciation générale sur l’exercice des missions');
-    if (empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
+    if ((!definition || !definition.flags || definition.flags.objectifs_service !== false) && empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
     if (!c.objectifs_futurs.some(o => !empty(o.descriptif))) out.push('Au moins un objectif de l’année à venir (descriptif)');
     c.objectifs_futurs.forEach((o, i) => { if (empty(o.descriptif) && !empty(o.moyens)) out.push(`Objectif ${i + 1} de l’année à venir : descriptif à renseigner`); });
     if (empty(c.formations.obligatoires)) out.push('Formations obligatoires (indiquer « Néant » si aucune)');
@@ -138,4 +155,4 @@ function missingFields(crep) {
     return out;
 }
 
-module.exports = { LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields };
+module.exports = { LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields, setTemplateDefs, definitionFor, groupsOf };

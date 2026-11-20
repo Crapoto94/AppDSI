@@ -10,15 +10,16 @@ export interface AttitudeScore { global: number | null; answered: number; total:
 const mean = (points: number[]) => (points.length ? Math.round(points.reduce((a, b) => a + b, 0) / points.length) : null);
 
 /** Synthèse des attitudes évaluées (grille d'appréciation de la valeur professionnelle) : moyenne par rubrique et moyenne globale des critères renseignés. */
-export function attitudesScore(valeur?: Record<string, string> | null): AttitudeScore {
+export function attitudesScore(valeur?: Record<string, string> | null, groupsDef?: typeof CRITERIA_GROUPS): AttitudeScore {
   const v = valeur || {};
   const all: number[] = [];
-  const groups = CRITERIA_GROUPS.map(g => {
+  const groups = (groupsDef || CRITERIA_GROUPS).map(g => {
     const pts = g.items.map(it => ATTITUDE_POINTS[v[it.key]]).filter((p): p is number => typeof p === 'number');
-    all.push(...pts);
     return { key: g.key, title: g.title || 'Sens du service public', pct: mean(pts), answered: pts.length, total: g.items.length };
   });
-  return { global: mean(all), answered: all.length, total: groups.reduce((n, g) => n + g.total, 0), groups };
+  // Moyenne globale sur toutes les réponses de la grille (les critères diffèrent d'un modèle à l'autre).
+  for (const lvl of Object.values(v)) { const p = ATTITUDE_POINTS[lvl as string]; if (typeof p === 'number') all.push(p); }
+  return { global: mean(all), answered: all.length, total: groupsDef ? groups.reduce((n, g) => n + g.total, 0) : Math.max(all.length, groups.reduce((n, g) => n + g.total, 0)), groups };
 }
 
 /** Moyenne globale sur plusieurs entretiens : tous les critères renseignés sont pris ensemble. */
@@ -26,7 +27,8 @@ export function attitudesGlobal(valeurs: Array<Record<string, string> | null | u
   const pts: number[] = []; let entretiens = 0;
   for (const val of valeurs) {
     const before = pts.length;
-    for (const g of CRITERIA_GROUPS) for (const it of g.items) { const p = ATTITUDE_POINTS[(val || {})[it.key]]; if (typeof p === 'number') pts.push(p); }
+    // Toutes les réponses de la grille, quel que soit le modèle (les critères diffèrent d'un modèle à l'autre).
+    for (const lvl of Object.values(val || {})) { const p = ATTITUDE_POINTS[lvl as string]; if (typeof p === 'number') pts.push(p); }
     if (pts.length > before) entretiens++;
   }
   return { pct: mean(pts), entretiens };
@@ -49,8 +51,8 @@ export function AttitudeBadge({ pct }: { pct: number | null }) {
 }
 
 /** Bloc de synthèse affiché sous la grille d'appréciation. */
-export function AttitudesSynthese({ valeur }: { valeur?: Record<string, string> | null }) {
-  const s = attitudesScore(valeur);
+export function AttitudesSynthese({ valeur, groups }: { valeur?: Record<string, string> | null; groups?: typeof CRITERIA_GROUPS }) {
+  const s = attitudesScore(valeur, groups);
   return (
     <div style={{ marginTop: 14, border: '1px solid ' + COLORS.border, borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>

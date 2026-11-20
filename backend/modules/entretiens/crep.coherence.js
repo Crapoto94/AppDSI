@@ -4,7 +4,7 @@
  *  - coherenceIssues : contrôles déterministes entre la grille d'appréciation, les niveaux des objectifs
  *    et l'appréciation générale (fiables, sans IA).
  */
-const { CRITERIA_GROUPS, LEVELS, normalizeCrep } = require('./crep.definition');
+const { CRITERIA_GROUPS, LEVELS, normalizeCrep, groupsOf } = require('./crep.definition');
 
 const LEVEL_TEXT = { S: 'Satisfaisant', AS: 'Assez satisfaisant', I: 'Insuffisant' };
 const NIVEAU_TEXT = { A: 'Atteint', PA: 'Partiellement atteint', NA: 'Non atteint' };
@@ -12,8 +12,8 @@ const NIVEAU_TEXT = { A: 'Atteint', PA: 'Partiellement atteint', NA: 'Non attein
 const has = (v) => String(v || '').trim() !== '';
 
 /** Résumé lisible de l'ensemble du compte rendu, pour l'IA (rubriques vides omises). */
-function summarizeCrep(input, entretien) {
-    const c = normalizeCrep(input);
+function summarizeCrep(input, entretien, definition) {
+    const c = normalizeCrep(input, definition);
     const out = [];
     const agent = entretien ? `${entretien.agent_prenom || ''} ${entretien.agent_nom || ''}`.trim() : '';
     if (agent) out.push(`Agent évalué : ${agent}${entretien.poste ? ` — ${entretien.poste}` : ''}`);
@@ -28,14 +28,14 @@ function summarizeCrep(input, entretien) {
     if (has(c.observations_complementaires)) out.push(`Observations complémentaires : ${c.observations_complementaires.trim().replace(/\n+/g, ' ')}`);
 
     const grid = [];
-    for (const g of CRITERIA_GROUPS) {
+    for (const g of groupsOf(definition)) {
         for (const it of g.items) {
             const v = c.valeur[it.key];
             if (v) grid.push(`- ${g.title ? `${g.title} — ` : ''}${it.label} : ${LEVEL_TEXT[v]}`);
         }
     }
     if (grid.length) { out.push('Appréciation de la valeur professionnelle (grille) :'); out.push(...grid); }
-    if (grid.length) out.unshift(...gridSynthesis(c));
+    if (grid.length) out.unshift(...gridSynthesis(c, definition));
 
     if (has(c.appreciation_generale)) out.push(`Appréciation générale actuelle : ${c.appreciation_generale.trim().replace(/\n+/g, ' ')}`);
     const fut = c.objectifs_futurs.filter(o => has(o.descriptif));
@@ -59,8 +59,8 @@ const NEGATIF = stems(['pourri', 'nul', 'catastroph', 'désastr', 'calamit', 'm�
     'aucune compétence', 'aucune qualité', 'n’a aucun', 'ne répond pas', 'n’atteint pas', 'inadapté', 'lacunes importantes', 'manque de rigueur']);
 
 /** Contrôles de cohérence fiables (sans IA). Renvoie une liste de constats lisibles. */
-function coherenceIssues(input) {
-    const c = normalizeCrep(input);
+function coherenceIssues(input, definition) {
+    const c = normalizeCrep(input, definition);
     const issues = [];
 
     const answered = Object.values(c.valeur);
@@ -108,9 +108,9 @@ function coherenceIssues(input) {
 }
 
 /** Synthèse explicite de la grille (niveaux, points forts, SEULS points faibles autorisés comme axes de progrès). */
-function gridSynthesis(c) {
+function gridSynthesis(c, definition) {
     const by = { S: [], AS: [], I: [] };
-    for (const g of CRITERIA_GROUPS) for (const it of g.items) { const v = c.valeur[it.key]; if (v) by[v].push(it.label); }
+    for (const g of groupsOf(definition)) for (const it of g.items) { const v = c.valeur[it.key]; if (v) by[v].push(it.label); }
     const total = by.S.length + by.AS.length + by.I.length;
     const lines = [`SYNTHÈSE DE LA GRILLE (référence absolue) : ${total} critères évalués — ${by.S.length} « Satisfaisant », ${by.AS.length} « Assez satisfaisant », ${by.I.length} « Insuffisant ».`];
     if (by.AS.length + by.I.length === 0) {

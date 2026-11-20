@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
-const { CRITERIA_GROUPS, LEVELS, normalizeCrep } = require('./crep.definition');
+const { LEVELS, normalizeCrep, definitionFor, groupsOf } = require('./crep.definition');
 
 const W = 595.28;
 const H = 841.89;
@@ -30,7 +30,9 @@ function fmtDate(v) {
 }
 
 async function buildCrepPdf(entretien, annee) {
-    const crep = normalizeCrep(entretien.crep);
+    let cdef = null;
+    try { cdef = definitionFor(await require('../ep-base/ep-base.service').modeleOfEntretien(entretien)); } catch (e) { /* grille par défaut */ }
+    const crep = normalizeCrep(entretien.crep, cdef);
     const pdf = await PDFDocument.create();
     pdf.setTitle(`Compte-rendu d'entretien professionnel ${annee || ''}`.trim());
     pdf.setAuthor('DSI Hub - Ville d\'Ivry-sur-Seine');
@@ -248,7 +250,7 @@ async function buildCrepPdf(entretien, annee) {
         }
     };
 
-    for (const g of CRITERIA_GROUPS) {
+    for (const g of groupsOf(cdef)) {
         if (g.title) {
             top += 8;
             draw(page, g.title, MX + 4, top, { font: F.b, size: 9.5 });
@@ -278,8 +280,10 @@ async function buildCrepPdf(entretien, annee) {
     const t4 = 'VOLET 2 – ECHANGES SUR LES PERSPECTIVES DE L’ANNEE A VENIR';
     draw(page, t4, MX, 40, { font: F.b, size: 13, align: 'center', maxW: CW });
     underline(page, t4, MX, 40, F.b, 13, 'center', CW);
-    draw(page, 'Rappel des objectifs du service/de la direction :', MX + 6, 66, { font: F.b, size: 10 });
-    box(page, crep.objectifs_service, MX, 80, CW, 150, { size: 9.5 });
+    if (!cdef || !cdef.flags || cdef.flags.objectifs_service !== false) {
+        draw(page, 'Rappel des objectifs du service/de la direction :', MX + 6, 66, { font: F.b, size: 10 });
+        box(page, crep.objectifs_service, MX, 80, CW, 150, { size: 9.5 });
+    }
 
     bar(page, 'Objectifs individuels de travail de l’année à venir', 242);
     const half = CW / 2;

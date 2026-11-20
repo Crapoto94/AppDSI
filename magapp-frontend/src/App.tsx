@@ -287,7 +287,9 @@ function App() {
     Promise.all([
       axios.get('/api/ep-ville/me', { headers }).then(r => !!(r.data?.isAdmin || r.data?.isValideur)).catch(() => false),
       axios.get('/api/entretiens/me', { headers }).then(r => !!(r.data?.entretien || r.data?.isEvaluator)).catch(() => false),
-    ]).then(([ville, dsi]) => { setEpAllowed(ville || dsi); if ((ville || dsi) && epPending) setShowEp(true); });
+      // Valideur d'agents dans la base des agents à évaluer (classeur RH) : il a des entretiens à conduire
+      axios.get('/api/ep-base/me', { headers }).then(r => !!r.data?.isValideur).catch(() => false),
+    ]).then(([ville, dsi, base]) => { setEpAllowed(ville || dsi || base); if ((ville || dsi || base) && epPending) setShowEp(true); });
   }, [windowLogin]);
 
   // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT

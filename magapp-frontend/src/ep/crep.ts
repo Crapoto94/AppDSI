@@ -160,7 +160,13 @@ export function initialCrep(e: Entretien): Crep {
 }
 
 /** Rubriques obligatoires non renseignées (miroir de backend/modules/entretiens/crep.definition.js). */
-export function missingFields(c: Crep): string[] {
+export interface CrepDefinition {
+  name?: string;
+  criteria_groups: Array<{ key: string; title: string | null; items: Array<{ key: string; label: string; lead?: string }> }>;
+  flags?: { objectifs_service?: boolean };
+}
+
+export function missingFields(c: Crep, def?: CrepDefinition | null): string[] {
   const empty = (v?: string | null) => !String(v || '').trim();
   const out: string[] = [];
   if (empty(c.grade)) out.push('Grade actuel');
@@ -170,10 +176,10 @@ export function missingFields(c: Crep): string[] {
   if (!c.objectifs_ecoules.some(o => !empty(o.objectif))) out.push('Au moins un objectif de l’année écoulée (description)');
   c.objectifs_ecoules.forEach((o, i) => { if (empty(o.objectif) && (!empty(o.observations) || o.niveau)) out.push(`Objectif ${i + 1} de l’année écoulée : description à renseigner`); });
   if (empty(c.observations_complementaires)) out.push('Observations complémentaires (contexte, faits marquants, acquis professionnels)');
-  const noAnswer = CRITERIA_GROUPS.flatMap(g => g.items).filter(it => !c.valeur[it.key]).length;
+  const noAnswer = (def?.criteria_groups || CRITERIA_GROUPS).flatMap(g => g.items).filter(it => !c.valeur[it.key]).length;
   if (noAnswer) out.push(`Grille d’appréciation de la valeur professionnelle : ${noAnswer} critère(s) sans réponse`);
   if (empty(c.appreciation_generale)) out.push('Appréciation générale sur l’exercice des missions');
-  if (empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
+  if (def?.flags?.objectifs_service !== false && empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
   if (!c.objectifs_futurs.some(o => !empty(o.descriptif))) out.push('Au moins un objectif de l’année à venir (descriptif)');
   c.objectifs_futurs.forEach((o, i) => { if (empty(o.descriptif) && !empty(o.moyens)) out.push(`Objectif ${i + 1} de l’année à venir : descriptif à renseigner`); });
   if (empty(c.formations.obligatoires)) out.push('Formations obligatoires (indiquer « Néant » si aucune)');

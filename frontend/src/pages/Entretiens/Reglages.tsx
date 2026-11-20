@@ -9,6 +9,7 @@ import type { Campaign } from './types';
 import { formatDateFr } from './types';
 import { COLORS, Field, btnDanger, btnGhost, btnPrimary, card, input } from './ui';
 import AgentSearch from '../../components/AgentSearch';
+import BaseAgents from './BaseAgents';
 import type { AgentOption } from '../../components/AgentSearch';
 import { MiniRichEditor } from '../../components/MiniRichEditor';
 
@@ -472,6 +473,9 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
       </div>
+
+      {/* Base des agents à évaluer (classeur « Outil CREP DSI ») */}
+      <BaseAgents />
 
       {/* Campagnes */}
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>

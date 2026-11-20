@@ -1,6 +1,7 @@
 const { pgDb } = require('../../shared/database');
 const svc = require('./entretiens.service');
-const { normalizeCrep, missingFields } = require('./crep.definition');
+const { normalizeCrep, missingFields, definitionFor } = require('./crep.definition');
+const epBase = require('../ep-base/ep-base.service');
 const { buildCrepPdf } = require('./crep-pdf.service');
 const storage = require('../../shared/storage');
 const { draftComment, reviewCrep } = require('./ai.service');
@@ -959,10 +960,12 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut renseigner le compte rendu.');
             if (!access.canEditEvaluation) return fail(res, 403, row.crep_statut && row.crep_statut !== 'non_envoye' ? 'Le compte rendu a été envoyé à l’agent : il n’est plus modifiable.' : 'Cet entretien est clôturé.');
-            const crep = normalizeCrep(req.body?.crep);
+
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
+            const crep = normalizeCrep(req.body?.crep, cdef);
             const submit = req.body?.submit === true || req.body?.submit === 'true';
             if (submit) {
-                const missing = missingFields(crep);
+                const missing = missingFields(crep, cdef);
                 if (missing.length) return res.status(400).json({ message: 'Le compte rendu est incomplet : il ne peut pas être validé.', missing });
             }
             // keep_status : simple enregistrement de la saisie (ex. avant génération du PDF), sans changer le statut du compte rendu.
@@ -1008,15 +1011,16 @@ const entretiensController = {
             // Appréciation générale : l'IA reçoit TOUT ce que l'évaluateur a saisi (grille, objectifs, observations…)
             // et doit rester cohérente avec cet ensemble.
             const rubrique = text(b.rubrique) || 'Commentaire';
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
             const global = /appréciation générale/i.test(rubrique) && b.crep && typeof b.crep === 'object';
             const result = await draftComment({
                 rubrique,
                 notes: text(b.notes),
-                contexte: global ? summarizeCrep(b.crep, row) : text(b.contexte),
+                contexte: global ? summarizeCrep(b.crep, row, cdef) : text(b.contexte),
                 existant: text(b.existant),
                 agent: svc.fullName(row.agent_prenom, row.agent_nom),
                 coherent: global,
-                crep: global ? normalizeCrep(b.crep) : undefined,
+                crep: global ? normalizeCrep(b.crep, cdef) : undefined,
             });
             res.json(result);
         } catch (err) {
@@ -1131,12 +1135,13 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
-            const crep = normalizeCrep(req.body?.crep);
-            const out = { missing: missingFields(crep), issues: coherenceIssues(crep), ai: null, ai_error: null };
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
+            const crep = normalizeCrep(req.body?.crep, cdef);
+            const out = { missing: missingFields(crep, cdef), issues: coherenceIssues(crep, cdef), ai: null, ai_error: null };
             // La relecture par l'IA ne s'exécute que si le module l'autorise pour cet évaluateur.
             const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor, 'review')).allowed;
             if (aiAllowed) {
-                try { out.ai = (await reviewCrep(summarizeCrep(crep, row))).items; }
+                try { out.ai = (await reviewCrep(summarizeCrep(crep, row, cdef))).items; }
                 catch (e) { out.ai_error = e.message; }
             }
             res.json(out);

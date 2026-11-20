@@ -83,7 +83,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const save = async (submit: boolean) => {
     setMsg(null); setMissing([]);
     if (submit) {
-      const m = missingFields(crep);
+      const m = missingFields(crep, entretien.crep_definition);
       if (m.length) { setMissing(m); return; }
       // Contrôles de cohérence fiables (sans IA) avant validation : l'évaluateur peut passer outre après les avoir lus.
       try {
@@ -137,12 +137,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   /** Vérification globale : champs manquants, incohérences fiables, puis relecture par l'IA locale. */
   const runCheck = async () => {
     setMsg(null); setMissing([]);
-    setCheck({ loading: true, missing: missingFields(crep), issues: [], ai: null, aiError: null });
+    setCheck({ loading: true, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: null });
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiReviewEnabled }, { headers });
       setCheck({ loading: false, missing: r.data.missing || [], issues: r.data.issues || [], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
     } catch (e: any) {
-      setCheck({ loading: false, missing: missingFields(crep), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
+      setCheck({ loading: false, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
     }
   };
 
@@ -365,7 +365,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             </tr>
           </thead>
           <tbody>
-            {CRITERIA_GROUPS.map(g => (
+            {(entretien.crep_definition?.criteria_groups || CRITERIA_GROUPS).map(g => (
               <React.Fragment key={g.key}>
                 {g.title && (
                   <tr><td colSpan={4} style={{ padding: '12px 0 4px', fontSize: 12.5, fontWeight: 800, color: COLORS.text }}>{g.title}</td></tr>
@@ -388,7 +388,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </tbody>
         </table>
       </div>
-      <AttitudesSynthese valeur={crep.valeur} />
+      <AttitudesSynthese valeur={crep.valeur} groups={entretien.crep_definition?.criteria_groups} />
       <div style={{ marginTop: 14 }}>
         <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
@@ -399,7 +399,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
       {/* Volet 2 */}
       <H sub="Échanges sur les perspectives de l’année à venir">VOLET 2 – Perspectives</H>
-      <Area label="Rappel des objectifs du service / de la direction" rows={4} disabled={dis} value={crep.objectifs_service} onChange={v => set('objectifs_service', v)} />
+      {entretien.crep_definition?.flags?.objectifs_service !== false && <Area label="Rappel des objectifs du service / de la direction" rows={4} disabled={dis} value={crep.objectifs_service} onChange={v => set('objectifs_service', v)} />}
       <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.text, margin: '16px 0 8px' }}>Objectifs individuels de travail de l’année à venir</div>
       {crep.objectifs_futurs.map((o, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginBottom: 10 }}>

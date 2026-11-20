@@ -327,11 +327,20 @@ async function withRelations(entretien) {
         pgDb.all('SELECT * FROM hub_entretiens.objectifs WHERE entretien_id = ? ORDER BY ordre, id', [entretien.id]),
         pgDb.all('SELECT * FROM hub_entretiens.formations WHERE entretien_id = ? ORDER BY id', [entretien.id]),
     ]);
+    // Modèle de compte rendu (nom de l'onglet du classeur RH) et sa grille : le formulaire s'adapte à la catégorie de l'agent.
+    let modele = '', crep_definition = null;
+    try {
+        const epBase = require('../ep-base/ep-base.service');
+        modele = await epBase.modeleOfEntretien(entretien);
+        if (modele) crep_definition = require('./crep.definition').definitionFor(modele);
+    } catch (e) { /* modèles indisponibles : grille par défaut */ }
     return {
         ...entretien,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],
+        modele,
+        crep_definition,
     };
 }
 
