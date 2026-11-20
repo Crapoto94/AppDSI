@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
-  Settings, CalendarRange, UserCog, Plus, Trash2, Save, Loader2, Search,
-  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus,
+  Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
+  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Campaign } from './types';
@@ -17,6 +17,12 @@ interface AdminRow {
   username: string;
   email?: string | null;
   display_name?: string | null;
+}
+
+interface AiEvaluatorRef {
+  username: string;
+  email: string;
+  display_name: string;
 }
 
 const emptyCampaign = {
@@ -65,6 +71,14 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [organizerMsg, setOrganizerMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savingOrganizer, setSavingOrganizer] = useState(false);
 
+  // Rédaction assistée par IA : désactivée par défaut, activée pour des évaluateurs choisis.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiEvaluators, setAiEvaluators] = useState<AiEvaluatorRef[]>([]);
+  const [aiCandidates, setAiCandidates] = useState<AiEvaluatorRef[]>([]);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [savingAi, setSavingAi] = useState<'enable' | 'disable' | null>(null);
+
   const loadCampaigns = useCallback(async () => {
     try {
       const r = await axios.get('/api/entretiens/campaigns', { headers });
@@ -85,6 +99,9 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     try {
       const r = await axios.get('/api/entretiens/settings', { headers });
       setOrganizer(r.data.calendar_organizer_email || '');
+      setAiEnabled(!!r.data.ai_enabled);
+      setAiEvaluators(Array.isArray(r.data.ai_evaluators) ? r.data.ai_evaluators : []);
+      setAiCandidates(Array.isArray(r.data.ai_candidates) ? r.data.ai_candidates : []);
     } catch { /* ignore */ }
   }, [token]);
 
@@ -167,6 +184,44 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     } catch (e: any) {
       setOrganizerMsg({ ok: false, text: e.response?.data?.message || 'Enregistrement impossible' });
     } finally { setSavingOrganizer(false); }
+  };
+
+  const aiKey = (e: AiEvaluatorRef) => (e.username || e.email || '').toLowerCase();
+  const aiSelected = (e: AiEvaluatorRef) => aiEvaluators.some(x => aiKey(x) === aiKey(e));
+  const toggleAiEvaluator = (e: AiEvaluatorRef) => {
+    setAiMsg(null);
+    setAiEvaluators(prev => (prev.some(x => aiKey(x) === aiKey(e)) ? prev.filter(x => aiKey(x) !== aiKey(e)) : [...prev, e]));
+  };
+  const aiSearch = aiQuery.trim().toLowerCase();
+  const visibleAiCandidates = aiSearch
+    ? aiCandidates.filter(c => `${c.display_name || ''} ${c.username || ''} ${c.email || ''}`.toLowerCase().includes(aiSearch))
+    : aiCandidates;
+
+  const saveAi = async (mode: 'enable' | 'disable') => {
+    setAiMsg(null);
+    if (mode === 'disable' && !window.confirm('Désactiver la rédaction assistée par IA pour tous les évaluateurs ?')) return;
+    if (mode === 'enable' && aiEvaluators.length === 0) {
+      setAiMsg({ ok: false, text: 'Sélectionnez au moins un évaluateur avant d’activer l’IA.' });
+      return;
+    }
+    setSavingAi(mode);
+    try {
+      const payload = mode === 'disable'
+        ? { ai_enabled: false }
+        : { ai_enabled: true, ai_evaluators: aiEvaluators };
+      const r = await axios.put('/api/entretiens/settings', payload, { headers });
+      setAiEnabled(!!r.data.ai_enabled);
+      setAiEvaluators(Array.isArray(r.data.ai_evaluators) ? r.data.ai_evaluators : []);
+      setAiCandidates(Array.isArray(r.data.ai_candidates) ? r.data.ai_candidates : []);
+      setAiMsg({
+        ok: true,
+        text: mode === 'disable'
+          ? 'Rédaction assistée désactivée pour tous les évaluateurs.'
+          : `Rédaction assistée activée pour ${(r.data.ai_evaluators || []).length} évaluateur(s).`,
+      });
+    } catch (e: any) {
+      setAiMsg({ ok: false, text: e.response?.data?.message || 'Enregistrement impossible' });
+    } finally { setSavingAi(null); }
   };
 
   return (
@@ -296,6 +351,85 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Rédaction assistée par IA */}
+      <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
+            <Sparkles size={17} color={COLORS.primary} /> Rédaction assistée par IA
+            <span style={{
+              fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '2px 9px',
+              background: aiEnabled ? '#dcfce7' : '#f1f5f9', color: aiEnabled ? '#166534' : '#64748b',
+            }}>
+              {aiEnabled ? `Activée · ${aiEvaluators.length} évaluateur${aiEvaluators.length > 1 ? 's' : ''}` : 'Désactivée'}
+            </span>
+          </div>
+          <button style={btnDanger} disabled={!aiEnabled || savingAi !== null} onClick={() => saveAi('disable')}>
+            {savingAi === 'disable' ? <Loader2 size={14} /> : <Power size={14} />} Désactiver pour tous
+          </button>
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
+          Les boutons « Rédiger avec l’IA » de la saisie des entretiens sont masqués par défaut. Sélectionnez les
+          évaluateurs autorisés à utiliser cette aide à la rédaction : eux seuls verront le bouton dans le compte rendu.
+        </p>
+
+        {aiMsg && (
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: aiMsg.ok ? COLORS.success : COLORS.danger }}>
+            {aiMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {aiMsg.text}
+          </div>
+        )}
+
+        <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 12 }}>
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 8 }}>
+            <UserCheck size={15} color={COLORS.primary} /> Activer pour des évaluateurs
+          </div>
+
+          <div style={{ position: 'relative', maxWidth: 420, marginBottom: 8 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input style={{ ...input, paddingLeft: 31 }} placeholder="Rechercher un nom, un identifiant ou un e-mail…"
+              value={aiQuery} onChange={e => setAiQuery(e.target.value)} />
+          </div>
+
+          {aiEvaluators.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {aiEvaluators.map(e => (
+                <span key={aiKey(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#eef2ff', color: COLORS.primary, borderRadius: 999, padding: '3px 5px 3px 10px', fontSize: 11.5, fontWeight: 700 }}>
+                  {e.display_name || e.username || e.email}
+                  <button type="button" onClick={() => toggleAiEvaluator(e)} title="Retirer"
+                    style={{ border: 'none', background: 'none', color: COLORS.primary, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 4px' }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div style={{ maxHeight: 280, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: 4 }}>
+            {visibleAiCandidates.length === 0 ? (
+              <div style={{ padding: 10, fontSize: 12.5, color: '#94a3b8' }}>
+                {aiCandidates.length === 0 ? 'Aucun évaluateur désigné pour l’instant : programmez des entretiens ou désignez des valideurs.' : 'Aucun résultat.'}
+              </div>
+            ) : visibleAiCandidates.map(c => {
+              const checked = aiSelected(c);
+              return (
+                <label key={aiKey(c)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 9px', borderRadius: 7, cursor: 'pointer', background: checked ? '#eef2ff' : 'transparent' }}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleAiEvaluator(c)} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{c.display_name || c.username || c.email}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{[c.username, c.email].filter(Boolean).join(' · ')}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 9, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <button style={btnPrimary} disabled={savingAi !== null || aiEvaluators.length === 0} onClick={() => saveAi('enable')}>
+              {savingAi === 'enable' ? <Loader2 size={15} /> : <Sparkles size={15} />}
+              {aiEnabled ? 'Enregistrer la sélection' : 'Activer pour les évaluateurs sélectionnés'}
+            </button>
+            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{aiEvaluators.length} évaluateur{aiEvaluators.length > 1 ? 's' : ''} sélectionné{aiEvaluators.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
       </div>
 
       {/* Organisateur Outlook */}

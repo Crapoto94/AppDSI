@@ -19,6 +19,12 @@ export interface Access {
   isSuperieur?: boolean;
 }
 
+export interface AiAccess {
+  enabled: boolean;
+  allowed: boolean;
+  reason?: 'disabled' | 'no_evaluators' | 'not_selected' | 'ok' | string;
+}
+
 export interface Objectif {
   id: number;
   entretien_id?: number;
@@ -114,6 +120,7 @@ export interface Entretien {
   objectifs_renseignes?: number;
   formations_total?: number;
   access?: Access;
+  ai_access?: AiAccess;
 }
 
 export interface MeData {
@@ -124,6 +131,7 @@ export interface MeData {
   campaign: Campaign | null;
   entretien: Entretien | null;
   evaluatorCount: number;
+  aiAccess?: AiAccess;
   now: string;
 }
 

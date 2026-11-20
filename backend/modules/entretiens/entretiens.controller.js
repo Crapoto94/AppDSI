@@ -221,6 +221,7 @@ const entretiensController = {
                 campaign,
                 entretien,
                 evaluatorCount,
+                aiAccess: await svc.aiAccessFor(actor),
                 now: svc.localNow(),
             });
         } catch (err) {
@@ -348,8 +349,12 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const ai = await svc.getAiSettings();
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
+                ai_enabled: ai.enabled,
+                ai_evaluators: ai.evaluators,
+                ai_candidates: ai.candidates,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -359,10 +364,62 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
-            const email = text(req.body?.calendar_organizer_email).trim();
-            if (email && !svc.isEmail(email)) return fail(res, 400, 'Adresse email invalide.');
-            await svc.setSetting('calendar_organizer_email', email);
-            res.json({ calendar_organizer_email: email });
+            const b = req.body || {};
+
+            const updates = {};
+
+            if (b.calendar_organizer_email !== undefined) {
+                const email = text(b.calendar_organizer_email).trim();
+                if (email && !svc.isEmail(email)) return fail(res, 400, 'Adresse email invalide.');
+                updates.calendar_organizer_email = email;
+            }
+
+            // Réglage IA : actif/inactif + évaluateurs autorisés. L'activation
+            // n'a de sens qu'avec au moins un évaluateur sélectionné.
+            const rawEnabled = (await svc.getSetting('ai_enabled')).trim().toLowerCase();
+            let aiEnabled = rawEnabled === 'true' || rawEnabled === '1';
+            if (b.ai_enabled !== undefined) {
+                aiEnabled = [true, 1, '1', 'true', 'on', 'yes'].includes(
+                    typeof b.ai_enabled === 'string' ? b.ai_enabled.trim().toLowerCase() : b.ai_enabled
+                );
+            }
+            let aiEvaluators;
+            if (b.ai_evaluators !== undefined) {
+                if (!Array.isArray(b.ai_evaluators)) return fail(res, 400, 'Liste d’évaluateurs invalide.');
+                const seen = new Set();
+                aiEvaluators = [];
+                for (const raw of b.ai_evaluators) {
+                    const username = text(typeof raw === 'string' ? raw : raw?.username).trim();
+                    const email = text(typeof raw === 'string' ? '' : raw?.email).trim();
+                    const displayName = text(typeof raw === 'string' ? '' : (raw?.display_name || raw?.displayName)).trim();
+                    if (!username && !email) continue;
+                    if (email && !svc.isEmail(email)) return fail(res, 400, `Adresse email invalide : ${email}`);
+                    const key = (username || email).toLowerCase();
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    aiEvaluators.push({ username, email, display_name: displayName });
+                }
+            } else {
+                aiEvaluators = await svc.getAiEvaluators();
+            }
+            if (aiEnabled && !aiEvaluators.length) {
+                return fail(res, 400, 'Sélectionnez au moins un évaluateur avant d’activer la rédaction assistée.');
+            }
+            if (b.ai_enabled !== undefined) updates.ai_enabled = aiEnabled ? 'true' : 'false';
+            if (b.ai_evaluators !== undefined) updates.ai_evaluators = JSON.stringify(aiEvaluators);
+
+            for (const [key, value] of Object.entries(updates)) {
+                await svc.setSetting(key, value);
+            }
+
+            const ai = await svc.getAiSettings();
+            res.json({
+                calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
+                ai_enabled: ai.enabled,
+                ai_evaluators: ai.evaluators,
+                ai_candidates: ai.candidates,
+                actor_email: actor.email || '',
+            });
         } catch (err) { fail(res, 500, err.message); }
     },
 
@@ -486,7 +543,11 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             const [rich] = await require('./ep-rh-enrich').enrichFromRh([row]);
-            res.json({ ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(rich)), access))), access });
+            res.json({
+                ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(rich)), access))),
+                access,
+                ai_access: await svc.aiAccessFor(actor),
+            });
         } catch (err) { fail(res, 500, err.message); }
     },
 
@@ -837,6 +898,12 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin) || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
+            const ai = await svc.aiAccessFor(actor);
+            if (!ai.allowed) {
+                return fail(res, 403, ai.reason === 'disabled'
+                    ? 'La rédaction assistée par IA est désactivée pour le module des entretiens professionnels.'
+                    : 'La rédaction assistée n’est pas autorisée pour votre compte. Contactez un administrateur du module.');
+            }
             const b = req.body || {};
             if (!text(b.notes).trim()) return fail(res, 400, 'Indiquez en quelques mots ce que le commentaire doit exprimer.');
             // Appréciation générale : l'IA reçoit TOUT ce que l'évaluateur a saisi (grille, objectifs, observations…)
@@ -967,7 +1034,9 @@ const entretiensController = {
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
             const crep = normalizeCrep(req.body?.crep);
             const out = { missing: missingFields(crep), issues: coherenceIssues(crep), ai: null, ai_error: null };
-            if (req.body?.ai !== false) {
+            // La relecture par l'IA ne s'exécute que si le module l'autorise pour cet évaluateur.
+            const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor)).allowed;
+            if (aiAllowed) {
                 try { out.ai = (await reviewCrep(summarizeCrep(crep, row))).items; }
                 catch (e) { out.ai_error = e.message; }
             }

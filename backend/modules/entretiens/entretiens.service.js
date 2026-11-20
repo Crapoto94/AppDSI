@@ -414,6 +414,96 @@ async function setSetting(key, value) {
     );
 }
 
+/** Liste des évaluateurs autorisés à l'IA (stockée en JSON), tolérante aux valeurs historiques. */
+function parseAiEvaluators(value) {
+    try {
+        const parsed = JSON.parse(String(value || '[]'));
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map(e => (typeof e === 'string'
+                ? { username: e.trim(), email: '', display_name: '' }
+                : {
+                    username: String(e?.username || '').trim(),
+                    email: String(e?.email || '').trim(),
+                    display_name: String(e?.display_name || e?.displayName || '').trim(),
+                }))
+            .filter(e => e.username || e.email);
+    } catch (e) { return []; }
+}
+
+async function getAiEvaluators() {
+    return parseAiEvaluators(await getSetting('ai_evaluators'));
+}
+
+/**
+ * La rédaction assistée par IA est désactivée par défaut. Lorsqu'elle est
+ * activée, seuls les évaluateurs expressément choisis par un administrateur
+ * du module y ont accès.
+ */
+async function aiAccessFor(actor) {
+    const rawEnabled = norm(await getSetting('ai_enabled'));
+    const enabled = rawEnabled === 'true' || rawEnabled === '1';
+    if (!enabled) return { enabled: false, allowed: false, reason: 'disabled' };
+    const evaluators = await getAiEvaluators();
+    if (!evaluators.length) return { enabled: true, allowed: false, reason: 'no_evaluators' };
+    const identity = await evaluatorIdentity(actor);
+    const usernames = new Set(identity.usernames.map(norm));
+    const emails = new Set(identity.emails.map(norm));
+    const allowed = evaluators.some(e => (
+        (e.username && usernames.has(norm(e.username)))
+        || (e.email && emails.has(norm(e.email)))
+    ));
+    return { enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
+}
+
+/** Évaluateurs proposés à l'administrateur : ceux déjà désignés et les valideurs de la Ville. */
+async function listAiEvaluatorCandidates() {
+    const byKey = new Map();
+    const add = (row) => {
+        const username = String(row?.username || '').trim();
+        const email = String(row?.email || '').trim();
+        const displayName = String(row?.display_name || row?.displayName || '').trim();
+        if (!username && !email) return;
+        const key = norm(username) || norm(email);
+        const prev = byKey.get(key);
+        if (prev) {
+            if (!prev.username && username) prev.username = username;
+            if (!prev.email && email) prev.email = email;
+            if (!prev.display_name && displayName) prev.display_name = displayName;
+        } else {
+            byKey.set(key, { username, email, display_name: displayName });
+        }
+    };
+    try {
+        const rows = await pgDb.all(
+            `SELECT evaluator_username AS username, evaluator_email AS email, evaluator_nom AS display_name
+             FROM hub_entretiens.entretiens
+             WHERE deleted_at IS NULL
+               AND (COALESCE(evaluator_username, '') <> '' OR COALESCE(evaluator_email, '') <> '')`
+        );
+        (rows || []).forEach(add);
+    } catch (e) { /* ignore */ }
+    try {
+        const rows = await pgDb.all('SELECT username, email, display_name FROM hub_entretiens.valideurs');
+        (rows || []).forEach(add);
+    } catch (e) { /* ignore */ }
+    (await getAiEvaluators()).forEach(add);
+    return [...byKey.values()].sort((a, b) => {
+        const an = norm(a.display_name || a.username || a.email);
+        const bn = norm(b.display_name || b.username || b.email);
+        return an.localeCompare(bn, 'fr');
+    });
+}
+
+async function getAiSettings() {
+    const rawEnabled = norm(await getSetting('ai_enabled'));
+    return {
+        enabled: rawEnabled === 'true' || rawEnabled === '1',
+        evaluators: await getAiEvaluators(),
+        candidates: await listAiEvaluatorCandidates(),
+    };
+}
+
 async function resolveOrganizerEmail(actor) {
     if (isEmail(actor.email)) return actor.email.trim();
     if (actor.username) {
@@ -571,6 +661,10 @@ module.exports = {
     computeStats,
     getSetting,
     setSetting,
+    getAiEvaluators,
+    getAiSettings,
+    aiAccessFor,
+    listAiEvaluatorCandidates,
     resolveOrganizerEmail,
     syncOutlook,
     removeOutlook,

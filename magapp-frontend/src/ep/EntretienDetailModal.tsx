@@ -113,6 +113,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
                 <PreparationView entretien={entretien} />
               ) : (
                 <CrepForm entretien={entretien} canEdit={canEdit}
+                  aiEnabled={!!entretien.ai_access?.allowed}
                   onSaved={(e) => { setEntretien(prev => ({ ...(prev as Entretien), ...e, access: (e as any).access || prev?.access })); onSaved?.(); }} />
               )}
             </>

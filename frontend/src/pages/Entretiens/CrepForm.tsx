@@ -41,12 +41,14 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
  * Saisie du compte-rendu officiel de l'entretien par l'évaluateur (tous les champs du document DRH)
  * et génération du PDF de 4 pages.
  */
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur' }: {
+export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
   /** « agent » : relecture du compte rendu envoyé par l'évaluateur, saisie des 2 champs réservés, validation → parapheur. */
   mode?: 'evaluateur' | 'agent';
+  /** La rédaction assistée par IA est ouverte par le paramétrage du module (évaluateurs choisis). */
+  aiEnabled?: boolean;
 }) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
@@ -125,7 +127,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     setMsg(null); setMissing([]);
     setCheck({ loading: true, missing: missingFields(crep), issues: [], ai: null, aiError: null });
     try {
-      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep }, { headers });
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiEnabled }, { headers });
       setCheck({ loading: false, missing: r.data.missing || [], issues: r.data.issues || [], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
     } catch (e: any) {
       setCheck({ loading: false, missing: missingFields(crep), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
@@ -202,7 +204,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       crep.objectifs_ecoules[i].niveau && `Niveau retenu par l’évaluateur : ${crep.objectifs_ecoules[i].niveau}`,
     );
   };
-  const ai = (rubrique: string, contexte?: string, withCrep = false) => ({ entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx, crep: withCrep ? crep : undefined });
+  const ai = (rubrique: string, contexte?: string, withCrep = false) => (
+    aiEnabled ? { entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx, crep: withCrep ? crep : undefined } : undefined
+  );
 
   return (
     <div>
@@ -241,7 +245,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           <span>
             Ce compte rendu est <strong>pré-rempli avec la saisie de l’agent</strong> dans sa préparation. L’évaluation, elle,
             est <strong>à rédiger par vous</strong> : relisez, corrigez et complétez chaque rubrique, renseignez la grille
-            d’appréciation et l’appréciation générale. Le bouton « Rédiger avec l’IA » peut vous proposer un texte à partir de quelques mots.
+            d’appréciation et l’appréciation générale.{aiEnabled ? ' Le bouton « Rédiger avec l’IA » peut vous proposer un texte à partir de quelques mots.' : ''}
           </span>
         </div>
       )}
@@ -327,7 +331,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       <div style={{ marginTop: 14 }}>
         <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
-          hint="L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne. L’IA s’appuie sur l’ensemble du compte rendu (grille, objectifs, observations)." />
+          hint={aiEnabled
+            ? 'L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne. L’IA s’appuie sur l’ensemble du compte rendu (grille, objectifs, observations).'
+            : 'L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne.'} />
       </div>
 
       {/* Volet 2 */}
@@ -374,7 +380,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
           </div>
-          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours (relecture par l’IA interne, quelques secondes)…</div>}
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours{aiEnabled ? ' (relecture par l’IA interne, quelques secondes)' : ''}…</div>}
           {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
             <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
           )}
