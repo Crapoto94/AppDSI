@@ -5,8 +5,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { Entretien } from './types';
 import { formatDateHeure } from './types';
 import type { Crep } from './crep';
-import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields } from './crep';
+import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields, gridWarning } from './crep';
 import CrepAiAssist from './CrepAiAssist';
+import CrepScanImport from './CrepScanImport';
 import { COLORS, Field, btnGhost, btnPrimary, input, textarea } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -41,6 +42,14 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
  * Saisie du compte-rendu officiel de l'entretien par l'évaluateur (tous les champs du document DRH)
  * et génération du PDF de 4 pages.
  */
+/** « 2026-11-20T10:00 » ou date ISO -> « 2026-11-20 » (vide si absente). */
+const isoDay = (v?: string | null): string => {
+  const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = v ? new Date(v) : null;
+  return d && !isNaN(d.getTime()) ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
+};
+
 export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
@@ -77,6 +86,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     if (submit) {
       const m = missingFields(crep, entretien.crep_definition);
       if (m.length) { setMissing(m); return; }
+      // Critères de la grille sans réponse : simple avertissement (cela arrive), l'évaluateur peut valider.
+      const gw = gridWarning(crep, entretien.crep_definition);
+      if (gw && !window.confirm(`${gw}.
+
+Voulez-vous valider quand même le compte rendu ?`)) return;
       // Contrôles de cohérence fiables (sans IA) avant validation : l'évaluateur peut passer outre après les avoir lus.
       try {
         const chk = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: false }, { headers });
@@ -132,7 +146,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     setCheck({ loading: true, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: null });
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiReviewEnabled }, { headers });
-      setCheck({ loading: false, missing: r.data.missing || [], issues: r.data.issues || [], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
+      setCheck({ loading: false, missing: r.data.missing || [], issues: [...(r.data.warnings || []), ...(r.data.issues || [])], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
     } catch (e: any) {
       setCheck({ loading: false, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
     }
@@ -264,13 +278,33 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </span>
         </div>
       )}
+      {canEdit && !isAgent && (
+        <div style={{ marginTop: 12 }}>
+          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null}
+            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) } }))} />
+        </div>
+      )}
+      <div style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', background: '#f8fafc', fontSize: 12.5, color: '#334155', lineHeight: 1.7 }}>
+        <div style={{ fontWeight: 800, fontSize: 12, color: '#475569', marginBottom: 2 }}>
+          COMPTE-RENDU D’ENTRETIEN PROFESSIONNEL · {(entretien.crep_definition as any)?.titre || ((entretien.crep_definition as any)?.categorie === 'C' ? 'CATEGORIE C' : 'CATEGORIE A ET B')}
+          {(entretien.crep_definition as any)?.organisme && (entretien.crep_definition as any).organisme !== 'Ville' ? ` · ${(entretien.crep_definition as any).organisme}` : ''}
+          {entretien.modele ? <span style={{ fontWeight: 500, color: '#94a3b8' }}> (modèle {entretien.modele.replace(/^Template_/i, '')})</span> : null}
+        </div>
+        <div><b>Agent :</b> {`${(entretien.agent_nom || '').toUpperCase()} ${(entretien.agent_prenom || '').toUpperCase()}`.trim()}</div>
+        <div><b>Direction / Service :</b> {entretien.service || entretien.direction || '—'}</div>
+        <div><b>Fonctions exercées :</b> {entretien.poste || '—'}</div>
+        <div><b>Grade actuel :</b> {crep.grade || (entretien as any).agent_grade || '—'}</div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 12 }}>
         <Field label="Grade actuel"><input style={input} disabled={dis} value={crep.grade} onChange={e => set('grade', e.target.value)} /></Field>
-        <Field label="Date de convocation" hint="Automatique : date de création de l’EP.">
-          <input style={{ ...input, background: '#f8fafc' }} disabled readOnly value={entretien.created_at ? new Date(entretien.created_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) : '—'} />
+        <Field label="Date de convocation" hint="Par défaut : date de création de l’EP. Modifiable.">
+          <input style={input} type="date" disabled={dis} value={crep.date_convocation || isoDay(entretien.created_at)} onChange={e => set('date_convocation', e.target.value)} />
         </Field>
-        <Field label="Date de notification à l’agent" hint="Automatique : date d’envoi du compte rendu à l’agent.">
-          <input style={{ ...input, background: '#f8fafc' }} disabled readOnly value={entretien.crep_sent_at ? new Date(entretien.crep_sent_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) : 'À l’envoi à l’agent'} />
+        <Field label="Date de l’entretien" hint="Par défaut : date planifiée. Modifiable.">
+          <input style={input} type="date" disabled={dis} value={crep.date_entretien || isoDay(entretien.date_entretien)} onChange={e => set('date_entretien', e.target.value)} />
+        </Field>
+        <Field label="Date de notification à l’agent" hint="Par défaut : date d’envoi à l’agent. Modifiable.">
+          <input style={input} type="date" disabled={dis} value={crep.date_notification || isoDay(entretien.crep_sent_at)} onChange={e => set('date_notification', e.target.value)} />
         </Field>
         <Field label="Nom de l’évaluateur (N+1)"><input style={input} disabled={dis} value={crep.evaluateur_nom} onChange={e => set('evaluateur_nom', e.target.value)} /></Field>
       </div>

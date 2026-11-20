@@ -141,8 +141,18 @@ async function buildCrepPdf(entretien, annee) {
         const lw = 70, lh = (logo.height / logo.width) * lw;
         page.drawImage(logo, { x: (W - lw) / 2, y: H - 22 - lh, width: lw, height: lh });
     }
+    // Logos propres au modèle (ex. CCAS) : à gauche de celui de la Ville.
+    for (const extra of ((cdef && cdef.logos_extra) || []).slice(0, 2)) {
+        try {
+            const buf = Buffer.from(extra.b64, 'base64');
+            const img = extra.mime === 'image/png' ? await pdf.embedPng(buf) : await pdf.embedJpg(buf);
+            const eh = 38, ew = Math.min(120, (img.width / img.height) * eh);
+            page.drawImage(img, { x: MX, y: H - 22 - eh, width: ew, height: eh });
+        } catch (e) { /* logo facultatif */ }
+    }
     draw(page, `COMPTE-RENDU D’ENTRETIEN PROFESSIONNEL ${annee || ''}`.trim(), MX, 90, { font: F.b, size: 16, align: 'center', maxW: CW });
-    draw(page, 'CATEGORIE A ET B', MX, 110, { font: F.b, size: 12, align: 'center', maxW: CW });
+    const titreModele = (cdef && cdef.titre) || (cdef && cdef.categorie === 'C' ? 'CATEGORIE C' : 'CATEGORIE A ET B');
+    draw(page, titreModele, MX, 110, { font: F.b, size: 12, align: 'center', maxW: CW });
     hline(page, 126);
 
     const agentNom = `${String(entretien.agent_nom || '').toUpperCase()} ${String(entretien.agent_prenom || '').toUpperCase()}`.trim();
@@ -150,7 +160,7 @@ async function buildCrepPdf(entretien, annee) {
         ['Agent :', agentNom],
         ['Direction/Service :', entretien.service || entretien.direction || ''],
         ['Fonctions exercées :', entretien.poste || ''],
-        ['Grade actuel :', crep.grade],
+        ['Grade actuel :', crep.grade || entretien.agent_grade || ''],
     ];
     ident.forEach(([label, value], i) => {
         const top = 136 + i * 15;
@@ -160,9 +170,9 @@ async function buildCrepPdf(entretien, annee) {
 
     // Dates
     const dateCols = [
-        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(entretien.created_at) },
-        { x: MX + 190, w: 130, label: 'Date de l\'entretien :', value: fmtDate(entretien.date_entretien) },
-        { x: MX + 340, w: 195, label: 'Date de notification agent :', value: fmtDate(entretien.crep_sent_at) },
+        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(crep.date_convocation || entretien.created_at) },
+        { x: MX + 190, w: 130, label: 'Date de l\'entretien :', value: fmtDate(crep.date_entretien || entretien.date_entretien) },
+        { x: MX + 340, w: 195, label: 'Date de notification agent :', value: fmtDate(crep.date_notification || entretien.crep_sent_at) },
     ];
     dateCols.forEach(c => {
         draw(page, c.label, c.x, 206, { font: F.b, size: 9.5 });

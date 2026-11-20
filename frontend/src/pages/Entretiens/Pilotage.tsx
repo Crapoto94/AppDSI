@@ -46,6 +46,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
   const [dsiOptions, setDsiOptions] = useState<Array<AgentOption & { raw: AgentAProgrammer }>>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
   const [relancing, setRelancing] = useState(false);
+  const [page, setPage] = useState(1);
 
   const currentCampaign = campaigns.find(c => c.id === campaignId) || null;
 
@@ -121,6 +122,11 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
     }
     return true;
   }), [items, q, statut]);
+  const pageSize = 50;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => { setPage(1); }, [q, statut, campaignId]);
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const programmerFiltered = useMemo(() => aProgrammer.filter(a => {
     if (statut && statut !== 'a_planifier') return false;
@@ -221,7 +227,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10, marginBottom: 18 }}>
           <KpiCard label="Entretiens de la campagne" value={total} color={COLORS.primary} sub={currentCampaign?.libelle || undefined} />
-          <KpiCard label="Planifiés" value={stats.planifies} color="#2563eb" sub={`${stats.a_planifier} à planifier`} />
+          <KpiCard label="Planifiés" value={stats.planifies} color="#2563eb" sub={`${total ? Math.round((stats.planifies / total) * 100) : 0}% · ${stats.a_planifier} à planifier`} />
           <KpiCard label="Préparations reçues" value={stats.preparations_recues} color="#0891b2" sub={total ? `${Math.round((stats.preparations_recues / total) * 100)}% des agents` : undefined} />
           <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />
           <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Échéances proches" />
@@ -329,6 +335,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
             : undefined}
         />
       ) : (
+        <>
         <div style={{ ...card, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1060 }}>
             <thead>
@@ -344,7 +351,7 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(e => {
+              {paged.map(e => {
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
                 const prep = PREP_STATUTS[e.preparation_statut] || PREP_STATUTS.non_commencee;
                 return (
@@ -425,6 +432,16 @@ export default function Pilotage({ onChanged }: { onChanged?: () => void }) {
             </tbody>
           </table>
         </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: COLORS.muted }}>
+            {filtered.length} entretien(s) · page {page} / {pageCount}{programmerFiltered.length ? ` · ${programmerFiltered.length} agent(s) à programmer` : ''}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={btnGhost} disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Précédent</button>
+            <button style={btnGhost} disabled={page >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Suivant</button>
+          </div>
+        </div>
+        </>
       )}
 
       {modalOpen && (

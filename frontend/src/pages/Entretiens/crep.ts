@@ -10,6 +10,9 @@ export type Appreciation = '' | 'S' | 'AS' | 'I';
 
 export interface Crep {
   grade: string;
+  date_convocation: string;
+  date_entretien: string;
+  date_notification: string;
   evaluateur_nom: string;
   missions: string;
   objectifs_ecoules: Array<{ objectif: string; observations: string; niveau: Niveau }>;
@@ -80,7 +83,7 @@ export function emptyCrep(): Crep {
   return {
     grade: '', evaluateur_nom: '', missions: '',
     objectifs_ecoules: Array.from({ length: NB_OBJECTIFS }, () => ({ objectif: '', observations: '', niveau: '' as Niveau })),
-    observations_complementaires: '', valeur: {}, appreciation_generale: '', objectifs_service: '',
+    date_convocation: '', date_entretien: '', date_notification: '', observations_complementaires: '', valeur: {}, appreciation_generale: '', objectifs_service: '',
     objectifs_futurs: Array.from({ length: NB_OBJECTIFS }, () => ({ descriptif: '', moyens: '' })),
     formations: { obligatoires: '', metiers: '', parcours: '' },
     evolution: '', mobilite: '', obs_agent_conditions: '', obs_agent_entretien: '', visa_autorite: '',
@@ -134,6 +137,9 @@ export function initialCrep(e: Entretien): Crep {
   return {
     ...base,
     grade: saved.grade || '',
+    date_convocation: saved.date_convocation || '',
+    date_entretien: saved.date_entretien || '',
+    date_notification: saved.date_notification || '',
     evaluateur_nom: pick(saved.evaluateur_nom, base.evaluateur_nom),
     missions: pick(saved.missions, base.missions),
     objectifs_ecoules: base.objectifs_ecoules.map((o, i) => {
@@ -165,6 +171,12 @@ export interface CrepDefinition {
   flags?: { objectifs_service?: boolean };
 }
 
+/** Avertissement (non bloquant) : critères de la grille sans réponse — la validation reste possible. */
+export function gridWarning(c: Crep, def?: CrepDefinition | null): string {
+  const n = (def?.criteria_groups || CRITERIA_GROUPS).flatMap(g => g.items).filter(it => !c.valeur[it.key]).length;
+  return n ? `Grille d’appréciation de la valeur professionnelle : ${n} critère(s) sans réponse` : '';
+}
+
 export function missingFields(c: Crep, def?: CrepDefinition | null): string[] {
   const empty = (v?: string | null) => !String(v || '').trim();
   const out: string[] = [];
@@ -175,8 +187,6 @@ export function missingFields(c: Crep, def?: CrepDefinition | null): string[] {
   if (!c.objectifs_ecoules.some(o => !empty(o.objectif))) out.push('Au moins un objectif de l’année écoulée (description)');
   c.objectifs_ecoules.forEach((o, i) => { if (empty(o.objectif) && (!empty(o.observations) || o.niveau)) out.push(`Objectif ${i + 1} de l’année écoulée : description à renseigner`); });
   if (empty(c.observations_complementaires)) out.push('Observations complémentaires (contexte, faits marquants, acquis professionnels)');
-  const noAnswer = (def?.criteria_groups || CRITERIA_GROUPS).flatMap(g => g.items).filter(it => !c.valeur[it.key]).length;
-  if (noAnswer) out.push(`Grille d’appréciation de la valeur professionnelle : ${noAnswer} critère(s) sans réponse`);
   if (empty(c.appreciation_generale)) out.push('Appréciation générale sur l’exercice des missions');
   if (def?.flags?.objectifs_service !== false && empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
   if (!c.objectifs_futurs.some(o => !empty(o.descriptif))) out.push('Au moins un objectif de l’année à venir (descriptif)');

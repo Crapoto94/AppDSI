@@ -5,6 +5,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { COLORS, btnGhost, btnPrimary, card, input } from './ui';
 
 interface Candidat { matricule: string; nom: string; fonction?: string; poste?: string }
+/** Agent de catégorie C évalué avec un modèle A et B : il fait fonction de catégorie supérieure. */
+const faisantFonction = (a: { categorie?: string; modele?: string }) => a.categorie === 'C' && /A&B/i.test(a.modele || '');
+const FfPill = () => <span title="Catégorie C évalué sur un modèle A et B" style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 999, padding: '1px 8px' }}>Faisant fonction</span>;
+
 interface BaseAgent {
   matricule: string; nom_prenom: string; modele: string; direction: string; service: string; poste: string; grade: string;
   chemin: string; unit_code: string; categorie?: string; email: string; email_deduit?: boolean; ad_username: string; ad_status: string;
@@ -201,6 +205,7 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
           <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontSize: 13, fontWeight: kids.length ? 800 : 600 }}>
               {n.nom_prenom}
+              {faisantFonction(n) && <FfPill />}
               {kids.length > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>{nbDesc} agent{nbDesc > 1 ? 's' : ''}</span>}
               {!n.a_conserver && <span style={{ marginLeft: 6, fontSize: 10.5, color: COLORS.muted }}>(non évalué)</span>}
             </div>
@@ -234,6 +239,87 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
         )}
         {!nodes.length && <div style={{ padding: 16, textAlign: 'center', color: COLORS.muted, fontSize: 13 }}>Aucune donnée.</div>}
       </div>
+    </div>
+  );
+}
+
+interface DelegItem { id: number | null; source: string; secretaire: { matricule: string; nom: string; poste: string }; directeur: { matricule: string; nom: string; poste: string }; dg: boolean }
+
+/** Sélecteur d'un agent de la base (recherche par nom ou matricule). */
+function AgentPick({ label, headers, value, onPick }: { label: string; headers: Record<string, string>; value: { matricule: string; nom: string } | null; onPick: (a: { matricule: string; nom: string }) => void }) {
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<Array<{ matricule: string; nom: string; poste?: string }>>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setHits([]); return; }
+    const t = setTimeout(async () => {
+      try { const r = await axios.get('/api/ep-base/valideurs/search', { headers, params: { q } }); setHits(r.data.valideurs || []); } catch { setHits([]); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, headers]);
+  return (
+    <div style={{ minWidth: 240, flex: 1 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: COLORS.muted, marginBottom: 3 }}>{label}{value ? ` : ${value.nom}` : ''}</div>
+      <input style={{ ...input, padding: '6px 9px', fontSize: 12.5 }} placeholder="Nom ou matricule…" value={q} onChange={e => setQ(e.target.value)} />
+      {hits.length > 0 && (
+        <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 4, maxHeight: 160, overflowY: 'auto', background: '#fff' }}>
+          {hits.map(h => (
+            <button key={h.matricule} onClick={() => { onPick({ matricule: h.matricule, nom: h.nom }); setQ(''); setHits([]); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12 }}>
+              <b>{h.nom}</b> <span style={{ color: COLORS.muted }}>· {h.poste || h.matricule}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Délégations : une secrétaire de direction a les mêmes droits que son directeur (son valideur) ; les secrétaires de DG et la DGS
+ * peuvent planifier les rendez-vous au nom de tous les DG. Les secrétaires sont détectées d'après leur poste (« assistant·e de direction »).
+ */
+function DelegationsPanel({ headers, onError }: { headers: Record<string, string>; onError: (t: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{ items: DelegItem[]; dgs: Array<{ matricule: string; nom: string }> } | null>(null);
+  const [sec, setSec] = useState<{ matricule: string; nom: string } | null>(null);
+  const [dir, setDir] = useState<{ matricule: string; nom: string } | null>(null);
+  const load = useCallback(() => { axios.get('/api/ep-base/delegations', { headers }).then(r => setData(r.data)).catch(e => onError(e?.response?.data?.message || 'Délégations indisponibles.')); }, [headers]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) load(); }, [open, load]);
+  const add = async () => {
+    if (!sec || !dir) return;
+    try { await axios.post('/api/ep-base/delegations', { secretaire_matricule: sec.matricule, directeur_matricule: dir.matricule }, { headers }); setSec(null); setDir(null); load(); }
+    catch (e: any) { onError(e?.response?.data?.message || 'Ajout impossible.'); }
+  };
+  const remove = async (id: number) => { try { await axios.delete(`/api/ep-base/delegations/${id}`, { headers }); load(); } catch (e: any) { onError(e?.response?.data?.message || 'Suppression impossible.'); } };
+  return (
+    <div style={{ marginTop: 16, border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', background: '#f8fafc', borderRadius: 10, cursor: 'pointer', fontSize: 13.5, fontWeight: 800, color: COLORS.text }}>
+        {open ? '▾' : '▸'} Délégations : secrétaires de direction et de DG
+      </button>
+      {open && (
+        <div style={{ padding: 14 }}>
+          <p style={{ margin: '0 0 10px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
+            Une secrétaire de direction a les <b>mêmes droits que son directeur</b> (ses entretiens, son équipe). Les secrétaires de DG et la DGS
+            peuvent <b>planifier les rendez-vous au nom de tous les DG</b>. {data?.dgs?.length ? `DGS : ${data.dgs.map(d => d.nom).join(', ')}.` : ''}
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+            <AgentPick label="Secrétaire" headers={headers} value={sec} onPick={setSec} />
+            <AgentPick label="Directeur" headers={headers} value={dir} onPick={setDir} />
+            <button style={btnPrimary} disabled={!sec || !dir} onClick={add}>Ajouter la délégation</button>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+            {(data?.items || []).map((d, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 10px', borderBottom: `1px solid ${COLORS.border}`, fontSize: 12.5 }}>
+                <div style={{ flex: 1 }}><b>{d.secretaire.nom}</b> <span style={{ color: COLORS.muted }}>({d.secretaire.poste})</span> → <b>{d.directeur.nom}</b>
+                  {d.dg && <span style={{ marginLeft: 6, fontSize: 10.5, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>groupe DG</span>}</div>
+                <span style={{ fontSize: 11, color: COLORS.muted }}>{d.source === 'auto' ? 'détectée' : 'ajoutée'}</span>
+                {d.id !== null && <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => remove(d.id as number)}>Retirer</button>}
+              </div>
+            ))}
+            {data && !data.items.length && <div style={{ padding: 12, fontSize: 12.5, color: COLORS.muted }}>Aucune délégation.</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -488,7 +574,7 @@ export default function BaseAgents() {
                 <tbody>
                   {agents.slice(0, 600).map(a => (
                     <tr key={a.matricule}>
-                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {a.grade}</div></td>
+                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}{faisantFonction(a) && <FfPill />}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {a.grade}</div></td>
                       <td style={td}>{a.modele.replace(/^Template_/i, '')}</td>
                       <td style={td}><div>{a.service}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.unit_code}</div></td>
                       <td style={td}><AdCell agent={a} headers={headers} onLinked={load} onError={t => setMsg({ ok: false, text: t })} /></td>
@@ -502,6 +588,7 @@ export default function BaseAgents() {
           )}
           {agents.length > 600 && <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Les 600 premiers agents sont affichés : affinez la recherche.</div>}
           </>}
+          <DelegationsPanel headers={headers} onError={t => setMsg({ ok: false, text: t })} />
         </>
       )}
     </div>

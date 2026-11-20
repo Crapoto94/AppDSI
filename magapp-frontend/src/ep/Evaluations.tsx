@@ -31,14 +31,15 @@ function localStats(rows: Entretien[]): Stats {
   const in7 = new Date(); in7.setDate(in7.getDate() + 7);
   const p = (n: number) => String(n).padStart(2, '0');
   const lim = `${in7.getFullYear()}-${p(in7.getMonth() + 1)}-${p(in7.getDate())}T${p(in7.getHours())}:${p(in7.getMinutes())}`;
-  let realises = 0, aVenir = 0, retard = 0;
+  let realises = 0, planifies = 0, aVenir = 0, retard = 0;
   for (const r of rows) {
     const d = String(r.date_entretien || '').slice(0, 16).replace(' ', 'T');
     if (isDone(r)) realises++;
+    else if (d) planifies++;
     if (d && d >= now && d <= lim) aVenir++;
     if (d && d < now && !isDone(r)) retard++;
   }
-  return { total: rows.length, realises, a_venir_7j: aVenir, en_retard: retard, taux_realisation: rows.length ? Math.round((realises / rows.length) * 100) : 0 } as unknown as Stats;
+  return { total: rows.length, planifies, realises, a_venir_7j: aVenir, en_retard: retard, taux_realisation: rows.length ? Math.round((realises / rows.length) * 100) : 0 } as unknown as Stats;
 }
 
 interface PNode { key: string; label: string; total: number; done: number; children: Map<string, PNode> }
@@ -102,6 +103,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [statut, setStatut] = useState('');
   const [valideur, setValideur] = useState('');
   const [onlyTodo, setOnlyTodo] = useState(true);
+  const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<number | null>(null);
   const [planning, setPlanning] = useState<Entretien | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -222,12 +224,18 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     ? valideurLabel(a).localeCompare(valideurLabel(b), 'fr') || nomComplet(a).localeCompare(nomComplet(b), 'fr')
     : 0), [scopedItems, q, statut, onlyTodo, valideur, readOnly]);
   const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
+  const pageSize = 50;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  useEffect(() => { setPage(1); }, [q, statut, onlyTodo, valideur, fDir, fSvc, fSec, fCat, pilotage]);
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  const paged = pilotage ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered;
 
   return (
     <div>
       {kpi && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 18, overflowX: 'auto' }}>
           <KpiCard label={pilotage ? 'Entretiens (sélection)' : readOnly ? 'EP de mon équipe' : 'EP que je réalise'} value={kpi.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
+          <KpiCard label="Planifiés" value={kpi.planifies || 0} color="#2563eb" sub={`${kpi.total ? Math.round(((kpi.planifies || 0) / kpi.total) * 100) : 0}% des entretiens`} />
           <KpiCard label="À venir sous 7 jours" value={kpi.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
           <KpiCard label="Réalisés" value={kpi.realises} color={COLORS.success} sub={`${kpi.taux_realisation}% de réalisation`} />
           <KpiCard label="En retard" value={kpi.en_retard} color={kpi.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
@@ -310,6 +318,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
         <EmptyState icon={<Users size={40} />} title={onlyTodo && items.length > 0 ? 'Aucun EP à faire' : readOnly ? 'Aucun entretien dans votre équipe' : 'Aucun entretien à évaluer'}
           text={items.length === 0 ? (readOnly ? 'Les entretiens des agents de vos sous-valideurs (et, pour un directeur, de toute sa direction) apparaîtront ici, en lecture seule.' : "Aucun entretien professionnel ne vous est encore attribué pour cette campagne.") : onlyTodo ? "Tous vos entretiens sont réalisés. Basculez sur « Tous » pour les consulter." : "Aucun entretien ne correspond à vos filtres."} />
       ) : (
+        <>
         <div style={{ ...card, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead>
@@ -327,7 +336,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
               </tr>
             </thead>
             <tbody>
-              {filtered.map(e => {
+              {paged.map(e => {
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
@@ -340,6 +349,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                           {e.poste && <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.35 }}>{e.poste}</div>}
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                             {e.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{e.agent_grade}</Pill>}
+                            {e.categorie === 'C' && /A&B/i.test(e.modele || '') && <Pill bg="#fef3c7" color="#92400e">Faisant fonction</Pill>}
                             {e.direction && <Pill bg="#f1f5f9" color="#475569">{e.direction}</Pill>}
                             {uniteService(e) && <Pill bg="#f0fdf4" color="#166534">{uniteService(e)}</Pill>}
                             {!e.agent_grade && !e.poste && !e.direction && !e.service && e.agent_email && <Pill bg="#f1f5f9" color="#64748b">{e.agent_email}</Pill>}
@@ -393,6 +403,16 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
             </tbody>
           </table>
         </div>
+        {pilotage && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: COLORS.muted }}>{filtered.length} entretien(s) · page {page} / {pageCount}</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={btnGhost} disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Précédent</button>
+              <button style={btnGhost} disabled={page >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Suivant</button>
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {stats && stats.total > 0 && stats.total === stats.realises && (

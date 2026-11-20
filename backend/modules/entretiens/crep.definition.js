@@ -72,6 +72,7 @@ const allCriteria = () => {
 
 const emptyCrep = () => ({
     grade: '',
+    date_convocation: '', date_entretien: '', date_notification: '',
     evaluateur_nom: '',
     missions: '',
     objectifs_ecoules: Array.from({ length: NB_OBJECTIFS }, () => ({ objectif: '', observations: '', niveau: '' })),
@@ -99,6 +100,9 @@ function normalizeCrep(input, definition) {
     const base = emptyCrep();
     const out = { ...base };
     out.grade = str(src.grade, 200);
+    out.date_convocation = isoDate(src.date_convocation);
+    out.date_entretien = isoDate(src.date_entretien);
+    out.date_notification = isoDate(src.date_notification);
     out.evaluateur_nom = str(src.evaluateur_nom, 200);
     out.missions = str(src.missions);
     out.objectifs_ecoules = base.objectifs_ecoules.map((_, i) => {
@@ -141,9 +145,6 @@ function missingFields(crep, definition) {
     if (!objs.some(o => !empty(o.objectif))) out.push('Au moins un objectif de l’année écoulée (description)');
     objs.forEach((o, i) => { if (empty(o.objectif) && (!empty(o.observations) || o.niveau)) out.push(`Objectif ${i + 1} de l’année écoulée : description à renseigner`); });
     if (empty(c.observations_complementaires)) out.push('Observations complémentaires (contexte, faits marquants, acquis professionnels)');
-    const noAnswer = [];
-    for (const g of groupsOf(definition)) for (const it of g.items) if (!c.valeur[it.key]) noAnswer.push(it.label);
-    if (noAnswer.length) out.push(`Grille d’appréciation de la valeur professionnelle : ${noAnswer.length} critère(s) sans réponse`);
     if (empty(c.appreciation_generale)) out.push('Appréciation générale sur l’exercice des missions');
     if ((!definition || !definition.flags || definition.flags.objectifs_service !== false) && empty(c.objectifs_service)) out.push('Rappel des objectifs du service / de la direction');
     if (!c.objectifs_futurs.some(o => !empty(o.descriptif))) out.push('Au moins un objectif de l’année à venir (descriptif)');
@@ -155,4 +156,11 @@ function missingFields(crep, definition) {
     return out;
 }
 
-module.exports = { LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields, setTemplateDefs, definitionFor, groupsOf };
+/** Avertissement (non bloquant) : critères de la grille d'appréciation sans réponse — ce cas arrive, la validation reste possible. */
+function gridWarning(crep, definition) {
+    const c = normalizeCrep(crep, definition);
+    const n = groupsOf(definition).flatMap(g => g.items).filter(it => !c.valeur[it.key]).length;
+    return n ? `Grille d’appréciation de la valeur professionnelle : ${n} critère(s) sans réponse` : '';
+}
+
+module.exports = { LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields, setTemplateDefs, definitionFor, groupsOf, gridWarning };

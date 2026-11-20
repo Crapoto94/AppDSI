@@ -55,6 +55,7 @@ export default function Evaluations({ onChanged }: { onChanged?: () => void }) {
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 18 }}>
           <KpiCard label="Mes EP" value={stats.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
+          <KpiCard label="Planifiés" value={stats.planifies || 0} color="#2563eb" sub={`${stats.total ? Math.round(((stats.planifies || 0) / stats.total) * 100) : 0}% des entretiens`} />
           <KpiCard label="Préparations reçues" value={stats.preparations_recues} color="#0891b2" sub="Agents prêts" />
           <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
           <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />

@@ -62,6 +62,11 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                 <Field label="Date et heure" required>
                   <input style={input} type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
                 </Field>
+                {date && (new Date(date).getTime() - Date.now()) < 8 * 86400000 && (
+                  <div style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>
+                    ⚠ Ce rendez-vous est à moins de 8 jours : le délai de prévenance de l’agent est court. Vous pouvez néanmoins le planifier.
+                  </div>
+                )}
                 <Field label="Durée (minutes)">
                   <input style={input} type="number" min={15} step={15} value={duree} onChange={e => setDuree(Number(e.target.value))} />
                 </Field>

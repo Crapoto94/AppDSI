@@ -217,4 +217,4 @@ async function reviewCrep(summary) {
     return { items, model };
 }
 
-module.exports = { draftComment, reviewCrep };
+module.exports = { draftComment, reviewCrep, pickApmModel, ollamaHost };

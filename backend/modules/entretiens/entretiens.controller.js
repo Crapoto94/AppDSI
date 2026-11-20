@@ -1,7 +1,7 @@
 const { pgDb } = require('../../shared/database');
 const { PDFDocument } = require('pdf-lib');
 const svc = require('./entretiens.service');
-const { normalizeCrep, missingFields, definitionFor } = require('./crep.definition');
+const { normalizeCrep, missingFields, definitionFor, gridWarning } = require('./crep.definition');
 const epBase = require('../ep-base/ep-base.service');
 const { buildCrepPdf } = require('./crep-pdf.service');
 const storage = require('../../shared/storage');
@@ -602,18 +602,44 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             const role = await svc.resolveRole(actor);
-            if (!role.isEvaluator) return res.json({ campaign: await loadCampaignOrCurrent(req.query.campaign_id), stats: svc.computeStats([]), items: [] });
             const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
+            const epBase = require('../ep-base/ep-base.service');
+            const pid = await epBase.plannerIdentities(actor).catch(() => ({ usernames: [], emails: [] }));
+            const isPlannerUser = pid.usernames.length > 0 || pid.emails.length > 0;
+            if (!role.isEvaluator && !isPlannerUser) return res.json({ campaign, stats: svc.computeStats([]), items: [] });
             const identityCache = await svc.evaluatorIdentity(actor);
+            const matches = (r, identity) => (svc.norm(r.evaluator_email) && identity.emails.includes(svc.norm(r.evaluator_email)))
+                || (svc.norm(r.evaluator_username) && identity.usernames.includes(svc.norm(r.evaluator_username)));
 
-            const rows = (await svc.listEntretiens({ campaignId: campaign?.id }))
-                .filter(r => {
-                    const identity = identityCache;
-                    return (svc.norm(r.evaluator_email) && identity.emails.includes(svc.norm(r.evaluator_email)))
-                        || (svc.norm(r.evaluator_username) && identity.usernames.includes(svc.norm(r.evaluator_username)));
-                });
-            res.json({ campaign, stats: svc.computeStats(rows), items: await require('./ep-rh-enrich').enrichFromRh(rows) });
+            const all = await svc.listEntretiens({ campaignId: campaign?.id });
+            const rows = [];
+            for (const r of all) {
+                if (matches(r, identityCache)) rows.push(r);
+                else if (isPlannerUser && matches(r, pid)) rows.push({ ...r, planification_seule: true });
+            }
+            const items = await epBase.attachInfo(await require('./ep-rh-enrich').enrichFromRh(rows));
+            res.json({ campaign, stats: svc.computeStats(rows), items });
         } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/crep/scan (multipart « file » : PDF ou image) — lit un compte rendu papier (manuscrit) et PROPOSE un contenu ;
+    // rien n'est enregistré : l'évaluateur relit, corrige puis applique la proposition au formulaire.
+    crepScan: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !access.canEditEvaluation) return fail(res, 403, 'Seul l’évaluateur peut importer un compte rendu papier.');
+            if (!req.file) return fail(res, 400, 'Aucun fichier reçu.');
+            if (!/^(application\/pdf|image\/(png|jpe?g|webp|tiff?))$/i.test(req.file.mimetype || '')) return fail(res, 400, 'Format non pris en charge : PDF ou image (PNG, JPEG).');
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
+            res.json(await require('./crep-scan.service').scanToProposal(req.file.buffer, req.file.mimetype, cdef));
+        } catch (err) {
+            console.error('[ENTRETIENS] crepScan:', err.message);
+            fail(res, 500, `Lecture du document impossible : ${err.message}`);
+        }
     },
 
     // GET /api/entretiens/stats?campaign_id=...
@@ -1057,7 +1083,7 @@ const entretiensController = {
             if (!current) return fail(res, 404, 'Entretien introuvable.');
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, current, role.isAdmin);
-            if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur de cet entretien peut le planifier.');
+            if (!access || !(access.isEvaluator || access.isAdmin || access.isPlanner)) return fail(res, 403, 'Seul l’évaluateur de cet entretien (ou son délégué) peut le planifier.');
             if (['realise', 'cloture'].includes(current.statut)) return fail(res, 409, 'Cet entretien est déjà réalisé.');
             const b = req.body || {};
             const d = svc.normalizeDateTime(b.date_entretien);
@@ -1153,7 +1179,7 @@ const entretiensController = {
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
             const crep = normalizeCrep(req.body?.crep, cdef);
-            const out = { missing: missingFields(crep, cdef), issues: coherenceIssues(crep, cdef), ai: null, ai_error: null };
+            const out = { missing: missingFields(crep, cdef), issues: coherenceIssues(crep, cdef), warnings: [gridWarning(crep, cdef)].filter(Boolean), ai: null, ai_error: null };
             // La relecture par l'IA ne s'exécute que si le module l'autorise pour cet évaluateur.
             const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor, 'review')).allowed;
             if (aiAllowed) {
@@ -1547,7 +1573,7 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
-            res.json(await svc.listAuditLogs(req.query.limit));
+            res.json(await svc.listAuditLogs(req.query || {}));
         } catch (err) { fail(res, 500, err.message); }
     },
 

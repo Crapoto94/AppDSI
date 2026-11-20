@@ -118,6 +118,12 @@ async function evaluatorIdentity(actor) {
             for (const r of rows || []) add(r.username, r.email);
         } catch (e) { /* ignore */ }
     }
+    // Secrétaire de direction : mêmes droits que son directeur (ses entretiens d'évaluateur apparaissent aussi chez elle).
+    try {
+        const d = await require('../ep-base/ep-base.service').delegatedIdentities(actor);
+        for (const u of d.usernames) usernames.add(norm(u));
+        for (const e of d.emails) emails.add(norm(e));
+    } catch (e) { /* base des agents indisponible */ }
     return { usernames: [...usernames], emails: [...emails] };
 }
 
@@ -265,11 +271,20 @@ async function buildAccess(actor, entretien, adminFlag) {
         (norm(entretien.evaluator_email) && identity.emails.includes(norm(entretien.evaluator_email))) ||
         (norm(entretien.evaluator_username) && identity.usernames.includes(norm(entretien.evaluator_username)))
     );
+    // Groupe DG (DGS et secrétaires de DG) : planification des rendez-vous au nom de tous les DG.
+    let isPlanner = false;
+    if (!isEvaluator) {
+        try {
+            const pid = await require('../ep-base/ep-base.service').plannerIdentities(actor);
+            isPlanner = !!((norm(entretien.evaluator_email) && pid.emails.includes(norm(entretien.evaluator_email)))
+                || (norm(entretien.evaluator_username) && pid.usernames.includes(norm(entretien.evaluator_username))));
+        } catch (e) { /* base indisponible */ }
+    }
     // Valideur situé au-dessus de l'évaluateur direct (cascade) : lecture seule de l'EP, jamais de modification.
     let isSuperieur = (!admin && !isAgent && !isEvaluator) ? await require('../ep-ville/ep-ville.hierarchy').isSuperieur(actor, entretien).catch(() => false) : false;
     // Valideur placé au-dessus de l'agent dans la base des agents à évaluer (classeur RH), à n'importe quel niveau.
     if (!admin && !isAgent && !isEvaluator && !isSuperieur) isSuperieur = await require('../ep-base/ep-base.service').isAboveInBase(actor, entretien).catch(() => false);
-    if (!admin && !isAgent && !isEvaluator && !isSuperieur) return null;
+    if (!admin && !isAgent && !isEvaluator && !isSuperieur && !isPlanner) return null;
 
     // « Mon entretien » est fermé par défaut : l'agent ne voit son espace que
     // s'il a été explicitement autorisé (l'évaluateur et l'administrateur du
@@ -297,6 +312,8 @@ async function buildAccess(actor, entretien, adminFlag) {
         isAgent,
         isEvaluator,
         isSuperieur,
+        isPlanner,
+        canPlan: isEvaluator || admin || isPlanner,
         canEditPreparation,
         // Une fois le compte rendu envoyé à l'agent, l'évaluateur ne peut plus le modifier.
         canEditEvaluation: (isEvaluator || admin) && entretien.statut !== 'cloture' && (!entretien.crep_statut || entretien.crep_statut === 'non_envoye'),
@@ -661,6 +678,9 @@ async function ensureAuditSchema() {
                 details JSONB
             )`);
             await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_audit_created ON hub_entretiens.audit_logs(created_at DESC)');
+            await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_audit_action ON hub_entretiens.audit_logs(action)');
+            await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_audit_actor ON hub_entretiens.audit_logs(actor_username)');
+            await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_audit_entretien ON hub_entretiens.audit_logs(entretien_id)');
         })().catch((e) => { auditReady = null; throw e; });
     }
     return auditReady;
@@ -688,13 +708,39 @@ async function logAudit({ actor, action, entretien, details } = {}) {
     }
 }
 
-async function listAuditLogs(limit = 300) {
+async function listAuditLogs({ page = 1, pageSize = 50, action = '', dateFrom = '', dateTo = '', user = '', q = '', entretienId = null } = {}) {
     await ensureAuditSchema();
-    const n = Math.max(1, Math.min(Number(limit) || 300, 1000));
-    return pgDb.all(
+    const where = [];
+    const params = [];
+    if (action) { where.push('action = ?'); params.push(String(action)); }
+    if (dateFrom) { where.push('created_at >= CAST(? AS date)'); params.push(String(dateFrom).slice(0, 10)); }
+    if (dateTo) { where.push("created_at < CAST(? AS date) + INTERVAL '1 day'"); params.push(String(dateTo).slice(0, 10)); }
+    if (user) {
+        const like = `%${String(user).trim()}%`;
+        where.push('(actor_name ILIKE ? OR actor_username ILIKE ? OR actor_email ILIKE ?)');
+        params.push(like, like, like);
+    }
+    if (q) {
+        const like = `%${String(q).trim()}%`;
+        where.push('(agent_nom ILIKE ? OR details::text ILIKE ?)');
+        params.push(like, like);
+    }
+    if (Number.isFinite(Number(entretienId)) && Number(entretienId) > 0) {
+        where.push('entretien_id = ?');
+        params.push(Number(entretienId));
+    }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const size = Math.max(10, Math.min(Number(pageSize) || 50, 200));
+    const current = Math.max(1, Number(page) || 1);
+    const count = await pgDb.get(`SELECT COUNT(*)::int AS n FROM hub_entretiens.audit_logs ${clause}`, params);
+    const total = Number(count?.n) || 0;
+    const items = await pgDb.all(
         `SELECT id, created_at, actor_username, actor_email, actor_name, action, entretien_id, agent_nom, details
-         FROM hub_entretiens.audit_logs ORDER BY id DESC LIMIT ${n}`
+         FROM hub_entretiens.audit_logs ${clause}
+         ORDER BY id DESC LIMIT ${size} OFFSET ${(current - 1) * size}`,
+        params
     );
+    return { items, total, page: current, pageSize: size };
 }
 
 async function resolveOrganizerEmail(actor) {
