@@ -27,6 +27,9 @@ async function sendToAgent({ row, access }) {
     if (!(access.isEvaluator || access.isAdmin)) throw err(403, 'Seul l’évaluateur peut envoyer le compte rendu à l’agent.');
     if (row.crep_statut && row.crep_statut !== 'non_envoye') throw err(409, 'Le compte rendu a déjà été envoyé à l’agent.');
     if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') throw err(400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
+    if (!(await svc.esignAllowedFor({ username: row.agent_username, email: row.agent_email })).allowed) {
+        throw err(403, 'La signature électronique n’est pas activée pour cet agent : imprimez le compte rendu, faites-le signer, puis téléversez le PDF signé.');
+    }
     if (!row.evaluator_email) throw err(400, 'L’évaluateur n’a pas d’adresse e-mail : imprimez le compte rendu, faites-le signer, puis téléversez le PDF signé.');
     if (!row.agent_email) throw err(400, 'L’adresse e-mail de l’agent est inconnue : impossible de lui envoyer le compte rendu.');
 
@@ -52,6 +55,9 @@ async function sendToAgent({ row, access }) {
 
 async function agentValidate({ row, access, body, actor, req }) {
     if (!access.isAgent) throw err(403, 'Seul l’agent concerné peut valider son compte rendu.');
+    if (!(await svc.esignAllowedFor({ username: row.agent_username, email: row.agent_email })).allowed) {
+        throw err(403, 'La signature électronique n’est pas activée pour vous : imprimez le compte rendu, faites-le signer, puis transmettez le PDF signé à votre évaluateur.');
+    }
     if (row.crep_statut !== 'envoye_agent') throw err(409, row.crep_statut === 'en_signature' ? 'Ce compte rendu a déjà été validé et transmis en signature.' : 'Le compte rendu ne vous a pas encore été envoyé.');
     if (!row.evaluator_email) throw err(400, 'L’adresse e-mail de l’évaluateur est inconnue : impossible de constituer le circuit de signature.');
     if (body?.validate !== true) throw err(400, 'Confirmation de validation requise.');

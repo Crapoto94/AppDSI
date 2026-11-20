@@ -598,6 +598,35 @@ async function getSelfSettings() {
     };
 }
 
+async function getEsignAgents() {
+    return parseAiEvaluators(await getSetting('esign_agents'));
+}
+
+/** La signature électronique du CREP est-elle ouverte pour cet agent ? */
+async function esignAllowedFor(agent = {}) {
+    const rawEnabled = norm(await getSetting('esign_enabled'));
+    const enabled = rawEnabled === 'true' || rawEnabled === '1';
+    if (!enabled) return { enabled: false, allowed: false, reason: 'disabled' };
+    const agents = await getEsignAgents();
+    if (!agents.length) return { enabled: true, allowed: false, reason: 'no_agents' };
+    const usernames = new Set([norm(agent.username), norm(agent.agent_username)].filter(Boolean));
+    const emails = new Set([norm(agent.email), norm(agent.agent_email)].filter(Boolean));
+    const allowed = agents.some(e => (
+        (e.username && usernames.has(norm(e.username)))
+        || (e.email && emails.has(norm(e.email)))
+    ));
+    return { enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
+}
+
+async function getEsignSettings() {
+    const raw = norm(await getSetting('esign_enabled'));
+    return {
+        enabled: raw === 'true' || raw === '1',
+        agents: await getEsignAgents(),
+        candidates: await listAgentCandidates(),
+    };
+}
+
 async function resolveOrganizerEmail(actor) {
     if (isEmail(actor.email)) return actor.email.trim();
     if (actor.username) {
@@ -762,6 +791,8 @@ module.exports = {
     selfAccessFor,
     getSelfAgents,
     getSelfSettings,
+    esignAllowedFor,
+    getEsignSettings,
     listAgentCandidates,
     resolveOrganizerEmail,
     syncOutlook,

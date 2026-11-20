@@ -36,6 +36,12 @@ export interface SelfAccess {
   reason?: 'disabled' | 'no_agents' | 'not_selected' | 'ok' | string;
 }
 
+export interface EsignAccess {
+  enabled: boolean;
+  allowed: boolean;
+  reason?: 'disabled' | 'no_agents' | 'not_selected' | 'ok' | string;
+}
+
 export interface Objectif {
   id: number;
   entretien_id?: number;
@@ -132,6 +138,7 @@ export interface Entretien {
   formations_total?: number;
   access?: Access;
   ai_access?: AiAccessMap;
+  esign_access?: EsignAccess;
 }
 
 export interface MeData {
@@ -143,6 +150,7 @@ export interface MeData {
   entretien: Entretien | null;
   evaluatorCount: number;
   selfAccess?: SelfAccess;
+  esignAccess?: EsignAccess;
   aiAccess?: AiAccessMap;
   now: string;
 }

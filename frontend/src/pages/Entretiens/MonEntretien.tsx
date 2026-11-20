@@ -145,7 +145,7 @@ export default function MonEntretien({ data, onChanged }: { data: MeData; onChan
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 800, fontSize: 15, color: COLORS.text, marginBottom: 10 }}>
             <FileSignature size={17} color={COLORS.primary} /> Compte rendu de mon entretien professionnel
           </div>
-          <CrepForm mode="agent" entretien={entretien} canEdit={false}
+          <CrepForm mode="agent" entretien={entretien} canEdit={false} eSignEnabled={!!data.esignAccess?.allowed}
             onSaved={(updated) => { setEntretien(prev => (prev ? { ...prev, ...updated, access: (updated as any).access || prev.access } : updated)); onChanged(); }} />
         </div>
       )}

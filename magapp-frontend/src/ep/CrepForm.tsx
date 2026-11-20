@@ -42,7 +42,7 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
  * Saisie du compte-rendu officiel de l'entretien par l'évaluateur (tous les champs du document DRH)
  * et génération du PDF de 4 pages.
  */
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true }: {
+export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
@@ -50,6 +50,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   aiEnabled?: boolean;
   /** La relecture / évaluation des compétences par l'IA est ouverte par le paramétrage du module. */
   aiReviewEnabled?: boolean;
+  /** La signature électronique du CREP est ouverte pour l'agent (paramétrage du module). */
+  eSignEnabled?: boolean;
   /** « agent » : relecture du compte rendu envoyé par l'évaluateur, saisie des 2 champs réservés, validation → parapheur. */
   mode?: 'evaluateur' | 'agent';
 }) {
@@ -72,11 +74,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const crepStatut = entretien.crep_statut || 'non_envoye';
   // Agent ou évaluateur sans adresse e-mail : pas de circuit parapheur, on imprime, on fait signer puis on téléverse le PDF signé.
   const noMail = !(entretien.agent_email || '').trim() || !(entretien.evaluator_email || '').trim();
-  const canSend = !isAgent && canEdit && !noMail && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis' && crepStatut === 'non_envoye';
+  const canSend = !isAgent && canEdit && eSignEnabled && !noMail && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis' && crepStatut === 'non_envoye';
   const hasSigned = !!entretien.crep_signed_at || (crepStatut === 'en_signature' && entretien.crep_parapheur_status === 'termine');
   const canUploadSigned = !isAgent && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis'
     && (crepStatut === 'non_envoye' || crepStatut === 'signe_papier' || (crepStatut === 'en_signature' && ['refuse', 'annule'].includes(entretien.crep_parapheur_status || '')));
-  const agentCanValidate = isAgent && crepStatut === 'envoye_agent';
+  const agentCanValidate = isAgent && eSignEnabled && crepStatut === 'envoye_agent';
 
   const save = async (submit: boolean) => {
     setMsg(null); setMissing([]);
@@ -261,9 +263,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           <span>
             {agentCanValidate
               ? <>Votre évaluateur vous a transmis le compte rendu de votre entretien. <strong>Relisez-le</strong>, renseignez vos observations en bas de page, puis <strong>validez-le</strong> : il sera alors envoyé au parapheur pour être cosigné par vous et par votre évaluateur.</>
-              : crepStatut === 'en_signature'
-                ? <>Vous avez validé ce compte rendu : il a été transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}. Retrouvez-le dans votre parapheur (« À signer »).</>
-                : <>Ce compte rendu est en lecture seule.</>}
+              : (isAgent && !eSignEnabled && crepStatut === 'envoye_agent')
+                ? <>La signature électronique n’est pas activée pour vous. Imprimez le compte rendu, faites-le signer, puis transmettez le PDF signé à votre évaluateur.</>
+                : crepStatut === 'en_signature'
+                  ? <>Vous avez validé ce compte rendu : il a été transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}. Retrouvez-le dans votre parapheur (« À signer »).</>
+                  : <>Ce compte rendu est en lecture seule.</>}
           </span>
         </div>
       )}
@@ -283,6 +287,15 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           <span>
             {!(entretien.agent_email || '').trim() && !(entretien.evaluator_email || '').trim() ? 'L’agent et l’évaluateur n’ont pas d’adresse e-mail' : !(entretien.agent_email || '').trim() ? 'L’agent n’a pas d’adresse e-mail' : 'L’évaluateur n’a pas d’adresse e-mail'} :
             le compte rendu ne peut pas passer par le parapheur. <strong>Imprimez-le</strong> (bouton « Imprimer / PDF »), faites-le signer, puis <strong>téléversez le PDF signé</strong>.
+          </span>
+        </div>
+      )}
+      {canEdit && !isAgent && !eSignEnabled && crepStatut === 'non_envoye' && (
+        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            La signature électronique n’est pas activée pour cet agent. <strong>Imprimez le compte rendu</strong> (bouton « Imprimer / PDF »),
+            faites-le signer, puis <strong>téléversez le PDF signé</strong> depuis cette page.
           </span>
         </div>
       )}

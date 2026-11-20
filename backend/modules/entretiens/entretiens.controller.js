@@ -225,6 +225,7 @@ const entretiensController = {
                 entretien,
                 evaluatorCount,
                 selfAccess,
+                esignAccess: await svc.esignAllowedFor(actor),
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
                     review: await svc.aiAccessFor(actor, 'review'),
@@ -356,11 +357,14 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
-            const [ai, self] = await Promise.all([svc.getAiSettings(), svc.getSelfSettings()]);
+            const [ai, self, esign] = await Promise.all([
+                svc.getAiSettings(), svc.getSelfSettings(), svc.getEsignSettings(),
+            ]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 ai,
                 self,
+                esign,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -455,15 +459,51 @@ const entretiensController = {
                 if (b.self_agents !== undefined) updates.self_agents = JSON.stringify(agents);
             }
 
+            // Signature électronique du CREP : fermée par défaut, ouverte à des agents choisis.
+            if (b.esign_enabled !== undefined || b.esign_agents !== undefined) {
+                const currentRaw = (await svc.getSetting('esign_enabled')).trim().toLowerCase();
+                let enabled = currentRaw === 'true' || currentRaw === '1';
+                if (b.esign_enabled !== undefined) enabled = parseBool(b.esign_enabled);
+
+                let agents;
+                if (b.esign_agents !== undefined) {
+                    if (!Array.isArray(b.esign_agents)) return fail(res, 400, 'Liste d’agents invalide.');
+                    const seen = new Set();
+                    agents = [];
+                    for (const raw of b.esign_agents) {
+                        const username = text(typeof raw === 'string' ? raw : raw?.username).trim();
+                        const email = text(typeof raw === 'string' ? '' : raw?.email).trim();
+                        const displayName = text(typeof raw === 'string' ? '' : (raw?.display_name || raw?.displayName)).trim();
+                        if (!username && !email) continue;
+                        if (email && !svc.isEmail(email)) return fail(res, 400, `Adresse email invalide : ${email}`);
+                        const key = (username || email).toLowerCase();
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        agents.push({ username, email, display_name: displayName });
+                    }
+                } else {
+                    agents = await svc.getEsignAgents();
+                }
+
+                if (enabled && !agents.length) {
+                    return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.');
+                }
+                if (b.esign_enabled !== undefined) updates.esign_enabled = enabled ? 'true' : 'false';
+                if (b.esign_agents !== undefined) updates.esign_agents = JSON.stringify(agents);
+            }
+
             for (const [key, value] of Object.entries(updates)) {
                 await svc.setSetting(key, value);
             }
 
-            const [ai, self] = await Promise.all([svc.getAiSettings(), svc.getSelfSettings()]);
+            const [ai, self, esign] = await Promise.all([
+                svc.getAiSettings(), svc.getSelfSettings(), svc.getEsignSettings(),
+            ]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 ai,
                 self,
+                esign,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -596,6 +636,7 @@ const entretiensController = {
                     draft: await svc.aiAccessFor(actor, 'draft'),
                     review: await svc.aiAccessFor(actor, 'review'),
                 },
+                esign_access: await svc.esignAllowedFor({ username: row.agent_username, email: row.agent_email }),
             });
         } catch (err) { fail(res, 500, err.message); }
     },

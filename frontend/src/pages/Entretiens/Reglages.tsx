@@ -208,6 +208,10 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [self, setSelf] = useState<AiFeatureUi>(emptyAiFeature());
   const [selfCandidates, setSelfCandidates] = useState<AiEvaluatorRef[]>([]);
 
+  // Signature électronique du CREP : fermée par défaut, ouverte à des agents choisis.
+  const [esign, setEsign] = useState<AiFeatureUi>(emptyAiFeature());
+  const [esignCandidates, setEsignCandidates] = useState<AiEvaluatorRef[]>([]);
+
   const loadCampaigns = useCallback(async () => {
     try {
       const r = await axios.get('/api/entretiens/campaigns', { headers });
@@ -243,6 +247,13 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         evaluators: Array.isArray(remoteSelf.agents) ? remoteSelf.agents : [],
       }));
       setSelfCandidates(Array.isArray(remoteSelf.candidates) ? remoteSelf.candidates : []);
+      const remoteEsign = r.data.esign || {};
+      setEsign(prev => ({
+        ...prev,
+        enabled: !!remoteEsign.enabled,
+        evaluators: Array.isArray(remoteEsign.agents) ? remoteEsign.agents : [],
+      }));
+      setEsignCandidates(Array.isArray(remoteEsign.candidates) ? remoteEsign.candidates : []);
     } catch { /* ignore */ }
   }, [token]);
 
@@ -407,6 +418,44 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       setSelfCandidates(Array.isArray(next.candidates) ? next.candidates : selfCandidates);
     } catch (e: any) {
       patchSelf({ saving: null, msg: { ok: false, text: e.response?.data?.message || 'Enregistrement impossible' } });
+    }
+  };
+
+  const patchEsign = (patch: Partial<AiFeatureUi>) => setEsign(prev => ({ ...prev, ...patch }));
+  const toggleEsignAgent = (e: AiEvaluatorRef) => {
+    const isSelected = esign.evaluators.some(x => aiKey(x) === aiKey(e));
+    patchEsign({
+      msg: null,
+      evaluators: isSelected ? esign.evaluators.filter(x => aiKey(x) !== aiKey(e)) : [...esign.evaluators, e],
+    });
+  };
+  const saveEsign = async (mode: 'enable' | 'disable') => {
+    if (mode === 'disable' && !window.confirm('Fermer la signature électronique du compte rendu pour tous les agents ?')) return;
+    if (mode === 'enable' && esign.evaluators.length === 0) {
+      patchEsign({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.' } });
+      return;
+    }
+    patchEsign({ msg: null, saving: mode });
+    try {
+      const payload = mode === 'disable'
+        ? { esign_enabled: false }
+        : { esign_enabled: true, esign_agents: esign.evaluators };
+      const r = await axios.put('/api/entretiens/settings', payload, { headers });
+      const next = r.data.esign || {};
+      patchEsign({
+        enabled: !!next.enabled,
+        evaluators: Array.isArray(next.agents) ? next.agents : [],
+        saving: null,
+        msg: {
+          ok: true,
+          text: mode === 'disable'
+            ? 'Signature électronique fermée pour tous les agents.'
+            : `Signature électronique ouverte à ${(next.agents || []).length} agent(s).`,
+        },
+      });
+      setEsignCandidates(Array.isArray(next.candidates) ? next.candidates : esignCandidates);
+    } catch (e: any) {
+      patchEsign({ saving: null, msg: { ok: false, text: e.response?.data?.message || 'Enregistrement impossible' } });
     }
   };
 
@@ -576,6 +625,23 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
         onQuery={v => patchSelf({ query: v })}
         onToggle={toggleSelfAgent}
         onSave={saveSelf}
+      />
+
+      {/* Signature électronique du CREP */}
+      <AccessCard
+        title="Signature électronique du compte rendu"
+        description="Par défaut, le compte rendu ne peut pas être signé électroniquement : l’évaluateur l’imprime, le fait signer, puis téléverse le PDF signé. Sélectionnez les agents pour lesquels la signature électronique (parapheur) est ouverte."
+        entriesLabel="Ouvrir pour des agents"
+        entryOne="agent" entryMany="agents"
+        enabled={esign.enabled}
+        entries={esign.evaluators}
+        candidates={esignCandidates}
+        query={esign.query}
+        msg={esign.msg}
+        saving={esign.saving}
+        onQuery={v => patchEsign({ query: v })}
+        onToggle={toggleEsignAgent}
+        onSave={saveEsign}
       />
 
       {/* Organisateur Outlook */}
