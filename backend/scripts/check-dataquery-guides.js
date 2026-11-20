@@ -28,7 +28,7 @@ function tableColumns(name) {
 // Mots SQL et fonctions autorisés dans les requêtes types
 const SQL_WORDS = new Set(('select from where group by order limit join left inner on and or not is null as case when then else end count sum round max min avg ' +
     'date_trunc extract year month coalesce nulls last first desc asc interval current_date between ilike like distinct jsonb_typeof jsonb_array_length ' +
-    'in exists true false with over partition union all having int integer text numeric date days day months').split(' '));
+    'epoch in exists true false with over partition union all having int integer text numeric date days day months').split(' '));
 
 let problems = 0;
 const fail = (msg) => { problems++; console.error('  ✗', msg); };

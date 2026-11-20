@@ -317,7 +317,8 @@ function buildServer(req) {
         { instructions:
             'Lecture des données PostgreSQL (écriture limitée à la CRÉATION de tickets, tâches et réunions, si la personne y est autorisée) : accès aux données PostgreSQL de l\'application DSI de la Ville d\'Ivry ' +
             '(tickets, transcript manager, photocopieurs, contrats, projets, consommables, finance, parc, réseau, télécom, boîtes partagées, vols et pertes de matériel…). ' +
-            'Démarche : 1) dsi_catalog pour trouver le module (schéma) et les tables — pour parc, telecom, contrats, boites_partagees et vols_pertes, appeler d\'abord dsi_module_guide (tables clés, règles, requêtes types) ; 2) dsi_describe_table pour les colonnes ; ' +
+            'Démarche : 0) pour TOUTE analyse de données, appeler dsi_module_guide : sans paramètre (liste), puis le guide du module (tickets, parc, telecom, contrats, boites_partagees, vols_pertes) — il donne les tables, la SIGNIFICATION DES CODES (statuts, priorités…), les définitions (ex. « ticket ouvert ») et des requêtes types ; le guide « methode_analyse » décrit la démarche ; ' +
+            '1) dsi_catalog pour trouver le module (schéma) et les tables ; 2) dsi_describe_table pour les colonnes ; ' +
             '3) dsi_query avec du SQL PostgreSQL (SELECT/WITH uniquement, noms qualifiés schema.table, paramètres $1…). ' +
             'Les colonnes sensibles (mots de passe, jetons…) sont masquées. Toutes les requêtes sont tracées au nom de la personne connectée.' },
     );
@@ -354,10 +355,10 @@ function buildServer(req) {
     }, ({ sql, params, max_rows }) => call('POST', '/query', { sql, params, max_rows }));
     server.registerTool('dsi_module_guide', {
         title: 'Guide d\'un module métier',
-        description: 'Guide des modules métier : parc (matériel, lignes mobiles), telecom (lignes fixes, factures, coûts), contrats (échéances, montants), boites_partagees, vols_pertes (vol et perte de matériel). ' +
-            'Sans paramètre : liste des modules documentés. Avec module : tables clés et colonnes importantes, règles d\'interprétation (pièges de typage, valeurs à vérifier) et REQUÊTES TYPES prêtes à adapter pour dsi_query. ' +
-            'À consulter AVANT d\'écrire du SQL sur ces modules.',
-        inputSchema: { module: z.string().max(50).optional().describe('parc | telecom | contrats | boites_partagees | vols_pertes. Vide = liste.') },
+        description: 'Guide des modules métier : tickets (statuts GLPI, priorités, demandeurs), parc (matériel, lignes mobiles), telecom (lignes fixes, factures, coûts), contrats (échéances, montants), boites_partagees, vols_pertes (vol et perte de matériel), methode_analyse (démarche d\'analyse de données). ' +
+            'Sans paramètre : liste des modules documentés. Avec module : tables clés et colonnes importantes, SIGNIFICATION DES CODES (statuts, types, priorités), définitions métier (ex. « ticket ouvert »), pièges de typage et REQUÊTES TYPES prêtes à adapter pour dsi_query. ' +
+            'À consulter AVANT d\'écrire du SQL et d\'interpréter des codes numériques.',
+        inputSchema: { module: z.string().max(50).optional().describe('tickets | parc | telecom | contrats | boites_partagees | vols_pertes | methode_analyse. Vide = liste.') },
         annotations: ro,
     }, ({ module }) => call('GET', `/guides${module ? `?module=${encodeURIComponent(module)}` : ''}`));
     // ── Écriture (création uniquement, jamais de suppression ni de modification) ──
