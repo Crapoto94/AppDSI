@@ -37,6 +37,107 @@ interface AiFeatureUi {
 
 const emptyAiFeature = (): AiFeatureUi => ({ enabled: false, evaluators: [], query: '', msg: null, saving: null });
 
+function AccessCard({
+  title, description, entriesLabel, entryOne, entryMany,
+  enabled, entries, candidates, query, msg, saving, onQuery, onToggle, onSave,
+}: {
+  title: string;
+  description: string;
+  entriesLabel: string;
+  entryOne: string;
+  entryMany: string;
+  enabled: boolean;
+  entries: AiEvaluatorRef[];
+  candidates: AiEvaluatorRef[];
+  query: string;
+  msg: { ok: boolean; text: string } | null;
+  saving: 'enable' | 'disable' | null;
+  onQuery: (v: string) => void;
+  onToggle: (e: AiEvaluatorRef) => void;
+  onSave: (mode: 'enable' | 'disable') => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? candidates.filter(c => `${c.display_name || ''} ${c.username || ''} ${c.email || ''}`.toLowerCase().includes(q))
+    : candidates;
+  return (
+    <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 6 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
+          <Sparkles size={17} color={COLORS.primary} /> {title}
+          <span style={{
+            fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '2px 9px',
+            background: enabled ? '#dcfce7' : '#f1f5f9', color: enabled ? '#166534' : '#64748b',
+          }}>
+            {enabled ? `Activée · ${entries.length} ${entries.length > 1 ? entryMany : entryOne}` : 'Désactivée'}
+          </span>
+        </div>
+        <button style={btnDanger} disabled={!enabled || saving !== null} onClick={() => onSave('disable')}>
+          {saving === 'disable' ? <Loader2 size={14} /> : <Power size={14} />} Désactiver pour tous
+        </button>
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>{description}</p>
+
+      {msg && (
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: msg.ok ? COLORS.success : COLORS.danger }}>
+          {msg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {msg.text}
+        </div>
+      )}
+
+      <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 12 }}>
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 8 }}>
+          <UserCheck size={15} color={COLORS.primary} /> {entriesLabel}
+        </div>
+
+        <div style={{ position: 'relative', maxWidth: 420, marginBottom: 8 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+          <input style={{ ...input, paddingLeft: 31 }} placeholder="Rechercher un nom, un identifiant ou un e-mail…"
+            value={query} onChange={e => onQuery(e.target.value)} />
+        </div>
+
+        {entries.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {entries.map(e => (
+              <span key={`${e.username || e.email}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#eef2ff', color: COLORS.primary, borderRadius: 999, padding: '3px 5px 3px 10px', fontSize: 11.5, fontWeight: 700 }}>
+                {e.display_name || e.username || e.email}
+                <button type="button" onClick={() => onToggle(e)} title="Retirer"
+                  style={{ border: 'none', background: 'none', color: COLORS.primary, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 4px' }}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: 4 }}>
+          {visible.length === 0 ? (
+            <div style={{ padding: 10, fontSize: 12.5, color: '#94a3b8' }}>
+              {candidates.length === 0 ? 'Aucune personne disponible pour l’instant.' : 'Aucun résultat.'}
+            </div>
+          ) : visible.map(c => {
+            const checked = entries.some(x => `${x.username || x.email}`.toLowerCase() === `${c.username || c.email}`.toLowerCase());
+            return (
+              <label key={`${c.username || c.email}`} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 9px', borderRadius: 7, cursor: 'pointer', background: checked ? '#eef2ff' : 'transparent' }}>
+                <input type="checkbox" checked={checked} onChange={() => onToggle(c)} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{c.display_name || c.username || c.email}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{[c.username, c.email].filter(Boolean).join(' · ')}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 9, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+          <button style={btnPrimary} disabled={saving !== null || entries.length === 0} onClick={() => onSave('enable')}>
+            {saving === 'enable' ? <Loader2 size={15} /> : <Sparkles size={15} />}
+            {enabled ? 'Enregistrer la sélection' : 'Activer pour la sélection'}
+          </button>
+          <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{entries.length} {entries.length > 1 ? entryMany : entryOne} sélectionné{entries.length > 1 ? 's' : ''}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const AI_CARDS: Array<{ key: AiFeatureKey; title: string; description: string; noun: string }> = [
   {
     key: 'draft',
@@ -103,6 +204,10 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [ai, setAi] = useState<Record<AiFeatureKey, AiFeatureUi>>({ draft: emptyAiFeature(), review: emptyAiFeature() });
   const [aiCandidates, setAiCandidates] = useState<AiEvaluatorRef[]>([]);
 
+  // Accès des agents à leur espace « Mon entretien » : fermé par défaut.
+  const [self, setSelf] = useState<AiFeatureUi>(emptyAiFeature());
+  const [selfCandidates, setSelfCandidates] = useState<AiEvaluatorRef[]>([]);
+
   const loadCampaigns = useCallback(async () => {
     try {
       const r = await axios.get('/api/entretiens/campaigns', { headers });
@@ -131,6 +236,13 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       });
       setAi(prev => ({ draft: toUi('draft', prev.draft), review: toUi('review', prev.review) }));
       setAiCandidates(Array.isArray(remote.candidates) ? remote.candidates : []);
+      const remoteSelf = r.data.self || {};
+      setSelf(prev => ({
+        ...prev,
+        enabled: !!remoteSelf.enabled,
+        evaluators: Array.isArray(remoteSelf.agents) ? remoteSelf.agents : [],
+      }));
+      setSelfCandidates(Array.isArray(remoteSelf.candidates) ? remoteSelf.candidates : []);
     } catch { /* ignore */ }
   }, [token]);
 
@@ -257,6 +369,44 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       setAiCandidates(Array.isArray(r.data.ai?.candidates) ? r.data.ai.candidates : aiCandidates);
     } catch (e: any) {
       patchAi(feature, { saving: null, msg: { ok: false, text: e.response?.data?.message || 'Enregistrement impossible' } });
+    }
+  };
+
+  const patchSelf = (patch: Partial<AiFeatureUi>) => setSelf(prev => ({ ...prev, ...patch }));
+  const toggleSelfAgent = (e: AiEvaluatorRef) => {
+    const isSelected = self.evaluators.some(x => aiKey(x) === aiKey(e));
+    patchSelf({
+      msg: null,
+      evaluators: isSelected ? self.evaluators.filter(x => aiKey(x) !== aiKey(e)) : [...self.evaluators, e],
+    });
+  };
+  const saveSelf = async (mode: 'enable' | 'disable') => {
+    if (mode === 'disable' && !window.confirm('Fermer « Mon entretien » pour tous les agents ?')) return;
+    if (mode === 'enable' && self.evaluators.length === 0) {
+      patchSelf({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».' } });
+      return;
+    }
+    patchSelf({ msg: null, saving: mode });
+    try {
+      const payload = mode === 'disable'
+        ? { self_enabled: false }
+        : { self_enabled: true, self_agents: self.evaluators };
+      const r = await axios.put('/api/entretiens/settings', payload, { headers });
+      const next = r.data.self || {};
+      patchSelf({
+        enabled: !!next.enabled,
+        evaluators: Array.isArray(next.agents) ? next.agents : [],
+        saving: null,
+        msg: {
+          ok: true,
+          text: mode === 'disable'
+            ? '« Mon entretien » est fermé pour tous les agents.'
+            : `« Mon entretien » est ouvert à ${(next.agents || []).length} agent(s).`,
+        },
+      });
+      setSelfCandidates(Array.isArray(next.candidates) ? next.candidates : selfCandidates);
+    } catch (e: any) {
+      patchSelf({ saving: null, msg: { ok: false, text: e.response?.data?.message || 'Enregistrement impossible' } });
     }
   };
 
@@ -392,90 +542,41 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       {/* Fonctions IA : rédaction et relecture des compétences */}
       {AI_CARDS.map(meta => {
         const st = ai[meta.key];
-        const q = st.query.trim().toLowerCase();
-        const visible = q
-          ? aiCandidates.filter(c => `${c.display_name || ''} ${c.username || ''} ${c.email || ''}`.toLowerCase().includes(q))
-          : aiCandidates;
         return (
-          <div key={meta.key} style={{ ...card, padding: 18, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 6 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
-                <Sparkles size={17} color={COLORS.primary} /> {meta.title}
-                <span style={{
-                  fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '2px 9px',
-                  background: st.enabled ? '#dcfce7' : '#f1f5f9', color: st.enabled ? '#166534' : '#64748b',
-                }}>
-                  {st.enabled ? `Activée · ${st.evaluators.length} évaluateur${st.evaluators.length > 1 ? 's' : ''}` : 'Désactivée'}
-                </span>
-              </div>
-              <button style={btnDanger} disabled={!st.enabled || st.saving !== null} onClick={() => saveAi(meta.key, 'disable')}>
-                {st.saving === 'disable' ? <Loader2 size={14} /> : <Power size={14} />} Désactiver pour tous
-              </button>
-            </div>
-            <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
-              {meta.description} Cette fonction est désactivée par défaut : sélectionnez les évaluateurs qui y ont accès,
-              eux seuls la verront dans le compte rendu.
-            </p>
-
-            {st.msg && (
-              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: st.msg.ok ? COLORS.success : COLORS.danger }}>
-                {st.msg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {st.msg.text}
-              </div>
-            )}
-
-            <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 12 }}>
-              <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 8 }}>
-                <UserCheck size={15} color={COLORS.primary} /> Activer pour des évaluateurs
-              </div>
-
-              <div style={{ position: 'relative', maxWidth: 420, marginBottom: 8 }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input style={{ ...input, paddingLeft: 31 }} placeholder="Rechercher un nom, un identifiant ou un e-mail…"
-                  value={st.query} onChange={e => patchAi(meta.key, { query: e.target.value })} />
-              </div>
-
-              {st.evaluators.length > 0 && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {st.evaluators.map(e => (
-                    <span key={aiKey(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#eef2ff', color: COLORS.primary, borderRadius: 999, padding: '3px 5px 3px 10px', fontSize: 11.5, fontWeight: 700 }}>
-                      {e.display_name || e.username || e.email}
-                      <button type="button" onClick={() => toggleAiEvaluator(meta.key, e)} title="Retirer"
-                        style={{ border: 'none', background: 'none', color: COLORS.primary, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 4px' }}>×</button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: 4 }}>
-                {visible.length === 0 ? (
-                  <div style={{ padding: 10, fontSize: 12.5, color: '#94a3b8' }}>
-                    {aiCandidates.length === 0 ? 'Aucun évaluateur désigné pour l’instant : programmez des entretiens ou désignez des valideurs.' : 'Aucun résultat.'}
-                  </div>
-                ) : visible.map(c => {
-                  const checked = st.evaluators.some(x => aiKey(x) === aiKey(c));
-                  return (
-                    <label key={aiKey(c)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 9px', borderRadius: 7, cursor: 'pointer', background: checked ? '#eef2ff' : 'transparent' }}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleAiEvaluator(meta.key, c)} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{c.display_name || c.username || c.email}</div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{[c.username, c.email].filter(Boolean).join(' · ')}</div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div style={{ display: 'flex', gap: 9, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-                <button style={btnPrimary} disabled={st.saving !== null || st.evaluators.length === 0} onClick={() => saveAi(meta.key, 'enable')}>
-                  {st.saving === 'enable' ? <Loader2 size={15} /> : <Sparkles size={15} />}
-                  {st.enabled ? 'Enregistrer la sélection' : 'Activer pour les évaluateurs sélectionnés'}
-                </button>
-                <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{st.evaluators.length} évaluateur{st.evaluators.length > 1 ? 's' : ''} sélectionné{st.evaluators.length > 1 ? 's' : ''}</span>
-              </div>
-            </div>
-          </div>
+          <AccessCard key={meta.key}
+            title={meta.title}
+            description={`${meta.description} Désactivée par défaut : sélectionnez les évaluateurs autorisés, eux seuls la verront dans le compte rendu.`}
+            entriesLabel="Activer pour des évaluateurs"
+            entryOne="évaluateur" entryMany="évaluateurs"
+            enabled={st.enabled}
+            entries={st.evaluators}
+            candidates={aiCandidates}
+            query={st.query}
+            msg={st.msg}
+            saving={st.saving}
+            onQuery={v => patchAi(meta.key, { query: v })}
+            onToggle={e => toggleAiEvaluator(meta.key, e)}
+            onSave={mode => saveAi(meta.key, mode)}
+          />
         );
       })}
+
+      {/* Accès à « Mon entretien » */}
+      <AccessCard
+        title="Accès à « Mon entretien »"
+        description="Par défaut, les agents ne voient pas leur espace « Mon entretien » (préparation, compte rendu, validation). Sélectionnez les agents pour qui cet espace est ouvert. Les évaluateurs et administrateurs du module conservent leurs accès."
+        entriesLabel="Ouvrir pour des agents"
+        entryOne="agent" entryMany="agents"
+        enabled={self.enabled}
+        entries={self.evaluators}
+        candidates={selfCandidates}
+        query={self.query}
+        msg={self.msg}
+        saving={self.saving}
+        onQuery={v => patchSelf({ query: v })}
+        onToggle={toggleSelfAgent}
+        onSave={saveSelf}
+      />
 
       {/* Organisateur Outlook */}
       <div style={{ ...card, padding: 18 }}>

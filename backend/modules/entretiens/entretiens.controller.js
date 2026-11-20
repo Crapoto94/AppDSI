@@ -181,6 +181,7 @@ const entretiensController = {
             const actor = await svc.getActor(req);
             const role = await svc.resolveRole(actor);
             const campaign = await svc.getCurrentCampaign();
+            const selfAccess = await svc.selfAccessFor(actor);
 
             let entretien = null;
             if (campaign && (actor.email || actor.username)) {
@@ -196,8 +197,10 @@ const entretiensController = {
                 );
                 if (row) {
                     const access = await svc.buildAccess(actor, row, role.isAdmin);
-                    entretien = svc.forViewer(await svc.attachReprise(await svc.withRelations(row)), access);
-                    entretien.access = access;
+                    if (access) {
+                        entretien = svc.forViewer(await svc.attachReprise(await svc.withRelations(row)), access);
+                        entretien.access = access;
+                    }
                 }
             }
 
@@ -221,6 +224,7 @@ const entretiensController = {
                 campaign,
                 entretien,
                 evaluatorCount,
+                selfAccess,
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
                     review: await svc.aiAccessFor(actor, 'review'),
@@ -352,10 +356,11 @@ const entretiensController = {
         try {
             const actor = await svc.getActor(req);
             if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
-            const ai = await svc.getAiSettings();
+            const [ai, self] = await Promise.all([svc.getAiSettings(), svc.getSelfSettings()]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 ai,
+                self,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -417,14 +422,48 @@ const entretiensController = {
                 if (b[listKey] !== undefined) updates[listKey] = JSON.stringify(evaluators);
             }
 
+            // Accès à « Mon entretien » : fermé par défaut, ouvert à des agents choisis.
+            if (b.self_enabled !== undefined || b.self_agents !== undefined) {
+                const currentRaw = (await svc.getSetting('self_enabled')).trim().toLowerCase();
+                let enabled = currentRaw === 'true' || currentRaw === '1';
+                if (b.self_enabled !== undefined) enabled = parseBool(b.self_enabled);
+
+                let agents;
+                if (b.self_agents !== undefined) {
+                    if (!Array.isArray(b.self_agents)) return fail(res, 400, 'Liste d’agents invalide.');
+                    const seen = new Set();
+                    agents = [];
+                    for (const raw of b.self_agents) {
+                        const username = text(typeof raw === 'string' ? raw : raw?.username).trim();
+                        const email = text(typeof raw === 'string' ? '' : raw?.email).trim();
+                        const displayName = text(typeof raw === 'string' ? '' : (raw?.display_name || raw?.displayName)).trim();
+                        if (!username && !email) continue;
+                        if (email && !svc.isEmail(email)) return fail(res, 400, `Adresse email invalide : ${email}`);
+                        const key = (username || email).toLowerCase();
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        agents.push({ username, email, display_name: displayName });
+                    }
+                } else {
+                    agents = await svc.getSelfAgents();
+                }
+
+                if (enabled && !agents.length) {
+                    return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».');
+                }
+                if (b.self_enabled !== undefined) updates.self_enabled = enabled ? 'true' : 'false';
+                if (b.self_agents !== undefined) updates.self_agents = JSON.stringify(agents);
+            }
+
             for (const [key, value] of Object.entries(updates)) {
                 await svc.setSetting(key, value);
             }
 
-            const ai = await svc.getAiSettings();
+            const [ai, self] = await Promise.all([svc.getAiSettings(), svc.getSelfSettings()]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 ai,
+                self,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }

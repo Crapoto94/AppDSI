@@ -30,6 +30,12 @@ export interface AiAccessMap {
   review: AiAccess;
 }
 
+export interface SelfAccess {
+  enabled: boolean;
+  allowed: boolean;
+  reason?: 'disabled' | 'no_agents' | 'not_selected' | 'ok' | string;
+}
+
 export interface Objectif {
   id: number;
   entretien_id?: number;
@@ -136,6 +142,7 @@ export interface MeData {
   campaign: Campaign | null;
   entretien: Entretien | null;
   evaluatorCount: number;
+  selfAccess?: SelfAccess;
   aiAccess?: AiAccessMap;
   now: string;
 }

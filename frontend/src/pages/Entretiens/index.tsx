@@ -57,7 +57,7 @@ export default function Entretiens() {
   useEffect(() => { load(); }, [load]);
 
   const tabs: Array<{ key: Tab; label: string; icon: React.ReactNode; badge?: number; visible: boolean }> = [
-    { key: 'moi', label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: true },
+    { key: 'moi', label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!me?.selfAccess?.allowed },
     { key: 'evaluations', label: 'Mes EP', icon: <Users size={15} />, badge: me?.evaluatorCount || 0, visible: !!me?.isEvaluator },
     { key: 'pilotage', label: 'Pilotage', icon: <LayoutDashboard size={15} />, visible: !!me?.isAdmin },
     { key: 'reglages', label: 'Paramétrage', icon: <Settings size={15} />, visible: !!me?.isAdmin },
@@ -129,7 +129,20 @@ export default function Entretiens() {
         </div>
       ) : me ? (
         <>
-          {tab === 'moi' && <MonEntretien data={me} onChanged={() => load(true)} />}
+          {tab === 'moi' && (me.selfAccess?.allowed
+            ? <MonEntretien data={me} onChanged={() => load(true)} />
+            : (
+              <div style={{ ...card, padding: 28, textAlign: 'center' }}>
+                <CalendarDays size={30} color={COLORS.primary} style={{ marginBottom: 10 }} />
+                <div style={{ fontSize: 15, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>
+                  Votre espace « Mon entretien » n’est pas ouvert
+                </div>
+                <div style={{ fontSize: 13, color: COLORS.muted, lineHeight: 1.6, maxWidth: 560, margin: '0 auto' }}>
+                  L’accès à la préparation et au compte rendu de votre entretien est activé par un administrateur du module.
+                  Contactez la direction des ressources humaines si vous pensez qu’il devrait l’être.
+                </div>
+              </div>
+            ))}
           {tab === 'evaluations' && me.isEvaluator && <Evaluations onChanged={() => load(true)} />}
           {tab === 'pilotage' && me.isAdmin && <Pilotage onChanged={() => load(true)} />}
           {tab === 'reglages' && me.isAdmin && <Reglages onChanged={() => load(true)} />}

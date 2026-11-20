@@ -269,6 +269,14 @@ async function buildAccess(actor, entretien, adminFlag) {
     const isSuperieur = (!admin && !isAgent && !isEvaluator) ? await require('../ep-ville/ep-ville.hierarchy').isSuperieur(actor, entretien).catch(() => false) : false;
     if (!admin && !isAgent && !isEvaluator && !isSuperieur) return null;
 
+    // « Mon entretien » est fermé par défaut : l'agent ne voit son espace que
+    // s'il a été explicitement autorisé (l'évaluateur et l'administrateur du
+    // module gardent leur propre accès).
+    if (isAgent && !admin && !isEvaluator) {
+        const self = await selfAccessFor(actor);
+        if (!self.allowed) return null;
+    }
+
     // La préparation reste modifiable jusqu'à 7 jours après la date de
     // l'entretien (et tant que l'entretien n'est pas réalisé/clôturé).
     const d = normalizeDateTime(entretien.date_entretien);
@@ -525,6 +533,71 @@ async function getAiSettings() {
     };
 }
 
+async function getSelfAgents() {
+    return parseAiEvaluators(await getSetting('self_agents'));
+}
+
+/** Un agent a-t-il accès à son propre espace « Mon entretien » ? */
+async function selfAccessFor(actor) {
+    const rawEnabled = norm(await getSetting('self_enabled'));
+    const enabled = rawEnabled === 'true' || rawEnabled === '1';
+    if (!enabled) return { enabled: false, allowed: false, reason: 'disabled' };
+    const agents = await getSelfAgents();
+    if (!agents.length) return { enabled: true, allowed: false, reason: 'no_agents' };
+    const identity = await evaluatorIdentity(actor);
+    const usernames = new Set(identity.usernames.map(norm));
+    const emails = new Set(identity.emails.map(norm));
+    const allowed = agents.some(e => (
+        (e.username && usernames.has(norm(e.username)))
+        || (e.email && emails.has(norm(e.email)))
+    ));
+    return { enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
+}
+
+/** Agents proposés pour l'ouverture de « Mon entretien » (agents ayant un EP dans une campagne). */
+async function listAgentCandidates() {
+    const byKey = new Map();
+    const add = (row) => {
+        const username = String(row?.username || '').trim();
+        const email = String(row?.email || '').trim();
+        const displayName = String(row?.display_name || row?.displayName || '').trim();
+        if (!username && !email) return;
+        const key = norm(username) || norm(email);
+        const prev = byKey.get(key);
+        if (prev) {
+            if (!prev.username && username) prev.username = username;
+            if (!prev.email && email) prev.email = email;
+            if (!prev.display_name && displayName) prev.display_name = displayName;
+        } else {
+            byKey.set(key, { username, email, display_name: displayName });
+        }
+    };
+    try {
+        const rows = await pgDb.all(
+            `SELECT agent_username AS username, agent_email AS email, agent_nom AS display_name
+             FROM hub_entretiens.entretiens
+             WHERE deleted_at IS NULL
+               AND (COALESCE(agent_username, '') <> '' OR COALESCE(agent_email, '') <> '')`
+        );
+        (rows || []).forEach(add);
+    } catch (e) { /* ignore */ }
+    (await getSelfAgents()).forEach(add);
+    return [...byKey.values()].sort((a, b) => {
+        const an = norm(a.display_name || a.username || a.email);
+        const bn = norm(b.display_name || b.username || b.email);
+        return an.localeCompare(bn, 'fr');
+    });
+}
+
+async function getSelfSettings() {
+    const raw = norm(await getSetting('self_enabled'));
+    return {
+        enabled: raw === 'true' || raw === '1',
+        agents: await getSelfAgents(),
+        candidates: await listAgentCandidates(),
+    };
+}
+
 async function resolveOrganizerEmail(actor) {
     if (isEmail(actor.email)) return actor.email.trim();
     if (actor.username) {
@@ -686,6 +759,10 @@ module.exports = {
     getAiSettings,
     aiAccessFor,
     listAiEvaluatorCandidates,
+    selfAccessFor,
+    getSelfAgents,
+    getSelfSettings,
+    listAgentCandidates,
     resolveOrganizerEmail,
     syncOutlook,
     removeOutlook,
