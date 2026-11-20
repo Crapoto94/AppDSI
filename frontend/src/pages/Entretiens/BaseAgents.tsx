@@ -310,12 +310,13 @@ export default function BaseAgents() {
   };
 
   const purgeLegacy = async () => {
-    if (!window.confirm('Supprimer TOUS les anciens entretiens (tests) et les anciennes listes d’agents des valideurs ?\n\nSeuls les entretiens générés depuis la base des agents sont conservés. Les entretiens supprimés sont masqués (suppression logique).')) return;
+    if (!window.confirm('Supprimer TOUS les anciens entretiens (tests, DSI comprise) et TOUS les anciens valideurs avec leurs listes d’agents ?\n\nSeuls les entretiens générés depuis la base des agents sont conservés. Les entretiens supprimés sont masqués (suppression logique).')) return;
     if (window.prompt('Tapez SUPPRIMER pour confirmer') !== 'SUPPRIMER') return;
     setBusy(true); setMsg(null);
     try {
       const r = await axios.post('/api/ep-base/entretiens/purge', { confirm: 'SUPPRIMER' }, { headers });
-      setMsg({ ok: true, text: `${r.data.entretiens} ancien(s) entretien(s) supprimé(s), ${r.data.listes} ancienne(s) liste(s) d’agents retirée(s).` });
+      const d = r.data;
+      setMsg({ ok: !d.erreurs?.length, text: `${d.entretiens} ancien(s) entretien(s), ${d.valideurs} ancien(s) valideur(s) et ${d.listes} liste(s) d’agents supprimé(s).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.join(' · ') : ''}` });
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || ('Suppression impossible' + (e?.response?.status ? ' (HTTP ' + e.response.status + (e.response.status === 404 ? ' : route absente, le backend n’a pas été redémarré avec la nouvelle version ?' : '') + ')' : ' : ' + (e?.message || ''))) }); }
     finally { setBusy(false); }
   };

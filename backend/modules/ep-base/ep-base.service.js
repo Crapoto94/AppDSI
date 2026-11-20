@@ -483,17 +483,27 @@ async function syncEntretiens({ matricules, actor } = {}) {
 const syncQuiet = (matricules) => syncEntretiens({ matricules }).catch((e) => console.warn('[ep-base] synchro entretiens :', e.message));
 
 /**
- * Supprime les anciens entretiens (tests) : tous ceux qui ne viennent pas de la base des agents, ainsi que les anciennes listes
- * d'agents des valideurs. Suppression logique (deleted_at, comme partout dans le module) : rien n'est effacé physiquement.
+ * Supprime les anciens entretiens (tests) : tous ceux qui ne viennent pas de la base des agents (DSI Hub comprise), ainsi que les
+ * anciens valideurs et leurs listes d'agents. Suppression logique (deleted_at, comme partout dans le module) : rien n'est effacé physiquement.
  */
 async function purgeLegacyEntretiens(actor) {
     await ensureSchema();
-    const r = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.entretiens WHERE deleted_at IS NULL AND COALESCE(source, '') <> 'base'");
-    await pgDb.run("UPDATE hub_entretiens.entretiens SET deleted_at = NOW(), deleted_by = ?, rattachement_id = NULL WHERE deleted_at IS NULL AND COALESCE(source, '') <> 'base'",
-        [`purge tests (${(actor && actor.username) || 'admin'})`]);
-    const rat = await pgDb.get('SELECT COUNT(*)::int AS n FROM hub_entretiens.rattachements');
-    await pgDb.run('DELETE FROM hub_entretiens.rattachements');
-    return { entretiens: Number(r && r.n) || 0, listes: Number(rat && rat.n) || 0 };
+    const out = { entretiens: 0, listes: 0, valideurs: 0, erreurs: [] };
+    const step = async (label, fn) => { try { await fn(); } catch (e) { out.erreurs.push(`${label} : ${e.message}`); console.error('[ep-base] purge', label, e.message); } };
+    const count = async (sql) => { try { const r = await pgDb.get(sql); return Number(r && r.n) || 0; } catch { return 0; } };
+    await step('entretiens', async () => {
+        out.entretiens = await count("SELECT COUNT(*)::int AS n FROM hub_entretiens.entretiens WHERE deleted_at IS NULL AND COALESCE(source, '') <> 'base'");
+        await pgDb.run("UPDATE hub_entretiens.entretiens SET deleted_at = NOW(), deleted_by = 'purge tests', rattachement_id = NULL WHERE deleted_at IS NULL AND COALESCE(source, '') <> 'base'");
+    });
+    await step('listes d’agents', async () => {
+        out.listes = await count('SELECT COUNT(*)::int AS n FROM hub_entretiens.rattachements');
+        await pgDb.run('DELETE FROM hub_entretiens.rattachements');
+    });
+    await step('valideurs', async () => {
+        out.valideurs = await count('SELECT COUNT(*)::int AS n FROM hub_entretiens.valideurs');
+        await pgDb.run('DELETE FROM hub_entretiens.valideurs');
+    });
+    return out;
 }
 
 // ─── Lecture / mise à jour ──────────────────────────────────────────────────
@@ -583,16 +593,56 @@ async function setValideur(matricule, valideurMatricule) {
  * Le compte connecté est-il valideur (évaluateur) d'au moins un agent de la base ? Rapprochement par compte AD, e-mail,
  * puis identité (nom + prénom, sans tenir compte de l'ordre) quand elle est sans ambiguïté.
  */
-async function meValideur(actor) {
+async function meMatricule(actor) {
     await ensureSchema();
     const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE matricule IN (SELECT DISTINCT valideur_matricule FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule <> '')");
-    if (!rows.length) return { isValideur: false, agents: 0 };
+    if (!rows.length) return '';
     const user = text(actor.username).toLowerCase(); const mail = text(actor.email).toLowerCase();
     let me = rows.filter(r => (user && text(r.ad_username).toLowerCase() === user) || (mail && text(r.email).toLowerCase() === mail));
     if (!me.length && text(actor.displayName)) me = rows.filter(r => tokenKey(r.nom_prenom) === tokenKey(actor.displayName));
-    if (me.length !== 1) return { isValideur: false, agents: 0 };
-    const n = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule = ?", [me[0].matricule]);
-    return { isValideur: Number(n && n.n) > 0, agents: Number(n && n.n) || 0, matricule: me[0].matricule };
+    return me.length === 1 ? me[0].matricule : '';
+}
+
+async function meValideur(actor) {
+    const matricule = await meMatricule(actor);
+    if (!matricule) return { isValideur: false, agents: 0 };
+    const n = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule = ?", [matricule]);
+    return { isValideur: Number(n && n.n) > 0, agents: Number(n && n.n) || 0, matricule };
+}
+
+/** Tous les agents placés sous un valideur, à tous les niveaux (ses agents, puis ceux de ses agents valideurs, etc.). */
+async function descendants(matricule) {
+    const rows = await pgDb.all("SELECT matricule, valideur_matricule FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule <> ''");
+    const kids = new Map();
+    for (const r of rows) { if (!kids.has(r.valideur_matricule)) kids.set(r.valideur_matricule, []); kids.get(r.valideur_matricule).push(r.matricule); }
+    const out = new Set(); const stack = [...(kids.get(matricule) || [])];
+    while (stack.length) { const m = stack.pop(); if (out.has(m) || m === matricule) continue; out.add(m); stack.push(...(kids.get(m) || [])); }
+    return out;
+}
+
+/** Tableau de bord (même contrat que « EP que je réalise ») : entretiens de toute l'équipe sous le valideur connecté. */
+async function equipeEntretiens(actor) {
+    const ent = require('../entretiens/entretiens.service');
+    const campaign = await ent.getCurrentCampaign();
+    const matricule = await meMatricule(actor);
+    if (!campaign || !matricule) return { campaign: campaign || null, stats: ent.computeStats([]), items: [], portee: [] };
+    const set = await descendants(matricule);
+    const all = await ent.listEntretiens({ campaignId: campaign.id });
+    const items = all.filter(r => r.agent_matricule && set.has(r.agent_matricule));
+    let enriched = items;
+    try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* SEDIT RH indisponible : données de l'entretien seules */ }
+    return { campaign, stats: ent.computeStats(items), items: enriched, portee: [`${set.size} agent(s) sous votre responsabilité`] };
+}
+
+/** Pilotage (administrateurs) : tous les entretiens de la campagne en cours. */
+async function pilotageEntretiens() {
+    const ent = require('../entretiens/entretiens.service');
+    const campaign = await ent.getCurrentCampaign();
+    if (!campaign) return { campaign: null, stats: ent.computeStats([]), items: [] };
+    const items = await ent.listEntretiens({ campaignId: campaign.id });
+    let enriched = items;
+    try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* idem */ }
+    return { campaign, stats: ent.computeStats(items), items: enriched };
 }
 
 /** Recherche libre dans l'AD (association manuelle d'un agent introuvable). */
@@ -638,6 +688,6 @@ async function searchValideurs(q) {
 
 module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
-    loadTemplateCache, modeleOfEntretien, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, syncEntretiens, purgeLegacyEntretiens,
+    loadTemplateCache, modeleOfEntretien, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, equipeEntretiens, pilotageEntretiens, syncEntretiens, purgeLegacyEntretiens,
     adJob: job,
 };

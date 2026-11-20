@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown,
+  X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
+import BaseAgents from './BaseAgents';
 import Evaluations from './Evaluations';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
@@ -808,7 +809,9 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'parametrage' | null>(null);
+  // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
+  const [base, setBase] = useState<{ isValideur: boolean; agents: number } | null>(null);
 
   const loadDsi = useCallback(() => {
     axios.get('/api/entretiens/me', { headers: api() }).then(r => setDsi(r.data)).catch(() => setDsi(null));
@@ -818,29 +821,32 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     Promise.all([
       axios.get('/api/ep-ville/me', { headers: api() }),
       axios.get('/api/entretiens/me', { headers: api() }).then(r => r.data as MeData).catch(() => null),
-    ]).then(async ([v, d]) => {
+      axios.get('/api/ep-base/me', { headers: api() }).then(r => r.data as { isValideur: boolean; agents: number }).catch(() => null),
+    ]).then(async ([v, d, b]) => {
+      setBase(b);
       // Un valideur : on s'assure que les EP de la campagne en cours existent pour tous ses agents avant d'afficher son tableau de bord.
       if (v.data.isValideur) await axios.get('/api/ep-ville/mes-agents', { headers: api() }).catch(() => null);
       const d2 = v.data.isValideur ? await axios.get('/api/entretiens/me', { headers: api() }).then(r => r.data as MeData).catch(() => d) : d;
       d = d2;
       setMe(v.data); setDsi(d);
-      const asEvaluator = !!(v.data.isValideur || d?.isEvaluator);
-      const ent = d?.entretien;
+      const asEvaluator = !!(v.data.isValideur || d?.isEvaluator || b?.isValideur);
+      const ent = d?.selfAccess?.allowed ? d?.entretien : null;
       // Lien d'un mail : « moi » = mon entretien d'agent ; « evaluations » = mes EP d'évaluateur ; « auto » = mon entretien s'il attend une action de ma part.
       const needsMe = !!ent && (ent.preparation_statut !== 'soumis' || ent.crep_statut === 'envoye_agent');
       const wanted = initialTab === 'moi' ? (ent ? 'moi' : null)
         : initialTab === 'evaluations' ? (asEvaluator ? 'evaluations' : null)
         : initialTab === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
-      setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'valideurs' : null));
+      setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
   }, []);
 
   const tabs = [
-    { key: 'moi' as const, label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!dsi?.entretien },
-    { key: 'evaluations' as const, label: 'EP que je réalise', icon: <ClipboardCheck size={15} />, visible: !!dsi?.isEvaluator || !!me?.isValideur, badge: dsi?.evaluatorCount || 0 },
-    { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!me?.isValideur && !!me?.hasSubValideurs },
+    { key: 'moi' as const, label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!dsi?.entretien && !!dsi?.selfAccess?.allowed },
+    { key: 'evaluations' as const, label: 'EP que je réalise', icon: <ClipboardCheck size={15} />, visible: !!dsi?.isEvaluator || !!me?.isValideur || !!base?.isValideur, badge: dsi?.evaluatorCount || 0 },
+    { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agents', icon: <Users size={15} />, visible: !!me?.isValideur },
-    { key: 'valideurs' as const, label: 'Valideurs', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
+    { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
+    { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
   ].filter(t => t.visible);
 
   return (
@@ -870,10 +876,12 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
                 </div>
               )}
               {tab === 'moi' && dsi && <MonEntretien data={dsi} onChanged={loadDsi} />}
-              {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur) && <Evaluations onChanged={loadDsi} />}
-              {tab === 'equipe' && me.isValideur && me.hasSubValideurs && <Evaluations endpoint="/api/ep-ville/equipe" readOnly />}
+              {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} />}
+              {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
+              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly />}
+              {tab === 'parametrage' && me.isAdmin && <BaseAgents />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
-              {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />}
+              {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />} {/* ancien onglet, masqué : remplacé par Paramétrage */}
               {!tab && <EmptyState icon={<ArrowRightLeft size={28} />} title="Aucun entretien à afficher" text="Vous n’avez pas d’entretien dans la campagne en cours et vous n’êtes pas valideur des entretiens professionnels." />}
             </>
           )}

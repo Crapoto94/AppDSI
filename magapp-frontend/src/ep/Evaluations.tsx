@@ -3,10 +3,10 @@ import axios from 'axios';
 import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
-import { PREP_STATUTS, STATUTS, formatDateCourte, nomComplet, preparationProgress } from './types';
+import { STATUTS, formatDateCourte, nomComplet } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
-import { Avatar, Badge, COLORS, EmptyState, KpiCard, ProgressBar, Td, Th, btnGhost, btnPrimary, card, input } from './ui';
+import { Avatar, Badge, COLORS, EmptyState, KpiCard, Td, Th, btnGhost, btnPrimary, card, input } from './ui';
 
 /**
  * Tableau de bord des EP. Par défaut : ceux que je réalise (évaluateur). Avec `endpoint=/api/ep-ville/equipe` et `readOnly` :
@@ -59,7 +59,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   };
 
   const todoCount = useMemo(() => items.filter(e => !['realise', 'cloture'].includes(e.statut)).length, [items]);
-  const preparationMode = campaign?.statut === 'preparation';
 
   const valideurLabel = (e: Entretien) => e.evaluator_nom || e.evaluator_email || '—';
   const valideurs = useMemo(() => [...new Set(items.map(valideurLabel))].sort((a, b) => a.localeCompare(b, 'fr')), [items]);
@@ -82,11 +81,9 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 18, overflowX: 'auto' }}>
           <KpiCard label={readOnly ? 'EP de mon équipe' : 'EP que je réalise'} value={stats.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
-          <KpiCard label="Préparations reçues" value={stats.preparations_recues} color="#0891b2" sub="Agents prêts" />
           <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
           <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />
           <KpiCard label="En retard" value={stats.en_retard} color={stats.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
-          {preparationMode && <KpiCard label="Sans préparateur" value={stats.total - stats.preparations_recues} color={COLORS.warning} sub="Préparation non transmise" />}
         </div>
       )}
 
@@ -97,7 +94,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
         </div>
         <select style={{ ...input, width: 'auto', minWidth: 170 }} value={statut} onChange={e => setStatut(e.target.value)}>
           <option value="">Tous les statuts</option>
-          {Object.entries(STATUTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          {Object.entries(STATUTS).filter(([k]) => k !== 'preparation_recue').map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         {readOnly && valideurs.length > 1 && (
           <select style={{ ...input, width: 'auto', minWidth: 190 }} value={valideur} onChange={e => setValideur(e.target.value)}>
@@ -131,7 +128,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                 {readOnly && <Th>Valideur</Th>}
                 <Th>Date de l’entretien</Th>
                 <Th>Statut</Th>
-                <Th>Préparation</Th>
                 <Th>Compte rendu</Th>
                 <Th style={{ textAlign: 'right' }}>Action</Th>
               </tr>
@@ -139,8 +135,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
             <tbody>
               {filtered.map(e => {
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
-                const prep = PREP_STATUTS[e.preparation_statut] || PREP_STATUTS.non_commencee;
-                const progress = preparationProgress(e);
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
                     <Td style={{ minWidth: 260 }}>
@@ -165,15 +159,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                       </div>
                     </Td>
                     <Td><Badge {...st} /></Td>
-                    <Td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
-                        <Badge {...prep} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ flex: 1, minWidth: 60 }}><ProgressBar value={progress} color={progress === 100 ? COLORS.success : COLORS.primary} /></div>
-                          <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 700 }}>{progress}%</span>
-                        </div>
-                      </div>
-                    </Td>
                     <Td>
                       {e.evaluation_statut === 'soumis'
                         ? <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11.5, color: COLORS.success, fontWeight: 700 }}><ClipboardCheck size={13} /> Validé</span>

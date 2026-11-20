@@ -19,7 +19,14 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
   const [entretien, setEntretien] = useState<Entretien | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'preparation' | 'crep'>('preparation');
+  const [tab, setTab] = useState<'preparation' | 'crep'>('crep');
+  // « Mon entretien » désactivé : les agents ne préparent rien, donc ni onglet ni statut de préparation.
+  const [prepEnabled, setPrepEnabled] = useState(false);
+  useEffect(() => {
+    axios.get('/api/entretiens/me', { headers })
+      .then(r => { const ok = !!r.data?.selfAccess?.allowed; setPrepEnabled(ok); if (ok) setTab('preparation'); })
+      .catch(() => setPrepEnabled(false));
+  }, [token]);
 
   useEffect(() => {
     if (!entretienId) return;
@@ -67,8 +74,8 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
             <>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                 {statut && <Badge {...statut} />}
-                {prep && <Badge {...prep} />}
-                {evaluation && <Badge {...evaluation} />}
+                {prepEnabled && prep && <Badge {...prep} />}
+                {prepEnabled && evaluation && <Badge {...evaluation} />}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -96,7 +103,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
 
               <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
                 {[
-                  { key: 'preparation', label: 'Préparation de l’agent', icon: <ClipboardList size={14} /> },
+                  ...(prepEnabled ? [{ key: 'preparation', label: 'Préparation de l’agent', icon: <ClipboardList size={14} /> }] : []),
                   { key: 'crep', label: 'Compte rendu d’entretien (CREP)', icon: <FileSignature size={14} /> },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key as any)}
@@ -109,10 +116,10 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
                 ))}
               </div>
 
-              {tab === 'preparation' ? (
+              {prepEnabled && tab === 'preparation' ? (
                 <PreparationView entretien={entretien} />
               ) : (
-                <CrepForm entretien={entretien} canEdit={canEdit}
+                <CrepForm entretien={entretien} canEdit={canEdit} prepEnabled={prepEnabled}
                   aiEnabled={!!entretien.ai_access?.draft?.allowed}
                   aiReviewEnabled={!!entretien.ai_access?.review?.allowed}
                   eSignEnabled={!!entretien.esign_access?.allowed}

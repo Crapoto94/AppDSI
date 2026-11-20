@@ -26,6 +26,8 @@ const wrap = (fn) => async (req, res) => {
 
 // Tout agent connecté : suis-je valideur d'agents de la base ? (affichage de la tuile « Entretiens pro » dans MagApp)
 router.get('/me', authenticateJWT, wrap(async (req, res) => res.json(await svc.meValideur(await ent.getActor(req)))));
+router.get('/equipe', authenticateJWT, wrap(async (req, res) => res.json(await svc.equipeEntretiens(await ent.getActor(req)))));
+router.get('/pilotage', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.pilotageEntretiens())));
 router.get('/stats', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.stats())));
 router.get('/tree', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ nodes: await svc.tree() })));
 router.get('/templates', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ templates: await svc.listTemplates() })));

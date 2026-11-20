@@ -7,7 +7,6 @@ import { formatDateHeure } from './types';
 import type { Crep } from './crep';
 import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields } from './crep';
 import CrepAiAssist from './CrepAiAssist';
-import { AttitudesSynthese } from './attitudes';
 import { COLORS, Field, btnGhost, btnPrimary, input, textarea, useConfirm } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -42,7 +41,7 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
  * Saisie du compte-rendu officiel de l'entretien par l'évaluateur (tous les champs du document DRH)
  * et génération du PDF de 4 pages.
  */
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true }: {
+export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, prepEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
@@ -52,6 +51,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   aiReviewEnabled?: boolean;
   /** La signature électronique du CREP est ouverte pour l'agent (paramétrage du module). */
   eSignEnabled?: boolean;
+  /** « Mon entretien » est ouvert : les agents préparent leur entretien (le compte rendu est pré-rempli avec leur saisie). */
+  prepEnabled?: boolean;
   /** « agent » : relecture du compte rendu envoyé par l'évaluateur, saisie des 2 champs réservés, validation → parapheur. */
   mode?: 'evaluateur' | 'agent';
 }) {
@@ -303,9 +304,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
-            Ce compte rendu est <strong>pré-rempli avec la saisie de l’agent</strong> dans sa préparation. L’évaluation, elle,
-            est <strong>à rédiger par vous</strong> : relisez, corrigez et complétez chaque rubrique, renseignez la grille
-            d’appréciation et l’appréciation générale.{aiEnabled ? ' Le bouton « Rédiger avec l’IA » peut vous proposer un texte à partir de quelques mots.' : ''}
+            {prepEnabled
+              ? <>Ce compte rendu est <strong>pré-rempli avec la saisie de l’agent</strong> dans sa préparation. L’évaluation, elle,
+                est <strong>à rédiger par vous</strong> : relisez, corrigez et complétez chaque rubrique, renseignez la grille
+                d’appréciation et l’appréciation générale.</>
+              : <>L’évaluation est <strong>à rédiger par vous</strong> : renseignez chaque rubrique, la grille
+                d’appréciation et l’appréciation générale.</>}{aiEnabled ? ' Le bouton « Rédiger avec l’IA » peut vous proposer un texte à partir de quelques mots.' : ''}
           </span>
         </div>
       )}
@@ -388,7 +392,6 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </tbody>
         </table>
       </div>
-      <AttitudesSynthese valeur={crep.valeur} groups={entretien.crep_definition?.criteria_groups} />
       <div style={{ marginTop: 14 }}>
         <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
