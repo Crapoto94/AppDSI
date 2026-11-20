@@ -6,6 +6,42 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # ── Serveur MCP (service « mcp » du docker-compose racine) ──────────────────
+    # Page de connexion, OAuth et endpoint /mcp : le chat interne devient aussi la porte d'entrée INTERNE du MCP
+    # (ex. https://chat.ivry.local/mcp), sans passer par la DMZ ni Internet. Résolution du service à l'exécution
+    # (resolver Docker + variable) : le chat démarre normalement même si le service « mcp » n'est pas déployé.
+    location = /mcp {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $mcp_upstream http://mcp:5176;
+        proxy_pass $mcp_upstream;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+    }
+    location /mcp/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $mcp_upstream http://mcp:5176;
+        proxy_pass $mcp_upstream;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+    }
+    location ~ ^/\.well-known/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(/mcp)?$ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $mcp_upstream http://mcp:5176;
+        proxy_pass $mcp_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }

@@ -123,6 +123,26 @@ services:
       - app-network
     restart: unless-stopped
 
+  # Serveur MCP en INTERNE : le chat interne (chat-frontend) relaie /mcp, /mcp/oauth/* et /.well-known/oauth-* vers ce service,
+  # donc l'adresse du MCP est https://chat.ivry.local/mcp (TLS du reverse proxy interne), sans passer par la DMZ ni Internet.
+  # Aucun port publié : joignable uniquement via le chat interne et, depuis le même réseau Docker, par son nom « mcp ».
+  # MCP_PUBLIC_URL doit être l'adresse EXACTE par laquelle les clients joignent le MCP (les jetons y sont liés).
+  mcp:
+    build:
+      context: ./chat/mcp
+    container_name: appdsi-mcp
+    environment:
+      - BACKEND_URL=http://backend:3001
+      - MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-https://chat.ivry.local}
+      - MCP_TRACE_BODIES=${MCP_TRACE_BODIES:-full}
+    volumes:
+      - appdsi-mcp-logs:/var/log/appdsi-mcp   # traces JSONL (une par jour) : à purger selon la politique de conservation
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
   # Serveur de documents (aperçu docx/xlsx/pptx dans l'explorateur de /projets).
   # Dédié à AppDSI — ne pas confondre avec le "delib-documentserver-1" du projet
   # delib (autre conteneur, autre secret JWT, sur le même hôte Docker).
@@ -162,5 +182,6 @@ networks:
     driver: bridge
 
 volumes:
+  appdsi-mcp-logs:
   appdsi-officecache:
   appdsi-officelogs:

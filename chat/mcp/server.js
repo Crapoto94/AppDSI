@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as trace from './trace.js';
+import { loginPage } from './login-page.js';
 
 const BACKEND_URL = (process.env.BACKEND_URL || '').replace(/\/+$/, '');
 if (!BACKEND_URL) { console.error('BACKEND_URL doit être défini'); process.exit(1); }
@@ -203,6 +204,10 @@ app.get('/mcp/oauth/authorize', (req, res) => {
     });
     res.redirect(302, `/mcp/login?request=${encodeURIComponent(id)}`);
 });
+
+// Page de connexion autonome : utilisée quand le MCP est exposé SANS le front React du chat (ex. interne, derrière le chat interne).
+// Dans le conteneur DMZ, nginx sert /mcp/login par le front React : cette route n'est alors pas atteinte.
+app.get('/mcp/login', loginPage);
 
 // Informations affichées par la page de connexion.
 app.get('/mcp/oauth/request/:id', (req, res) => {
