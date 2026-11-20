@@ -62,6 +62,7 @@ function ensureSchema() {
             await pgDb.run('ALTER TABLE hub_entretiens.crep_templates ADD COLUMN IF NOT EXISTS id SERIAL');
             await pgDb.run('ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS id SERIAL');
             await pgDb.run('ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS email_deduit BOOLEAN NOT NULL DEFAULT FALSE');
+            await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS nom TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS prenom TEXT DEFAULT ''");
             await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_base_agents_unit ON hub_entretiens.base_agents(poste_affectation_code)');
@@ -180,7 +181,7 @@ async function parseTemplates(buffer) {
 const HEAD = {
     matricule: /^matricule$/, modele: /^mod[eè]le$/, nom: /^nom prenom$/, conserver: /conserver/,
     direction: /^dir agent$/, service: /^libell[eé] service$/, poste: /^libell[eé] poste$/, chemin: /^chemin publication$/,
-    fonction: /^poste fonction$/, affectation: /^poste affectation code$/, grade: /^libell[eé] grade/,
+    categorie: /^code categorie$/, fonction: /^poste fonction$/, affectation: /^poste affectation code$/, grade: /^libell[eé] grade/,
 };
 
 function parseAgents(buffer) {
@@ -229,6 +230,7 @@ function parseAgents(buffer) {
             service: text(r[idx.service]),
             poste: text(r[idx.poste]),
             grade: idx.grade >= 0 ? text(r[idx.grade]) : '',
+            categorie: idx.categorie >= 0 ? text(r[idx.categorie]).toUpperCase().slice(0, 1) : '',
             chemin,
             unit_code: unitCode(chemin),
             poste_fonction: text(r[idx.fonction]),
@@ -298,12 +300,12 @@ async function importWorkbook(buffer, filename, actor) {
     for (const a of agents) {
         await pgDb.run(
             `INSERT INTO hub_entretiens.base_agents (matricule, nom_prenom, modele, a_conserver, direction, service, poste, grade, chemin, unit_code,
-                poste_fonction, poste_affectation_code, est_valideur, valideur_candidats, valideur_matricule, valideur_source, email, ad_username, ad_status, email_deduit, nom, prenom)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,?,?,?,?,?,?,?)
+                poste_fonction, poste_affectation_code, est_valideur, valideur_candidats, valideur_matricule, valideur_source, email, ad_username, ad_status, email_deduit, nom, prenom, categorie)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,?,?,?,?,?,?,?,?)
              ON CONFLICT (matricule) DO NOTHING`,
             [a.matricule, a.nom_prenom, a.modele, a.a_conserver, a.direction, a.service, a.poste, a.grade, a.chemin, a.unit_code,
                 a.poste_fonction, a.poste_affectation_code, a.est_valideur, JSON.stringify(a.candidats), a.valideur_matricule, a.valideur_source,
-                a.email, a.ad_username, a.ad_status, a.email_deduit, a.nom || '', a.prenom || '']);
+                a.email, a.ad_username, a.ad_status, a.email_deduit, a.nom || '', a.prenom || '', a.categorie || '']);
     }
     for (const [name, d] of Object.entries(templates)) {
         await pgDb.run(
@@ -336,9 +338,9 @@ async function loadTemplateCache() {
 }
 
 /** Modèle (nom d'onglet) d'un entretien : par matricule du rattachement, sinon par identité. */
+let cacheLoadedAt = 0;
 async function modeleOfEntretien(e) {
-    try {
-        if (!nameToModele.size && !matToModele.size) await loadTemplateCache();
+    const lookup = async () => {
         if (e.agent_matricule) for (const v of [e.agent_matricule, String(e.agent_matricule).padStart(7, '0')]) if (matToModele.has(v)) return matToModele.get(v);
         if (e.rattachement_id) {
             const r = await pgDb.get('SELECT agent_matricule FROM hub_entretiens.rattachements WHERE id = ?', [e.rattachement_id]);
@@ -346,6 +348,13 @@ async function modeleOfEntretien(e) {
             if (m) for (const v of [m, String(m).padStart(7, '0')]) if (matToModele.has(v)) return matToModele.get(v);
         }
         return nameToModele.get(tokenKey(`${e.agent_prenom || ''} ${e.agent_nom || ''}`)) || '';
+    };
+    try {
+        if (!nameToModele.size && !matToModele.size) { await loadTemplateCache(); cacheLoadedAt = Date.now(); }
+        let m = await lookup();
+        // Cache périmé (base redéposée, autre processus) : une relecture au plus toutes les 30 s.
+        if (!m && Date.now() - cacheLoadedAt > 30000) { await loadTemplateCache(); cacheLoadedAt = Date.now(); m = await lookup(); }
+        return m;
     } catch { return ''; }
 }
 
@@ -508,13 +517,14 @@ async function purgeLegacyEntretiens(actor) {
 
 // ─── Lecture / mise à jour ──────────────────────────────────────────────────
 
-async function listAgents({ modele, q, statut, direction, service, grade, limit = 3000 } = {}) {
+async function listAgents({ modele, q, statut, direction, service, grade, categorie, limit = 3000 } = {}) {
     await ensureSchema();
     const where = ['a_conserver']; const params = [];
     if (modele) { where.push('modele = ?'); params.push(modele); }
     if (direction) { where.push('split_part(chemin, chr(92), 1) = ?'); params.push(direction); }
     if (service) { where.push('service = ?'); params.push(service); }
     if (grade) { where.push('grade = ?'); params.push(grade); }
+    if (categorie) { where.push('categorie = ?'); params.push(categorie); }
     if (q) { where.push('(LOWER(nom_prenom) LIKE ? OR matricule LIKE ? OR LOWER(service) LIKE ?)'); const l = `%${String(q).toLowerCase()}%`; params.push(l, `%${q}%`, l); }
     if (statut === 'sans_email') where.push("COALESCE(email,'') = ''");
     if (statut === 'avec_email') where.push("COALESCE(email,'') <> ''");
@@ -536,7 +546,7 @@ async function listAgents({ modele, q, statut, direction, service, grade, limit 
 async function tree() {
     await ensureSchema();
     const rows = await pgDb.all(
-        `SELECT matricule, nom_prenom, modele, a_conserver, service, poste, grade, unit_code, email, email_deduit, split_part(chemin, chr(92), 1) AS direction, est_valideur, valideur_candidats, valideur_matricule, valideur_source
+        `SELECT matricule, nom_prenom, modele, a_conserver, service, poste, grade, unit_code, categorie, email, email_deduit, ad_username, ad_status, split_part(chemin, chr(92), 1) AS direction, est_valideur, valideur_candidats, valideur_matricule, valideur_source
          FROM hub_entretiens.base_agents
          WHERE a_conserver OR matricule IN (SELECT valideur_matricule FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule <> '')`);
     const nodes = rows.map(r => ({
@@ -595,7 +605,7 @@ async function setValideur(matricule, valideurMatricule) {
  */
 async function meMatricule(actor) {
     await ensureSchema();
-    const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE matricule IN (SELECT DISTINCT valideur_matricule FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule <> '')");
+    const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE a_conserver OR est_valideur");
     if (!rows.length) return '';
     const user = text(actor.username).toLowerCase(); const mail = text(actor.email).toLowerCase();
     let me = rows.filter(r => (user && text(r.ad_username).toLowerCase() === user) || (mail && text(r.email).toLowerCase() === mail));
@@ -607,7 +617,8 @@ async function meValideur(actor) {
     const matricule = await meMatricule(actor);
     if (!matricule) return { isValideur: false, agents: 0 };
     const n = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule = ?", [matricule]);
-    return { isValideur: Number(n && n.n) > 0, agents: Number(n && n.n) || 0, matricule };
+    const self = await pgDb.get('SELECT est_valideur FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
+    return { isValideur: Number(n && n.n) > 0 || !!self?.est_valideur, agents: Number(n && n.n) || 0, matricule };
 }
 
 /** Tous les agents placés sous un valideur, à tous les niveaux (ses agents, puis ceux de ses agents valideurs, etc.). */
@@ -618,6 +629,25 @@ async function descendants(matricule) {
     const out = new Set(); const stack = [...(kids.get(matricule) || [])];
     while (stack.length) { const m = stack.pop(); if (out.has(m) || m === matricule) continue; out.add(m); stack.push(...(kids.get(m) || [])); }
     return out;
+}
+
+/** Le compte connecté est-il placé au-dessus de l'agent de cet entretien dans la base (à n'importe quel niveau) ? */
+async function isAboveInBase(actor, entretien) {
+    if (!entretien || !entretien.agent_matricule) return false;
+    const matricule = await meMatricule(actor);
+    if (!matricule) return false;
+    const set = await descendants(matricule);
+    return [entretien.agent_matricule, String(entretien.agent_matricule).padStart(7, '0')].some(m => set.has(m));
+}
+
+/** Ajoute à chaque entretien le modèle de CREP et le chemin de publication (direction \ service \ secteur) de l'agent. */
+async function attachInfo(items) {
+    const rows = await pgDb.all('SELECT matricule, modele, chemin, categorie FROM hub_entretiens.base_agents WHERE a_conserver');
+    const by = new Map(rows.map(r => [r.matricule, r]));
+    return items.map(it => {
+        const r = it.agent_matricule && (by.get(it.agent_matricule) || by.get(String(it.agent_matricule).padStart(7, '0')));
+        return r ? { ...it, modele: r.modele || '', chemin: r.chemin || '', categorie: r.categorie || '' } : { ...it, modele: '', chemin: '', categorie: '' };
+    });
 }
 
 /** Tableau de bord (même contrat que « EP que je réalise ») : entretiens de toute l'équipe sous le valideur connecté. */
@@ -631,7 +661,7 @@ async function equipeEntretiens(actor) {
     const items = all.filter(r => r.agent_matricule && set.has(r.agent_matricule));
     let enriched = items;
     try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* SEDIT RH indisponible : données de l'entretien seules */ }
-    return { campaign, stats: ent.computeStats(items), items: enriched, portee: [`${set.size} agent(s) sous votre responsabilité`] };
+    return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched), portee: [`${set.size} agent(s) sous votre responsabilité`] };
 }
 
 /** Pilotage (administrateurs) : tous les entretiens de la campagne en cours. */
@@ -642,7 +672,7 @@ async function pilotageEntretiens() {
     const items = await ent.listEntretiens({ campaignId: campaign.id });
     let enriched = items;
     try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* idem */ }
-    return { campaign, stats: ent.computeStats(items), items: enriched };
+    return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched) };
 }
 
 /** Recherche libre dans l'AD (association manuelle d'un agent introuvable). */
@@ -686,8 +716,47 @@ async function searchValideurs(q) {
          WHERE (LOWER(nom_prenom) LIKE ? OR matricule LIKE ?) ORDER BY a_conserver DESC, est_valideur DESC, nom_prenom LIMIT 30`, [l, `%${q}%`]);
 }
 
+const parseCandidates = (v) => {
+    try { const a = typeof v === 'string' ? JSON.parse(v) : v; return Array.isArray(a) ? a : []; } catch { return []; }
+};
+
+/** Valideurs possibles pour un agent : propositions liées à son unité, valideur actuel et, à défaut, encadrants de sa direction. */
+async function candidatesForAgent(matricule) {
+    await ensureSchema();
+    const a = await pgDb.get(
+        `SELECT matricule, nom_prenom, valideur_candidats, valideur_matricule, email,
+                split_part(chemin, chr(92), 1) AS direction
+         FROM hub_entretiens.base_agents WHERE matricule = ?`, [matricule]);
+    if (!a) return [];
+    const by = new Map();
+    const add = (m, nom, fonction, poste, email) => {
+        const key = text(m); if (!key || key === matricule || by.has(key)) return;
+        by.set(key, { matricule: key, nom: text(nom), fonction: text(fonction), poste: text(poste), email: text(email) });
+    };
+    for (const c of parseCandidates(a.valideur_candidats)) add(c.matricule, c.nom, c.fonction, c.poste, c.email);
+    if (a.valideur_matricule) {
+        const cur = await pgDb.get('SELECT matricule, nom_prenom, poste_fonction, poste, email FROM hub_entretiens.base_agents WHERE matricule = ?', [a.valideur_matricule]);
+        if (cur) add(cur.matricule, cur.nom_prenom, cur.poste_fonction, cur.poste, cur.email);
+    }
+    if (!by.size && a.direction) {
+        const rows = await pgDb.all(
+            `SELECT matricule, nom_prenom, poste_fonction, poste, email FROM hub_entretiens.base_agents
+             WHERE a_conserver AND est_valideur AND split_part(chemin, chr(92), 1) = ? AND matricule <> ?
+             ORDER BY nom_prenom LIMIT 50`, [a.direction, matricule]);
+        for (const r of rows) add(r.matricule, r.nom_prenom, r.poste_fonction, r.poste, r.email);
+    }
+    return [...by.values()].sort((x, y) => (x.nom || '').localeCompare(y.nom || '', 'fr'));
+}
+
+/** Change le valideur d'un agent et resynchronise son entretien (e-mail, compte, nom de l'évaluateur). */
+async function setValideurAndSync(matricule, valideurMatricule, actor) {
+    await setValideur(matricule, valideurMatricule);
+    return syncEntretiens({ matricules: [matricule], actor });
+}
+
 module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
-    loadTemplateCache, modeleOfEntretien, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, equipeEntretiens, pilotageEntretiens, syncEntretiens, purgeLegacyEntretiens,
+    loadTemplateCache, modeleOfEntretien, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule,
+    isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, purgeLegacyEntretiens,
     adJob: job,
 };

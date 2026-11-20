@@ -80,6 +80,10 @@ export interface Entretien {
   id: number;
   /** Modèle de compte rendu (nom de l'onglet du classeur RH) et grille correspondante. */
   modele?: string;
+  /** Chemin de publication de l'agent : direction \ service \ secteur (base des agents à évaluer). */
+  chemin?: string;
+  /** Catégorie statutaire de l'agent (A, B ou C). */
+  categorie?: string;
   crep_definition?: { name?: string; criteria_groups: Array<{ key: string; title: string | null; items: Array<{ key: string; label: string; lead?: string }> }>; flags?: { objectifs_service?: boolean } } | null;
   campaign_id: number;
   annee?: number;

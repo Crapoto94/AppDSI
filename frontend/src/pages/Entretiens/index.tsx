@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ClipboardCheck, CalendarDays, Users, LayoutDashboard, Settings,
-  ShieldCheck, UserCheck, Loader2, AlertCircle, RefreshCw,
+  ShieldCheck, UserCheck, Loader2, AlertCircle, RefreshCw, BookOpen, History,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import type { MeData } from './types';
@@ -10,10 +10,12 @@ import MonEntretien from './MonEntretien';
 import Evaluations from './Evaluations';
 import Pilotage from './Pilotage';
 import Reglages from './Reglages';
+import Journal from './Journal';
+import Aide from './Aide';
 import Header from '../../components/Header';
 import { COLORS, btnGhost, card } from './ui';
 
-type Tab = 'moi' | 'evaluations' | 'pilotage' | 'reglages';
+type Tab = 'moi' | 'evaluations' | 'pilotage' | 'reglages' | 'journal';
 
 // Adresse d'arrivée dans l'application : un lien de mail (ancienne adresse DSI Hub /entretiens) est redirigé vers MagApp.
 const ARRIVAL_PATH = typeof window !== 'undefined' ? window.location.pathname : '';
@@ -24,6 +26,7 @@ export default function Entretiens() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('moi');
+  const [showAide, setShowAide] = useState(false);
   const initialized = useRef(false);
 
   const load = useCallback(async (silent = false) => {
@@ -61,6 +64,7 @@ export default function Entretiens() {
     { key: 'evaluations', label: 'Mes EP', icon: <Users size={15} />, badge: me?.evaluatorCount || 0, visible: !!me?.isEvaluator },
     { key: 'pilotage', label: 'Pilotage', icon: <LayoutDashboard size={15} />, visible: !!me?.isAdmin },
     { key: 'reglages', label: 'Paramétrage', icon: <Settings size={15} />, visible: !!me?.isAdmin },
+    { key: 'journal', label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
   ];
 
   return (
@@ -83,6 +87,9 @@ export default function Entretiens() {
           {me?.isAdmin && <Pill icon={<ShieldCheck size={13} />} label="Administrateur du module" />}
           {me?.isEvaluator && <Pill icon={<UserCheck size={13} />} label="Évaluateur" />}
           {!me?.isAdmin && !me?.isEvaluator && me && <Pill icon={<UserCheck size={13} />} label="Agent" />}
+          <button onClick={() => setShowAide(true)} title="Aide" style={{ ...btnGhost, borderRadius: 999, padding: '4px 11px', fontSize: 11.5 }}>
+            <BookOpen size={12} /> Aide
+          </button>
           <button onClick={() => load(true)} title="Actualiser" style={{ ...btnGhost, borderRadius: 999, padding: '4px 11px', fontSize: 11.5 }}>
             <RefreshCw size={12} /> Actualiser
           </button>
@@ -146,9 +153,11 @@ export default function Entretiens() {
           {tab === 'evaluations' && me.isEvaluator && <Evaluations onChanged={() => load(true)} />}
           {tab === 'pilotage' && me.isAdmin && <Pilotage onChanged={() => load(true)} />}
           {tab === 'reglages' && me.isAdmin && <Reglages onChanged={() => load(true)} />}
+          {tab === 'journal' && me.isAdmin && <Journal />}
         </>
       ) : null}
       </div>
+      {showAide && <Aide onClose={() => setShowAide(false)} isAdmin={!!me?.isAdmin} />}
     </div>
   );
 }

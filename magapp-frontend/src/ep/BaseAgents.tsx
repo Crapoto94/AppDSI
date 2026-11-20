@@ -7,7 +7,7 @@ import { COLORS, btnGhost, btnPrimary, card, input } from './ui';
 interface Candidat { matricule: string; nom: string; fonction?: string; poste?: string }
 interface BaseAgent {
   matricule: string; nom_prenom: string; modele: string; direction: string; service: string; poste: string; grade: string;
-  chemin: string; unit_code: string; email: string; email_deduit?: boolean; ad_username: string; ad_status: string;
+  chemin: string; unit_code: string; categorie?: string; email: string; email_deduit?: boolean; ad_username: string; ad_status: string;
   valideur_candidats: Candidat[]; valideur_matricule: string; valideur_source: string; valideur_nom: string;
 }
 interface Stats {
@@ -125,9 +125,9 @@ function AdCell({ agent, headers, onLinked, onError }: { agent: BaseAgent; heade
 interface TreeNode extends BaseAgent { a_conserver: boolean; est_valideur: boolean }
 
 /** Vue hiérarchique globale : valideurs et agents (chaque agent sous son valideur), valideur modifiable sur chaque ligne. */
-interface ViewFilters { q: string; modele: string; statut: string; direction: string; service: string; grade: string }
+interface ViewFilters { q: string; modele: string; statut: string; direction: string; service: string; grade: string; categorie: string }
 
-function HierarchyView({ headers, reloadKey, onChoose, filters }: { headers: Record<string, string>; reloadKey: number; onChoose: (a: BaseAgent, m: string) => Promise<void>; filters: ViewFilters }) {
+function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filters }: { headers: Record<string, string>; reloadKey: number; onChoose: (a: BaseAgent, m: string) => Promise<void>; onLinked: () => void; onError: (t: string) => void; filters: ViewFilters }) {
   const [nodes, setNodes] = useState<TreeNode[]>([]);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -155,9 +155,9 @@ function HierarchyView({ headers, reloadKey, onChoose, filters }: { headers: Rec
     return n;
   }, [children]);
 
-  const { q, modele, statut, direction, service, grade } = filters;
+  const { q, modele, statut, direction, service, grade, categorie } = filters;
   const ql = q.trim().toLowerCase();
-  const filtering = !!(ql || modele || statut || direction || service || grade);
+  const filtering = !!(ql || modele || statut || direction || service || grade || categorie);
   // Avec un filtre : on ne garde que les agents qui correspondent, plus la chaîne de leurs valideurs (dépliée).
   const matchSet = useMemo(() => {
     if (!filtering) return null;
@@ -169,6 +169,7 @@ function HierarchyView({ headers, reloadKey, onChoose, filters }: { headers: Rec
       if (direction && n.direction !== direction) continue;
       if (service && n.service !== service) continue;
       if (grade && n.grade !== grade) continue;
+      if (categorie && n.categorie !== categorie) continue;
       if (statut === 'sans_email' && n.email) continue;
       if (statut === 'avec_email' && !n.email) continue;
       if (statut === 'email_deduit' && !n.email_deduit) continue;
@@ -179,7 +180,7 @@ function HierarchyView({ headers, reloadKey, onChoose, filters }: { headers: Rec
       while (cur && !guard.has(cur.matricule)) { set.add(cur.matricule); guard.add(cur.matricule); cur = byId.get(cur.valideur_matricule); }
     }
     return set;
-  }, [filtering, ql, modele, statut, direction, service, grade, nodes, byId]);
+  }, [filtering, ql, modele, statut, direction, service, grade, categorie, nodes, byId]);
 
   const toggle = (id: string) => setOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setOpen(open.size ? new Set() : new Set([...children.keys()]));
@@ -203,7 +204,8 @@ function HierarchyView({ headers, reloadKey, onChoose, filters }: { headers: Rec
               {kids.length > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>{nbDesc} agent{nbDesc > 1 ? 's' : ''}</span>}
               {!n.a_conserver && <span style={{ marginLeft: 6, fontSize: 10.5, color: COLORS.muted }}>(non évalué)</span>}
             </div>
-            <div style={{ fontSize: 11.5, color: COLORS.muted }}>{n.poste}{n.service ? ` · ${n.service}` : ''}{n.modele ? ` · ${n.modele.replace(/^Template_/i, '')}` : ''}</div>
+            <div style={{ fontSize: 11.5, color: COLORS.muted }}>{n.poste}{n.service ? ` · ${n.service}` : ''}{n.modele ? ` · modèle ${n.modele.replace(/^Template_/i, '')}` : ''}</div>
+            {n.a_conserver && <div style={{ marginTop: 3, fontSize: 11.5 }}><AdCell agent={n} headers={headers} onLinked={onLinked} onError={onError} /></div>}
           </div>
           {n.a_conserver && <div style={{ minWidth: 230 }}><ValideurCell agent={n} headers={headers} onChoose={m => onChoose(n, m)} /></div>}
         </div>
@@ -255,6 +257,7 @@ export default function BaseAgents() {
   const [direction, setDirection] = useState('');
   const [service, setService] = useState('');
   const [grade, setGrade] = useState('');
+  const [categorie, setCategorie] = useState('');
   const [vue, setVue] = useState<'liste' | 'hierarchie'>('liste');
   const [treeKey, setTreeKey] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -264,13 +267,13 @@ export default function BaseAgents() {
     try {
       const [s, a, t] = await Promise.all([
         axios.get('/api/ep-base/stats', { headers }),
-        axios.get('/api/ep-base/agents', { headers, params: { q: q || undefined, modele: modele || undefined, statut: statut || undefined, direction: direction || undefined, service: service || undefined, grade: grade || undefined } }),
+        axios.get('/api/ep-base/agents', { headers, params: { q: q || undefined, modele: modele || undefined, statut: statut || undefined, direction: direction || undefined, service: service || undefined, grade: grade || undefined, categorie: categorie || undefined } }),
         axios.get('/api/ep-base/templates', { headers }),
       ]);
       setStats(s.data); setAgents(a.data.agents || []); setTemplates(t.data.templates || []);
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Chargement impossible.' }); }
     finally { setLoading(false); }
-  }, [headers, q, modele, statut, direction, service, grade]);
+  }, [headers, q, modele, statut, direction, service, grade, categorie]);
   useEffect(() => { const t = setTimeout(load, q ? 300 : 0); return () => clearTimeout(t); }, [load, q]);
 
   // Suivi du rapprochement AD en arrière-plan
@@ -455,6 +458,10 @@ export default function BaseAgents() {
               <option value="email_deduit">Adresse déduite (AD sans e-mail)</option>
               <option value="avec_valideur">Valideur défini</option>
             </select>
+            <select style={{ ...input, maxWidth: 170 }} value={categorie} onChange={e => setCategorie(e.target.value)}>
+              <option value="">Toutes catégories</option>
+              {['A', 'B', 'C'].map(c => <option key={c} value={c}>Catégorie {c}</option>)}
+            </select>
             <select style={{ ...input, maxWidth: 220 }} value={direction} onChange={e => setDirection(e.target.value)}>
               <option value="">Toutes les directions</option>
               {(stats?.facettes?.directions || []).map(v => <option key={v} value={v}>{v}</option>)}
@@ -469,7 +476,7 @@ export default function BaseAgents() {
             </select>
             {vue === 'liste' && <span style={{ alignSelf: 'center', fontSize: 12, color: COLORS.muted }}>{agents.length} agent(s) affiché(s)</span>}
           </div>
-          {vue === 'hierarchie' && <HierarchyView headers={headers} reloadKey={treeKey} onChoose={(a, m) => chooseValideur(a, m)} filters={{ q, modele, statut, direction, service, grade }} />}
+          {vue === 'hierarchie' && <HierarchyView headers={headers} reloadKey={treeKey} onChoose={(a, m) => chooseValideur(a, m)} onLinked={() => { setTreeKey(k => k + 1); load(); }} onError={t => setMsg({ ok: false, text: t })} filters={{ q, modele, statut, direction, service, grade, categorie }} />}
           {vue === 'liste' && <>
 
           {loading ? <div style={{ padding: 20, textAlign: 'center' }}><Loader2 size={20} className="spin" /></div> : (

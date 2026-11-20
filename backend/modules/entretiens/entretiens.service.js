@@ -266,7 +266,9 @@ async function buildAccess(actor, entretien, adminFlag) {
         (norm(entretien.evaluator_username) && identity.usernames.includes(norm(entretien.evaluator_username)))
     );
     // Valideur situé au-dessus de l'évaluateur direct (cascade) : lecture seule de l'EP, jamais de modification.
-    const isSuperieur = (!admin && !isAgent && !isEvaluator) ? await require('../ep-ville/ep-ville.hierarchy').isSuperieur(actor, entretien).catch(() => false) : false;
+    let isSuperieur = (!admin && !isAgent && !isEvaluator) ? await require('../ep-ville/ep-ville.hierarchy').isSuperieur(actor, entretien).catch(() => false) : false;
+    // Valideur placé au-dessus de l'agent dans la base des agents à évaluer (classeur RH), à n'importe quel niveau.
+    if (!admin && !isAgent && !isEvaluator && !isSuperieur) isSuperieur = await require('../ep-base/ep-base.service').isAboveInBase(actor, entretien).catch(() => false);
     if (!admin && !isAgent && !isEvaluator && !isSuperieur) return null;
 
     // « Mon entretien » est fermé par défaut : l'agent ne voit son espace que
@@ -643,6 +645,58 @@ async function getEsignSettings() {
     };
 }
 
+let auditReady = null;
+async function ensureAuditSchema() {
+    if (!auditReady) {
+        auditReady = (async () => {
+            await pgDb.run(`CREATE TABLE IF NOT EXISTS hub_entretiens.audit_logs (
+                id SERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                actor_username TEXT DEFAULT '',
+                actor_email TEXT DEFAULT '',
+                actor_name TEXT DEFAULT '',
+                action TEXT NOT NULL,
+                entretien_id INTEGER,
+                agent_nom TEXT DEFAULT '',
+                details JSONB
+            )`);
+            await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_audit_created ON hub_entretiens.audit_logs(created_at DESC)');
+        })().catch((e) => { auditReady = null; throw e; });
+    }
+    return auditReady;
+}
+
+/** Journal des changements du module (agents, évaluateurs, préparation, compte rendu…). */
+async function logAudit({ actor, action, entretien, details } = {}) {
+    try {
+        await ensureAuditSchema();
+        const a = actor || {};
+        await pgDb.run(
+            `INSERT INTO hub_entretiens.audit_logs
+                (actor_username, actor_email, actor_name, action, entretien_id, agent_nom, details)
+             VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb))`,
+            [
+                a.username || '', a.email || '', a.displayName || '',
+                String(action || '').slice(0, 80),
+                entretien?.id || null,
+                entretien ? fullName(entretien.agent_prenom, entretien.agent_nom) : '',
+                JSON.stringify(details || {}),
+            ]
+        );
+    } catch (e) {
+        console.warn('[ENTRETIENS] journal:', e.message);
+    }
+}
+
+async function listAuditLogs(limit = 300) {
+    await ensureAuditSchema();
+    const n = Math.max(1, Math.min(Number(limit) || 300, 1000));
+    return pgDb.all(
+        `SELECT id, created_at, actor_username, actor_email, actor_name, action, entretien_id, agent_nom, details
+         FROM hub_entretiens.audit_logs ORDER BY id DESC LIMIT ${n}`
+    );
+}
+
 async function resolveOrganizerEmail(actor) {
     if (isEmail(actor.email)) return actor.email.trim();
     if (actor.username) {
@@ -804,6 +858,8 @@ module.exports = {
     getAiSettings,
     aiAccessFor,
     listAiEvaluatorCandidates,
+    logAudit,
+    listAuditLogs,
     selfAccessFor,
     getSelfAgents,
     getSelfSettings,

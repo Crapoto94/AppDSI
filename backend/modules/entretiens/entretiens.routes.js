@@ -16,6 +16,10 @@ router.get('/magapp-url', authenticateJWT, ctrl.magappUrl);
 // Tableaux de bord
 router.get('/stats', authenticateJWT, ctrl.stats);
 router.get('/evaluateur', authenticateJWT, ctrl.evaluatorList);
+router.get('/evaluateur/sans-evaluateur', authenticateJWT, ctrl.listUnassigned);
+router.post('/evaluateur/agents/:id/claim', authenticateJWT, ctrl.claimAgent);
+router.post('/print/crep', authenticateJWT, ctrl.printCrep);
+router.get('/audit-logs', authenticateJWT, ctrl.auditLogs);
 
 // Campagnes
 router.get('/campaigns', authenticateJWT, ctrl.listCampaigns);
@@ -46,6 +50,8 @@ router.get('/', authenticateJWT, ctrl.list);
 router.post('/', authenticateJWT, ctrl.create);
 
 // Routes paramétrées — déclarées après les chemins spécifiques
+router.get('/:id/evaluator-candidates', authenticateJWT, ctrl.evaluatorCandidates);
+router.post('/:id/reassign-evaluator', authenticateJWT, ctrl.reassignEvaluator);
 router.get('/:id', authenticateJWT, ctrl.getOne);
 router.put('/:id', authenticateJWT, ctrl.update);
 router.delete('/:id', authenticateJWT, ctrl.remove);

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown } from 'lucide-react';
+import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
 import { STATUTS, formatDateCourte, nomComplet } from './types';
@@ -20,7 +20,76 @@ const foldTxt = (v?: string | null) => String(v || '').toLowerCase().normalize('
 /** Service, seulement s'il diffère de la direction. */
 const uniteService = (e: Entretien) => ((e.service || '').trim() && foldTxt(e.service) !== foldTxt(e.direction) ? (e.service || '').trim() : '');
 
-export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean }) {
+// ─── Pilotage : découpage par direction \ service \ secteur (chemin de publication) ─────────────────
+const segs = (e: Entretien) => String(e.chemin || '').split('\\').map(x => x.trim()).filter(Boolean);
+const isDone = (e: Entretien) => ['realise', 'cloture'].includes(e.statut);
+const nowIso = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+/** Les mêmes indicateurs que ceux du serveur, recalculés sur la sélection (direction, service, secteur). */
+function localStats(rows: Entretien[]): Stats {
+  const now = nowIso();
+  const in7 = new Date(); in7.setDate(in7.getDate() + 7);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const lim = `${in7.getFullYear()}-${p(in7.getMonth() + 1)}-${p(in7.getDate())}T${p(in7.getHours())}:${p(in7.getMinutes())}`;
+  let realises = 0, aVenir = 0, retard = 0;
+  for (const r of rows) {
+    const d = String(r.date_entretien || '').slice(0, 16).replace(' ', 'T');
+    if (isDone(r)) realises++;
+    if (d && d >= now && d <= lim) aVenir++;
+    if (d && d < now && !isDone(r)) retard++;
+  }
+  return { total: rows.length, realises, a_venir_7j: aVenir, en_retard: retard, taux_realisation: rows.length ? Math.round((realises / rows.length) * 100) : 0 } as unknown as Stats;
+}
+
+interface PNode { key: string; label: string; total: number; done: number; children: Map<string, PNode> }
+function buildTree(rows: Entretien[]): PNode {
+  const root: PNode = { key: '', label: 'Ville', total: 0, done: 0, children: new Map() };
+  for (const e of rows) {
+    const path = segs(e).slice(0, 3);
+    let node = root; node.total++; if (isDone(e)) node.done++;
+    for (let i = 0; i < path.length; i++) {
+      const key = path.slice(0, i + 1).join('\\');
+      let child = node.children.get(key);
+      if (!child) { child = { key, label: path[i], total: 0, done: 0, children: new Map() }; node.children.set(key, child); }
+      child.total++; if (isDone(e)) child.done++;
+      node = child;
+    }
+  }
+  return root;
+}
+
+/** Avancement des entretiens (% réalisés) par direction, déroulable par service puis par secteur. */
+function ProgressTree({ rows }: { rows: Entretien[] }) {
+  const root = useMemo(() => buildTree(rows), [rows]);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (k: string) => setOpen(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const render = (n: PNode, depth: number): React.ReactNode => {
+    const pct = n.total ? Math.round((n.done / n.total) * 100) : 0;
+    const kids = [...n.children.values()].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+    const isOpen = open.has(n.key);
+    return (
+      <div key={n.key || 'root'}>
+        <div onClick={() => kids.length && toggle(n.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', paddingLeft: 10 + depth * 22, borderBottom: `1px solid ${COLORS.border}`, cursor: kids.length ? 'pointer' : 'default' }}>
+          <span style={{ width: 14, color: COLORS.muted, fontSize: 12 }}>{kids.length ? (isOpen ? '▾' : '▸') : ''}</span>
+          <div style={{ flex: '0 1 340px', minWidth: 160, fontSize: depth === 0 ? 13.5 : 12.5, fontWeight: depth < 2 ? 800 : 600 }}>{n.label}</div>
+          <div style={{ flex: 1, minWidth: 100 }}><div style={{ height: 8, background: '#e2e8f0', borderRadius: 999 }}><div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? COLORS.success : COLORS.primary, borderRadius: 999 }} /></div></div>
+          <div style={{ width: 120, textAlign: 'right', fontSize: 12, color: '#475569' }}><b>{pct} %</b> <span style={{ color: '#94a3b8' }}>({n.done}/{n.total})</span></div>
+        </div>
+        {isOpen && kids.map(c => render(c, depth + 1))}
+      </div>
+    );
+  };
+  const dirs = [...root.children.values()].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+  return (
+    <div style={{ ...card, marginBottom: 14, overflow: 'hidden' }}>
+      <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 800, color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` }}>Avancement par direction <span style={{ fontWeight: 500, color: COLORS.muted, fontSize: 12 }}>(entretiens réalisés, cliquez pour dérouler les services et secteurs)</span></div>
+      {render({ ...root, label: 'Ensemble', key: '' }, 0)}
+      {dirs.length === 0 && <div style={{ padding: 14, color: COLORS.muted, fontSize: 12.5 }}>Aucune donnée.</div>}
+    </div>
+  );
+}
+
+export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean }) {
   const { token } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -35,6 +104,17 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [onlyTodo, setOnlyTodo] = useState(true);
   const [openId, setOpenId] = useState<number | null>(null);
   const [planning, setPlanning] = useState<Entretien | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [printBusy, setPrintBusy] = useState<'blank' | 'filled' | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addItems, setAddItems] = useState<Entretien[]>([]);
+  const [addQ, setAddQ] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
+  const [addMsg, setAddMsg] = useState<string | null>(null);
+  const [reassignFor, setReassignFor] = useState<Entretien | null>(null);
+  const [reassignCandidates, setReassignCandidates] = useState<Array<{ matricule: string; nom: string; fonction?: string; poste?: string; email?: string }>>([]);
+  const [reassignBusy, setReassignBusy] = useState(false);
+  const [reassignMsg, setReassignMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
@@ -58,12 +138,78 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     } catch { setError('PDF signé indisponible.'); }
   };
 
-  const todoCount = useMemo(() => items.filter(e => !['realise', 'cloture'].includes(e.statut)).length, [items]);
+  const printCrep = async (mode: 'blank' | 'filled', ids?: number[]) => {
+    const list = ids || [...selected];
+    if (!list.length) { setError('Sélectionnez au moins un entretien.'); return; }
+    setPrintBusy(mode); setError(null);
+    try {
+      const r = await axios.post('/api/entretiens/print/crep', { ids: list, mode }, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Impression impossible.');
+    } finally { setPrintBusy(null); }
+  };
+
+  const loadAdd = useCallback((q = addQ) => {
+    setAddBusy(true); setAddMsg(null);
+    axios.get('/api/entretiens/evaluateur/sans-evaluateur', { headers, params: { q: q || undefined } })
+      .then(r => setAddItems(Array.isArray(r.data?.items) ? r.data.items : []))
+      .catch(e => setAddMsg(e.response?.data?.message || 'Impossible de charger les agents sans évaluateur.'))
+      .finally(() => setAddBusy(false));
+  }, [headers, addQ]);
+
+  const openAdd = () => { setShowAdd(true); setAddQ(''); loadAdd(''); };
+  const claim = async (id: number) => {
+    setAddBusy(true); setAddMsg(null);
+    try {
+      await axios.post(`/api/entretiens/evaluateur/agents/${id}/claim`, {}, { headers });
+      await load();
+      setShowAdd(false);
+    } catch (e: any) { setAddMsg(e.response?.data?.message || 'Ajout impossible.'); }
+    finally { setAddBusy(false); }
+  };
+
+  const openReassign = async (e: Entretien) => {
+    setReassignFor(e); setReassignMsg(null); setReassignCandidates([]);
+    try {
+      const r = await axios.get(`/api/entretiens/${e.id}/evaluator-candidates`, { headers });
+      setReassignCandidates(Array.isArray(r.data?.candidates) ? r.data.candidates : []);
+    } catch (err: any) { setReassignMsg(err.response?.data?.message || 'Chargement des évaluateurs impossible.'); }
+  };
+  const doReassign = async (matricule: string) => {
+    if (!reassignFor) return;
+    setReassignBusy(true); setReassignMsg(null);
+    try {
+      await axios.post(`/api/entretiens/${reassignFor.id}/reassign-evaluator`, { evaluator_matricule: matricule }, { headers });
+      await load();
+      setReassignFor(null);
+    } catch (e: any) { setReassignMsg(e.response?.data?.message || 'Changement impossible.'); }
+    finally { setReassignBusy(false); }
+  };
+
+  const toggleSelect = (id: number) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectAll = (ids: number[]) => setSelected(new Set(ids));
+
+
+  const [fDir, setFDir] = useState('');
+  const [fSvc, setFSvc] = useState('');
+  const [fSec, setFSec] = useState('');
+  const [fCat, setFCat] = useState('');
+  const dirOptions = useMemo(() => [...new Set(items.map(e => segs(e)[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items]);
+  const svcOptions = useMemo(() => [...new Set(items.filter(e => !fDir || segs(e)[0] === fDir).map(e => segs(e)[1]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items, fDir]);
+  const secOptions = useMemo(() => [...new Set(items.filter(e => (!fDir || segs(e)[0] === fDir) && (!fSvc || segs(e)[1] === fSvc)).map(e => segs(e)[2]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items, fDir, fSvc]);
+  const scopedItems = useMemo(() => !pilotage ? items : items.filter(e => {
+    const sg = segs(e);
+    return (!fDir || sg[0] === fDir) && (!fSvc || sg[1] === fSvc) && (!fSec || sg[2] === fSec) && (!fCat || e.categorie === fCat);
+  }), [items, pilotage, fDir, fSvc, fSec, fCat]);
+  const kpi = pilotage ? localStats(scopedItems) : stats;
+  const todoCount = useMemo(() => scopedItems.filter(e => !['realise', 'cloture'].includes(e.statut)).length, [scopedItems]);
 
   const valideurLabel = (e: Entretien) => e.evaluator_nom || e.evaluator_email || '—';
   const valideurs = useMemo(() => [...new Set(items.map(valideurLabel))].sort((a, b) => a.localeCompare(b, 'fr')), [items]);
 
-  const filtered = useMemo(() => items.filter(e => {
+  const filtered = useMemo(() => scopedItems.filter(e => {
     if (valideur && valideurLabel(e) !== valideur) return false;
     if (onlyTodo && ['realise', 'cloture'].includes(e.statut)) return false;
     if (statut && e.statut !== statut) return false;
@@ -74,17 +220,43 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     return true;
   }).sort((a, b) => readOnly
     ? valideurLabel(a).localeCompare(valideurLabel(b), 'fr') || nomComplet(a).localeCompare(nomComplet(b), 'fr')
-    : 0), [items, q, statut, onlyTodo, valideur, readOnly]);
+    : 0), [scopedItems, q, statut, onlyTodo, valideur, readOnly]);
+  const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
 
   return (
     <div>
-      {stats && (
+      {kpi && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 18, overflowX: 'auto' }}>
-          <KpiCard label={readOnly ? 'EP de mon équipe' : 'EP que je réalise'} value={stats.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
-          <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
-          <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />
-          <KpiCard label="En retard" value={stats.en_retard} color={stats.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
+          <KpiCard label={pilotage ? 'Entretiens (sélection)' : readOnly ? 'EP de mon équipe' : 'EP que je réalise'} value={kpi.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
+          <KpiCard label="À venir sous 7 jours" value={kpi.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
+          <KpiCard label="Réalisés" value={kpi.realises} color={COLORS.success} sub={`${kpi.taux_realisation}% de réalisation`} />
+          <KpiCard label="En retard" value={kpi.en_retard} color={kpi.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
         </div>
+      )}
+
+      {pilotage && (
+        <>
+          <div style={{ ...card, padding: 14, marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select style={{ ...input, width: 'auto', minWidth: 190 }} value={fDir} onChange={e => { setFDir(e.target.value); setFSvc(''); setFSec(''); }}>
+              <option value="">Toutes les directions</option>
+              {dirOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <select style={{ ...input, width: 'auto', minWidth: 240, maxWidth: 360 }} value={fSvc} onChange={e => { setFSvc(e.target.value); setFSec(''); }} disabled={!svcOptions.length}>
+              <option value="">{fDir ? 'Tous les services de la direction' : 'Tous les services'}</option>
+              {svcOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <select style={{ ...input, width: 'auto', minWidth: 240, maxWidth: 360 }} value={fSec} onChange={e => setFSec(e.target.value)} disabled={!secOptions.length}>
+              <option value="">{fSvc ? 'Tous les secteurs du service' : 'Tous les secteurs'}</option>
+              {secOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <select style={{ ...input, width: 'auto', minWidth: 150 }} value={fCat} onChange={e => setFCat(e.target.value)}>
+              <option value="">Toutes catégories</option>
+              {['A', 'B', 'C'].map(c => <option key={c} value={c}>Catégorie {c}</option>)}
+            </select>
+            {(fDir || fSvc || fSec || fCat) && <button style={btnGhost} onClick={() => { setFDir(''); setFSvc(''); setFSec(''); setFCat(''); }}>Réinitialiser</button>}
+          </div>
+          <ProgressTree rows={scopedItems} />
+        </>
       )}
 
       <div style={{ ...card, padding: 14, marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -112,6 +284,24 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
         <button style={btnGhost} onClick={load} disabled={loading}>Actualiser</button>
       </div>
 
+      <div style={{ ...card, padding: 12, marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {!readOnly && !pilotage && (
+          <button style={btnPrimary} onClick={openAdd}>
+            <UserPlus size={14} /> Ajouter un agent
+          </button>
+        )}
+        <button style={btnGhost} onClick={() => allFilteredSelected ? setSelected(new Set()) : selectAll(filtered.map(e => e.id))} disabled={!filtered.length}>
+          {allFilteredSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
+        </button>
+        <span style={{ fontSize: 12, color: COLORS.muted, marginRight: 4 }}>{selected.size} sélectionné(s)</span>
+        <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('blank')}>
+          {printBusy === 'blank' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP vierges
+        </button>
+        <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('filled')}>
+          {printBusy === 'filled' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP renseignés
+        </button>
+      </div>
+
       {loading ? (
         <div style={{ ...card, padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>
       ) : error ? (
@@ -124,10 +314,14 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead>
               <tr>
+                <Th style={{ width: 34 }}>
+                  <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />
+                </Th>
                 <Th>Agent</Th>
                 {readOnly && <Th>Valideur</Th>}
                 <Th>Date de l’entretien</Th>
                 <Th>Statut</Th>
+                {(pilotage || readOnly) && <Th>Modèle</Th>}
                 <Th>Compte rendu</Th>
                 <Th style={{ textAlign: 'right' }}>Action</Th>
               </tr>
@@ -137,6 +331,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
+                    <Td><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} /></Td>
                     <Td style={{ minWidth: 260 }}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         <Avatar name={nomComplet(e)} size={36} />
@@ -159,6 +354,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                       </div>
                     </Td>
                     <Td><Badge {...st} /></Td>
+                    {(pilotage || readOnly) && <Td><span style={{ fontSize: 12, color: '#475569' }}>{(e.modele || '').replace(/^Template_/i, '') || '—'}</span></Td>}
                     <Td>
                       {e.evaluation_statut === 'soumis'
                         ? <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11.5, color: COLORS.success, fontWeight: 700 }}><ClipboardCheck size={13} /> Validé</span>
@@ -171,6 +367,14 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                         {!readOnly && !['realise', 'cloture'].includes(e.statut) && (
                           <button style={e.date_entretien ? btnGhost : btnPrimary} onClick={() => setPlanning(e)}>
                             <CalendarClock size={13} /> {e.date_entretien ? 'Modifier le RDV' : 'Planifier'}
+                          </button>
+                        )}
+                        <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
+                          <Printer size={13} />
+                        </button>
+                        {!pilotage && (
+                          <button style={btnGhost} onClick={() => openReassign(e)} title="Changer l’évaluateur">
+                            <UserCog size={13} />
                           </button>
                         )}
                         {(e.crep_statut === 'signe_papier' || (e.crep_statut === 'en_signature' && e.crep_parapheur_status === 'termine')) && (
@@ -208,6 +412,73 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
 
       {openId && (
         <EntretienDetailModal entretienId={openId} onClose={() => setOpenId(null)} onSaved={() => { load(); onChanged?.(); }} />
+      )}
+
+      {showAdd && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }} onMouseDown={ev => { if (ev.target === ev.currentTarget) setShowAdd(false); }}>
+          <div style={{ ...card, width: '100%', maxWidth: 720, padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 800 }}>Ajouter un agent</div>
+              <button style={btnGhost} onClick={() => setShowAdd(false)}><X size={15} /></button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input style={{ ...input, flex: 1 }} placeholder="Rechercher un agent sans évaluateur…" value={addQ}
+                onChange={e => setAddQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') loadAdd(addQ); }} />
+              <button style={btnPrimary} onClick={() => loadAdd(addQ)} disabled={addBusy}>
+                {addBusy ? <Loader2 size={14} /> : <Search size={14} />} Rechercher
+              </button>
+            </div>
+            {addMsg && <div style={{ fontSize: 12.5, color: COLORS.danger, marginBottom: 8 }}>{addMsg}</div>}
+            {addBusy ? <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}><Loader2 size={20} /></div> : addItems.length === 0 ? (
+              <div style={{ padding: 18, fontSize: 12.5, color: '#94a3b8' }}>Aucun agent sans évaluateur dans votre périmètre.</div>
+            ) : (
+              <div style={{ maxHeight: 420, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9 }}>
+                {addItems.map(a => (
+                  <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 11px', borderBottom: `1px solid ${COLORS.border}` }}>
+                    <Avatar name={nomComplet(a)} size={30} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{nomComplet(a)}</div>
+                      <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[a.poste, a.direction || a.service].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    <button style={btnPrimary} onClick={() => claim(a.id)} disabled={addBusy}>Ajouter</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {reassignFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }} onMouseDown={ev => { if (ev.target === ev.currentTarget) setReassignFor(null); }}>
+          <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontSize: 16, fontWeight: 800 }}>Changer l’évaluateur</div>
+              <button style={btnGhost} onClick={() => setReassignFor(null)}><X size={15} /></button>
+            </div>
+            <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 12 }}>
+              {nomComplet(reassignFor)} · évaluateur actuel : <strong>{reassignFor.evaluator_nom || reassignFor.evaluator_email || '—'}</strong>
+            </div>
+            {reassignMsg && <div style={{ fontSize: 12.5, color: COLORS.danger, marginBottom: 8 }}>{reassignMsg}</div>}
+            {reassignCandidates.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12.5, color: '#94a3b8' }}>Aucun autre évaluateur proposé pour cet agent.</div>
+            ) : (
+              <div style={{ maxHeight: 380, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 9 }}>
+                {reassignCandidates.map(c => (
+                  <div key={c.matricule} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 11px', borderBottom: `1px solid ${COLORS.border}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{c.nom || c.matricule}</div>
+                      <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[c.fonction, c.poste, c.email].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    <button style={btnGhost} onClick={() => doReassign(c.matricule)} disabled={reassignBusy}>
+                      {reassignBusy ? <Loader2 size={13} /> : <UserCog size={13} />} Choisir
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

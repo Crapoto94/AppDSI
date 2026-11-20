@@ -1,4 +1,5 @@
 const { pgDb } = require('../../shared/database');
+const { PDFDocument } = require('pdf-lib');
 const svc = require('./entretiens.service');
 const { normalizeCrep, missingFields, definitionFor } = require('./crep.definition');
 const epBase = require('../ep-base/ep-base.service');
@@ -155,6 +156,19 @@ async function agentsSansEntretien(rows) {
     const users = new Set(rows.map(r => svc.norm(r.agent_username)).filter(Boolean));
     const emails = new Set(rows.map(r => svc.norm(r.agent_email)).filter(Boolean));
     return agents.filter(a => !users.has(svc.norm(a.username)) && !(a.email && emails.has(svc.norm(a.email))));
+}
+
+/** Fusionne plusieurs PDF (impression en masse des CREP / EP). */
+async function mergePdfBuffers(buffers) {
+    const out = await PDFDocument.create();
+    for (const buf of buffers) {
+        const src = await PDFDocument.load(buf);
+        const pages = await out.copyPages(src, src.getPageIndices());
+        for (const page of pages) out.addPage(page);
+    }
+    out.setTitle('CREP - sélection');
+    out.setAuthor("DSI Hub - Ville d'Ivry-sur-Seine");
+    return out.save();
 }
 
 /** Ajoute l'état du parapheur (signature) au compte rendu, s'il a été transmis. */
@@ -845,6 +859,7 @@ const entretiensController = {
             await replaceObjectifs(id, b.objectifs);
             await replaceFormations(id, b.formations);
 
+            await svc.logAudit({ actor, action: 'preparation_enregistree', entretien: row, details: { statut: row.preparation_statut } });
             res.json({ entretien: svc.forViewer(await svc.withRelations(await svc.getEntretienById(id)), access) });
         } catch (err) {
             console.error('[ENTRETIENS] savePreparation:', err.message);
@@ -876,6 +891,7 @@ const entretiensController = {
                  WHERE id = ?`,
                 [nextStatut, id]
             );
+            await svc.logAudit({ actor, action: 'preparation_transmise', entretien: row, details: { statut: nextStatut } });
             res.json({ entretien: svc.forViewer(await svc.withRelations(await svc.getEntretienById(id)), access) });
         } catch (err) { fail(res, 500, err.message); }
     },
@@ -1162,6 +1178,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             await workflow.agentSaveDraft({ row, access, body: req.body || {} });
+            await svc.logAudit({ actor, action: 'crep_observations_brouillon', entretien: row, details: {} });
             res.json({ ok: true });
         } catch (e) {
             if (e && e.status) return fail(res, e.status, e.message);
@@ -1200,6 +1217,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             const mail = await workflow.sendToAgent({ row, access });
+            await svc.logAudit({ actor, action: 'crep_envoye_agent', entretien: row, details: { mail_ok: mail?.ok !== false } });
             const freshRow = await svc.getEntretienById(row.id);
             const newAccess = await svc.buildAccess(actor, freshRow, role.isAdmin);
             res.json({ mail, entretien: { ...(await attachParapheur(await svc.withRelations(freshRow))), access: newAccess } });
@@ -1220,6 +1238,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             const result = await workflow.agentValidate({ row, access, body: req.body || {}, actor, req });
+            await svc.logAudit({ actor, action: 'crep_valide_agent', entretien: row, details: { parapheur: result?.parapheur?.reference || '' } });
             const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
             const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
             res.json({ ...result, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
@@ -1366,6 +1385,171 @@ const entretiensController = {
     },
 
     // ─── Outlook : renvoyer / resynchroniser l'invitation ───────────────
+
+    // POST /api/entretiens/print/crep  { ids: number[], mode: 'blank'|'filled' }
+    // Impression individuelle ou en masse des CREP / EP (PDF fusionné).
+    printCrep: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(n => Number.isFinite(n) && n > 0))];
+            if (!ids.length) return fail(res, 400, 'Sélectionnez au moins un entretien.');
+            if (ids.length > 200) return fail(res, 400, 'Sélectionnez au plus 200 entretiens à la fois.');
+            const blank = req.body?.mode === 'blank';
+            const buffers = [];
+            for (const id of ids) {
+                const row = await svc.getEntretienById(id);
+                if (!row) continue;
+                const access = await svc.buildAccess(actor, row, role.isAdmin);
+                if (!access) return fail(res, 403, `Vous n’avez pas accès à l’entretien de ${svc.fullName(row.agent_prenom, row.agent_nom)}.`);
+                const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+                buffers.push(await buildCrepPdf(blank ? { ...row, crep: null, crep_sent_at: null, crep_agent_validated_at: null } : row, campaign?.annee));
+                await svc.logAudit({ actor, action: blank ? 'impression_crep_vierge' : 'impression_crep', entretien: row, details: { mode: blank ? 'blank' : 'filled' } });
+            }
+            if (!buffers.length) return fail(res, 404, 'Aucun entretien à imprimer.');
+            const pdf = await mergePdfBuffers(buffers);
+            const name = `CREP-${blank ? 'vierges' : 'renseignes'}-${new Date().toISOString().slice(0, 10)}.pdf`;
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${name}"`);
+            res.send(Buffer.from(pdf));
+        } catch (err) {
+            console.error('[ENTRETIENS] printCrep:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // GET /api/entretiens/evaluateur/sans-evaluateur?q=
+    listUnassigned: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const myMatricule = (!role.isAdmin && !role.isEvaluator) ? await epBase.meMatricule(actor) : '';
+            if (!role.isAdmin && !role.isEvaluator && !myMatricule) return fail(res, 403, 'Accès réservé aux évaluateurs et aux valideurs.');
+            const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
+            if (!campaign) return res.json({ campaign: null, items: [] });
+            const q = text(req.query.q).trim().toLowerCase();
+            const rows = await pgDb.all(
+                `SELECT * FROM hub_entretiens.entretiens
+                 WHERE deleted_at IS NULL AND campaign_id = ?
+                   AND COALESCE(evaluator_email, '') = '' AND COALESCE(evaluator_username, '') = ''
+                 ORDER BY LOWER(agent_nom), LOWER(agent_prenom)`, [campaign.id]);
+            let items = rows || [];
+            if (!role.isAdmin) {
+                const matricule = await epBase.meMatricule(actor);
+                if (!matricule) return res.json({ campaign, items: [] });
+                const kept = [];
+                for (const r of items) {
+                    const cands = await epBase.candidatesForAgent(r.agent_matricule || '');
+                    if (cands.some(c => String(c.matricule) === String(matricule))) kept.push(r);
+                }
+                items = kept;
+            }
+            if (q) items = items.filter(r => `${r.agent_prenom || ''} ${r.agent_nom || ''} ${r.agent_email || ''} ${r.service || ''} ${r.direction || ''}`.toLowerCase().includes(q));
+            res.json({ campaign, items });
+        } catch (err) {
+            console.error('[ENTRETIENS] listUnassigned:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/evaluateur/agents/:id/claim - un valideur prend en charge un agent sans évaluateur.
+    claimAgent: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            if (row.evaluator_email || row.evaluator_username) return fail(res, 409, 'Cet entretien a déjà un évaluateur.');
+            const matricule = await epBase.meMatricule(actor);
+            if (!role.isAdmin) {
+                if (!matricule) return fail(res, 403, 'Vous n’êtes pas reconnu comme valideur dans la base des agents.');
+                const cands = await epBase.candidatesForAgent(row.agent_matricule || '');
+                if (!cands.some(c => String(c.matricule) === String(matricule))) {
+                    return fail(res, 403, 'Cet agent n’est pas dans votre périmètre de validation.');
+                }
+            }
+            const evaluatorName = actor.displayName || actor.username || actor.email || 'Évaluateur';
+            if (matricule && row.agent_matricule) {
+                try { await epBase.setValideurAndSync(row.agent_matricule, matricule, actor); } catch (e) { console.warn('[ENTRETIENS] claim valideur:', e.message); }
+            }
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens
+                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, updated_at = NOW()
+                 WHERE id = ?`,
+                [actor.username || '', actor.email || '', evaluatorName, row.id]
+            );
+            await svc.logAudit({ actor, action: 'agent_ajoute', entretien: row, details: { evaluator: evaluatorName, matricule } });
+            res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
+        } catch (err) {
+            console.error('[ENTRETIENS] claimAgent:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // GET /api/entretiens/:id/evaluator-candidates
+    evaluatorCandidates: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) {
+                return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            }
+            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '');
+            res.json({ candidates, current: { username: row.evaluator_username || '', email: row.evaluator_email || '', nom: row.evaluator_nom || '' } });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/reassign-evaluator  { evaluator_matricule }
+    reassignEvaluator: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const role = await svc.resolveRole(actor);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) {
+                return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            }
+            const matricule = text(req.body?.evaluator_matricule).trim();
+            if (!matricule) return fail(res, 400, 'Choisissez le nouvel évaluateur.');
+            if (String(matricule) === String(row.agent_matricule)) return fail(res, 400, 'Un agent ne peut pas être son propre évaluateur.');
+            const candidates = await epBase.candidatesForAgent(row.agent_matricule || '');
+            const chosen = candidates.find(c => String(c.matricule) === String(matricule));
+            if (!chosen) return fail(res, 400, 'Cet agent ne fait pas partie des évaluateurs possibles pour cet entretien.');
+            const evaluator = await pgDb.get('SELECT matricule, nom_prenom, email, ad_username FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
+            if (!evaluator) return fail(res, 404, 'Évaluateur introuvable dans la base des agents.');
+            const oldName = row.evaluator_nom || row.evaluator_email || '';
+            if (row.agent_matricule) {
+                try { await epBase.setValideurAndSync(row.agent_matricule, matricule, actor); } catch (e) { console.warn('[ENTRETIENS] reassign valideur:', e.message); }
+            }
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens
+                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, updated_at = NOW()
+                 WHERE id = ?`,
+                [evaluator.ad_username || '', evaluator.email || '', evaluator.nom_prenom || '', row.id]
+            );
+            await svc.logAudit({
+                actor, action: 'evaluateur_change', entretien: row,
+                details: { ancien: oldName, nouveau: evaluator.nom_prenom || '', matricule },
+            });
+            res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
+        } catch (err) {
+            console.error('[ENTRETIENS] reassignEvaluator:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // GET /api/entretiens/audit-logs?limit=300
+    auditLogs: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            res.json(await svc.listAuditLogs(req.query.limit));
+        } catch (err) { fail(res, 500, err.message); }
+    },
 
     resyncOutlook: async (req, res) => {
         try {

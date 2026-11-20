@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp,
+  X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
 import BaseAgents from './BaseAgents';
 import Evaluations from './Evaluations';
+import Journal from './Journal';
+import AideEp from './AideEp';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
@@ -809,7 +811,8 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'parametrage' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'parametrage' | 'journal' | null>(null);
+  const [showAide, setShowAide] = useState(false);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
   const [base, setBase] = useState<{ isValideur: boolean; agents: number } | null>(null);
 
@@ -847,6 +850,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'agents' as const, label: 'Mes agents', icon: <Users size={15} />, visible: !!me?.isValideur },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
     { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
+    { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
   ].filter(t => t.visible);
 
   return (
@@ -858,7 +862,12 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
             <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>Entretiens professionnels</div>
             <div style={{ fontSize: 12, color: COLORS.muted }}>{me?.campaign ? me.campaign.libelle || `Campagne ${me.campaign.annee}` : 'Campagne annuelle'} · tous les services de la Ville</div>
           </div>
-          <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', width: 34, height: 34, borderRadius: 8, cursor: 'pointer' }}><X size={18} /></button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => setShowAide(true)} title="Aide" style={{ border: 'none', background: '#eef2ff', color: COLORS.primary, height: 34, borderRadius: 8, cursor: 'pointer', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5 }}>
+              <BookOpen size={16} /> Aide
+            </button>
+            <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', width: 34, height: 34, borderRadius: 8, cursor: 'pointer' }}><X size={18} /></button>
+          </div>
         </div>
         <div style={{ padding: 20 }}>
           {error ? <Notice ok={false}>{error}</Notice> : !me ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}><Loader2 size={24} /></div> : (
@@ -878,8 +887,9 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'moi' && dsi && <MonEntretien data={dsi} onChanged={loadDsi} />}
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
-              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly />}
+              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage />}
               {tab === 'parametrage' && me.isAdmin && <BaseAgents />}
+              {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
               {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />} {/* ancien onglet, masqué : remplacé par Paramétrage */}
               {!tab && <EmptyState icon={<ArrowRightLeft size={28} />} title="Aucun entretien à afficher" text="Vous n’avez pas d’entretien dans la campagne en cours et vous n’êtes pas valideur des entretiens professionnels." />}
@@ -887,6 +897,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
           )}
         </div>
       </div>
+      {showAide && <AideEp onClose={() => setShowAide(false)} isAdmin={!!me?.isAdmin} />}
     </div>
   );
 }
