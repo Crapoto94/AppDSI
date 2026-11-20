@@ -9,7 +9,9 @@ const Section = ({ icon, title, children }: { icon: React.ReactNode; title: stri
   </div>
 );
 
-export default function Aide({ onClose, isAdmin }: { onClose: () => void; isAdmin?: boolean }) {
+export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
+
+export default function Aide({ onClose, isAdmin, features }: { onClose: () => void; isAdmin?: boolean; features?: AideFeatures }) {
   const [tab, setTab] = useState<'evaluateur' | 'admin'>(isAdmin ? 'admin' : 'evaluateur');
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
@@ -31,8 +33,14 @@ export default function Aide({ onClose, isAdmin }: { onClose: () => void; isAdmi
             <Section icon={<CalendarClock size={15} color={COLORS.primary} />} title="Rechercher un créneau libre">Dans la planification, « Prochains créneaux libres » interroge les agendas de l’agent et de l’évaluateur. Options : hors heures ouvrées (8h–19h), « Les deux libres uniquement », horizon 1 mois/2/3/6 mois/1 an, puis « + 5 créneaux suivants ». Le nombre de disponibles (x/y) et les indisponibles sont affichés ; choisir un créneau remplit la date, puis valider envoie l’invitation Outlook et l’e-mail.</Section>
             <Section icon={<Users size={15} color={COLORS.primary} />} title="Ajouter un agent / changer d’évaluateur">« Ajouter un agent » liste les agents sans évaluateur dans votre périmètre. L’icône « Changer l’évaluateur » permet de corriger une erreur ; toutes les actions sont tracées dans le journal.</Section>
             <Section icon={<Printer size={15} color={COLORS.primary} />} title="Imprimer les CREP / EP">Cochez les agents puis « Imprimer CREP vierges » ou « Imprimer CREP renseignés ». L’icône imprimante imprime une seule ligne. Le filtre valideur permet de cibler une équipe.</Section>
-            <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Préparation et compte rendu">L’agent prépare son entretien dans « Mon entretien ». Vous complétez le CREP, la grille et l’appréciation générale, puis vous validez.</Section>
-            <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="IA et signature électronique">Les fonctions IA et la signature électronique sont ouvertes par l’administrateur, pour certains évaluateurs ou agents. À défaut, imprimez et téléversez le PDF signé.</Section>
+            {features?.prep && <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Préparation et compte rendu">L’agent prépare son entretien dans « Mon entretien ». Vous complétez le CREP, la grille et l’appréciation générale, puis vous validez.</Section>}
+            {(features?.aiDraft || features?.aiReview || features?.esign) && (
+              <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="IA et signature électronique">
+                {features.aiDraft && <>Le bouton « Rédiger avec l’IA » est ouvert par l’administrateur à certains évaluateurs. </>}
+                {features.aiReview && <>La relecture IA des compétences est ouverte à certains évaluateurs. </>}
+                {features.esign && <>La signature électronique est ouverte agent par agent ; à défaut, imprimez et téléversez le PDF signé.</>}
+              </Section>
+            )}
           </>
         ) : (
           <>

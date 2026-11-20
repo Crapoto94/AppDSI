@@ -9,7 +9,9 @@ const Section = ({ icon, title, children }: { icon: React.ReactNode; title: stri
   </div>
 );
 
-export default function AideEp({ onClose, isAdmin }: { onClose: () => void; isAdmin?: boolean }) {
+export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
+
+export default function AideEp({ onClose, isAdmin, features }: { onClose: () => void; isAdmin?: boolean; features?: AideFeatures }) {
   const [tab, setTab] = useState<'evaluateur' | 'admin'>(isAdmin ? 'admin' : 'evaluateur');
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
@@ -54,14 +56,19 @@ export default function AideEp({ onClose, isAdmin }: { onClose: () => void; isAd
               Cochez un ou plusieurs agents puis utilisez « Imprimer CREP vierges » (formulaire à remplir à la main) ou « Imprimer CREP renseignés ».
               L’icône imprimante sur une ligne imprime ce seul CREP. En mode « EP de mon équipe », le filtre « valideur » permet de cibler un valideur puis d’imprimer sa sélection en une fois.
             </Section>
-            <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Préparation et compte rendu">
-              L’agent prépare son entretien dans « Mon entretien » (si l’accès est ouvert par un administrateur). Vous complétez ensuite le CREP :
-              grille d’appréciation, objectifs, formations, appréciation générale. « Vérifier la cohérence » signale les oublis avant validation.
-            </Section>
-            <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="Aide IA et signature électronique">
-              Les boutons « Rédiger avec l’IA » et la relecture IA des compétences sont ouverts par l’administrateur à certains évaluateurs.
-              La signature électronique est elle aussi ouverte agent par agent ; à défaut, imprimez le CREP, faites-le signer et téléversez le PDF signé.
-            </Section>
+            {features?.prep && (
+              <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Préparation et compte rendu">
+                L’agent prépare son entretien dans « Mon entretien » (si l’accès est ouvert par un administrateur). Vous complétez ensuite le CREP :
+                grille d’appréciation, objectifs, formations, appréciation générale. « Vérifier la cohérence » signale les oublis avant validation.
+              </Section>
+            )}
+            {(features?.aiDraft || features?.aiReview || features?.esign) && (
+              <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="Aide IA et signature électronique">
+                {features.aiDraft && <>Le bouton « Rédiger avec l’IA » est ouvert par l’administrateur à certains évaluateurs. </>}
+                {features.aiReview && <>La relecture IA des compétences est ouverte par l’administrateur à certains évaluateurs. </>}
+                {features.esign && <>La signature électronique est ouverte agent par agent ; à défaut, imprimez le CREP, faites-le signer et téléversez le PDF signé.</>}
+              </Section>
+            )}
           </>
         ) : (
           <>

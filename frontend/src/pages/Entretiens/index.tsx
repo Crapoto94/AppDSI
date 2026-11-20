@@ -157,7 +157,18 @@ export default function Entretiens() {
         </>
       ) : null}
       </div>
-      {showAide && <Aide onClose={() => setShowAide(false)} isAdmin={!!me?.isAdmin} />}
+      {showAide && (
+        <Aide
+          onClose={() => setShowAide(false)}
+          isAdmin={!!me?.isAdmin}
+          features={{
+            prep: !!me?.selfAccess?.enabled,
+            aiDraft: !!me?.aiAccess?.draft?.enabled,
+            aiReview: !!me?.aiAccess?.review?.enabled,
+            esign: !!me?.esignAccess?.enabled,
+          }}
+        />
+      )}
     </div>
   );
 }

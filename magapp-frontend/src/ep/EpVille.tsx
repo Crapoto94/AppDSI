@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
-import BaseAgents from './BaseAgents';
+import Reglages from './Reglages';
 import Evaluations from './Evaluations';
 import Journal from './Journal';
 import AideEp from './AideEp';
@@ -888,7 +888,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
               {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage />}
-              {tab === 'parametrage' && me.isAdmin && <BaseAgents />}
+              {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
               {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />} {/* ancien onglet, masqué : remplacé par Paramétrage */}
@@ -897,7 +897,18 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
           )}
         </div>
       </div>
-      {showAide && <AideEp onClose={() => setShowAide(false)} isAdmin={!!me?.isAdmin} />}
+      {showAide && (
+        <AideEp
+          onClose={() => setShowAide(false)}
+          isAdmin={!!me?.isAdmin}
+          features={{
+            prep: !!dsi?.selfAccess?.enabled,
+            aiDraft: !!dsi?.aiAccess?.draft?.enabled,
+            aiReview: !!dsi?.aiAccess?.review?.enabled,
+            esign: !!dsi?.esignAccess?.enabled,
+          }}
+        />
+      )}
     </div>
   );
 }

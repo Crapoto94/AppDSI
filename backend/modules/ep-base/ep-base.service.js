@@ -65,6 +65,13 @@ function ensureSchema() {
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS nom TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS prenom TEXT DEFAULT ''");
+            await pgDb.run(`CREATE TABLE IF NOT EXISTS hub_entretiens.delegations (
+                id SERIAL PRIMARY KEY,
+                secretaire_matricule TEXT NOT NULL,
+                directeur_matricule TEXT NOT NULL,
+                created_by TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )`);
             await pgDb.run('CREATE INDEX IF NOT EXISTS idx_ep_base_agents_unit ON hub_entretiens.base_agents(poste_affectation_code)');
             await pgDb.run(`CREATE TABLE IF NOT EXISTS hub_entretiens.base_imports (
                 id SERIAL PRIMARY KEY,
@@ -117,6 +124,32 @@ async function sheetTextBoxes(zip, sheetPath) {
     return out.sort((x, y) => x.row - y.row || x.col - y.col);
 }
 
+/** Images (logos) d'un onglet : [{ hash, mime, b64 }]. */
+async function sheetImages(zip, sheetPath) {
+    const relFile = zip.file('xl/' + sheetPath.replace('worksheets/', 'worksheets/_rels/') + '.rels');
+    if (!relFile) return [];
+    const target = ((await relFile.async('string')).match(/Target="\.\.\/drawings\/(drawing\d+\.xml)"/) || [])[1];
+    if (!target) return [];
+    const rels = zip.file('xl/drawings/_rels/' + target + '.rels');
+    if (!rels) return [];
+    const relMap = {};
+    for (const m of (await rels.async('string')).matchAll(/<Relationship [^>]*>/g)) {
+        const id = (m[0].match(/Id="([^"]+)"/) || [])[1]; const tg = (m[0].match(/Target="\.\.\/media\/([^"]+)"/) || [])[1];
+        if (id && tg) relMap[id] = tg;
+    }
+    const xml = await zip.file('xl/drawings/' + target).async('string');
+    const out = []; const seen = new Set();
+    for (const m of xml.matchAll(/<xdr:pic>[\s\S]*?<\/xdr:pic>/g)) {
+        const id = (m[0].match(/r:embed="([^"]+)"/) || [])[1];
+        const file = relMap[id]; if (!file || seen.has(file)) continue; seen.add(file);
+        const f = zip.file('xl/media/' + file); if (!f) continue;
+        const buf = await f.async('nodebuffer');
+        if (buf.length > 400000) continue;
+        out.push({ hash: require('crypto').createHash('sha1').update(buf).digest('hex'), mime: /\.png$/i.test(file) ? 'image/png' : 'image/jpeg', b64: buf.toString('base64') });
+    }
+    return out;
+}
+
 /** Définition du formulaire d'un onglet : critères de la grille d'appréciation, regroupés comme dans l'onglet. */
 function buildDefinition(name, boxes, colA) {
     const known = knownKeys();
@@ -142,8 +175,11 @@ function buildDefinition(name, boxes, colA) {
         if (h) push(h.key, h.title, b.text); else push('competences', 'Compétences professionnelles et techniques', b.text);
     }
     const hasObjService = [...colA.values()].some(v => /rappel des objectifs du service/i.test(v));
-    const categorie = /\bC\b/.test(name.replace(/^Template_cat\s*/i, '').split(' ')[0] || '') ? 'C' : 'A&B';
-    return { name, categorie, criteria_groups: groups, levels: LEVELS_DEFAULT, flags: { objectifs_service: hasObjService } };
+    // Intitulé du modèle (cellule A6 : « CATEGORIE A ET B » / « CATEGORIE C ») ; la catégorie en découle, à défaut le nom de l'onglet.
+    const titre = text(colA.get(6)).replace(/\s+/g, ' ');
+    const categorie = titre ? (/\bC$/i.test(titre) ? 'C' : 'A&B') : (/\bC\b/.test(name.replace(/^Template_cat\s*/i, '').split(' ')[0] || '') ? 'C' : 'A&B');
+    const organisme = /CCAS/i.test(name) ? 'CCAS' : /ATSL/i.test(name) ? 'ATSL' : 'Ville';
+    return { name, categorie, titre: titre || (categorie === 'C' ? 'CATEGORIE C' : 'CATEGORIE A ET B'), organisme, criteria_groups: groups, levels: LEVELS_DEFAULT, flags: { objectifs_service: hasObjService } };
 }
 
 /** Lit les onglets de modèles du classeur. Retourne { name: definition }. */
@@ -171,7 +207,15 @@ async function parseTemplates(buffer) {
         const ws = wb.Sheets[s.name];
         if (ws) for (let r = 1; r <= 260; r++) { const c = ws['A' + r]; if (c && text(c.v)) colA.set(r, text(c.v)); }
         const d = buildDefinition(s.name, boxes, colA);
+        d._images = await sheetImages(zip, path);
         if (d.criteria_groups.length) out[s.name] = d;
+    }
+    // Logo de la Ville : celui du modèle de référence (Ville, catégories A et B). Les autres images d'un modèle (ex. CCAS) sont ses logos propres.
+    const ref = out['Template_cat A&B'] || Object.values(out)[0];
+    const common = new Set(((ref && ref._images) || []).map(i => i.hash));
+    for (const d of Object.values(out)) {
+        d.logos_extra = (d._images || []).filter(i => !common.has(i.hash)).map(i => ({ mime: i.mime, b64: i.b64 }));
+        delete d._images;
     }
     return out;
 }
@@ -316,6 +360,7 @@ async function importWorkbook(buffer, filename, actor) {
     await pgDb.run('INSERT INTO hub_entretiens.base_imports (filename, uploaded_by, nb_agents, nb_a_evaluer, nb_modeles) VALUES (?,?,?,?,?)',
         [filename || '', actor || '', agents.length, nbEval, Object.keys(templates).length]);
     await loadTemplateCache();
+    invalidateBaseCache();
     return {
         agents: agents.length, a_evaluer: nbEval, modeles: Object.keys(templates),
         sans_valideur: agents.filter(a => a.a_conserver && !a.candidats.length).length,
@@ -596,6 +641,7 @@ async function setValideur(matricule, valideurMatricule) {
     }
     await pgDb.run('UPDATE hub_entretiens.base_agents SET valideur_matricule = ?, valideur_source = ? WHERE matricule = ?',
         [valideurMatricule || '', valideurMatricule ? 'admin' : '', matricule]);
+    invalidateBaseCache();
     syncQuiet([matricule]);
 }
 
@@ -603,6 +649,104 @@ async function setValideur(matricule, valideurMatricule) {
  * Le compte connecté est-il valideur (évaluateur) d'au moins un agent de la base ? Rapprochement par compte AD, e-mail,
  * puis identité (nom + prénom, sans tenir compte de l'ordre) quand elle est sans ambiguïté.
  */
+
+// ─── Délégations : secrétaires de direction et secrétaires de DG ────────────
+
+const DG_PREFIXES = ['dga_1', 'dgs_1', 'dgst_'];
+const isDgMember = (r) => DG_PREFIXES.includes(text(r.poste_fonction).slice(0, 5).toLowerCase());
+const isDgs = (r) => text(r.poste_fonction).slice(0, 5).toLowerCase() === 'dgs_1';
+/** « ASSISTANT·E DE DIRECTION », « SECRETAIRE DE DIRECTION » (secrétaires de service exclues). */
+const isSecretaire = (r) => /(assistant( e)?|secretaire) de direction/.test(fold(r.poste));
+
+let baseCache = { at: 0, rows: [] };
+async function baseRows() {
+    if (Date.now() - baseCache.at > 60000) {
+        await ensureSchema();
+        baseCache = { at: Date.now(), rows: await pgDb.all('SELECT matricule, nom_prenom, poste, poste_fonction, valideur_matricule, ad_username, email, a_conserver FROM hub_entretiens.base_agents') };
+    }
+    return baseCache.rows;
+}
+const invalidateBaseCache = () => { baseCache = { at: 0, rows: [] }; };
+
+function findBaseAgent(actor, rows) {
+    const user = text(actor.username).toLowerCase(); const mail = text(actor.email).toLowerCase();
+    let me = rows.filter(r => (user && text(r.ad_username).toLowerCase() === user) || (mail && text(r.email).toLowerCase() === mail));
+    if (!me.length && text(actor.displayName)) me = rows.filter(r => tokenKey(r.nom_prenom) === tokenKey(actor.displayName));
+    return me.length === 1 ? me[0] : null;
+}
+
+/**
+ * Délégations de l'utilisateur : ses directeurs (une secrétaire de direction a les mêmes droits que son directeur, c'est-à-dire
+ * son valideur ; l'administrateur peut en ajouter) et son appartenance au « groupe DG » (DGS et secrétaires de DG : planification
+ * des rendez-vous au nom de tous les DG).
+ */
+async function delegationInfo(actor) {
+    const rows = await baseRows();
+    const me = findBaseAgent(actor, rows);
+    if (!me) return { me: null, directeurs: [], dgGroup: false };
+    const byMat = new Map(rows.map(r => [r.matricule, r]));
+    const dirs = new Map();
+    if (isSecretaire(me) && me.valideur_matricule && byMat.has(me.valideur_matricule)) dirs.set(me.valideur_matricule, byMat.get(me.valideur_matricule));
+    try {
+        for (const m of await pgDb.all('SELECT directeur_matricule FROM hub_entretiens.delegations WHERE secretaire_matricule = ?', [me.matricule])) {
+            if (byMat.has(m.directeur_matricule)) dirs.set(m.directeur_matricule, byMat.get(m.directeur_matricule));
+        }
+    } catch { /* table absente : pas de délégation manuelle */ }
+    const directeurs = [...dirs.values()];
+    return { me, directeurs, dgGroup: isDgs(me) || directeurs.some(isDgMember) };
+}
+
+const identityOf = (list) => ({
+    usernames: [...new Set(list.map(r => text(r.ad_username).toLowerCase()).filter(Boolean))],
+    emails: [...new Set(list.map(r => text(r.email).toLowerCase()).filter(Boolean))],
+});
+
+/** Identités des directeurs dont l'utilisateur a les droits (évaluateur à leur place). */
+async function delegatedIdentities(actor) {
+    const { directeurs } = await delegationInfo(actor);
+    return identityOf(directeurs);
+}
+
+/** Groupe DG : identités de tous les DG (DGA, DGS, DGST) — l'utilisateur peut planifier leurs rendez-vous. */
+async function plannerIdentities(actor) {
+    const info = await delegationInfo(actor);
+    if (!info.dgGroup) return { usernames: [], emails: [] };
+    return identityOf((await baseRows()).filter(isDgMember));
+}
+
+/** Liste des délégations pour l'administration : automatiques (secrétaires de direction -> valideur) et manuelles. */
+async function listDelegations() {
+    const rows = await baseRows();
+    const byMat = new Map(rows.map(r => [r.matricule, r]));
+    const brief = (r) => ({ matricule: r.matricule, nom: r.nom_prenom, poste: r.poste });
+    const items = [];
+    for (const r of rows.filter(x => x.a_conserver && isSecretaire(x) && x.valideur_matricule && byMat.has(x.valideur_matricule))) {
+        const d = byMat.get(x_or(r));
+        items.push({ id: null, source: 'auto', secretaire: brief(r), directeur: brief(d), dg: isDgMember(d) });
+    }
+    for (const m of await pgDb.all('SELECT id, secretaire_matricule, directeur_matricule FROM hub_entretiens.delegations ORDER BY id')) {
+        const sec = byMat.get(m.secretaire_matricule), dir = byMat.get(m.directeur_matricule);
+        if (sec && dir) items.push({ id: m.id, source: 'manuel', secretaire: brief(sec), directeur: brief(dir), dg: isDgMember(dir) });
+    }
+    items.sort((a, b) => a.directeur.nom.localeCompare(b.directeur.nom) || a.secretaire.nom.localeCompare(b.secretaire.nom));
+    const dgs = rows.filter(isDgs).map(brief);
+    return { items, dgs };
+}
+const x_or = (r) => r.valideur_matricule;
+
+async function addDelegation(secretaire, directeur, actor) {
+    await ensureSchema();
+    if (!secretaire || !directeur || secretaire === directeur) throw Object.assign(new Error('Secrétaire et directeur doivent être deux agents différents.'), { status: 400 });
+    const rows = await baseRows();
+    if (!rows.some(r => r.matricule === secretaire) || !rows.some(r => r.matricule === directeur)) throw Object.assign(new Error('Agent introuvable dans la base.'), { status: 404 });
+    const dup = await pgDb.get('SELECT id FROM hub_entretiens.delegations WHERE secretaire_matricule = ? AND directeur_matricule = ?', [secretaire, directeur]);
+    if (!dup) await pgDb.run('INSERT INTO hub_entretiens.delegations (secretaire_matricule, directeur_matricule, created_by) VALUES (?, ?, ?)', [secretaire, directeur, (actor && actor.username) || null]);
+}
+async function removeDelegation(id) {
+    await ensureSchema();
+    await pgDb.run('DELETE FROM hub_entretiens.delegations WHERE id = ?', [Number(id)]);
+}
+
 async function meMatricule(actor) {
     await ensureSchema();
     const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE a_conserver OR est_valideur");
@@ -614,11 +758,17 @@ async function meMatricule(actor) {
 }
 
 async function meValideur(actor) {
-    const matricule = await meMatricule(actor);
-    if (!matricule) return { isValideur: false, agents: 0 };
-    const n = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule = ?", [matricule]);
-    const self = await pgDb.get('SELECT est_valideur FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
-    return { isValideur: Number(n && n.n) > 0 || !!self?.est_valideur, agents: Number(n && n.n) || 0, matricule };
+    const own = await meMatricule(actor);
+    const info = await delegationInfo(actor).catch(() => ({ directeurs: [], dgGroup: false }));
+    const matricules = [...new Set([own, ...info.directeurs.map(d => d.matricule)].filter(Boolean))];
+    let agents = 0;
+    for (const m of matricules) {
+        const n = await pgDb.get("SELECT COUNT(*)::int AS n FROM hub_entretiens.base_agents WHERE a_conserver AND valideur_matricule = ?", [m]);
+        agents += Number(n && n.n) || 0;
+    }
+    let self = false;
+    if (own) { const r = await pgDb.get('SELECT est_valideur FROM hub_entretiens.base_agents WHERE matricule = ?', [own]); self = !!(r && r.est_valideur); }
+    return { isValideur: agents > 0 || self || info.dgGroup, agents, matricule: own, matricules, delegue: info.directeurs.length > 0, dgGroup: !!info.dgGroup };
 }
 
 /** Tous les agents placés sous un valideur, à tous les niveaux (ses agents, puis ceux de ses agents valideurs, etc.). */
@@ -634,9 +784,10 @@ async function descendants(matricule) {
 /** Le compte connecté est-il placé au-dessus de l'agent de cet entretien dans la base (à n'importe quel niveau) ? */
 async function isAboveInBase(actor, entretien) {
     if (!entretien || !entretien.agent_matricule) return false;
-    const matricule = await meMatricule(actor);
-    if (!matricule) return false;
-    const set = await descendants(matricule);
+    const mine = (await meValideur(actor)).matricules || [];
+    if (!mine.length) return false;
+    const set = new Set();
+    for (const m of mine) for (const x of await descendants(m)) set.add(x);
     return [entretien.agent_matricule, String(entretien.agent_matricule).padStart(7, '0')].some(m => set.has(m));
 }
 
@@ -654,9 +805,10 @@ async function attachInfo(items) {
 async function equipeEntretiens(actor) {
     const ent = require('../entretiens/entretiens.service');
     const campaign = await ent.getCurrentCampaign();
-    const matricule = await meMatricule(actor);
-    if (!campaign || !matricule) return { campaign: campaign || null, stats: ent.computeStats([]), items: [], portee: [] };
-    const set = await descendants(matricule);
+    const mine = (await meValideur(actor)).matricules || [];
+    if (!campaign || !mine.length) return { campaign: campaign || null, stats: ent.computeStats([]), items: [], portee: [] };
+    const set = new Set();
+    for (const m of mine) for (const x of await descendants(m)) set.add(x);
     const all = await ent.listEntretiens({ campaignId: campaign.id });
     const items = all.filter(r => r.agent_matricule && set.has(r.agent_matricule));
     let enriched = items;
@@ -756,7 +908,7 @@ async function setValideurAndSync(matricule, valideurMatricule, actor) {
 
 module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
-    loadTemplateCache, modeleOfEntretien, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule,
+    loadTemplateCache, modeleOfEntretien, invalidateBaseCache, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule, delegatedIdentities, plannerIdentities, listDelegations, addDelegation, removeDelegation, attachInfo,
     isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, purgeLegacyEntretiens,
     adJob: job,
 };
