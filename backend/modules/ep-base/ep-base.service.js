@@ -439,10 +439,21 @@ async function matchAd(agent, cfg) {
     const list = [...hits.values()];
     const mats = matVariants(agent.matricule);
     const byMat = list.find(h => h.matricule && mats.includes(text(h.matricule)));
-    if (byMat) return { hit: byMat, status: 'matricule' };
     const byName = list.filter(h => sameIdentity(agent.nom_prenom, h.displayName));
-    if (byName.length === 1) return { hit: byName[0], status: 'nom' };
-    return { hit: null, status: byName.length > 1 ? 'ambigu' : 'introuvable' };
+    // Le nom est prioritaire : un matricule erroné dans l'AD ne doit pas rattacher
+    // l'agent à homonyme/autre personne. Ex. ORTOLA FANNY ne doit pas être liée à ORTOLA Roxane.
+    if (byName.length === 1) {
+        return { hit: byName[0], status: byMat && byMat.username === byName[0].username ? 'matricule' : 'nom' };
+    }
+    if (byName.length > 1) {
+        const withEmail = byName.filter(h => text(h.email));
+        if (withEmail.length === 1) return { hit: withEmail[0], status: 'nom' };
+        const matName = byMat ? byName.find(h => h.username === byMat.username) : null;
+        if (matName) return { hit: matName, status: 'matricule' };
+        return { hit: null, status: 'ambigu' };
+    }
+    if (byMat) return { hit: byMat, status: 'matricule' };
+    return { hit: null, status: 'introuvable' };
 }
 
 const job = { running: false, done: 0, total: 0, found: 0, error: '', startedAt: null };
@@ -454,7 +465,7 @@ async function startAdRefresh({ all = false } = {}) {
     const cfg = await adConfig();
     if (!cfg) throw Object.assign(new Error('Active Directory non configuré ou désactivé.'), { status: 409 });
     const rows = await pgDb.all(
-        `SELECT matricule, nom_prenom FROM hub_entretiens.base_agents WHERE a_conserver AND ad_status <> 'manuel' ${all ? '' : "AND ad_status IN ('non_verifie','introuvable','ambigu')"} ORDER BY nom_prenom`);
+        `SELECT matricule, nom_prenom FROM hub_entretiens.base_agents WHERE a_conserver AND ad_status <> 'manuel' ${all ? '' : "AND ad_status IN ('non_verifie','introuvable','ambigu','matricule','nom')"} ORDER BY nom_prenom`);
     Object.assign(job, { running: true, done: 0, total: rows.length, found: 0, error: '', startedAt: new Date().toISOString() });
     (async () => {
         const queue = rows.slice();
