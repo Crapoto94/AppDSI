@@ -221,7 +221,10 @@ const entretiensController = {
                 campaign,
                 entretien,
                 evaluatorCount,
-                aiAccess: await svc.aiAccessFor(actor),
+                aiAccess: {
+                    draft: await svc.aiAccessFor(actor, 'draft'),
+                    review: await svc.aiAccessFor(actor, 'review'),
+                },
                 now: svc.localNow(),
             });
         } catch (err) {
@@ -352,9 +355,7 @@ const entretiensController = {
             const ai = await svc.getAiSettings();
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
-                ai_enabled: ai.enabled,
-                ai_evaluators: ai.evaluators,
-                ai_candidates: ai.candidates,
+                ai,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -374,39 +375,47 @@ const entretiensController = {
                 updates.calendar_organizer_email = email;
             }
 
-            // Réglage IA : actif/inactif + évaluateurs autorisés. L'activation
-            // n'a de sens qu'avec au moins un évaluateur sélectionné.
-            const rawEnabled = (await svc.getSetting('ai_enabled')).trim().toLowerCase();
-            let aiEnabled = rawEnabled === 'true' || rawEnabled === '1';
-            if (b.ai_enabled !== undefined) {
-                aiEnabled = [true, 1, '1', 'true', 'on', 'yes'].includes(
-                    typeof b.ai_enabled === 'string' ? b.ai_enabled.trim().toLowerCase() : b.ai_enabled
-                );
-            }
-            let aiEvaluators;
-            if (b.ai_evaluators !== undefined) {
-                if (!Array.isArray(b.ai_evaluators)) return fail(res, 400, 'Liste d’évaluateurs invalide.');
-                const seen = new Set();
-                aiEvaluators = [];
-                for (const raw of b.ai_evaluators) {
-                    const username = text(typeof raw === 'string' ? raw : raw?.username).trim();
-                    const email = text(typeof raw === 'string' ? '' : raw?.email).trim();
-                    const displayName = text(typeof raw === 'string' ? '' : (raw?.display_name || raw?.displayName)).trim();
-                    if (!username && !email) continue;
-                    if (email && !svc.isEmail(email)) return fail(res, 400, `Adresse email invalide : ${email}`);
-                    const key = (username || email).toLowerCase();
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    aiEvaluators.push({ username, email, display_name: displayName });
+            const parseBool = (v) => [true, 1, '1', 'true', 'on', 'yes'].includes(
+                typeof v === 'string' ? v.trim().toLowerCase() : v
+            );
+
+            // Chaque fonction IA (rédaction / relecture des compétences) a son
+            // propre interrupteur et sa propre liste d'évaluateurs autorisés.
+            for (const feature of ['draft', 'review']) {
+                const enabledKey = `ai_${feature}_enabled`;
+                const listKey = `ai_${feature}_evaluators`;
+                if (b[enabledKey] === undefined && b[listKey] === undefined) continue;
+
+                const currentRaw = (await svc.getSetting(enabledKey)).trim().toLowerCase();
+                let enabled = currentRaw === 'true' || currentRaw === '1';
+                if (b[enabledKey] !== undefined) enabled = parseBool(b[enabledKey]);
+
+                let evaluators;
+                if (b[listKey] !== undefined) {
+                    if (!Array.isArray(b[listKey])) return fail(res, 400, 'Liste d’évaluateurs invalide.');
+                    const seen = new Set();
+                    evaluators = [];
+                    for (const raw of b[listKey]) {
+                        const username = text(typeof raw === 'string' ? raw : raw?.username).trim();
+                        const email = text(typeof raw === 'string' ? '' : raw?.email).trim();
+                        const displayName = text(typeof raw === 'string' ? '' : (raw?.display_name || raw?.displayName)).trim();
+                        if (!username && !email) continue;
+                        if (email && !svc.isEmail(email)) return fail(res, 400, `Adresse email invalide : ${email}`);
+                        const key = (username || email).toLowerCase();
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        evaluators.push({ username, email, display_name: displayName });
+                    }
+                } else {
+                    evaluators = await svc.getAiEvaluators(feature);
                 }
-            } else {
-                aiEvaluators = await svc.getAiEvaluators();
+
+                if (enabled && !evaluators.length) {
+                    return fail(res, 400, `Sélectionnez au moins un évaluateur avant d’activer l’IA (${feature === 'draft' ? 'rédaction' : 'évaluation des compétences'}).`);
+                }
+                if (b[enabledKey] !== undefined) updates[enabledKey] = enabled ? 'true' : 'false';
+                if (b[listKey] !== undefined) updates[listKey] = JSON.stringify(evaluators);
             }
-            if (aiEnabled && !aiEvaluators.length) {
-                return fail(res, 400, 'Sélectionnez au moins un évaluateur avant d’activer la rédaction assistée.');
-            }
-            if (b.ai_enabled !== undefined) updates.ai_enabled = aiEnabled ? 'true' : 'false';
-            if (b.ai_evaluators !== undefined) updates.ai_evaluators = JSON.stringify(aiEvaluators);
 
             for (const [key, value] of Object.entries(updates)) {
                 await svc.setSetting(key, value);
@@ -415,9 +424,7 @@ const entretiensController = {
             const ai = await svc.getAiSettings();
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
-                ai_enabled: ai.enabled,
-                ai_evaluators: ai.evaluators,
-                ai_candidates: ai.candidates,
+                ai,
                 actor_email: actor.email || '',
             });
         } catch (err) { fail(res, 500, err.message); }
@@ -546,7 +553,10 @@ const entretiensController = {
             res.json({
                 ...(await attachParapheur(svc.forViewer(await svc.attachReprise(await svc.withRelations(rich)), access))),
                 access,
-                ai_access: await svc.aiAccessFor(actor),
+                ai_access: {
+                    draft: await svc.aiAccessFor(actor, 'draft'),
+                    review: await svc.aiAccessFor(actor, 'review'),
+                },
             });
         } catch (err) { fail(res, 500, err.message); }
     },
@@ -898,7 +908,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin) || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
-            const ai = await svc.aiAccessFor(actor);
+            const ai = await svc.aiAccessFor(actor, 'draft');
             if (!ai.allowed) {
                 return fail(res, 403, ai.reason === 'disabled'
                     ? 'La rédaction assistée par IA est désactivée pour le module des entretiens professionnels.'
@@ -1035,7 +1045,7 @@ const entretiensController = {
             const crep = normalizeCrep(req.body?.crep);
             const out = { missing: missingFields(crep), issues: coherenceIssues(crep), ai: null, ai_error: null };
             // La relecture par l'IA ne s'exécute que si le module l'autorise pour cet évaluateur.
-            const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor)).allowed;
+            const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor, 'review')).allowed;
             if (aiAllowed) {
                 try { out.ai = (await reviewCrep(summarizeCrep(crep, row))).items; }
                 catch (e) { out.ai_error = e.message; }

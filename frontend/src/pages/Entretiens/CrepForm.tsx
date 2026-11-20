@@ -41,7 +41,7 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
  * Saisie du compte-rendu officiel de l'entretien par l'évaluateur (tous les champs du document DRH)
  * et génération du PDF de 4 pages.
  */
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true }: {
+export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
@@ -49,6 +49,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   mode?: 'evaluateur' | 'agent';
   /** La rédaction assistée par IA est ouverte par le paramétrage du module (évaluateurs choisis). */
   aiEnabled?: boolean;
+  /** La relecture / évaluation des compétences par l'IA est ouverte par le paramétrage du module. */
+  aiReviewEnabled?: boolean;
 }) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
@@ -127,7 +129,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     setMsg(null); setMissing([]);
     setCheck({ loading: true, missing: missingFields(crep), issues: [], ai: null, aiError: null });
     try {
-      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiEnabled }, { headers });
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiReviewEnabled }, { headers });
       setCheck({ loading: false, missing: r.data.missing || [], issues: r.data.issues || [], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
     } catch (e: any) {
       setCheck({ loading: false, missing: missingFields(crep), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
@@ -380,7 +382,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
           </div>
-          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours{aiEnabled ? ' (relecture par l’IA interne, quelques secondes)' : ''}…</div>}
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours{aiReviewEnabled ? ' (relecture par l’IA interne, quelques secondes)' : ''}…</div>}
           {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
             <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
           )}

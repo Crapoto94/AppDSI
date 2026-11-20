@@ -23,6 +23,11 @@ export interface AiAccess {
   reason?: 'disabled' | 'no_evaluators' | 'not_selected' | 'ok' | string;
 }
 
+export interface AiAccessMap {
+  draft: AiAccess;
+  review: AiAccess;
+}
+
 export interface Objectif {
   id: number;
   entretien_id?: number;
@@ -113,7 +118,7 @@ export interface Entretien {
   objectifs_renseignes?: number;
   formations_total?: number;
   access?: Access;
-  ai_access?: AiAccess;
+  ai_access?: AiAccessMap;
 }
 
 export interface MeData {
@@ -124,7 +129,7 @@ export interface MeData {
   campaign: Campaign | null;
   entretien: Entretien | null;
   evaluatorCount: number;
-  aiAccess?: AiAccess;
+  aiAccess?: AiAccessMap;
   now: string;
 }
 

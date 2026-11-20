@@ -414,7 +414,17 @@ async function setSetting(key, value) {
     );
 }
 
-/** Liste des évaluateurs autorisés à l'IA (stockée en JSON), tolérante aux valeurs historiques. */
+// Deux fonctions IA distinctes, chacune désactivable et ouverte à des
+// évaluateurs explicitement choisis par un administrateur du module :
+//  - draft  : rédaction assistée des rubriques du compte rendu ;
+//  - review : relecture / évaluation assistée des compétences du compte rendu.
+const AI_FEATURES = {
+    draft: { enabledKey: 'ai_draft_enabled', evaluatorsKey: 'ai_draft_evaluators' },
+    review: { enabledKey: 'ai_review_enabled', evaluatorsKey: 'ai_review_evaluators' },
+};
+const aiFeature = (feature) => AI_FEATURES[feature] || AI_FEATURES.draft;
+
+/** Liste des évaluateurs autorisés (stockée en JSON), tolérante aux valeurs historiques. */
 function parseAiEvaluators(value) {
     try {
         const parsed = JSON.parse(String(value || '[]'));
@@ -431,21 +441,21 @@ function parseAiEvaluators(value) {
     } catch (e) { return []; }
 }
 
-async function getAiEvaluators() {
-    return parseAiEvaluators(await getSetting('ai_evaluators'));
+async function getAiEvaluators(feature = 'draft') {
+    return parseAiEvaluators(await getSetting(aiFeature(feature).evaluatorsKey));
 }
 
 /**
- * La rédaction assistée par IA est désactivée par défaut. Lorsqu'elle est
- * activée, seuls les évaluateurs expressément choisis par un administrateur
- * du module y ont accès.
+ * IA désactivée par défaut. Lorsqu'elle est activée, seuls les évaluateurs
+ * expressément choisis par un administrateur du module y ont accès.
  */
-async function aiAccessFor(actor) {
-    const rawEnabled = norm(await getSetting('ai_enabled'));
+async function aiAccessFor(actor, feature = 'draft') {
+    const cfg = aiFeature(feature);
+    const rawEnabled = norm(await getSetting(cfg.enabledKey));
     const enabled = rawEnabled === 'true' || rawEnabled === '1';
-    if (!enabled) return { enabled: false, allowed: false, reason: 'disabled' };
-    const evaluators = await getAiEvaluators();
-    if (!evaluators.length) return { enabled: true, allowed: false, reason: 'no_evaluators' };
+    if (!enabled) return { feature, enabled: false, allowed: false, reason: 'disabled' };
+    const evaluators = await getAiEvaluators(feature);
+    if (!evaluators.length) return { feature, enabled: true, allowed: false, reason: 'no_evaluators' };
     const identity = await evaluatorIdentity(actor);
     const usernames = new Set(identity.usernames.map(norm));
     const emails = new Set(identity.emails.map(norm));
@@ -453,7 +463,7 @@ async function aiAccessFor(actor) {
         (e.username && usernames.has(norm(e.username)))
         || (e.email && emails.has(norm(e.email)))
     ));
-    return { enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
+    return { feature, enabled: true, allowed, reason: allowed ? 'ok' : 'not_selected' };
 }
 
 /** Évaluateurs proposés à l'administrateur : ceux déjà désignés et les valideurs de la Ville. */
@@ -487,7 +497,11 @@ async function listAiEvaluatorCandidates() {
         const rows = await pgDb.all('SELECT username, email, display_name FROM hub_entretiens.valideurs');
         (rows || []).forEach(add);
     } catch (e) { /* ignore */ }
-    (await getAiEvaluators()).forEach(add);
+    const selected = [
+        ...(await getAiEvaluators('draft')),
+        ...(await getAiEvaluators('review')),
+    ];
+    selected.forEach(add);
     return [...byKey.values()].sort((a, b) => {
         const an = norm(a.display_name || a.username || a.email);
         const bn = norm(b.display_name || b.username || b.email);
@@ -496,10 +510,17 @@ async function listAiEvaluatorCandidates() {
 }
 
 async function getAiSettings() {
-    const rawEnabled = norm(await getSetting('ai_enabled'));
+    const one = async (feature) => {
+        const cfg = aiFeature(feature);
+        const raw = norm(await getSetting(cfg.enabledKey));
+        return {
+            enabled: raw === 'true' || raw === '1',
+            evaluators: await getAiEvaluators(feature),
+        };
+    };
     return {
-        enabled: rawEnabled === 'true' || rawEnabled === '1',
-        evaluators: await getAiEvaluators(),
+        draft: await one('draft'),
+        review: await one('review'),
         candidates: await listAiEvaluatorCandidates(),
     };
 }
