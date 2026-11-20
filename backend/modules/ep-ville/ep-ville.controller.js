@@ -908,18 +908,30 @@ const controller = {
         try {
             const { valideur } = await requireValideur(req);
             const id = Number(req.params.id);
-            const rat = await pgDb.get('SELECT * FROM hub_entretiens.rattachements WHERE id = ? AND valideur_id = ?', [id, valideur.id]);
+            // Mes agents directs, mais aussi ceux de mes sous-valideurs (à tous les niveaux).
+            const rat = await ratUnderMe(valideur, id);
             if (!rat) throw httpError(404, 'Agent introuvable dans votre liste.');
-            const asValideur = await pgDb.get('SELECT 1 AS x FROM hub_entretiens.valideurs WHERE rattachement_id = ?', [id]);
-            if (asValideur) throw httpError(409, 'Cet agent est valideur : retirez d’abord sa fonction de valideur.');
+            // Si l'agent est lui-même valideur : suppression en cascade de sa fonction, de ses agents et des sous-valideurs.
+            const sub = await pgDb.get('SELECT id FROM hub_entretiens.valideurs WHERE rattachement_id = ?', [id]);
+            let ratIds = [id]; let valideurIds = [];
+            if (sub) {
+                const d = await hierarchy.descendants(sub.id);
+                ratIds = [id, ...d.ratIds];
+                valideurIds = [...d.valideurs].reverse().concat([sub.id]); // les plus profonds d'abord
+            }
             const started = await pgDb.get(
                 `SELECT COUNT(*)::int AS n FROM hub_entretiens.entretiens
-                 WHERE rattachement_id = ? AND deleted_at IS NULL
-                   AND (statut <> 'a_planifier' OR preparation_statut <> 'non_commencee' OR evaluation_statut <> 'non_commencee')`, [id]);
-            if (Number(started?.n) > 0) throw httpError(409, 'L’entretien de cet agent a déjà démarré : demandez à un administrateur de le réaffecter.');
-            await pgDb.run(`UPDATE hub_entretiens.entretiens SET deleted_at = NOW(), deleted_by = ? WHERE rattachement_id = ? AND deleted_at IS NULL`, [valideur.username, id]);
-            await pgDb.run('DELETE FROM hub_entretiens.rattachements WHERE id = ?', [id]);
-            res.json({ message: 'Agent retiré de votre liste.' });
+                 WHERE rattachement_id = ANY(CAST(? AS int[])) AND deleted_at IS NULL
+                   AND (statut <> 'a_planifier' OR preparation_statut <> 'non_commencee' OR evaluation_statut <> 'non_commencee')`, [`{${ratIds.join(',')}}`]);
+            if (Number(started?.n) > 0) {
+                throw httpError(409, sub
+                    ? `${started.n} entretien(s) ont déjà démarré parmi cet agent et les agents qu’il évalue : suppression impossible (demandez à un administrateur de les réaffecter).`
+                    : 'L’entretien de cet agent a déjà démarré : demandez à un administrateur de le réaffecter.');
+            }
+            await pgDb.run(`UPDATE hub_entretiens.entretiens SET deleted_at = NOW(), deleted_by = ? WHERE rattachement_id = ANY(CAST(? AS int[])) AND deleted_at IS NULL`, [valideur.username, `{${ratIds.join(',')}}`]);
+            for (const vid of valideurIds) await pgDb.run('DELETE FROM hub_entretiens.valideurs WHERE id = ?', [vid]);
+            await pgDb.run('DELETE FROM hub_entretiens.rattachements WHERE id = ANY(CAST(? AS int[]))', [`{${ratIds.join(',')}}`]);
+            res.json({ message: ratIds.length > 1 ? `Agent et ${ratIds.length - 1} agent(s) évalué(s) retirés.` : 'Agent retiré de votre liste.' });
         } catch (e) { handle(res, 'removeAgent', e); }
     },
 };

@@ -176,8 +176,9 @@ async function getSignatureBaseUrl() {
     // Le parapheur est en DMZ : un lien de signature doit être joignable depuis l'extérieur (signature depuis une adresse e-mail externe).
     // Une adresse interne (*.local, sans domaine public) est donc remplacée par l'adresse externe par défaut.
     if (/^https?:\/\/[^/]*\.(local|lan|intra|internal)(:|\/|$)/i.test(base) || !/^https?:\/\/[^/]*\./.test(base)) {
-        base = String(process.env.PARAPHEUR_PUBLIC_URL || DEFAULT_PARAPHEUR_PUBLIC_URL).trim().replace(/\/+$/, '');
+        base = cleanBaseUrl(process.env.PARAPHEUR_PUBLIC_URL || DEFAULT_PARAPHEUR_PUBLIC_URL);
     }
+    base = cleanBaseUrl(base);
     // URL localhost = aucune URL publique valable sur CETTE instance : un lien de signature
     // en localhost est inutilisable pour le destinataire. On refuse d'envoyer (les signataires
     // restent « à notifier » et le mail part dès que l'URL est renseignée) plutôt que d'envoyer un lien cassé.
@@ -188,7 +189,12 @@ async function getSignatureBaseUrl() {
     return base;
 }
 
-const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
+/** Nettoie une URL de base : espaces, « / » et « . » parasites en fin (un point après le TLD fait planter le lien). */
+function cleanBaseUrl(v) {
+    return String(v || '').trim().replace(/[\/.\s]+$/, '');
+}
+
+const PUBLIC_BASE_URL_KEY ='parapheur.public_base_url';
 const DEFAULT_PARAPHEUR_PUBLIC_URL = 'https://parapheur.ivry94.fr';
 const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
 const BULK_SIGN_MENTION_KEY = 'parapheur.bulk_sign_mention';
@@ -223,7 +229,7 @@ async function getParapheurSettings() {
         const db = getSqlite();
         if (db) {
             const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [PUBLIC_BASE_URL_KEY]);
-            publicBaseUrl = (row && row.setting_value) ? String(row.setting_value).trim() : '';
+            publicBaseUrl = (row && row.setting_value) ? cleanBaseUrl(row.setting_value) : '';
             const sealRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [SEAL_ENABLED_KEY]);
             if (sealRow && sealRow.setting_value != null) sealEnabled = String(sealRow.setting_value) !== 'false';
             const bulkRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [BULK_SIGN_MENTION_KEY]);
@@ -236,12 +242,12 @@ async function getParapheurSettings() {
     // Repli par variable d'environnement : un déploiement ou une base restaurée sans réglage
     // ne doit jamais retomber silencieusement sur `http://localhost:5173` dans les liens de
     // signature/QR (ils doivent pointer sur le domaine public du parapheur, ex. parapheur.ivry94.fr).
-    if (!publicBaseUrl) publicBaseUrl = String(process.env.PARAPHEUR_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+    if (!publicBaseUrl) publicBaseUrl = cleanBaseUrl(process.env.PARAPHEUR_PUBLIC_URL);
     const internal = await getAppBaseUrl();
     return {
         public_base_url: publicBaseUrl,
         internal_base_url: internal,
-        effective_base_url: String(publicBaseUrl || internal || '').replace(/\/+$/, ''),
+        effective_base_url: cleanBaseUrl(publicBaseUrl || internal),
         verify_path: VERIFY_PATH,
         seal_enabled: sealEnabled,
         bulk_sign_mention: bulkSignMention || DEFAULT_BULK_SIGN_MENTION,
@@ -256,8 +262,8 @@ async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMenti
         VALUES (?, ?, ?)
         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`;
     if (publicBaseUrl !== undefined) {
-        const value = String(publicBaseUrl || '').trim().replace(/\/+$/, '');
-        if (value && !/^https?:\/\//i.test(value)) {
+        const value = cleanBaseUrl(publicBaseUrl);
+        if (value &&!/^https?:\/\//i.test(value)) {
             throw { status: 400, message: "L'URL publique doit commencer par http:// ou https://." };
         }
         await db.run(upsert, [PUBLIC_BASE_URL_KEY, value, 'URL publique externe du parapheur (lien de vérification du QR code)']);

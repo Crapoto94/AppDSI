@@ -611,8 +611,12 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   useEffect(load, [load]);
 
   const remove = async (a: MonAgent) => {
-    if (!(await confirm(`Retirer ${fullName(a)} de votre liste ?`, { title: 'Retirer de ma liste', confirmLabel: 'Retirer', danger: true }))) return;
-    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}`, { headers: api() }); load(); }
+    const nb = a.sous_valideur ? sousAgents.filter(x => x.valideur_id === a.sous_valideur!.id).length : 0;
+    const txt = a.sous_valideur
+      ? `${fullName(a)} est valideur : sa suppression retirera aussi ${nb ? `les ${nb} agent${nb > 1 ? 's' : ''} qu’il évalue (et leurs éventuels sous-agents)` : 'les agents qu’il évalue'}. Continuer ?`
+      : `Retirer ${fullName(a)} de votre liste ?`;
+    if (!(await confirm(txt, { title: 'Retirer de ma liste', confirmLabel: 'Retirer', danger: true }))) return;
+    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}`, { headers: api() }); setMsg({ ok: true, text: 'Agent retiré.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Suppression impossible.') }); }
   };
 
@@ -678,6 +682,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
               {st && <Badge {...st} />}
               {a.entretien && <button style={btnGhost} onClick={() => setOpenId(a.entretien!.id)}><Eye size={13} /> Ouvrir</button>}
               {crepSigned(a.entretien) && <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(a.entretien!.id)} title="Compte rendu signé"><FileDown size={13} /> CREP signé</button>}
+              <button style={btnDanger} onClick={() => remove(a)} title={sv ? 'Retirer cet agent et les agents qu’il évalue' : 'Retirer cet agent'}><Trash2 size={13} /></button>
             </div>
           </div>
           {isOpen && sv && renderSub(sv.id, depth + 1, [...trail, sv.id])}
@@ -750,7 +755,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
                       {a.sous_valideur
                         ? <button style={btnGhost} onClick={() => demote(a)} title="Retirer la fonction de valideur"><UserMinus size={13} /> Valideur</button>
                         : <button style={btnGhost} onClick={() => setPromoting({ agent: a, username: '', needUsername: false, busy: false, error: '' })} title="Il choisira à son tour ses propres agents"><UserCog size={13} /> Désigner valideur</button>}
-                      <button style={btnDanger} disabled={!!a.sous_valideur} onClick={() => remove(a)} title="Retirer de ma liste"><Trash2 size={13} /></button>
+                      <button style={btnDanger} onClick={() => remove(a)} title={a.sous_valideur ? 'Retirer cet agent et les agents qu’il évalue' : 'Retirer de ma liste'}><Trash2 size={13} /></button>
                     </div>
                   </div>
                   {subOpen && a.sous_valideur && renderSub(a.sous_valideur.id, 1, [a.sous_valideur.id])}
