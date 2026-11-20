@@ -570,7 +570,7 @@ export default function BaseAgents() {
             <div style={{ overflowX: 'auto', maxHeight: 560, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
-                  <tr><th style={th}>Agent</th><th style={th}>Modèle</th><th style={th}>Service</th><th style={th}>E-mail</th><th style={th}>Valideur</th></tr>
+                  <tr><th style={th}>Agent</th><th style={th}>Modèle</th><th style={th}>Service</th><th style={th}>E-mail</th><th style={{ ...th, position: 'sticky', right: 0, background: '#f8fafc', zIndex: 2, boxShadow: '-6px 0 8px -8px rgba(0,0,0,.2)' }}>Valideur</th></tr>
                 </thead>
                 <tbody>
                   {agents.slice(0, 600).map(a => (
@@ -579,7 +579,7 @@ export default function BaseAgents() {
                       <td style={td}>{a.modele.replace(/^Template_/i, '')}</td>
                       <td style={td}><div>{a.service}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.unit_code}</div></td>
                       <td style={td}><AdCell agent={a} headers={headers} onLinked={load} onError={t => setMsg({ ok: false, text: t })} /></td>
-                      <td style={td}><ValideurCell agent={a} headers={headers} onChoose={m => chooseValideur(a, m)} /></td>
+                      <td style={{ ...td, position: 'sticky', right: 0, background: '#fff', zIndex: 1, minWidth: 240, boxShadow: '-6px 0 8px -8px rgba(0,0,0,.2)' }}><ValideurCell agent={a} headers={headers} onChoose={m => chooseValideur(a, m)} /></td>
                     </tr>
                   ))}
                   {!agents.length && <tr><td style={{ ...td, textAlign: 'center', color: COLORS.muted }} colSpan={5}>Aucun agent.</td></tr>}
