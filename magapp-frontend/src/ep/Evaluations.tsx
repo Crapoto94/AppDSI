@@ -5,7 +5,6 @@ import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
 import { PREP_STATUTS, STATUTS, formatDateCourte, nomComplet, preparationProgress } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
-import { AttitudeBadge, attitudeColor, attitudesGlobal, attitudesScore } from './attitudes';
 import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, KpiCard, ProgressBar, Td, Th, btnGhost, btnPrimary, card, input } from './ui';
 
@@ -59,8 +58,8 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     } catch { setError('PDF signé indisponible.'); }
   };
 
-  const attitudes = useMemo(() => attitudesGlobal(items.map(e => e.crep?.valeur)), [items]);
   const todoCount = useMemo(() => items.filter(e => !['realise', 'cloture'].includes(e.statut)).length, [items]);
+  const preparationMode = campaign?.statut === 'preparation';
 
   const valideurLabel = (e: Entretien) => e.evaluator_nom || e.evaluator_email || '—';
   const valideurs = useMemo(() => [...new Set(items.map(valideurLabel))].sort((a, b) => a.localeCompare(b, 'fr')), [items]);
@@ -81,14 +80,13 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   return (
     <div>
       {stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8, marginBottom: 18, overflowX: 'auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 18, overflowX: 'auto' }}>
           <KpiCard label={readOnly ? 'EP de mon équipe' : 'EP que je réalise'} value={stats.total} color={COLORS.primary} sub={campaign ? `Campagne ${campaign.annee}` : undefined} />
-          <KpiCard label="Attitudes évaluées" value={attitudes.pct === null ? '—' : attitudes.pct + ' %'} color={attitudeColor(attitudes.pct)} sub={attitudes.pct === null ? 'Aucune grille renseignée' : 'Moyenne globale · ' + attitudes.entretiens + ' entretien(s)'} />
           <KpiCard label="Préparations reçues" value={stats.preparations_recues} color="#0891b2" sub="Agents prêts" />
           <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
           <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />
           <KpiCard label="En retard" value={stats.en_retard} color={stats.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
-          <KpiCard label="Sans préparateur" value={stats.total - stats.preparations_recues} color={COLORS.warning} sub="Préparation non transmise" />
+          {preparationMode && <KpiCard label="Sans préparateur" value={stats.total - stats.preparations_recues} color={COLORS.warning} sub="Préparation non transmise" />}
         </div>
       )}
 
@@ -126,7 +124,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
           text={items.length === 0 ? (readOnly ? 'Les entretiens des agents de vos sous-valideurs (et, pour un directeur, de toute sa direction) apparaîtront ici, en lecture seule.' : "Aucun entretien professionnel ne vous est encore attribué pour cette campagne.") : onlyTodo ? "Tous vos entretiens sont réalisés. Basculez sur « Tous » pour les consulter." : "Aucun entretien ne correspond à vos filtres."} />
       ) : (
         <div style={{ ...card, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead>
               <tr>
                 <Th>Agent</Th>
@@ -135,7 +133,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                 <Th>Statut</Th>
                 <Th>Préparation</Th>
                 <Th>Compte rendu</Th>
-                <Th>Attitudes</Th>
                 <Th style={{ textAlign: 'right' }}>Action</Th>
               </tr>
             </thead>
@@ -184,7 +181,6 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                           ? <span style={{ fontSize: 11.5, color: COLORS.warning, fontWeight: 700 }}>Brouillon</span>
                           : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>À faire</span>}
                     </Td>
-                    <Td><AttitudeBadge pct={attitudesScore(e.crep?.valeur).global} /></Td>
                     <Td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end', alignItems: 'center' }}>
                         {!readOnly && !['realise', 'cloture'].includes(e.statut) && (

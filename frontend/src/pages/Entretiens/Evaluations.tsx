@@ -48,6 +48,7 @@ export default function Evaluations({ onChanged }: { onChanged?: () => void }) {
     }
     return true;
   }), [items, q, statut, onlyTodo]);
+  const preparationMode = campaign?.statut === 'preparation';
 
   return (
     <div>
@@ -58,7 +59,7 @@ export default function Evaluations({ onChanged }: { onChanged?: () => void }) {
           <KpiCard label="À venir sous 7 jours" value={stats.a_venir_7j} color="#7c3aed" sub="Prochaines échéances" />
           <KpiCard label="Réalisés" value={stats.realises} color={COLORS.success} sub={`${stats.taux_realisation}% de réalisation`} />
           <KpiCard label="En retard" value={stats.en_retard} color={stats.en_retard > 0 ? COLORS.danger : '#94a3b8'} sub="Date dépassée" />
-          <KpiCard label="Sans préparateur" value={stats.total - stats.preparations_recues} color={COLORS.warning} sub="Préparation non transmise" />
+          {preparationMode && <KpiCard label="Sans préparateur" value={stats.total - stats.preparations_recues} color={COLORS.warning} sub="Préparation non transmise" />}
         </div>
       )}
 
