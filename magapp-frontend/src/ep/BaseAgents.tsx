@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Upload, Users, RefreshCw, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, Mail } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { COLORS, btnGhost, btnPrimary, card, input } from './ui';
+import { repairText } from './types';
 
 interface Candidat { matricule: string; nom: string; fonction?: string; poste?: string }
 /** Agent de catégorie C évalué avec un modèle A et B : il fait fonction de catégorie supérieure. */
@@ -574,7 +575,7 @@ export default function BaseAgents() {
                 <tbody>
                   {agents.slice(0, 600).map(a => (
                     <tr key={a.matricule}>
-                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}{faisantFonction(a) && <FfPill />}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {a.grade}</div></td>
+                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}{faisantFonction(a) && <FfPill />}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {repairText(a.grade)}{a.poste ? ` · ${repairText(a.poste)}` : ''}</div></td>
                       <td style={td}>{a.modele.replace(/^Template_/i, '')}</td>
                       <td style={td}><div>{a.service}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.unit_code}</div></td>
                       <td style={td}><AdCell agent={a} headers={headers} onLinked={load} onError={t => setMsg({ ok: false, text: t })} /></td>

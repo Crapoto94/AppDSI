@@ -240,25 +240,72 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     ? reassignCandidates.filter(c => repairText(`${c.nom || ''} ${c.matricule || ''} ${c.email || ''} ${c.poste || ''}`).toLowerCase().includes(qr))
     : reassignCandidates;
 
-  // « EP de mon équipe » : arborescence évaluateur → agents évalués.
-  const teamGroups = useMemo(() => {
-    const m = new Map<string, Entretien[]>();
+  // « EP de mon équipe » / pilotage : arborescence récursive évaluateur → agents,
+  // un agent qui évalue lui-même des agents étant dépliable à son tour.
+  type EvalTreeNode = { key: string; name: string; items: Entretien[]; agent: Entretien | null; children: EvalTreeNode[] };
+  const identityKey = (e: Entretien) => (e.agent_matricule || e.agent_email || e.agent_username || e.agent_nom || '').toLowerCase();
+  const evaluatorKey = (e: Entretien) => (e.evaluator_username || e.evaluator_email || e.evaluator_nom || '').toLowerCase();
+  const evalTree = useMemo(() => {
+    const byEvaluator = new Map<string, Entretien[]>();
+    const agentByKey = new Map<string, Entretien>();
     for (const e of filtered) {
-      const k = valideurLabel(e);
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(e);
+      const k = evaluatorKey(e);
+      if (k) {
+        if (!byEvaluator.has(k)) byEvaluator.set(k, []);
+        byEvaluator.get(k)!.push(e);
+      }
+      const ak = identityKey(e);
+      if (ak && !agentByKey.has(ak)) agentByKey.set(ak, e);
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'));
+    const nodes = new Map<string, EvalTreeNode>();
+    for (const [k, list] of byEvaluator) {
+      const first = list[0];
+      nodes.set(k, {
+        key: k,
+        name: repairText(first.evaluator_nom || first.evaluator_email || first.evaluator_username || k),
+        items: list,
+        agent: agentByKey.get(k) || null,
+        children: [],
+      });
+    }
+    const roots: EvalTreeNode[] = [];
+    for (const [k, node] of nodes) {
+      const parentKey = node.agent ? evaluatorKey(node.agent) : '';
+      if (parentKey && parentKey !== k && nodes.has(parentKey)) nodes.get(parentKey)!.children.push(node);
+      else roots.push(node);
+    }
+    const sortNode = (n: EvalTreeNode) => {
+      n.items.sort((a, b) => nomComplet(a).localeCompare(nomComplet(b), 'fr'));
+      n.children.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      n.children.forEach(sortNode);
+    };
+    roots.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    roots.forEach(sortNode);
+    return roots;
   }, [filtered, readOnly]);
+  const allNodeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const walk = (n: EvalTreeNode) => { keys.add(n.key); n.children.forEach(walk); };
+    evalTree.forEach(walk);
+    return keys;
+  }, [evalTree]);
   useEffect(() => { setOpenEvaluators(new Set()); }, [q, statut, valideur, campaign?.id]);
-  const displayItems: Array<{ kind: 'evaluator'; key: string; name: string; count: number } | { kind: 'ep'; key: string; e: Entretien }> = [];
+  const displayItems: Array<{ kind: 'evaluator'; key: string; node: EvalTreeNode; depth: number } | { kind: 'ep'; key: string; e: Entretien; depth: number }> = [];
   if (readOnly) {
-    for (const [name, list] of teamGroups) {
-      displayItems.push({ kind: 'evaluator', key: 'g:' + name, name, count: list.length });
-      if (openEvaluators.has(name)) for (const e of list) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e });
-    }
+    const pushNode = (node: EvalTreeNode, depth: number, trail: Set<string>) => {
+      if (trail.has(node.key)) return;
+      displayItems.push({ kind: 'evaluator', key: node.key, node, depth });
+      if (!openEvaluators.has(node.key)) return;
+      const next = new Set(trail); next.add(node.key);
+      for (const e of node.items) {
+        const child = node.children.find(c => c.key === identityKey(e));
+        if (child) pushNode(child, depth + 1, next);
+        else displayItems.push({ kind: 'ep', key: 'e:' + e.id, e, depth: depth + 1 });
+      }
+    };
+    evalTree.forEach(root => pushNode(root, 0, new Set()));
   } else {
-    for (const e of paged) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e });
+    for (const e of paged) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e, depth: 0 });
   }
 
   return (
@@ -339,6 +386,12 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
         <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('filled')}>
           {printBusy === 'filled' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP renseignés
         </button>
+        {readOnly && (
+          <>
+            <button style={btnGhost} onClick={() => setOpenEvaluators(new Set(allNodeKeys))}>Tout déplier</button>
+            <button style={btnGhost} onClick={() => setOpenEvaluators(new Set())}>Tout replier</button>
+          </>
+        )}
       </div>
 
       {notice && (
@@ -377,17 +430,31 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
             <tbody>
               {displayItems.map(item => {
                 if (item.kind === 'evaluator') {
-                  const isOpen = openEvaluators.has(item.name);
+                  const node = item.node;
+                  const agent = node.agent;
+                  const isOpen = openEvaluators.has(node.key);
                   return (
-                    <tr key={item.key} onClick={() => setOpenEvaluators(prev => { const n = new Set(prev); if (n.has(item.name)) n.delete(item.name); else n.add(item.name); return n; })}
-                      style={{ background: '#f1f5f9', cursor: 'pointer' }}>
-                      <td colSpan={9} style={{ padding: '9px 12px', borderBottom: `1px solid ${COLORS.border}` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 800, color: COLORS.text }}>
-                          {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                          <span>{item.name}</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
-                            {item.count} agent{item.count > 1 ? 's' : ''} évalué{item.count > 1 ? 's' : ''}
-                          </span>
+                    <tr key={item.key} onClick={() => setOpenEvaluators(prev => { const n = new Set(prev); if (n.has(node.key)) n.delete(node.key); else n.add(node.key); return n; })}
+                      style={{ background: item.depth ? '#f8fafc' : '#f1f5f9', cursor: 'pointer' }}>
+                      <td colSpan={9} style={{ padding: `9px 12px 9px ${12 + item.depth * 22}px`, borderBottom: `1px solid ${COLORS.border}` }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                          <span style={{ marginTop: 2 }}>{isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13.5, fontWeight: 800, color: COLORS.text }}>
+                              <span>{node.name}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
+                                {node.items.length} agent{node.items.length > 1 ? 's' : ''} évalué{node.items.length > 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            {agent && (
+                              <div style={{ marginTop: 4, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5, color: '#64748b' }}>
+                                {agent.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{repairText(agent.agent_grade)}</Pill>}
+                                {agent.direction && <Pill bg="#f1f5f9" color="#475569">{repairText(agent.direction)}</Pill>}
+                                {agent.service && <Pill bg="#f0fdf4" color="#166534">{repairText(agent.service)}</Pill>}
+                                {agent.poste && <span>{repairText(agent.poste)}</span>}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -398,17 +465,17 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
                     <Td><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} /></Td>
-                    <Td style={{ minWidth: 260 }}>
+                    <Td style={{ minWidth: 260, paddingLeft: 10 + item.depth * 22 }}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         <Avatar name={nomComplet(e)} size={36} />
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 800, fontSize: 13.5, color: COLORS.text, lineHeight: 1.25 }}>{nomComplet(e)}</div>
-                          {e.poste && <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.35 }}>{e.poste}</div>}
+                          {e.poste && <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.35 }}>{repairText(e.poste)}</div>}
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                            {e.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{e.agent_grade}</Pill>}
+                            {e.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{repairText(e.agent_grade)}</Pill>}
                             {e.categorie === 'C' && /A&B/i.test(e.modele || '') && <Pill bg="#fef3c7" color="#92400e">Faisant fonction</Pill>}
-                            {e.direction && <Pill bg="#f1f5f9" color="#475569">{e.direction}</Pill>}
-                            {uniteService(e) && <Pill bg="#f0fdf4" color="#166534">{uniteService(e)}</Pill>}
+                            {e.direction && <Pill bg="#f1f5f9" color="#475569">{repairText(e.direction)}</Pill>}
+                            {uniteService(e) && <Pill bg="#f0fdf4" color="#166534">{repairText(uniteService(e))}</Pill>}
                             {!e.agent_grade && !e.poste && !e.direction && !e.service && e.agent_email && <Pill bg="#f1f5f9" color="#64748b">{e.agent_email}</Pill>}
                           </div>
                         </div>

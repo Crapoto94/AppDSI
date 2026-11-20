@@ -200,8 +200,21 @@ export const NIVEAUX: Record<string, { label: string; short: string; color: stri
   NA: { label: 'Non atteint',          short: 'NA', color: '#b91c1c', bg: '#fee2e2' },
 };
 
+/** Corrige les accents mal décodés (UTF-8 lu comme Latin-1) dans les données anciennes. */
+export function repairText(v?: string | null): string {
+  return String(v || '')
+    .replace(/Ã©/g, 'é').replace(/Ã¨/g, 'è').replace(/Ãª/g, 'ê').replace(/Ã«/g, 'ë')
+    .replace(/Ã /g, 'à').replace(/Ã¢/g, 'â').replace(/Ã§/g, 'ç')
+    .replace(/Ã®/g, 'î').replace(/Ã¯/g, 'ï')
+    .replace(/Ã´/g, 'ô').replace(/Ã¶/g, 'ö')
+    .replace(/Ã¹/g, 'ù').replace(/Ã»/g, 'û').replace(/Ã¼/g, 'ü')
+    .replace(/Å“/g, 'œ').replace(/Å’/g, 'Œ')
+    .replace(/â€™/g, '’').replace(/â€“/g, '–').replace(/â€”/g, '—')
+    .replace(/â€œ/g, '“').replace(/â€�/g, '”');
+}
+
 export function nomComplet(e: Entretien): string {
-  return [e.agent_prenom, e.agent_nom].filter(Boolean).join(' ').trim() || e.agent_nom || e.agent_email || 'Agent';
+  return repairText([e.agent_prenom, e.agent_nom].filter(Boolean).join(' ').trim() || e.agent_nom || e.agent_email || 'Agent');
 }
 
 export function formatDateHeure(value?: string | null): string {
