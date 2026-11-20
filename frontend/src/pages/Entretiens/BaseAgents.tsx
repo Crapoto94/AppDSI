@@ -305,7 +305,7 @@ export default function BaseAgents() {
       const r = await axios.post('/api/ep-base/entretiens/sync', {}, { headers });
       const d = r.data;
       setMsg({ ok: !d.erreurs?.length, text: `Entretiens : ${d.crees} créé(s), ${d.mis_a_jour} mis à jour, ${d.retires} retiré(s), ${d.deja_commences} déjà commencé(s) (inchangés), ${d.sans_valideur} agent(s) sans valideur (aucun entretien).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.slice(0, 3).join(' · ') : ''}` });
-    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Génération impossible.' }); }
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || ('Génération impossible' + (e?.response?.status ? ' (HTTP ' + e.response.status + ')' : ' : ' + (e?.message || ''))) }); }
     finally { setBusy(false); }
   };
 
@@ -316,7 +316,7 @@ export default function BaseAgents() {
     try {
       const r = await axios.post('/api/ep-base/entretiens/purge', { confirm: 'SUPPRIMER' }, { headers });
       setMsg({ ok: true, text: `${r.data.entretiens} ancien(s) entretien(s) supprimé(s), ${r.data.listes} ancienne(s) liste(s) d’agents retirée(s).` });
-    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Suppression impossible.' }); }
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || ('Suppression impossible' + (e?.response?.status ? ' (HTTP ' + e.response.status + (e.response.status === 404 ? ' : route absente, le backend n’a pas été redémarré avec la nouvelle version ?' : '') + ')' : ' : ' + (e?.message || ''))) }); }
     finally { setBusy(false); }
   };
 
