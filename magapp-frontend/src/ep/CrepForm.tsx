@@ -263,9 +263,16 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   // ─── Parcours guidé (mode manuscrit / outil) ───
   const [formVisible, setFormVisible] = useState(true);
   const signedVerified = (entretien.crep_scans || []).some(sc => sc.signatures_ok === true) || !!entretien.crep_signed_at;
+  const [step, setStep] = useState(0);
+  const guided = !isAgent && (!!entretien.crep_mode || (canEdit && !locked));
+  const gMode = entretien.crep_mode || null;
+  // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
+  const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
+  const showBottom = isAgent || !guided || (gMode === 'outil' && step <= 2);
+  const incompleteAfterImport = gMode === 'manuscrit' && signedVerified ? missingFields(crep, entretien.crep_definition) : [];
   useEffect(() => {
     // En mode manuscrit, le contenu vient du document scanné : le formulaire est replié tant que rien n'a été lu
-    setFormVisible(!(entretien.crep_mode === 'manuscrit' && !signedVerified && crep.origine !== 'manuscrit'));
+    setFormVisible(!!entretien.crep_mode && !(entretien.crep_mode === 'manuscrit' && !signedVerified && crep.origine !== 'manuscrit'));
   }, [entretien.id, entretien.crep_mode]);
   const reloadEntretien = async () => {
     try { const r = await axios.get(`/api/entretiens/${entretien.id}`, { headers }); onSaved(r.data); } catch { /* ignore */ }
@@ -342,7 +349,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       )}
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
         <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
-          onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible} />
+          onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible}
+          incomplete={incompleteAfterImport} onStep={setStep} />
       )}
       {isAgent && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
@@ -403,7 +411,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </span>
         </div>
       )}
-      {canEdit && !isAgent && (
+      {canEdit && !isAgent && !(guided && gMode === 'manuscrit') && gMode !== null && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
@@ -416,10 +424,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           </span>
         </div>
       )}
-      {canEdit && !isAgent && (
+      {canEdit && !isAgent && showImport && (
         <div style={{ marginTop: 12 }}>
-          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any}
-            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) }, valeur: { ...c.valeur, ...(f.valeur || {}) } }))}
+          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any} big={guided}
+            onApply={(f) => {
+              const merged = { ...crep, ...f, formations: { ...crep.formations, ...(f.formations || {}) }, valeur: { ...crep.valeur, ...(f.valeur || {}) } } as Crep;
+              setCrep(merged);
+              // Contrôle de complétude dès la validation de l'import (mode manuscrit : tout le CREP vient du papier)
+              if (gMode === 'manuscrit') {
+                const m = missingFields(merged, entretien.crep_definition);
+                if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nComplétez ces rubriques avant de clôturer.`, { title: 'Rubriques à compléter', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
+              }
+            }}
             onApplied={() => { setFormVisible(true); reloadEntretien(); }} />
         </div>
       )}
@@ -609,6 +625,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         </div>
       )}
 
+      {showBottom && (
       <div style={{ position: 'sticky', bottom: -14, background: '#fff', borderTop: `1px solid ${COLORS.border}`, margin: '18px -18px -14px', padding: '12px 18px', display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
         {isAgent ? (
           agentCanValidate ? (
@@ -676,6 +693,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           {busy === 'pdf' ? <Loader2 size={14} /> : <FileDown size={14} />} Imprimer / PDF (4 pages)
         </button>
       </div>
+      )}
     </div>
   );
 }

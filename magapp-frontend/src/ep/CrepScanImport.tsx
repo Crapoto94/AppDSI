@@ -52,7 +52,9 @@ const TEXT_FIELDS: Array<[string, string]> = [
  * Import d'un compte rendu papier : le document est numérisé et lu par l'IA interne (écriture manuscrite), qui PROPOSE un contenu.
  * L'évaluateur relit et corrige chaque rubrique, puis l'applique au formulaire (rien n'est enregistré avant son propre « Enregistrer »).
  */
-export default function CrepScanImport({ entretienId, headers, disabled, onApply, onApplied, definition }: {
+export default function CrepScanImport({ entretienId, headers, disabled, onApply, onApplied, definition, big }: {
+  /** Présentation « étape de téléversement » : un grand bouton bien visible. */
+  big?: boolean;
   /** Appelé après l'application (le document signé est conservé) : permet de rafraîchir l'entretien. */
   onApplied?: () => void;
   entretienId: number;
@@ -141,6 +143,8 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     );
   };
 
+  // Mode « commentaires de l'agent » : les 2 cadres de l'agent doivent être renseignés (« Néant » si rien) pour pouvoir appliquer
+  const agentOk = !agentOnly || (String(edit.obs_agent_conditions || '').trim() !== '' && String(edit.obs_agent_entretien || '').trim() !== '');
   const apply = () => {
     // Seules les rubriques non vides sont reprises : le contenu déjà saisi n'est pas effacé par une rubrique que la lecture n'a pas trouvée.
     const out: Record<string, any> = {};
@@ -195,9 +199,9 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               <button type="button" style={btnGhost} onClick={() => dismiss(false)}>Masquer</button>
             </div>
           )}
-          <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
+          <button type="button" style={big ? { ...btnPrimary, width: '100%', justifyContent: 'center', fontSize: 16, padding: '22px 18px', borderRadius: 14 } : btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
             title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’écriture et les cases cochées sont lues en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
-            {busy ? <Loader2 size={14} className="spin" /> : <ScanLine size={14} />} {busy ? 'Envoi des pages…' : 'Importer un compte rendu papier (photos / scan)'}
+            {busy ? <Loader2 size={big ? 20 : 14} className="spin" /> : <ScanLine size={big ? 20 : 14} />} {busy ? 'Envoi des pages…' : big ? 'Téléverser le CREP signé (scan ou photos des pages)' : 'Importer un compte rendu papier (photos / scan)'}
           </button>
           {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Lecture en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
         </>
@@ -372,10 +376,11 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: `1px solid ${COLORS.border}` }}>
               <button style={btnGhost} onClick={() => setProp(null)}>Annuler</button>
+              {!agentOk && <span style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700 }}>Renseignez les 2 cadres de l’agent (« Néant » si rien) pour continuer.</span>}
               <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginRight: 'auto' }}>
                 <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} /> J’ai vérifié chaque ligne par rapport au document papier
               </label>
-              <button style={{ ...btnPrimary, opacity: verified && sigAgent && sigEval ? 1 : .5 }} disabled={!(verified && sigAgent && sigEval)} onClick={apply}>Appliquer au formulaire</button>
+              <button style={{ ...btnPrimary, opacity: verified && sigAgent && sigEval && agentOk ? 1 : .5 }} disabled={!(verified && sigAgent && sigEval && agentOk)} onClick={apply}>Appliquer au formulaire</button>
             </div>
           </div>
         </div>

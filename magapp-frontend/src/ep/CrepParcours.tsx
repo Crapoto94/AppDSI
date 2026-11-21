@@ -18,7 +18,11 @@ const stageKey = (id: number) => `ep_parcours_stage_${id}`;
  * Parcours guidé du CREP : choix du mode de saisie (manuscrit ou dans l'outil), fil d'Ariane, et action à faire à l'étape en cours.
  * Le mode peut être changé à tout moment (tant que l'entretien n'est pas clôturé).
  */
-export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible }: {
+export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep }: {
+  /** Rubriques encore à compléter (mode manuscrit) après la lecture du document. */
+  incomplete: string[];
+  /** Étape en cours (pour que le formulaire n'affiche que ce qui est utile à cette étape). */
+  onStep: (n: number) => void;
   entretien: Entretien;
   headers: Record<string, string>;
   busy: boolean;
@@ -40,6 +44,11 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
   const [stage, setStage] = useState<number>(() => { try { return Number(localStorage.getItem(stageKey(entretien.id))) || 0; } catch { return 0; } });
   useEffect(() => { try { setStage(Number(localStorage.getItem(stageKey(entretien.id))) || 0); } catch { setStage(0); } }, [entretien.id]);
   const advance = (n: number) => { setStage(n); try { localStorage.setItem(stageKey(entretien.id), String(n)); } catch { /* ignore */ } };
+  // « Revenir à l'étape précédente » : actif tant qu'aucun nouveau document n'a été appliqué (le nombre de scans conservés change à l'application)
+  const redoKey = `ep_parcours_redo_${entretien.id}`;
+  const [redoAt, setRedoAt] = useState<number | null>(() => { try { const v = localStorage.getItem(redoKey); return v === null ? null : Number(v); } catch { return null; } });
+  const redo = redoAt !== null && scans.length === redoAt;
+  const goBack = () => { setRedoAt(scans.length); try { localStorage.setItem(redoKey, String(scans.length)); } catch { /* ignore */ } };
 
   const chooseMode = async (m: Mode) => {
     if (m === mode) return;
@@ -54,9 +63,10 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
 
   // Étape en cours (index dans STEPS[mode])
   let current = 0;
-  if (mode === 'manuscrit') current = closed ? 6 : verified ? 5 : Math.min(3, 1 + stage);
-  if (mode === 'outil') current = closed ? 7 : verified ? 6 : validated ? Math.min(5, 3 + stage) : 1;
+  if (mode === 'manuscrit') current = closed ? 6 : redo ? 3 : verified ? (incomplete.length ? 4 : 5) : Math.min(3, 1 + stage);
+  if (mode === 'outil') current = closed ? 7 : redo ? 5 : verified ? 6 : validated ? Math.min(5, 3 + stage) : 1;
   const steps = mode ? STEPS[mode] : [];
+  useEffect(() => { onStep(mode ? current : 0); }, [mode, current]);
 
   const card: React.CSSProperties = { border: '1px solid #c7d2fe', background: '#f8faff', borderRadius: 12, padding: '14px 16px', marginTop: 12 };
   const big = (m: Mode, icon: React.ReactNode, title: string, text: string) => (
@@ -127,15 +137,23 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             </div>
           </>}
           {mode === 'manuscrit' && current === 2 && <>
-            <div>Menez l’entretien et remplissez le CREP à la main. L’<strong>agent renseigne ses 2 cadres et signe</strong>, puis <strong>vous le contresignez</strong>.</div>
+            <div><strong>Remplissez le CREP à la main</strong> pendant l’entretien, puis <strong>signez-le</strong> et <strong>transmettez-le à l’agent</strong> : il <strong>renseigne ses 2 cadres</strong> (conditions de travail, entretien) et <strong>signe à son tour</strong>. Quand il vous le rend, vous le contresignez.</div>
             <div style={{ marginTop: 8 }}><button style={btnPrimary} onClick={() => advance(2)}>Le CREP est signé par les deux, passer au téléversement <ArrowRight size={13} /></button></div>
           </>}
           {mode === 'manuscrit' && current === 3 && <>
-            <div><strong>Téléversez le CREP signé</strong> (scan ou photos des pages) avec le bouton « Importer un compte rendu papier » ci-dessous. L’outil lit le document et contrôle la présence des <strong>2 signatures</strong> ; il vous demandera de tout vérifier.</div>
+            <div><strong>Téléversez le CREP signé</strong> (scan ou photos des pages) avec le grand bouton ci-dessous. L’outil lit le document, contrôle la présence des <strong>2 signatures</strong> et vérifie que tout est complété ; il vous demandera de tout vérifier.</div>
+          </>}
+          {mode === 'manuscrit' && current === 4 && <>
+            <div style={{ color: '#991b1b', fontWeight: 700 }}>Des rubriques sont à compléter avant de pouvoir clôturer :</div>
+            <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5 }}>{incomplete.map((m, i) => <li key={i}>{m}</li>)}</ul>
+            <div style={{ marginTop: 6 }}>Complétez-les dans le formulaire ci-dessous.</div>
           </>}
           {mode === 'manuscrit' && current === 5 && <>
             <div>Le contenu et les 2 signatures ont été vérifiés. Cliquez sur <strong>Clôturer l’entretien</strong> : le compte rendu est validé et le CREP signé est archivé.</div>
-            <div style={{ marginTop: 8 }}><button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onClose}><Lock size={14} /> Clôturer l’entretien</button></div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onClose}><Lock size={14} /> Clôturer l’entretien</button>
+              <button style={btnGhost} disabled={busy} onClick={goBack}>Revenir à l’étape précédente</button>
+            </div>
           </>}
 
           {mode === 'outil' && current === 1 && <>
@@ -158,10 +176,13 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
           </>}
           {mode === 'outil' && current === 6 && <>
             <div>Les 2 cadres de l’agent et les 2 signatures ont été vérifiés. Cliquez sur <strong>Clôturer l’entretien</strong> : le CREP signé est archivé.</div>
-            <div style={{ marginTop: 8 }}><button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onClose}><Lock size={14} /> Clôturer l’entretien</button></div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onClose}><Lock size={14} /> Clôturer l’entretien</button>
+              <button style={btnGhost} disabled={busy} onClick={goBack}>Revenir à l’étape précédente</button>
+            </div>
           </>}
 
-          {mode === 'manuscrit' && (
+          {mode === 'manuscrit' && current >= 4 && (
             <div style={{ marginTop: 8, fontSize: 12 }}>
               <button type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} onClick={() => setFormVisible(!formVisible)}>
                 {formVisible ? 'Masquer le formulaire de saisie' : 'Afficher le formulaire de saisie'}
