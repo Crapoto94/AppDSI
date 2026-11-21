@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
 import { STATUTS, formatDateCourte, nomComplet, repairText } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
-import { Avatar, Badge, COLORS, EmptyState, KpiCard, Td, Th, btnGhost, btnPrimary, card, input } from './ui';
+import { Avatar, Badge, COLORS, EmptyState, KpiCard, Td, Th, btnDanger, btnGhost, btnPrimary, card, input, useConfirm } from './ui';
 
 /**
  * Tableau de bord des EP. Par défaut : ceux que je réalise (évaluateur). Avec `endpoint=/api/ep-ville/equipe` et `readOnly` :
@@ -90,8 +90,9 @@ function ProgressTree({ rows }: { rows: Entretien[] }) {
   );
 }
 
-export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean }) {
+export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false, canReset = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean; canReset?: boolean }) {
   const { token } = useAuth();
+  const [confirm, confirmDialog] = useConfirm();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -121,6 +122,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [reassignQ, setReassignQ] = useState('');
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [linkFor, setLinkFor] = useState<Entretien | null>(null);
+  const [razBusy, setRazBusy] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
@@ -155,6 +157,26 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     } catch (e: any) {
       setError(e.response?.data?.message || 'Impression impossible.');
     } finally { setPrintBusy(null); }
+  };
+
+  const resetEp = async (e: Entretien) => {
+    const nom = nomComplet(e);
+    const ok = await confirm(
+      `Remettre à zéro l'EP de ${nom} ?\n\n` +
+      `Seront supprimés : le rendez-vous et l'invitation Outlook, la préparation, le compte rendu, les commentaires, les objectifs, les formations et les pièces jointes (CREP signé).\n\n` +
+      `L'agent et son évaluateur sont conservés. Cette action est irréversible.`,
+      { title: 'RAZ – Remettre l’EP à zéro', confirmLabel: 'Remettre à zéro', danger: true }
+    );
+    if (!ok) return;
+    setRazBusy(e.id);
+    try {
+      const r = await axios.post(`/api/entretiens/${e.id}/reset`, {}, { headers });
+      const warns = Array.isArray(r.data?.warnings) ? r.data.warnings : [];
+      setNotice({ ok: true, text: `EP de ${nom} remis à zéro.${warns.length ? ' ' + warns.join(' ') : ''}` });
+      load(); onChanged?.();
+    } catch (err: any) {
+      setNotice({ ok: false, text: err.response?.data?.message || 'RAZ impossible.' });
+    } finally { setRazBusy(null); }
   };
 
   const loadAdd = useCallback((q = addQ) => {
@@ -511,6 +533,12 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                         <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
                           <Printer size={13} />
                         </button>
+                        {canReset && (
+                          <button style={btnDanger} disabled={razBusy === e.id} onClick={() => resetEp(e)}
+                            title="Remettre cet EP à zéro (administrateur)">
+                            {razBusy === e.id ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />} RAZ
+                          </button>
+                        )}
                         {!pilotage && (
                           <button style={btnGhost} onClick={() => openReassign(e)} title="Changer l’évaluateur">
                             <UserCog size={13} />
@@ -522,7 +550,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                           </button>
                         )}
                         <button style={btnGhost} onClick={() => setOpenId(e.id)}>
-                          <Eye size={13} /> Ouvrir
+                          <Eye size={13} /> {readOnly || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
                         </button>
                       </div>
                     </Td>
@@ -643,6 +671,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

@@ -65,6 +65,8 @@ router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
 router.get('/:id/crep-signe.pdf', authenticateJWT, ctrl.crepSignedPdf);
 router.post('/:id/crep/scan', authenticateJWT, uploadPdf.single('file'), ctrl.crepScan);
 router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
+router.post('/:id/crep/manuscript', authenticateJWT, uploadPdf.array('files', 8), ctrl.crepManuscriptUpload);
+router.post('/:id/reset', authenticateJWT, ctrl.resetEntretien);
 router.post('/:id/crep/check', authenticateJWT, ctrl.crepCheck);
 router.post('/:id/crep/send-to-agent', authenticateJWT, ctrl.crepSendToAgent);
 router.put('/:id/crep/agent-draft', authenticateJWT, ctrl.crepAgentDraft);

@@ -5,6 +5,7 @@ const { normalizeCrep, missingFields, definitionFor, gridWarning } = require('./
 const epBase = require('../ep-base/ep-base.service');
 const { buildCrepPdf } = require('./crep-pdf.service');
 const storage = require('../../shared/storage');
+const DG_NOTE_DEFAULT = require('./dg-note.default');
 const { draftComment, reviewCrep } = require('./ai.service');
 const { summarizeCrep, coherenceIssues } = require('./crep.coherence');
 const workflow = require('./crep.workflow');
@@ -396,6 +397,7 @@ const entretiensController = {
             ]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
+                dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 ai,
                 self,
                 esign,
@@ -411,6 +413,10 @@ const entretiensController = {
             const b = req.body || {};
 
             const updates = {};
+
+            if (b.dg_note !== undefined) {
+                updates.dg_note = text(b.dg_note);
+            }
 
             if (b.calendar_organizer_email !== undefined) {
                 const email = text(b.calendar_organizer_email).trim();
@@ -545,6 +551,7 @@ const entretiensController = {
             ]);
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
+                dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 ai,
                 self,
                 esign,
@@ -1383,6 +1390,132 @@ const entretiensController = {
     },
 
     // ─── Annuaire : agents du calendrier DSI ──
+
+    // POST /api/entretiens/:id/reset - RAZ administrateur : remet l'EP à zéro (RDV, saisies, PJ, commentaires).
+    resetEntretien: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'La remise à zéro est réservée aux administrateurs du module.');
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+
+            const warnings = [];
+            const parapheur = row.crep_parapheur_id
+                ? await pgDb.get('SELECT id, status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id])
+                : null;
+            if (parapheur?.status === 'en_cours') {
+                try {
+                    await require('../parapheur/parapheur.service').cancel(
+                        row.crep_parapheur_id, actor.username || actor.email || 'admin', req);
+                } catch (e) {
+                    warnings.push('Annulation du parapheur : ' + e.message);
+                }
+            } else if (parapheur?.status === 'termine') {
+                warnings.push('Le parapheur signé est conservé dans les archives ; seul le lien avec cet EP est supprimé.');
+            }
+            if (row.outlook_event_id) {
+                try { await svc.removeOutlook(row); } catch (e) { warnings.push('Suppression Outlook : ' + e.message); }
+            }
+            if (row.crep_signed_path) {
+                try { await storage.deleteFile(row.crep_signed_path); } catch (e) { warnings.push('Pièce jointe : ' + e.message); }
+            }
+            try { await pgDb.run('DELETE FROM hub_entretiens.objectifs WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Objectifs : ' + e.message); }
+            try { await pgDb.run('DELETE FROM hub_entretiens.formations WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Formations : ' + e.message); }
+
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens SET
+                    date_entretien = NULL, duree_minutes = 120, lieu = '', statut = 'a_planifier',
+                    realisations = '', difficultes = '', pistes_amelioration = '', competences_a_developper = '',
+                    perspectives_missions = '', perspectives_responsabilite = '', perspectives_expertise = '',
+                    perspectives_projet = '', perspectives_concours = '', commentaire_agent = '',
+                    preparation_statut = 'non_commencee', agent_submitted_at = NULL,
+                    synthese = '', appreciation_generale = '', objectifs_suivants = '', avis_agent = '',
+                    evaluation_statut = 'non_commencee', evaluator_submitted_at = NULL,
+                    outlook_event_id = NULL, outlook_organizer = NULL, outlook_web_link = NULL,
+                    outlook_status = 'non_planifie', outlook_error = NULL,
+                    notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
+                    crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
+                    crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
+                    updated_at = NOW()
+                 WHERE id = ?`, [row.id]);
+
+            await svc.logAudit({
+                actor, action: 'raz_ep', entretien: row,
+                details: {
+                    rdv: !!row.date_entretien, outlook: !!row.outlook_event_id, crep: !!row.crep,
+                    signed_file: !!row.crep_signed_path, parapheur: row.crep_parapheur_id || null,
+                    objectifs: true, formations: true, warnings,
+                },
+            });
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id));
+            res.json({ ok: true, warnings, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) {
+            console.error('[ENTRETIENS] resetEntretien:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/:id/crep/manuscript - CREP rempli à la main : 4 pages scannées (images) ou un PDF.
+    crepManuscriptUpload: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            if (!(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut téléverser le CREP manuscrit.');
+            if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') return fail(res, 400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
+            if (row.crep_statut === 'en_signature') {
+                const p = row.crep_parapheur_id ? await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]) : null;
+                if (p && !['refuse', 'annule'].includes(p.status)) return fail(res, 409, 'Ce compte rendu est en cours de signature dans le parapheur : attendez la fin du circuit (ou annulez-le) avant de téléverser une version papier.');
+            }
+            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent : rappelez-le d’abord pour passer par une signature papier.');
+            const files = Array.isArray(req.files) ? req.files.filter(f => f && f.buffer && f.buffer.length) : [];
+            if (!files.length) return fail(res, 400, 'Aucun fichier reçu.');
+            if (files.length > 8) return fail(res, 400, '8 pages maximum.');
+
+            let buffer;
+            const pdfFile = files.find(f => f.buffer.slice(0, 5).toString('latin1') === '%PDF-');
+            if (pdfFile) {
+                buffer = pdfFile.buffer;
+            } else {
+                const pdf = await PDFDocument.create();
+                for (const f of files) {
+                    let img;
+                    try {
+                        if (/jpe?g/i.test(f.mimetype || '') || /\.jpe?g$/i.test(f.originalname || '')) img = await pdf.embedJpg(f.buffer);
+                        else if (/png/i.test(f.mimetype || '') || /\.png$/i.test(f.originalname || '')) img = await pdf.embedPng(f.buffer);
+                        else return fail(res, 400, 'Formats acceptés : PDF ou images JPG/PNG.');
+                    } catch (e) { return fail(res, 400, 'Image illisible : ' + (f.originalname || '')); }
+                    const page = pdf.addPage([595.28, 841.89]);
+                    const scale = Math.min((595.28 - 40) / img.width, (841.89 - 40) / img.height);
+                    page.drawImage(img, {
+                        x: (595.28 - img.width * scale) / 2,
+                        y: (841.89 - img.height * scale) / 2,
+                        width: img.width * scale,
+                        height: img.height * scale,
+                    });
+                }
+                buffer = Buffer.from(await pdf.save());
+            }
+
+            const saved = await storage.saveFile('entretiens', row.id, { buffer, originalname: 'CREP-manuscrit.pdf' });
+            const previous = row.crep_signed_path;
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens SET crep_signed_path = ?, crep_signed_name = ?, crep_signed_at = NOW(), crep_signed_by = ?, crep_statut = 'signe_papier', updated_at = NOW() WHERE id = ?`,
+                [saved.dbPath, 'CREP-manuscrit.pdf', actor.username || actor.email || '', row.id]);
+            if (previous && previous !== saved.dbPath) { try { await storage.deleteFile(previous); } catch (e) { /* ancien fichier */ } }
+            await svc.logAudit({ actor, action: 'crep_manuscrit', entretien: row, details: { pages: files.length } });
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ok: true, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) {
+            console.error('[ENTRETIENS] crepManuscriptUpload:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
 
     // GET /api/entretiens/directory
     // Renvoie les agents DSI (hub_calendrier.agents_dsi) : agents évalués ET évaluateurs possibles.

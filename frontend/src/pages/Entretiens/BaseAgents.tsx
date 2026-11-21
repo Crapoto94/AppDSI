@@ -106,7 +106,7 @@ function AdCell({ agent, headers, onLinked, onError }: { agent: BaseAgent; heade
       <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
         <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }}
           onClick={() => { setOpen(o => !o); if (!open && !q) setQ(agent.nom_prenom.split(' ')[0] || ''); }}>{open ? 'Fermer' : found ? 'Changer (AD)' : 'Rechercher dans l’AD'}</button>
-        {found && agent.ad_status === 'manuel' && <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => link('')}>Dissocier</button>}
+        {found && <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => link('')}>Enlever l’adresse e-mail</button>}
       </div>
       {open && (
         <div style={{ marginTop: 6, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, background: '#fff', maxWidth: 360 }}>

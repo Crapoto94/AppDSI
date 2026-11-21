@@ -26,6 +26,8 @@ const ACTION_LABELS: Record<string, string> = {
   crep_envoye_agent: 'CREP envoyé à l’agent',
   impression_crep: 'Impression CREP renseigné',
   impression_crep_vierge: 'Impression CREP vierge',
+  crep_manuscrit: 'CREP manuscrit archivé',
+  raz_ep: 'RAZ – remise à zéro',
 };
 
 const fmtDate = (v?: string) => {

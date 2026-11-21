@@ -31,17 +31,23 @@ function infoBlock(title, rows) {
 
 const FOOTER = 'Entretiens professionnels — MagApp. Message automatique, merci de ne pas y répondre.';
 
+const fmtDate = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('fr-FR');
+};
+
 /** À l'agent : son entretien est planifié, il doit préparer sa fiche. */
 function preparation({ agent, annee, quand, duree, lieu, evaluateur, link }) {
     const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} est programmé. Merci de le préparer en complétant votre fiche de préparation dans l’application.`;
     const bodyHtml = `${infoBlock('Votre entretien', [['Date et heure', quand], ['Durée', duree ? `${duree} minutes` : ''], ['Lieu', lieu], ['Évaluateur (N+1)', evaluateur]])}
-      <p style="font-size:13px;color:#64748b;">Cette préparation (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur. Vous pouvez la modifier jusqu’à l’entretien.</p>
+      <p style="font-size:13px;color:#64748b;">Cette préparation (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur. Vous pouvez la modifier jusqu’à l’entretien. Le formulaire CREP vierge est joint à ce message.</p>
       ${button(link, 'Préparer mon entretien', '#4f46e5')}`;
     return { subject: `📝 Préparez votre entretien professionnel${annee ? ` ${annee}` : ''}`, ...render('#4f46e5', '📝 Préparez votre entretien', intro, bodyHtml, FOOTER) };
 }
 
 /** À l'agent : le compte rendu rédigé par l'évaluateur est disponible. */
-function compteRenduEnvoye({ agent, annee, evaluateur, link }) {
+function compteRenduEnvoye({ agent, annee, evaluateur, dateLimite, link }) {
     const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>${esc(evaluateur || 'votre évaluateur')} vous a transmis le compte rendu de votre entretien professionnel${annee ? ` ${esc(annee)}` : ''}.`;
     const bodyHtml = `<p style="font-size:14px;color:#334155;">Merci de le <strong>relire</strong>, puis de faire les deux étapes suivantes :</p>
       <ol style="font-size:14px;color:#334155;line-height:1.7;padding-left:20px;">
@@ -49,6 +55,7 @@ function compteRenduEnvoye({ agent, annee, evaluateur, link }) {
           <ul style="margin:4px 0;padding-left:18px;"><li>vos observations sur les conditions de travail et le fonctionnement du service ;</li><li>vos observations sur l’entretien.</li></ul></li>
         <li><strong>Valider</strong> avec le bouton « Valider et envoyer pour signature » : le compte rendu est alors transmis dans le parapheur pour être cosigné par vous et par votre évaluateur. Vous recevrez ensuite votre lien de signature par e-mail.</li>
       </ol>
+      ${dateLimite ? `<p style="font-size:13px;color:#64748b;">Si vous devez imprimer et signer le compte rendu sur papier, merci de le retourner à votre évaluateur <strong>au plus tard le ${esc(fmtDate(dateLimite))}</strong>.</p>` : ''}
       ${button(link, 'Relire et valider mon compte rendu', '#4f46e5')}`;
     return { subject: `📄 Votre compte rendu d’entretien professionnel est disponible`, ...render('#4f46e5', '📄 Compte rendu à valider', intro, bodyHtml, FOOTER) };
 }

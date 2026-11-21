@@ -219,15 +219,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     } finally { setBusy(null); }
   };
 
-  const uploadSigned = async (file: File | undefined) => {
-    if (!file) return;
-    if (!(await confirm(`Téléverser « ${file.name} » comme compte rendu signé ?${entretien.crep_signed_at ? '\n\nIl remplacera la version déjà téléversée.' : ''}`, { title: 'Compte rendu signé', confirmLabel: 'Téléverser' }))) { if (fileRef.current) fileRef.current.value = ''; return; }
+  const uploadSigned = async (picked: FileList | null) => {
+    const files = picked ? Array.from(picked) : [];
+    if (!files.length) return;
+    const n = files.length;
+    if (!(await confirm(`Téléverser ${n} page${n > 1 ? 's' : ''} comme CREP manuscrit signé ?${entretien.crep_signed_at ? '\n\nCela remplacera la version déjà téléversée.' : ''}`, { title: 'CREP manuscrit', confirmLabel: 'Téléverser' }))) { if (fileRef.current) fileRef.current.value = ''; return; }
     setBusy('upload'); setMsg(null);
     try {
-      const fd = new FormData(); fd.append('file', file);
-      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/signed-upload`, fd, { headers });
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/manuscript`, fd, { headers });
       onSaved(r.data.entretien);
-      setMsg({ ok: true, text: 'Compte rendu signé enregistré.' });
+      setMsg({ ok: true, text: 'CREP manuscrit enregistré.' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message || 'Téléversement impossible.' });
     } finally { setBusy(null); if (fileRef.current) fileRef.current.value = ''; }
@@ -563,9 +566,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         )}
         {canUploadSigned && (
           <>
-            <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }} onChange={e => uploadSigned(e.target.files?.[0])} />
-            <button style={btnGhost} disabled={!!busy} onClick={() => fileRef.current?.click()} title="Compte rendu imprimé puis signé à la main (agent sans e-mail, hors parapheur)">
-              {busy === 'upload' ? <Loader2 size={14} /> : <Upload size={14} />} {entretien.crep_signed_at ? 'Remplacer le PDF signé' : 'Téléverser le PDF signé'}
+            <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/jpeg,image/png" multiple style={{ display: 'none' }} onChange={e => uploadSigned(e.target.files)} />
+            <button style={btnGhost} disabled={!!busy} onClick={() => fileRef.current?.click()} title="CREP imprimé, rempli et signé à la main : scannez les 4 pages (ou un PDF) et téléversez-les ici">
+              {busy === 'upload' ? <Loader2 size={14} /> : <Upload size={14} />} {entretien.crep_signed_at ? 'Remplacer le CREP manuscrit' : 'CREP manuscrit (4 pages scannées)'}
             </button>
           </>
         )}

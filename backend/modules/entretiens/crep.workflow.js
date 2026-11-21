@@ -40,11 +40,12 @@ async function sendToAgent({ row, access }) {
         if (!(await epBeta.allowedForEntretien(row, row.agent_email, 'compte rendu'))) return { ok: false, skipped: true, beta: true, error: 'Mail non envoyé : fonctionnalité en BETA et agent hors BETA (le statut a bien été mis à jour).' };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
-        const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+        const campaign = await pgDb.get('SELECT annee, date_limite_ep FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
         await sendParapheurEmail(row.agent_email, email.compteRenduEnvoye({
             agent: svc.fullName(row.agent_prenom, row.agent_nom) || 'Madame, Monsieur',
             annee: campaign?.annee,
             evaluateur: row.evaluator_nom || row.evaluator_email,
+            dateLimite: campaign?.date_limite_ep,
             link: await email.entretiensUrl('moi'),
         }));
     } catch (e) {

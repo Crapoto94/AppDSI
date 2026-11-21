@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X, Archive, ChevronDown, ChevronRight, Truck, MoreHorizontal } from 'lucide-react';
+import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X, Archive, ChevronDown, ChevronRight, Truck, MoreHorizontal, Ban } from 'lucide-react';
 import DemandeCommentsModal from './DemandeCommentsModal';
 import { openAttachmentViewer } from './AttachmentViewer';
 import AgentPickerRH, { type AgentRef } from './parapheur/AgentPickerRH';
@@ -23,6 +23,12 @@ interface Demande {
   valide_fonction: string | null;
   valide_at: string | null;
   valide_commentaire: string | null;
+  refuse_raison?: string | null;
+  refuse_par?: string | null;
+  refuse_fonction?: string | null;
+  refuse_at?: string | null;
+  refuse_mail_sent_at?: string | null;
+  refuse_mail_error?: string | null;
   created_at: string;
   pieces: Piece[];
   commande_roo: string | null;
@@ -46,11 +52,12 @@ interface SeditCommande {
   LIBELLE: string | null; TIERS_NOM: string | null; SERVICE: string | null;
 }
 interface Validateur { username: string; fonction: 'directeur' | 'raf'; }
-interface Me { can_validate: boolean; fonction: string | null; can_manage: boolean; can_delete: boolean; }
+interface Me { can_validate: boolean; can_refuse: boolean; fonction: string | null; can_manage: boolean; can_delete: boolean; }
 
 const STATUT_LABELS: Record<string, { label: string; bg: string; fg: string }> = {
   devis_pris_en_compte: { label: 'Devis pris en compte', bg: '#fef3c7', fg: '#92400e' },
   validee: { label: 'Validée', bg: '#dcfce7', fg: '#166534' },
+  refusee: { label: 'Refusée', bg: '#fee2e2', fg: '#991b1b' },
 };
 
 const s: Record<string, React.CSSProperties> = {
@@ -60,6 +67,7 @@ const s: Record<string, React.CSSProperties> = {
   // Bouton principal (une seule couleur d'accent) et bouton discret pour les actions secondaires
   btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.42rem 0.85rem', border: 'none', borderRadius: 6, background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' },
   btnGhost: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.3rem 0.65rem', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', fontWeight: 500, fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap' },
+  btnDanger: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.3rem 0.7rem', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#b91c1c', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap' },
   th: { textAlign: 'left', padding: '0.55rem 0.7rem', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#4b5563', background: '#f3f4f6', borderBottom: '1px solid #e5e7eb' },
   td: { padding: '0.65rem 0.7rem', fontSize: '0.85rem', color: '#374151', borderBottom: '1px solid #f1f3f5', verticalAlign: 'top' },
   pill: { display: 'inline-block', borderRadius: 999, padding: '2px 9px', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' },
@@ -100,7 +108,7 @@ const DemandesCommandeTab: React.FC = () => {
   const headers = { Authorization: `Bearer ${token}` };
 
   const [demandes, setDemandes] = useState<Demande[]>([]);
-  const [me, setMe] = useState<Me>({ can_validate: false, fonction: null, can_manage: false, can_delete: false });
+  const [me, setMe] = useState<Me>({ can_validate: false, can_refuse: false, fonction: null, can_manage: false, can_delete: false });
   const [validateurs, setValidateurs] = useState<Validateur[]>([]);
   const [form, setForm] = useState({ designation: '', description: '', montant: '', section: '' });
   const [demandeur, setDemandeur] = useState<AgentRef[]>([]);
@@ -218,8 +226,12 @@ const DemandesCommandeTab: React.FC = () => {
 
   const [validating, setValidating] = useState<Demande | null>(null);
   const [commentaire, setCommentaire] = useState('');
+  const [refusing, setRefusing] = useState<Demande | null>(null);
+  const [refusRaison, setRefusRaison] = useState('');
+  const [refusBusy, setRefusBusy] = useState(false);
 
   const openValidate = (d: Demande) => { setValidating(d); setCommentaire(''); };
+  const openRefuse = (d: Demande) => { setRefusing(d); setRefusRaison(''); };
 
   const confirmValidate = async () => {
     if (!validating) return;
@@ -230,6 +242,22 @@ const DemandesCommandeTab: React.FC = () => {
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur lors de la validation');
     }
+  };
+
+  const confirmRefuse = async () => {
+    if (!refusing) return;
+    if (!refusRaison.trim()) { alert('Indiquez le motif du refus : il sera envoyé au demandeur.'); return; }
+    setRefusBusy(true);
+    try {
+      const r = await axios.post(`/api/demandes-commande/${refusing.id}/refuse`, { raison: refusRaison.trim() }, { headers });
+      setRefusing(null);
+      await load();
+      if (r.data?.mail_sent === false) {
+        alert(`Demande refusée, mais l'e-mail n'a pas pu être envoyé : ${r.data?.mail_error || 'erreur inconnue'}\n\nLe motif est enregistré dans le fil de la demande.`);
+      }
+    } catch (err) {
+      alert(axios.isAxiosError(err) ? (err.response?.data?.message || 'Erreur lors du refus') : 'Erreur lors du refus');
+    } finally { setRefusBusy(false); }
   };
 
   const remove = async (d: Demande) => {
@@ -299,7 +327,9 @@ const DemandesCommandeTab: React.FC = () => {
   const archives = toutesValidees.filter(d => d.archived);
   const envoyees = toutesValidees.filter(d => !d.archived && d.commande_etat === 'envoyee');
   const validees = toutesValidees.filter(d => !d.archived && d.commande_etat !== 'envoyee');
+  const refusees = demandes.filter(d => d.statut === 'refusee');
   const [showArchives, setShowArchives] = useState(false);
+  const [showRefusees, setShowRefusees] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const sectionTitle = (label: string, count: number, icon?: React.ReactNode) => (
     <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem', fontWeight: 600, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -376,6 +406,7 @@ const DemandesCommandeTab: React.FC = () => {
           const st = STATUT_LABELS[d.statut] || { label: d.statut, bg: '#f3f4f6', fg: '#374151' };
           const devis = d.pieces.filter(isDevis);
           const canValidate = me.can_validate && d.statut === 'devis_pris_en_compte';
+          const canRefuse = me.can_refuse && d.statut === 'devis_pris_en_compte';
           const items: { key: string; label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }[] = [];
           if (canEditDemande(d)) items.push({ key: 'edit', label: 'Modifier', icon: <Edit2 size={14} />, onClick: () => openEdit(d) });
           if ((me.can_manage || me.can_validate) && d.statut === 'validee' && d.commande_etat !== 'envoyee')
@@ -402,7 +433,7 @@ const DemandesCommandeTab: React.FC = () => {
                   <span>{meta.join(' · ')}</span>
                   {d.demandeur_email && <AgentPresenceBadge email={d.demandeur_email} name={d.demandeur_name || ''} size={11} />}
                 </div>
-                {(d.description || d.valide_par || d.modifie_at) && (
+                {(d.description || d.valide_par || d.refuse_at || d.modifie_at) && (
                   <button type="button" onClick={() => toggleRow(d.id)}
                     style={{ border: 'none', background: 'none', padding: 0, marginTop: 4, color: '#6b7280', fontSize: '0.75rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                     {openRows.has(d.id) ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Détails
@@ -418,6 +449,13 @@ const DemandesCommandeTab: React.FC = () => {
                         {d.valide_commentaire ? ` — « ${d.valide_commentaire} »` : ''}
                       </div>
                     )}
+                    {d.refuse_at && (
+                      <div style={{ color: '#991b1b' }}>
+                        Refusée par {d.refuse_par}{d.refuse_fonction ? ` (${d.refuse_fonction.toUpperCase()})` : ''} le {new Date(d.refuse_at).toLocaleDateString('fr-FR')}
+                        {d.refuse_raison ? ` — motif : ${d.refuse_raison}` : ''}
+                        {d.refuse_mail_sent_at ? ' — motif envoyé par e-mail.' : d.refuse_mail_error ? ` — e-mail non envoyé : ${d.refuse_mail_error}` : ''}
+                      </div>
+                    )}
                     {d.modifie_at && <div style={{ color: '#9ca3af' }}>Modifiée par {d.modifie_par} le {new Date(d.modifie_at).toLocaleDateString('fr-FR')}</div>}
                   </div>
                 )}
@@ -425,6 +463,11 @@ const DemandesCommandeTab: React.FC = () => {
               <td style={{ ...s.td, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: '#111827' }}>{fmtMoney(d.montant)}</td>
               <td style={s.td}>
                 <span style={{ ...s.pill, background: st.bg, color: st.fg }}>{st.label}</span>
+                {d.statut === 'refusee' && d.refuse_raison && (
+                  <div title={d.refuse_raison} style={{ marginTop: 4, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.72rem', color: '#991b1b' }}>
+                    Motif : {d.refuse_raison}
+                  </div>
+                )}
               </td>
               <td style={s.td}>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -499,6 +542,11 @@ const DemandesCommandeTab: React.FC = () => {
                     {canValidate && (
                       <button style={{ ...s.btn, padding: '0.3rem 0.7rem', fontSize: '0.8rem' }} onClick={() => openValidate(d)}>
                         <CheckCircle size={14} /> Valider
+                      </button>
+                    )}
+                    {canRefuse && (
+                      <button style={s.btnDanger} onClick={() => openRefuse(d)}>
+                        <Ban size={14} /> Refuser
                       </button>
                     )}
                     {items.length > 0 && (
@@ -601,6 +649,16 @@ const DemandesCommandeTab: React.FC = () => {
         <div style={s.card}>
           {sectionTitle('Demandes validées', validees.length)}
           {renderTable(validees, true, true)}
+        </div>
+      )}
+
+      {refusees.length > 0 && (
+        <div style={s.card}>
+          <h3 style={{ margin: showRefusees ? '0 0 0.75rem' : 0, fontSize: '0.95rem', fontWeight: 600, color: '#991b1b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowRefusees(!showRefusees)}>
+            {showRefusees ? <ChevronDown size={16} /> : <ChevronRight size={16} />} <Ban size={16} /> Demandes refusées
+            <span style={{ ...s.pill, background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem' }}>{refusees.length}</span>
+          </h3>
+          {showRefusees && renderTable(refusees, true)}
         </div>
       )}
 
@@ -746,6 +804,37 @@ const DemandesCommandeTab: React.FC = () => {
             <div style={{ marginTop: '1rem', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={s.btnGhost} onClick={() => setValidating(null)}>Annuler</button>
               <button style={s.btn} onClick={confirmValidate}><CheckCircle size={15} /> Confirmer la validation</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {refusing && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => !refusBusy && setRefusing(null)}
+        >
+          <div style={{ ...s.card, width: 'min(560px, 94vw)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, color: '#991b1b' }}>Refuser la demande</h3>
+            <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0 }}>
+              <b>{refusing.designation}</b> — {fmtMoney(refusing.montant)} TTC — demandeur : {refusing.demandeur_name || refusing.demandeur_username}
+            </p>
+            <label style={s.label}>Motif du refus * (il sera envoyé par e-mail au demandeur)</label>
+            <textarea
+              style={{ ...s.input, minHeight: 110 }}
+              autoFocus
+              value={refusRaison}
+              onChange={e => setRefusRaison(e.target.value)}
+              placeholder="Expliquez clairement pourquoi la demande est refusée (budget insuffisant, devis incomplet, demande hors périmètre…)."
+            />
+            <p style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.5rem 0.65rem', fontSize: '0.78rem', marginBottom: 0 }}>
+              La demande sera classée dans « Demandes refusées ». Le demandeur recevra ce motif par e-mail et pourra répondre dans le fil de la demande.
+            </p>
+            <div style={{ marginTop: '1rem', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button style={s.btnGhost} disabled={refusBusy} onClick={() => setRefusing(null)}>Annuler</button>
+              <button style={{ ...s.btn, background: '#dc2626' }} disabled={refusBusy || !refusRaison.trim()} onClick={confirmRefuse}>
+                <Ban size={15} /> {refusBusy ? 'Envoi…' : 'Confirmer le refus'}
+              </button>
             </div>
           </div>
         </div>

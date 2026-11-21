@@ -885,9 +885,9 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
                 </div>
               )}
               {tab === 'moi' && dsi && <MonEntretien data={dsi} onChanged={loadDsi} />}
-              {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} />}
+              {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} canReset={!!me.isAdmin} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
-              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage />}
+              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} />}
               {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}

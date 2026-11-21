@@ -156,7 +156,23 @@ async function sendPreparationMail(entretien, campaign) {
             evaluateur: entretien.evaluator_nom || entretien.evaluator_email,
             link: await email.entretiensUrl('moi'),
         });
-        await sendParapheurEmail(entretien.agent_email, tpl);
+        // Formulaire CREP vierge joint à la convocation (les agents sans accès à l'outil
+        // peuvent ainsi l'imprimer et le préparer sur papier).
+        let attachments = [];
+        try {
+            const pdf = await require('./crep-pdf.service').buildCrepPdf(
+                { ...entretien, crep: null, crep_sent_at: null, crep_agent_validated_at: null },
+                campaign?.annee
+            );
+            const safe = (fullName(entretien.agent_prenom, entretien.agent_nom) || 'agent').replace(/[^\w\-]+/g, '_');
+            attachments = [{
+                filename: `CREP-vierge-${campaign?.annee || ''}-${safe}.pdf`,
+                content: Buffer.from(pdf).toString('base64'),
+            }];
+        } catch (e) {
+            console.warn('[ENTRETIENS] formulaire CREP vierge non joint:', e.message);
+        }
+        await sendParapheurEmail(entretien.agent_email, tpl, null, attachments);
         return { ok: true };
     } catch (e) {
         console.warn('[ENTRETIENS] mail de préparation non envoyé:', e.message);

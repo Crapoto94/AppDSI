@@ -149,7 +149,7 @@ export default function Evaluations({ onChanged }: { onChanged?: () => void }) {
                           </button>
                         )}
                         <button style={btnGhost} onClick={() => setOpenId(e.id)}>
-                          <Eye size={13} /> Ouvrir
+                          <Eye size={13} /> {['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
                         </button>
                       </div>
                     </Td>

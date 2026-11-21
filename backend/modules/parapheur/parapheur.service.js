@@ -88,7 +88,7 @@ const setSendMail = (fn) => { sendMailFn = fn; };
  * @param {string} to
  * @param {{ subject:string, content?:string, html?:string }} tpl
  */
-async function sendParapheurEmail(to, tpl, parapheurId) {
+async function sendParapheurEmail(to, tpl, parapheurId, attachments = []) {
     if (!to || !tpl) return;
     // Parapheur issu d'une fonctionnalité en BETA (mail_scope) : pas de mail vers un agent hors BETA.
     if (parapheurId) {
@@ -103,14 +103,14 @@ async function sendParapheurEmail(to, tpl, parapheurId) {
     const { subject, content, html } = tpl;
     let apmErr = null;
     try {
-        await apmMail.sendMail({ to, subject, content: content || html });
+        await apmMail.sendMail({ to, subject, content: content || html, attachments });
         return;
     } catch (e) {
         apmErr = e;
         console.warn('[PARAPHEUR] API Ville indisponible, repli mailer local:', e.message);
     }
     if (!sendMailFn) throw apmErr || new Error("Aucun service d'envoi d'e-mails disponible.");
-    await sendMailFn(to, subject, html, [], 'parapheur');
+    await sendMailFn(to, subject, html, attachments.map(a => ({ ...a, encoding: a.encoding || 'base64' })), 'parapheur');
 }
 
 /**

@@ -3869,6 +3869,8 @@ async function setupPgDb() {
       `modifie_par TEXT`, `modifie_at TIMESTAMPTZ`,
       `service TEXT`, `demandeur_email TEXT`,
       `section TEXT`, // 'F' fonctionnement / 'I' investissement (imputation budgétaire de la demande)
+      `refuse_raison TEXT`, `refuse_par TEXT`, `refuse_fonction TEXT`, `refuse_at TIMESTAMPTZ`,
+      `refuse_mail_sent_at TIMESTAMPTZ`, `refuse_mail_error TEXT`,
     ]) {
       try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
     }
@@ -5285,6 +5287,27 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS dashboard_columns SMALLINT DEFAULT 3`); } catch (e) {}
+    // Normalise les préférences sur un username en minuscules. Des lignes « machevalier » et
+    // « MaChevalier » coexistaient : l'interface lisait l'une, la notification l'autre, avec un
+    // résultat différent. On conserve la ligne déjà en minuscules (celle utilisée par l'interface),
+    // sinon la plus récente.
+    try {
+      await client.query(`
+        WITH ranked AS (
+          SELECT ctid,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY LOWER(username)
+                   ORDER BY (username = LOWER(username)) DESC, updated_at DESC NULLS LAST, ctid DESC
+                 ) AS rn
+          FROM hub.user_prefs
+        )
+        DELETE FROM hub.user_prefs p
+        USING ranked r
+        WHERE p.ctid = r.ctid AND r.rn > 1
+      `);
+      await client.query(`UPDATE hub.user_prefs SET username = LOWER(username) WHERE username <> LOWER(username)`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_user_prefs_username_lower ON hub.user_prefs(LOWER(username))`);
+    } catch (e) { console.warn('[PG DB] normalisation user_prefs:', e.message); }
     // Thème visuel (mode sombre) : NULL = valeur par défaut du navigateur.
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS theme VARCHAR(10) DEFAULT NULL`); } catch (e) {}
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
-  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus,
+  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download,
 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign } from './types';
@@ -217,6 +217,13 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [esign, setEsign] = useState<AiFeatureUi>(emptyAiFeature());
   const [esignCandidates, setEsignCandidates] = useState<AiEvaluatorRef[]>([]);
 
+  // Note à l'attention de la Direction générale : éditable par les administrateurs du module.
+  const [dgNote, setDgNote] = useState('');
+  const [showDgNote, setShowDgNote] = useState(false);
+  const [dgNoteDraft, setDgNoteDraft] = useState('');
+  const [dgNoteSaving, setDgNoteSaving] = useState(false);
+  const [dgNoteMsg, setDgNoteMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const loadCampaigns = useCallback(async () => {
     try {
       const r = await axios.get('/api/entretiens/campaigns', { headers });
@@ -237,6 +244,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     try {
       const r = await axios.get('/api/entretiens/settings', { headers });
       setOrganizer(r.data.calendar_organizer_email || '');
+      setDgNote(r.data.dg_note || '');
       const remote = r.data.ai || {};
       const toUi = (feature: AiFeatureKey, prev: AiFeatureUi): AiFeatureUi => ({
         ...prev,
@@ -468,10 +476,53 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     }
   };
 
+  const openDgNote = () => {
+    setDgNoteDraft(dgNote);
+    setDgNoteMsg(null);
+    setShowDgNote(true);
+  };
+
+  const saveDgNote = async () => {
+    setDgNoteSaving(true); setDgNoteMsg(null);
+    try {
+      const r = await axios.put('/api/entretiens/settings', { dg_note: dgNoteDraft }, { headers });
+      setDgNote(r.data.dg_note || dgNoteDraft);
+      setDgNoteMsg({ ok: true, text: 'Note enregistrée.' });
+      onChanged?.();
+    } catch (e) {
+      setDgNoteMsg({ ok: false, text: axios.isAxiosError(e) ? (e.response?.data?.message || 'Enregistrement impossible.') : 'Enregistrement impossible.' });
+    } finally { setDgNoteSaving(false); }
+  };
+
+  const downloadDgNote = () => {
+    const blob = new Blob([dgNoteDraft || dgNote], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'NOTE-DG-ENTRETIENS-PROFESSIONNELS.md';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
+      </div>
+
+      <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
+            <FileText size={17} color={COLORS.primary} /> Note à l'attention de la Direction générale
+          </div>
+          <button style={btnGhost} onClick={openDgNote}>
+            <FileText size={14} /> Ouvrir / modifier la note
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 6 }}>
+          Note de cadrage sur le fonctionnement des entretiens professionnels, les valideurs, le papier et le dématérialisé, les bénéfices et la DPD.
+          Le texte est éditable et conservé pour les prochains administrateurs.
+        </div>
       </div>
 
       {/* Base des agents à évaluer (classeur « Outil CREP DSI ») */}
@@ -697,6 +748,42 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 14 }}>
         Campagnes existantes : {campaigns.map(c => `${c.libelle || c.annee} (${formatDateFr(c.date_limite_ep)})`).join(' · ') || 'aucune'}
       </div>
+
+      {showDgNote && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}
+          onMouseDown={e => { if (e.target === e.currentTarget) setShowDgNote(false); }}>
+          <div style={{ ...card, width: '100%', maxWidth: 1000, padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, fontWeight: 800, color: COLORS.text }}>
+                <FileText size={18} color={COLORS.primary} /> Note à l'attention de la Direction générale
+              </div>
+              <button style={btnGhost} onClick={() => setShowDgNote(false)}>Fermer</button>
+            </div>
+            <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 10 }}>
+              Vous pouvez modifier librement le texte ci-dessous. Il est enregistré dans l'outil et sera présenté aux administrateurs suivants.
+              Le format Markdown est conservé.
+            </div>
+            <textarea
+              value={dgNoteDraft}
+              onChange={e => setDgNoteDraft(e.target.value)}
+              spellCheck={false}
+              style={{ ...input, minHeight: '58vh', fontFamily: 'Consolas, Monaco, monospace', fontSize: 12.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}
+            />
+            {dgNoteMsg && (
+              <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 12.5, fontWeight: 600, color: dgNoteMsg.ok ? COLORS.success : COLORS.danger }}>
+                {dgNoteMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {dgNoteMsg.text}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
+              <button style={btnGhost} onClick={downloadDgNote}><Download size={14} /> Télécharger .md</button>
+              <button style={btnGhost} onClick={() => setShowDgNote(false)}>Annuler</button>
+              <button style={btnPrimary} disabled={dgNoteSaving} onClick={saveDgNote}>
+                {dgNoteSaving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

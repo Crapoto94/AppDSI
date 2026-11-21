@@ -2,10 +2,13 @@ const { pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const sedit = require('./sedit-commandes.service');
 const mentionsSvc = require('../mentions/mentions.service');
+const apmMail = require('../../shared/apm_mail');
+const { getAppBaseUrl } = require('../../shared/app_url');
 
 const MODULE = 'demandes_commande';
 const STATUT_DEVIS = 'devis_pris_en_compte';
 const STATUT_VALIDEE = 'validee';
+const STATUT_REFUSEE = 'refusee';
 
 // Gestionnaires : opérations de modification du module compta (rôle « compta » inclus)
 const isManager = (user) => ['superadmin', 'admin', 'finances', 'compta'].includes(user?.role);
@@ -36,6 +39,7 @@ async function canEdit(user, demande) {
 const normSection = (v) => { const x = String(v || '').trim().toUpperCase(); return x === 'F' || x === 'I' ? x : null; };
 
 const eur = (n) => Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Catégories de pièces : « devis » (à la création) ; les autres s'ajoutent une fois la commande envoyée au tiers.
 const DOC_CATEGORIES = { bon_livraison: 'Bon de livraison', facture: 'Facture', autre: 'Autre document' };
@@ -223,7 +227,7 @@ module.exports = {
     async me(req, res) {
         try {
             const fonction = await getValidateurRole(req.user);
-            res.json({ can_validate: !!fonction, fonction, can_manage: isManager(req.user), can_delete: await canDelete(req.user) });
+            res.json({ can_validate: !!fonction, can_refuse: isManager(req.user) || !!fonction, fonction, can_manage: isManager(req.user), can_delete: await canDelete(req.user) });
         } catch (e) {
             res.status(500).json({ message: e.message });
         }
@@ -454,6 +458,86 @@ module.exports = {
             res.json({ message: 'Demande validée' });
         } catch (e) {
             res.status(500).json({ message: 'Erreur validation', error: e.message });
+        }
+    },
+
+    // Refus d'une demande en attente : motif obligatoire, envoyé par e-mail au demandeur, puis classement en « refusées ».
+    async refuse(req, res) {
+        try {
+            const fonction = await getValidateurRole(req.user);
+            if (!fonction && !isManager(req.user)) return res.status(403).json({ message: 'Refus réservé aux validateurs, aux administrateurs et aux finances.' });
+            const id = parseInt(req.params.id, 10);
+            const raison = String(req.body?.raison || '').trim();
+            if (!raison) return res.status(400).json({ message: 'Le motif du refus est obligatoire.' });
+
+            const d = (await pool.query('SELECT * FROM finance.demandes_commande WHERE id = $1', [id])).rows[0];
+            if (!d) return res.status(404).json({ message: 'Demande introuvable' });
+            if (d.statut !== STATUT_DEVIS) {
+                return res.status(409).json({ message: d.statut === STATUT_REFUSEE ? 'Cette demande est déjà refusée.' : 'Cette demande a déjà été traitée.' });
+            }
+
+            const upd = await pool.query(
+                `UPDATE finance.demandes_commande
+                    SET statut = $1, refuse_raison = $2, refuse_par = $3, refuse_fonction = $4,
+                        refuse_at = NOW(), refuse_mail_sent_at = NULL, refuse_mail_error = NULL,
+                        modifie_par = $3, modifie_at = NOW()
+                  WHERE id = $5 AND statut = $6`,
+                [STATUT_REFUSEE, raison, req.user.username, fonction, id, STATUT_DEVIS]
+            );
+            if (!upd.rowCount) return res.status(409).json({ message: 'Demande déjà traitée ou statut modifié entre-temps.' });
+
+            let email = String(d.demandeur_email || '').trim();
+            if (!email && d.demandeur_username) {
+                try {
+                    const u = await pool.query('SELECT email FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1', [d.demandeur_username]);
+                    email = String(u.rows[0]?.email || '').trim();
+                } catch (e) { /* table absente : on continue sans e-mail */ }
+            }
+
+            let mailSent = false;
+            let mailError = '';
+            if (!email) {
+                mailError = "Adresse e-mail du demandeur inconnue.";
+                await pool.query('UPDATE finance.demandes_commande SET refuse_mail_error = $1 WHERE id = $2', [mailError, id]);
+            } else {
+                try {
+                    const base = await getAppBaseUrl();
+                    const link = `${String(base || '').replace(/\/+$/, '')}/budget/demandes?demande=${id}`;
+                    const auteur = authorName(req.user);
+                    await apmMail.sendMail({
+                        to: email,
+                        subject: `Demande de commande refusée - ${d.designation}`,
+                        content: `<p>Bonjour,</p>
+                            <p>Votre demande de commande <strong>${esc(d.designation)}</strong> (${esc(eur(d.montant))} TTC) a été <strong>refusée</strong>.</p>
+                            <p><strong>Motif du refus :</strong><br>${esc(raison).replace(/\n/g, '<br>')}</p>
+                            <p>Refus prononcé par ${esc(auteur)}${fonction ? ` (${esc(fonction.toUpperCase())})` : ''}.</p>
+                            <p><a href="${esc(link)}">Consulter la demande dans DSI Hub</a></p>
+                            <p style="color:#64748b;font-size:12px">Vous pouvez répondre dans le fil de la demande pour demander des précisions.</p>`,
+                        attachments: [],
+                    });
+                    mailSent = true;
+                    await pool.query('UPDATE finance.demandes_commande SET refuse_mail_sent_at = NOW() WHERE id = $1', [id]);
+                } catch (e) {
+                    mailError = e.message;
+                    await pool.query('UPDATE finance.demandes_commande SET refuse_mail_error = $1 WHERE id = $2', [String(mailError).slice(0, 1000), id]);
+                }
+            }
+
+            await pool.query(
+                `INSERT INTO finance.demandes_commande_commentaires (demande_id, author_username, author_name, content, is_system)
+                 VALUES ($1,$2,$3,$4,TRUE)`,
+                [id, req.user.username, authorName(req.user),
+                    `Demande refusée par ${authorName(req.user)}${fonction ? ` (${fonction.toUpperCase()})` : ''} : ${raison}${mailSent ? ' — motif envoyé par e-mail au demandeur.' : ` — e-mail non envoyé : ${mailError || 'erreur inconnue'}`}`]
+            );
+
+            res.json({
+                message: mailSent
+                    ? 'Demande refusée. Le motif a été envoyé au demandeur par e-mail.'
+                    : 'Demande refusée, mais le motif n’a pas pu être envoyé par e-mail.',
+                mail_sent: mailSent, mail_error: mailError || null,
+            });
+        } catch (e) {
+            res.status(500).json({ message: 'Erreur refus de la demande', error: e.message });
         }
     },
 

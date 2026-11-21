@@ -97,11 +97,11 @@ async function listModels() {
 }
 
 /**
- * POST .../query { prompt, model? } — renvoie le texte de la réponse IA.
+ * POST .../query { prompt, model?, attachments?, max_tokens?, temperature?, providers?, pdf_mode? } — renvoie le texte de la réponse IA.
  * La forme exacte du JSON de retour n'étant pas garantie, on essaie les clés
  * usuelles avant de retomber sur le corps brut.
  */
-async function queryAi(prompt, model) {
+async function queryAi(prompt, model, extra) {
     const cfg = await getConfig();
     const url = buildUrl(cfg, '/query');
     const headerName = cfg.header_name || 'X-API-KEY';
@@ -119,7 +119,8 @@ async function queryAi(prompt, model) {
         const resp = await safeFetch(url, {
             method: 'POST',
             headers: { [headerName]: cfg.api_key, 'Content-Type': 'application/json' },
-            body: JSON.stringify(model ? { prompt, model } : { prompt }),
+            // `extra` (facultatif) : attachments (images / PDF en base64, lus par un modèle multimodal), max_tokens, temperature, providers, pdf_mode…
+            body: JSON.stringify({ prompt, ...(model ? { model } : {}), ...(extra && typeof extra === 'object' ? extra : {}) }),
             signal: ctrl.signal,
         });
         const rawText = await resp.text();

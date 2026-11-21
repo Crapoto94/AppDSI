@@ -521,6 +521,16 @@ async function syncEntretiens({ matricules, actor } = {}) {
                 }
                 continue;
             }
+            const agentEmail = text(a.email).toLowerCase();
+            if (agentEmail) {
+                const dup = await pgDb.get(
+                    'SELECT agent_nom, agent_matricule FROM hub_entretiens.entretiens WHERE campaign_id = ? AND LOWER(agent_email) = ? AND agent_matricule <> ? AND deleted_at IS NULL LIMIT 1',
+                    [campaign.id, agentEmail, a.matricule]);
+                if (dup) {
+                    out.erreurs.push(`${a.nom_prenom} : l’adresse ${agentEmail} est déjà utilisée par ${dup.agent_nom} (${dup.agent_matricule}). Ouvrez « Changer (AD) » et enlevez l’adresse en doublon.`);
+                    continue;
+                }
+            }
             const ev = { username: text(a.v_username), email: text(a.v_email).toLowerCase(), nom: evalName({ nom: a.v_nom, prenom: a.v_prenom, nom_prenom: a.v_nom_prenom }) };
             if (existing) {
                 if (hasProgress(existing)) { out.deja_commences++; continue; }
