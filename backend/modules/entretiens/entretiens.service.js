@@ -302,6 +302,10 @@ async function buildAccess(actor, entretien, adminFlag) {
     if (!admin && !isAgent && !isEvaluator && !isSuperieur) isSuperieur = await require('../ep-base/ep-base.service').isAboveInBase(actor, entretien).catch(() => false);
     if (!admin && !isAgent && !isEvaluator && !isSuperieur && !isPlanner) return null;
 
+    // Valideur SANS adresse e-mail (donc sans accès à l'outil) : son N+1 (valideur placé au-dessus de lui) agit à sa place —
+    // planifier, saisir/importer le compte rendu papier, imprimer, téléverser le CREP manuscrit signé. Les autres N+1 restent en lecture seule.
+    const isDelegate = !!(isSuperieur && !isEvaluator && !admin && !norm(entretien.evaluator_email));
+
     // « Mon entretien » est fermé par défaut : l'agent ne voit son espace que
     // s'il a été explicitement autorisé (l'évaluateur et l'administrateur du
     // module gardent leur propre accès).
@@ -326,13 +330,14 @@ async function buildAccess(actor, entretien, adminFlag) {
     return {
         isAdmin: admin,
         isAgent,
-        isEvaluator,
+        isEvaluator: isEvaluator || isDelegate,
+        isDelegate,
         isSuperieur,
         isPlanner,
-        canPlan: isEvaluator || admin || isPlanner,
+        canPlan: isEvaluator || isDelegate || admin || isPlanner,
         canEditPreparation,
         // Une fois le compte rendu envoyé à l'agent, l'évaluateur ne peut plus le modifier.
-        canEditEvaluation: (isEvaluator || admin) && entretien.statut !== 'cloture' && (!entretien.crep_statut || entretien.crep_statut === 'non_envoye'),
+        canEditEvaluation: (isEvaluator || isDelegate || admin) && entretien.statut !== 'cloture' && (!entretien.crep_statut || entretien.crep_statut === 'non_envoye'),
     };
 }
 

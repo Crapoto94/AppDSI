@@ -90,6 +90,27 @@ function ProgressTree({ rows }: { rows: Entretien[] }) {
   );
 }
 
+/** Valideur sans adresse e-mail : il n’utilise pas l’outil, ses EP sont gérés (planification, saisie, scan signé) par son N+1. */
+const sansMailValideur = (e: Entretien) => !(e.evaluator_email || '').trim();
+
+/** Où en est le compte rendu après sa validation : à envoyer / à imprimer, chez l’agent, en signature, signé. */
+function crepEtat(e: Entretien): { label: string; hint?: string; color: string; bg: string } | null {
+  if (e.evaluation_statut !== 'soumis') return null;
+  const cs = e.crep_statut || 'non_envoye';
+  if (cs === 'signe_papier') return { label: 'Signé (papier)', hint: 'CREP manuscrit archivé', color: '#065f46', bg: '#d1fae5' };
+  if (cs === 'envoye_agent') return { label: 'Chez l’agent', hint: 'En attente de sa relecture et de sa validation', color: '#6b21a8', bg: '#f3e8ff' };
+  if (cs === 'en_signature') {
+    const ps = e.crep_parapheur_status || '';
+    if (ps === 'termine') return { label: 'Signé', hint: 'Parapheur terminé', color: '#065f46', bg: '#d1fae5' };
+    if (ps === 'refuse' || ps === 'annule') return { label: ps === 'refuse' ? 'Signature refusée' : 'Signature annulée', hint: 'Reprendre : envoyer de nouveau ou passer au papier', color: '#991b1b', bg: '#fee2e2' };
+    return { label: 'En signature', hint: 'Parapheur en cours', color: '#9a3412', bg: '#ffedd5' };
+  }
+  const paper = !(e.agent_email || '').trim() || sansMailValideur(e);
+  return paper
+    ? { label: 'À imprimer et signer', hint: 'Circuit papier : imprimer, faire signer, scanner', color: '#92400e', bg: '#fef3c7' }
+    : { label: 'À envoyer', hint: 'Cliquer sur « Envoyer à l’agent » (ou passer au papier)', color: '#1e40af', bg: '#dbeafe' };
+}
+
 export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false, canReset = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean; canReset?: boolean }) {
   const { token } = useAuth();
   const [confirm, confirmDialog] = useConfirm();
@@ -467,6 +488,11 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                               <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
                                 {node.items.length} agent{node.items.length > 1 ? 's' : ''} évalué{node.items.length > 1 ? 's' : ''}
                               </span>
+                              {!pilotage && node.items.length > 0 && node.items.every(sansMailValideur) && (
+                                <span title="Ce valideur n’a pas d’adresse e-mail : il n’utilise pas l’outil. C’est à vous de planifier, saisir ou importer les comptes rendus et de téléverser les CREP signés." style={{ fontSize: 11, fontWeight: 800, color: '#92400e', background: '#fef3c7', borderRadius: 999, padding: '1px 8px' }}>
+                                  Valideur sans e-mail : vous gérez ses EP
+                                </span>
+                              )}
                             </div>
                             {agent && (
                               <div style={{ marginTop: 4, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5, color: '#64748b' }}>
@@ -508,7 +534,10 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                         ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#475569' }}><Mail size={12} />{e.agent_email}</span>
                         : <button style={{ ...btnGhost, padding: '3px 7px', fontSize: 11 }} onClick={() => setLinkFor(e)} title="Rattacher un compte AD"><Link2 size={12} /> Lier l’AD</button>}
                     </Td>
-                    {readOnly && <Td><span style={{ fontSize: 12.5, color: '#334155' }}>{e.evaluator_nom || e.evaluator_email || '—'}</span></Td>}
+                    {readOnly && <Td>
+                      <span style={{ fontSize: 12.5, color: '#334155' }}>{e.evaluator_nom || e.evaluator_email || '—'}</span>
+                      {sansMailValideur(e) && <div title="Ce valideur n’a pas d’adresse e-mail : ses EP sont gérés par son N+1" style={{ marginTop: 3, fontSize: 10.5, fontWeight: 800, color: '#92400e', background: '#fef3c7', borderRadius: 6, padding: '1px 6px', display: 'inline-block' }}>Sans e-mail · géré par son N+1</div>}
+                    </Td>}
                     <Td>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', color: e.date_entretien ? '#334155' : '#94a3b8' }}>
                         <CalendarClock size={13} /> {formatDateCourte(e.date_entretien)}
@@ -518,14 +547,22 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                     {(pilotage || readOnly) && <Td><span style={{ fontSize: 12, color: '#475569' }}>{(e.modele || '').replace(/^Template_/i, '') || '—'}</span></Td>}
                     <Td>
                       {e.evaluation_statut === 'soumis'
-                        ? <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11.5, color: COLORS.success, fontWeight: 700 }}><ClipboardCheck size={13} /> Validé</span>
+                        ? (() => {
+                          const c = crepEtat(e);
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                              <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11.5, color: COLORS.success, fontWeight: 700 }}><ClipboardCheck size={13} /> Validé</span>
+                              {c && <span title={c.hint} style={{ fontSize: 11, fontWeight: 800, color: c.color, background: c.bg, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>{c.label}</span>}
+                            </div>
+                          );
+                        })()
                         : e.evaluation_statut === 'brouillon'
                           ? <span style={{ fontSize: 11.5, color: COLORS.warning, fontWeight: 700 }}>Brouillon</span>
                           : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>À faire</span>}
                     </Td>
                     <Td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                        {!readOnly && !['realise', 'cloture'].includes(e.statut) && (
+                        {(!readOnly || (!pilotage && sansMailValideur(e))) && !['realise', 'cloture'].includes(e.statut) && (
                           <button style={e.date_entretien ? btnGhost : btnPrimary} onClick={() => setPlanning(e)}>
                             <CalendarClock size={13} /> {e.date_entretien ? 'Modifier le RDV' : 'Planifier'}
                           </button>
@@ -550,7 +587,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                           </button>
                         )}
                         <button style={btnGhost} onClick={() => setOpenId(e.id)}>
-                          <Eye size={13} /> {readOnly || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
+                          <Eye size={13} /> {(readOnly && !(!pilotage && sansMailValideur(e))) || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
                         </button>
                       </div>
                     </Td>

@@ -436,7 +436,8 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                   <>Pendant l'entretien : écrire à la main, comme avant.</>,
                   <>Après : ouvrir « Saisir l'EP » et, au choix :
                     <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                      <li><strong>Option rapide :</strong> cliquer sur <strong>« Importer un compte rendu papier (scan) »</strong>, choisir le scan. L'outil lit l'écriture et <strong>propose</strong> un texte. <strong>Relisez et corrigez</strong> : il peut se tromper. Puis « Appliquer au formulaire ».</li>
+                      <li><strong>Option rapide (lecture par l'IA interne) :</strong> cliquer sur <strong>« Importer un compte rendu papier (scan) »</strong>, choisir le scan (PDF ou photos JPG/PNG, 6 pages lues au maximum, 25 Mo au maximum). L'IA de la Ville lit l'écriture manuscrite et <strong>propose</strong> un texte rangé dans les bonnes rubriques ; les données ne quittent pas le réseau de la Ville. <strong>Relisez et corrigez</strong> : elle peut se tromper sur une écriture difficile (les mots illisibles sont marqués « [illisible] »). <strong>Elle ne reconnaît pas les cases cochées de la grille d'appréciation</strong> : à cocher vous-même. Puis « Appliquer au formulaire ». Rien n'est enregistré tant que vous n'avez pas validé.
+                        <div style={{ marginTop: 4, color: '#64748b' }}>Pour un meilleur résultat : scan à plat, bien éclairé, en noir et blanc ou couleur à 200–300 dpi, pages dans l'ordre, écriture lisible.</div></li>
                       <li><strong>Option sûre :</strong> recopier vous-même les rubriques dans l'outil.</li>
                     </ul>
                   </>,
@@ -489,6 +490,25 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               </Callout>
             </Section>
 
+            <Section icon={<Users size={15} color={COLORS.primary} />} title="Cas particulier — vous êtes le N+1 d'un valideur qui n'a pas d'e-mail">
+              <div style={{ marginBottom: 8 }}>
+                Certains valideurs n'ont <strong>pas d'adresse e-mail</strong> : ils ne se connectent pas à MagApp. <strong>Leur N+1 (le valideur placé au-dessus d'eux) fait le travail à leur place</strong>, pour les agents qu'ils évaluent.
+              </div>
+              <Gestes items={[
+                <>Ouvrir l'onglet <strong>« EP de mon équipe »</strong> et cliquer sur <strong>« Tout déplier »</strong>.</>,
+                <>Repérer le valideur marqué <strong>« Valideur sans e-mail : vous gérez ses EP »</strong>. Ses agents portent la mention « Sans e-mail · géré par son N+1 ».</>,
+                <>Sur la ligne d'un agent, vous avez les boutons <strong>« Planifier »</strong> et <strong>« Saisir l'EP »</strong> (au lieu de « Ouvrir »), exactement comme pour vos propres agents.</>,
+                <>Après l'entretien (mené par le valideur, sur le CREP papier), <strong>importez son compte rendu papier</strong> (« Importer un compte rendu papier (scan) ») ou recopiez-le, puis <strong>« Valider le compte rendu »</strong>.</>,
+                <>Faites signer le papier, scannez les 4 pages et cliquez sur <strong>« CREP manuscrit (4 pages scannées) »</strong>.</>,
+              ]} />
+              <Callout tone="info" title="Toujours le circuit papier">
+                Sans e-mail du valideur, il n'y a ni invitation Outlook pour lui, ni signature électronique : c'est normal. Le résultat (CREP signé archivé) est identique, et chaque action est tracée à <strong>votre</strong> nom dans le Journal.
+              </Callout>
+              <Callout tone="warn" title="Pas de relance automatique pour ces EP">
+                Les e-mails de rappel partent aux valideurs qui ont une adresse. Pour les EP gérés par délégation, <strong>c'est vous qui les suivez</strong> : la colonne « Compte rendu » de « EP de mon équipe » vous dit où ils en sont.
+              </Callout>
+            </Section>
+
             <Section icon={<History size={15} color={COLORS.primary} />} title="Les statuts : que veulent-ils dire ?">
               <StatusSchema />
               <Shot src="/aide-ep/06-statuts.jpg" caption="Dans « Tous », les EP réalisés : statut « Réalisé », compte rendu « Validé », et le bouton « CREP signé » quand le papier est archivé" />
@@ -499,6 +519,15 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div><strong>Envoyé à l'agent</strong> : l'agent doit relire et valider. Action : attendre (ou rappeler).</div>
                 <div><strong>En signature</strong> : le parapheur attend les signatures. Action : signer de votre côté.</div>
                 <div><strong>Signé / Signé papier</strong> : terminé et archivé. Aucune action.</div>
+              </div>
+              <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 4px' }}>La colonne « Compte rendu » de la liste</div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div><strong>Validé</strong> + <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À envoyer</span> : à vous d'envoyer à l'agent (circuit électronique) ou d'imprimer.</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À imprimer et signer</span> : circuit papier (agent ou valideur sans e-mail).</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#f3e8ff', color: '#6b21a8', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Chez l'agent</span> : l'agent doit relire et valider. Vous pouvez rappeler tant qu'il n'a pas validé.</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#ffedd5', color: '#9a3412', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>En signature</span> : le parapheur attend les signatures.</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signature refusée / annulée</span> : reprendre en renvoyant, ou passer au papier.</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signé / Signé (papier)</span> : terminé.</div>
               </div>
             </Section>
 
