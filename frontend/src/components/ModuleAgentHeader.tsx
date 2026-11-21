@@ -296,7 +296,7 @@ const ModuleAgentHeader: React.FC<Props> = ({
         </div>
 
         {showHelp && (
-            <div className="mah-help-overlay" onClick={() => setShowHelp(false)}>
+            <div className="mah-help-overlay">
                 <div className="mah-help-modal" onClick={e => e.stopPropagation()}>
                     <div className="mah-help-head">
                         <span><HelpCircle size={18} color="#0078a4" /> Aide — {title}</span>

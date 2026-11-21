@@ -200,7 +200,7 @@ const NoteTasksModal: React.FC<Props> = ({ noteId, noteTitle, suggestions, token
   };
 
   return (
-    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={overlay}>
       <div style={modal}>
         <div style={header}>
           <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>

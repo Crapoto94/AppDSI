@@ -12,8 +12,7 @@ export default function DocViewerModal({ title, items, loading, error, onClose }
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.8)', zIndex: 3200, display: 'flex', flexDirection: 'column', padding: 12 }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.8)', zIndex: 3200, display: 'flex', flexDirection: 'column', padding: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#fff', borderRadius: '10px 10px 0 0' }}>
         <div style={{ fontWeight: 800, fontSize: 14, color: COLORS.text, flex: 1 }}>{title}</div>
         <button style={btnGhost} onClick={onClose}><X size={14} /> Fermer</button>

@@ -279,7 +279,7 @@ export default function Sortie() {
 
       {/* Modale de remise (signature destinataire) */}
       {deliverFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 12 }} onClick={() => setDeliverFor(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 12 }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: 18, width: '100%', maxWidth: 460 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <strong>Remise — Sortie #{deliverFor.id}</strong>

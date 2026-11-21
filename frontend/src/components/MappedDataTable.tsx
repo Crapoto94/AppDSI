@@ -1078,7 +1078,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       )}
 
       {assignModal && (
-        <div className="mdt-modal-overlay" onClick={() => { setAssignModal(null); setOpSearch(''); setOpFilter(null); }}>
+        <div className="mdt-modal-overlay">
           <div className="mdt-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <h3 style={{ margin: '0 0 16px', fontSize: '16px' }}>Associer à une opération</h3>
             <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
@@ -1123,7 +1123,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       )}
 
       {appModal && (
-        <div className="mdt-modal-overlay" onClick={() => { setAppModal(null); setAppSearch(''); }}>
+        <div className="mdt-modal-overlay">
           <div className="mdt-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <h3 style={{ margin: '0 0 16px', fontSize: '16px' }}>Associer à un logiciel métier</h3>
             <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>

@@ -89,7 +89,7 @@ export default function CrisisForum({ displayName, pinned, narrow, topOffset, de
   );
 
   return (
-    <div style={pinned ? undefined : { position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.45)' }} onClick={pinned ? undefined : onClose}>
+    <div style={pinned ? undefined : { position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.45)' }}>
       <div onClick={e => e.stopPropagation()} style={pinned
         ? { position: 'fixed', top: topOffset, right: 0, bottom: 0, width: FORUM_PIN_WIDTH, zIndex: 998, background: '#fff', color: '#1e293b', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #cbd5e1', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)' }
         : { width: `min(${FORUM_OVERLAY_WIDTH}px, 100vw)`, height: '100%', background: '#fff', color: '#1e293b', display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 30px rgba(0,0,0,0.2)' }}>

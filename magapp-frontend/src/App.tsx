@@ -2947,7 +2947,6 @@ function App() {
 
       {showFormChooser && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}
-          onClick={() => setShowFormChooser(false)}
         >
           <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '680px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -3535,7 +3534,7 @@ Je confirme l'incident
       )}
       {/* Library Modal */}
       {showLibrary && selectedAppForDocs && (
-        <div className="modal-overlay" onClick={() => setShowLibrary(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

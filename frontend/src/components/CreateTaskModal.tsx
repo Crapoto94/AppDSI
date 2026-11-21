@@ -106,7 +106,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-    }} onClick={onClose}>
+    }}>
       <div style={{
         background: '#fff', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflow: 'auto'
       }} onClick={e => e.stopPropagation()}>
@@ -279,7 +279,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
 
       {pendingAbsentAgent && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}
-          onClick={e => { e.stopPropagation(); setPendingAbsentAgent(null); }}>
+          onClick={e => e.stopPropagation()}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 22 }}>⚠️</span>

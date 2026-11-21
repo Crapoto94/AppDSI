@@ -215,7 +215,6 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', zIndex: 9200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div style={{ background: 'white', borderRadius: 16, padding: '28px 28px 24px', width: '100%', maxWidth: 520, boxShadow: '0 20px 40px rgba(0,0,0,0.2)', maxHeight: '90vh', overflowY: 'auto' }}>
 
@@ -536,7 +535,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 
       {pendingAbsentAgent && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9300 }}
-          onClick={e => { e.stopPropagation(); setPendingAbsentAgent(null); }}>
+          onClick={e => e.stopPropagation()}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 22 }}>⚠️</span>

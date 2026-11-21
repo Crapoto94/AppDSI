@@ -2742,7 +2742,7 @@ const Budget: React.FC = () => {
           const isTiers = view === 'tiers';
           const COLORS = ['', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
           return (
-            <div className="modal-backdrop" onClick={() => { setShowColumnSelector(false); setColorPickerCol(null); }}>
+            <div className="modal-backdrop">
               <div className="modal-window modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
                 <div className="modal-header">
                   <h2 className="modal-title">Personnaliser les colonnes</h2>
@@ -2865,7 +2865,7 @@ const Budget: React.FC = () => {
           );
         })()}
         {appModal && (
-          <div className="modal-backdrop" onClick={() => { setAppModal(null); setAppSearch(''); }}>
+          <div className="modal-backdrop">
             <div className="modal-window" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
               <div className="modal-header">
                 <h2 className="modal-title">Associer à un logiciel métier</h2>
@@ -2917,7 +2917,7 @@ const Budget: React.FC = () => {
           </div>
         )}
         {showM57 && (
-          <div className="modal-backdrop" onClick={() => setShowM57(false)}>
+          <div className="modal-backdrop">
             <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Référentiel M57</h2>
@@ -2971,7 +2971,7 @@ const Budget: React.FC = () => {
         )}
 
         {showOpSelector && (
-          <div className="modal-backdrop" onClick={() => setShowOpSelector(false)}>
+          <div className="modal-backdrop">
             <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Affecter une opération</h2>
@@ -3042,7 +3042,7 @@ const Budget: React.FC = () => {
         )}
 
         {showAttachments && activeAttachmentTarget && (
-          <div className="modal-backdrop" onClick={() => setShowAttachments(false)}>
+          <div className="modal-backdrop">
             <div className="modal-window modal-lg" style={{ maxWidth: '1000px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Pièce Jointe : {activeAttachmentTarget.id}</h2>

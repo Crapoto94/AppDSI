@@ -1658,7 +1658,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {editRequest && (
-          <div onClick={() => !editSaving && setEditRequest(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 14, width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ margin: 0, fontSize: 17, color: '#1e293b' }}>Modifier la demande n°{editRequest.id}</h3>
@@ -1762,7 +1762,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                 position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                 background: 'rgba(0, 0, 0, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 zIndex: 1000
-              }} onClick={() => { setShowCatalogForm(false); setEditingArticle(null); setCatalogFormData({ type_id: 0, designation: '', article: '', code_fabricant: '', ref_commande: '' }); }}>
+              }}>
                 <div style={{
                   background: 'white', borderRadius: 16, padding: 32, maxWidth: 500, width: '90%',
                   boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto'

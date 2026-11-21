@@ -687,7 +687,6 @@ const BpmnEditor: React.FC = () => {
 
       {pickerOpen && (
         <div
-          onClick={() => setPickerOpen(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
         >
           <div

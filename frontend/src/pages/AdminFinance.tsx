@@ -445,7 +445,7 @@ const AdminFinance: React.FC = () => {
 
         <div className="fm-main">
           {editingRubrique && (
-            <div className="fm-modal-overlay" onClick={() => setEditingRubrique(null)}>
+            <div className="fm-modal-overlay">
               <div className="fm-modal" onClick={e => e.stopPropagation()}>
                 <h3>Modifier la rubrique</h3>
                 <label>Nom</label>

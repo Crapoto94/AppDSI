@@ -1727,7 +1727,7 @@ const MagappAdmin: React.FC = () => {
 
               {/* Modal tickets par logiciel */}
               {infoModal && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setInfoModal(null)}>
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
                   <div style={{ background: '#fff', borderRadius: 14, width: 'min(560px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #eef1f6' }}>
                       <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>{infoModal.title} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({infoItems.length})</span></h3>
@@ -1754,7 +1754,7 @@ const MagappAdmin: React.FC = () => {
 
               {/* Modal documents par logiciel */}
               {showDocsModal && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowDocsModal(false)}>
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
                   <div style={{ background: '#fff', borderRadius: 14, width: 'min(620px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #eef1f6' }}>
                       <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>Documents — {docsModalAppName} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({docsModalData.length})</span></h3>
@@ -1800,7 +1800,6 @@ const MagappAdmin: React.FC = () => {
               {ticketModal && (
                 <div
                   style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-                  onClick={() => setTicketModal(null)}
                 >
                   <div
                     style={{ background: '#fff', borderRadius: 16, width: 680, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}
@@ -2897,7 +2896,7 @@ const MagappAdmin: React.FC = () => {
 
       {/* Visionneuse de document */}
       {showDocViewer && activeDoc && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100 }} onClick={() => setShowDocViewer(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100 }}>
           <div style={{ background: '#fff', borderRadius: 16, width: '95vw', maxWidth: 1200, height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}>
               <div>

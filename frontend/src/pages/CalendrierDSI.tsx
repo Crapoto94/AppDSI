@@ -2266,7 +2266,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2>{readonly ? 'Détail' : editingEvent ? 'Modifier' : 'Ajouter'} un événement</h2>
 
@@ -2320,7 +2320,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Agent quick-select modal */}
       {showAgentSelect && (
-        <div className="modal-overlay" onClick={() => setShowAgentSelect(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: '90vh', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             {/* Header */}
             <div style={{ padding: '28px 28px 20px', borderBottom: '1px solid #e2e8f0', background: 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)' }}>
@@ -2434,7 +2434,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Send calendar modal */}
       {showSendModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowSendModal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
               <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📧</div>
@@ -2499,7 +2499,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* O365 Calendar Modal */}
       {showO365Modal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowO365Modal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: 20, padding: 30, width: '90%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
@@ -2558,7 +2558,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Prévisionnel Modal */}
       {showPrevModal && prevAgent && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowPrevModal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '90%', maxWidth: 420, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>Prévisionnel — {prevAgent.nom}</h2>
@@ -2620,7 +2620,7 @@ const renderDot = (evt: Evenement) => {
         const evt = events.find(e => e.id === confirmDelete);
         const isSeries = evt && evt.agent_username && evt.categorie !== 'teletravail';
         return (
-        <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
+        <div className="confirm-overlay">
           <div className="confirm-box" onClick={e => e.stopPropagation()}>
             <h3>Confirmer la suppression</h3>
             <p>Êtes-vous sûr de vouloir supprimer cet événement ?</p>
@@ -2636,7 +2636,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Manager Modal */}
       {showManagerModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowManagerModal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: 20, padding: 30, width: '90%', maxWidth: 500, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
@@ -2683,7 +2683,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Vacances Modal */}
       {showVacancesModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowVacancesModal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '90%', maxWidth: 480, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}><span style={{ fontSize: '1.4rem' }}>🎉</span> Vacances et jours fériés</h2>
@@ -2722,7 +2722,7 @@ const renderDot = (evt: Evenement) => {
 
       {/* Cumul télétravail Modal */}
       {showCumulModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowCumulModal(false)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }}>
           <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '95%', maxWidth: 1100, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>

@@ -42,7 +42,6 @@ export default function AppDialogHost() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onMouseDown={e => { if (e.target === e.currentTarget && cur.kind !== 'alert') done(false); }}
       onKeyDown={e => { if (e.key === 'Escape') done(false); if (e.key === 'Enter' && cur.kind !== 'prompt') done(true); }}>
       <div role="dialog" aria-modal="true" style={{ background: '#fff', color: '#1e293b', width: '100%', maxWidth: 460, borderRadius: 14, boxShadow: '0 25px 50px -12px rgba(0,0,0,.4)', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px 4px', fontWeight: 800, fontSize: 15 }}>{title}</div>

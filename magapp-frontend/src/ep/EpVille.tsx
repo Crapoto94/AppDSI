@@ -408,8 +408,7 @@ function ValideursAdmin() {
 
 function Overlay({ title, onClose, children, width = 620 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '28px 16px', overflowY: 'auto' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '28px 16px', overflowY: 'auto' }}>
       <div style={{ ...card, width: '100%', maxWidth: width }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: `1px solid ${COLORS.border}` }}>
           <div style={{ fontWeight: 800, fontSize: 14.5 }}>{title}</div>
@@ -879,8 +878,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   ].filter(t => t.visible);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}>
       <div style={{ ...card, width: '100%', maxWidth: 1560, background: '#f8fafc' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: '12px 12px 0 0' }}>
           <div>

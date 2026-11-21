@@ -2961,7 +2961,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Fiche historique de facturation d'une ligne (12 mois glissants) */}
       {lineHistoryNumber && (
-        <div className="line-history-overlay" onClick={e => { if (e.target === e.currentTarget) { setLineHistoryNumber(null); setLineHistory(null); } }}>
+        <div className="line-history-overlay">
           <div className="line-history-modal">
             <div className="line-history-header">
               <div>
@@ -3074,7 +3074,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Ajout d'une facture depuis le budget (remplace l'ancien upload PDF) */}
       {showAddInvoiceModal && (
-        <div className="validation-modal-overlay" onClick={() => setShowAddInvoiceModal(false)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '95%', maxWidth: 980, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
@@ -3249,7 +3249,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Rejet / écartement d'une facture du budget */}
       {rejectCandidate && (
-        <div className="validation-modal-overlay" onClick={() => setRejectCandidate(null)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 480, padding: 20 }} onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>Rejeter la facture {rejectCandidate.invoice_number}</h2>
             <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b' }}>
@@ -3291,7 +3291,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Factures rejetées / écartées d'un compte */}
       {rejectedDetail && (
-        <div className="validation-modal-overlay" onClick={() => setRejectedDetail(null)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h2 style={{ margin: 0, fontSize: 16 }}>Factures rejetées — {rejectedDetail.title}</h2>
@@ -3341,7 +3341,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Détail de l'écart import engagements vs total facturé des comptes liés */}
       {commitmentDiff && (
-        <div className="validation-modal-overlay" onClick={() => setCommitmentDiff(null)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h2 style={{ margin: 0, fontSize: 16 }}>Écart engagement {commitmentDiff.commitment_number}</h2>
@@ -3400,7 +3400,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Détail des factures d'une case de la synthèse mensuelle */}
       {viewingCell && (
-        <div className="validation-modal-overlay" onClick={() => setViewingCell(null)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h2 style={{ margin: 0, fontSize: 16 }}>{viewingCell.label}</h2>
@@ -3462,7 +3462,7 @@ const TelecomManagement: React.FC = () => {
 
       {/* Commentaire sur un mois (justifier une absence de facture, par ex.) */}
       {commentEditor && (
-        <div className="validation-modal-overlay" onClick={() => setCommentEditor(null)}>
+        <div className="validation-modal-overlay">
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 420, padding: 20 }} onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Commentaire — {formatMonthKey(commentEditor.month)}</h2>
             <textarea value={commentEditor.value} rows={4} autoFocus

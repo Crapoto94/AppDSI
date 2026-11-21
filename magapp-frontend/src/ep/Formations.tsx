@@ -175,7 +175,7 @@ function Progression({ etat, now }: { etat: NonNullable<Data['etat']>; now: numb
 function ResultatModal({ analyse, types, onClose }: { analyse: Analyse; types: Data['types']; onClose: () => void }) {
   const max = Math.max(1, ...analyse.themes.map(t => t.nb));
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}>
       <div style={{ ...card, width: '100%', maxWidth: 1000, padding: 18 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 800, fontSize: 15, color: COLORS.text, marginBottom: 6 }}>
           <Sparkles size={17} color="#7c3aed" /> Besoins globaux de formation (analyse IA)

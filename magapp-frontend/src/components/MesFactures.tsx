@@ -166,7 +166,7 @@ const ShareDialog: React.FC<{ canShare: boolean; onClose: () => void; onChanged:
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(620px, 100%)', maxHeight: '90vh', overflowY: 'auto', padding: '1.2rem 1.4rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <Share2 size={20} color="#0f766e" /><strong style={{ flex: 1, fontSize: '1.05rem' }}>Partager mes factures</strong>
@@ -721,7 +721,7 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
       {sfDialog && <ServiceFaitDialog rows={sfDialog.rows} mode={sfDialog.mode} onClose={() => setSfDialog(null)} onDone={() => { setReloadKey(k => k + 1); setSelected(new Set()); }} />}
       {piecesRow && <PiecesDialog row={piecesRow} onClose={() => setPiecesRow(null)} />}
       {showChart && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowChart(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(1100px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 10px 0' }}><button onClick={() => setShowChart(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}><X size={20} /></button></div>
             <DgpWeeklyChart year={year} scope={scope} budget={budget} />

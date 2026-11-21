@@ -421,7 +421,6 @@ export default function MailMergeTool({ onClose }: MailMergeToolProps) {
 
       {showSuccess && result && (
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) setShowSuccess(false); }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
         >
           <div style={{ background: '#fff', borderRadius: 18, padding: '26px 28px', maxWidth: 460, width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)' }}>

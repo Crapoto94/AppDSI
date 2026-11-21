@@ -46,7 +46,7 @@ export default function ProblemModal({ groupId, groupName, members, onClose, onC
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000
-    }} onClick={onClose}>
+    }}>
       <div style={{
         background: '#fff', borderRadius: 16, padding: 28, width: 580, maxHeight: '90vh',
         overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)'

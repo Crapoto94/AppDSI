@@ -172,7 +172,6 @@ export function useConfirm() {
   const close = (v: boolean) => { if (state) state.resolve(v); setState(null); };
   const dialog = state ? (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onMouseDown={e => { if (e.target === e.currentTarget) close(false); }}
       onKeyDown={e => { if (e.key === 'Escape') close(false); }}>
       <div role="dialog" aria-modal="true" style={{ ...card, width: '100%', maxWidth: 480, boxShadow: '0 25px 50px -12px rgba(0,0,0,.35)' }}>
         <div style={{ padding: '16px 20px 6px', fontWeight: 800, fontSize: 15, color: COLORS.text }}>{state.title || 'Confirmation'}</div>

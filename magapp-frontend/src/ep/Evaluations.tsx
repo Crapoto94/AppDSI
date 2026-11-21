@@ -318,6 +318,9 @@ Motif (obligatoire) :`, '');
         if (!byEvaluator.has(k)) byEvaluator.set(k, []);
         byEvaluator.get(k)!.push(e);
       }
+    }
+    // L'EP de l'évaluateur lui-même (en tant qu'évalué) vient de la liste complète : il reste visible et réinitialisable même si la recherche ne le cible pas
+    for (const e of items) {
       const ak = identityKey(e);
       if (ak && !agentByKey.has(ak)) agentByKey.set(ak, e);
     }
@@ -346,7 +349,7 @@ Motif (obligatoire) :`, '');
     roots.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     roots.forEach(sortNode);
     return roots;
-  }, [filtered, readOnly]);
+  }, [filtered, items, readOnly]);
   const allNodeKeys = useMemo(() => {
     const keys = new Set<string>();
     const walk = (n: EvalTreeNode) => { keys.add(n.key); n.children.forEach(walk); };
@@ -354,6 +357,8 @@ Motif (obligatoire) :`, '');
     return keys;
   }, [evalTree]);
   useEffect(() => { setOpenEvaluators(new Set()); }, [q, statut, valideur, campaign?.id]);
+  // Pendant une recherche, les listes (valideurs) qui contiennent un résultat sont dépliées d'office
+  useEffect(() => { if (q.trim()) setOpenEvaluators(new Set(allNodeKeys)); }, [q, allNodeKeys]);
   const displayItems: Array<{ kind: 'evaluator'; key: string; node: EvalTreeNode; depth: number } | { kind: 'ep'; key: string; e: Entretien; depth: number }> = [];
   if (readOnly) {
     const pushNode = (node: EvalTreeNode, depth: number, trail: Set<string>) => {
@@ -505,7 +510,8 @@ Motif (obligatoire) :`, '');
                           <span style={{ marginTop: 2 }}>{isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13.5, fontWeight: 800, color: COLORS.text }}>
-                              <span>{node.name}</span>
+                              <Avatar name={agent ? nomComplet(agent) : node.name} size={30} />
+                              <span>{agent ? nomComplet(agent) : node.name}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
                                 {node.items.length} agent{node.items.length > 1 ? 's' : ''} évalué{node.items.length > 1 ? 's' : ''}
                               </span>
@@ -516,14 +522,30 @@ Motif (obligatoire) :`, '');
                               )}
                             </div>
                             {agent && (
-                              <div style={{ marginTop: 4, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5, color: '#64748b' }}>
-                                {agent.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{repairText(agent.agent_grade)}</Pill>}
-                                {agent.direction && <Pill bg="#f1f5f9" color="#475569">{repairText(agent.direction)}</Pill>}
-                                {agent.service && <Pill bg="#f0fdf4" color="#166534">{repairText(agent.service)}</Pill>}
-                                {agent.poste && <span>{repairText(agent.poste)}</span>}
+                              <div style={{ marginTop: 4, paddingLeft: 38 }}>
+                                {agent.poste && <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.35 }}>{repairText(agent.poste)}</div>}
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                                  {agent.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{repairText(agent.agent_grade)}</Pill>}
+                                  {agent.direction && <Pill bg="#f1f5f9" color="#475569">{repairText(agent.direction)}</Pill>}
+                                  {uniteService(agent) && <Pill bg="#f0fdf4" color="#166534">{repairText(uniteService(agent))}</Pill>}
+                                  {!agent.agent_grade && !agent.poste && !agent.direction && !agent.service && agent.agent_email && <Pill bg="#f1f5f9" color="#64748b">{agent.agent_email}</Pill>}
+                                </div>
                               </div>
                             )}
                           </div>
+                          {canReset && agent && (
+                            <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
+                              {agent.evaluation_statut === 'soumis' && (
+                                <button style={btnGhost} disabled={razBusy === agent.id} onClick={() => unvalidateEp(agent)} title="Dévalider le CREP de cette personne en cas d’erreur manifeste (administrateur)">
+                                  <Undo2 size={13} /> Dévalider
+                                </button>
+                              )}
+                              <button style={btnDanger} disabled={razBusy === agent.id} onClick={() => resetEp(agent)} title="Remettre à zéro l’EP de cette personne (administrateur)">
+                                {razBusy === agent.id ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />} RAZ
+                              </button>
+                              <button style={btnGhost} onClick={() => setOpenId(agent.id)}><Eye size={13} /> Ouvrir</button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -656,7 +678,7 @@ Motif (obligatoire) :`, '');
       )}
 
       {showAdd && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }} onMouseDown={ev => { if (ev.target === ev.currentTarget) setShowAdd(false); }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}>
           <div style={{ ...card, width: '100%', maxWidth: 720, padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 800 }}>Ajouter un agent</div>
@@ -699,7 +721,7 @@ Motif (obligatoire) :`, '');
       )}
 
       {reassignFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }} onMouseDown={ev => { if (ev.target === ev.currentTarget) setReassignFor(null); }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}>
           <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <div style={{ fontSize: 16, fontWeight: 800 }}>
@@ -776,8 +798,7 @@ function LinkAdModal({ entretien, headers, onClose, onLinked }: {
     finally { setBusy(false); }
   };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2050, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2050, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}>
       <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 16, fontWeight: 800 }}>Lier un compte AD</div>

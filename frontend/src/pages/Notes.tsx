@@ -1139,7 +1139,7 @@ function TreeRow({ label, icon, active, onClick, count, indent, color, onDelete,
 
 function Modal({ title, icon, children, onClose, width = 600 }: { title: string; icon?: React.ReactNode; children: React.ReactNode; onClose: () => void; width?: number }) {
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4000, padding: 20 }}>
       <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: width, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>

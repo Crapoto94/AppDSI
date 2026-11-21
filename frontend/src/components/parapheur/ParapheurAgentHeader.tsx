@@ -260,7 +260,7 @@ const ParapheurAgentHeader: React.FC<Props> = ({ user }) => {
             </div>
 
             {showHelp && (
-                <div className="phh-help-overlay" onClick={() => setShowHelp(false)}>
+                <div className="phh-help-overlay">
                     <div className="phh-help-modal" onClick={e => e.stopPropagation()}>
                         <div className="phh-help-head">
                             <span><HelpCircle size={18} color="#0078a4" /> Aide — Parapheur électronique</span>

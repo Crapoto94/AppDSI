@@ -2318,7 +2318,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
 
              {(isAddingUser || editingUser) && (
-               <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); setEditingUserPassword(''); }}>
+               <div className="modal-overlay">
                  <div className="modal-container" style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                   <div className="form-header flex justify-between items-center">
                     <h3 className="flex items-center gap-3">
@@ -4721,7 +4721,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             <TilesAuthorizationPanel />
 
             {showTileModal && (
-              <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}>
+              <div className="modal-overlay">
                 <div className="modal-container" onClick={(e) => e.stopPropagation()}>
                   <div className="modal-header">
                     <div className="modal-header-info">

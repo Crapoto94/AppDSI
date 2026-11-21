@@ -694,7 +694,7 @@ const DemandesCommandeTab: React.FC = () => {
       )}
 
       {editFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setEditFor(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <form onSubmit={saveEdit} style={{ ...s.card, width: 'min(620px, 94vw)', maxHeight: '88vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Modifier la demande</h3>
             {editFor.statut === 'validee' && (
@@ -766,7 +766,7 @@ const DemandesCommandeTab: React.FC = () => {
       )}
 
       {docFor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setDocFor(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <form onSubmit={uploadDocs} style={{ ...s.card, width: 'min(520px, 94vw)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Ajouter un document</h3>
             <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: 0 }}>
@@ -792,7 +792,6 @@ const DemandesCommandeTab: React.FC = () => {
       {validating && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setValidating(null)}
         >
           <div style={{ ...s.card, width: 'min(520px, 94vw)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Valider la demande</h3>
@@ -812,7 +811,6 @@ const DemandesCommandeTab: React.FC = () => {
       {refusing && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => !refusBusy && setRefusing(null)}
         >
           <div style={{ ...s.card, width: 'min(560px, 94vw)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0, color: '#991b1b' }}>Refuser la demande</h3>
@@ -843,7 +841,6 @@ const DemandesCommandeTab: React.FC = () => {
       {assocFor && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setAssocFor(null)}
         >
           <div style={{ ...s.card, width: 'min(960px, 94vw)', maxHeight: '85vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Associer une commande Sedit</h3>

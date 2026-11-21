@@ -19,7 +19,7 @@ const btnG: React.CSSProperties = { ...btnP, background: '#fff', color: C.slate,
 
 function Modal({ title, icon: I, onClose, children, wide }: any) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: wide ? 'min(760px,96vw)' : 'min(560px,96vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
         <div style={{ padding: '15px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
           <div style={{ fontWeight: 900, fontSize: '1.05rem', color: C.text, display: 'flex', alignItems: 'center', gap: 9 }}>{I && <I size={20} color={C.blue} />}{title}</div>

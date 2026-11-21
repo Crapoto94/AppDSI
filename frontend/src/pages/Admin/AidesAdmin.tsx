@@ -233,7 +233,7 @@ const AidesAdmin: React.FC = () => {
 
       {/* Modale édition / création */}
       {editorOpen && (
-        <div className="aide-modal-overlay" onClick={() => !saving && setEditorOpen(false)}>
+        <div className="aide-modal-overlay">
           <div className="aide-modal" onClick={e => e.stopPropagation()}>
             <div className="aide-modal-head">
               <h3>{editorIsNew ? 'Nouvelle aide' : `Modifier l'aide — ${editorPath}`}</h3>
@@ -283,7 +283,7 @@ const AidesAdmin: React.FC = () => {
 
       {/* Modale aperçu */}
       {previewEntry && (
-        <div className="aide-modal-overlay" onClick={() => setPreviewEntry(null)}>
+        <div className="aide-modal-overlay">
           <div className="aide-modal" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
             <div className="aide-modal-head">
               <h3><code>{previewEntry.page_path}</code></h3>

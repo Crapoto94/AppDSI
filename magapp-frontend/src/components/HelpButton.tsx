@@ -25,7 +25,7 @@ export function HelpModal({ page, title, onClose }: { page: string; title: strin
     return () => { alive = false; };
   }, [page]);
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 2600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <style>{HELP_CSS}</style>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(860px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>

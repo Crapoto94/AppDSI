@@ -166,7 +166,7 @@ export default function ServiceFaitVerifier() {
         </div>
 
         {showHelp && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowHelp(false)}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <style>{`.sf-help{font-size:14.5px;color:#334155;line-height:1.7}.sf-help h1{font-size:1.5rem;font-weight:800;color:#0f172a;margin:0 0 6px}.sf-help h2{font-size:1.18rem;font-weight:800;color:#1e293b;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #eef2f7}.sf-help h3{font-size:1.02rem;font-weight:700;margin:18px 0 6px}.sf-help ul,.sf-help ol{padding-left:22px}.sf-help code{background:#f1f5f9;color:#be123c;padding:1px 6px;border-radius:5px;font-size:.85em}.sf-help table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}.sf-help th,.sf-help td{border:1px solid #e9eef5;padding:9px 12px;text-align:left;vertical-align:top}.sf-help th{background:#f1f5f9;font-weight:700}.sf-help tbody tr:nth-child(even){background:#f8fafc}`}</style>
             <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(860px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
@@ -430,7 +430,7 @@ export default function ServiceFaitVerifier() {
       </div>
 
       {viewer && (
-        <div onClick={() => setViewer(null)}
+        <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 12, width: 980, maxWidth: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>

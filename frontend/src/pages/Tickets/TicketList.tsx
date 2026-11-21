@@ -78,7 +78,7 @@ function GroupModal({ selectedIds, onClose, onCreated }: {
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000
-    }} onClick={onClose}>
+    }}>
       <div style={{
         background: '#fff', borderRadius: 16, padding: 28, width: 440,
         boxShadow: '0 20px 60px rgba(0,0,0,0.2)'
@@ -827,7 +827,7 @@ export default function TicketList({
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000
-        }} onClick={() => !deleting && setShowDeleteConfirm(false)}>
+        }}>
           <div style={{
             background: '#fff', borderRadius: 16, padding: 28, width: 440,
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)'

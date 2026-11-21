@@ -517,7 +517,7 @@ const TranscriptManager: React.FC = () => {
                     </div>
                 </div>
             {isSearchModalOpen && (
-                <div className="gs-overlay" onClick={() => setIsSearchModalOpen(false)}>
+                <div className="gs-overlay">
                     <div className="gs-modal" onClick={e => e.stopPropagation()}>
                         <div className="gs-header">
                             <Search size={20} />
@@ -579,7 +579,7 @@ const TranscriptManager: React.FC = () => {
             />
 
             {isTeamsModalOpen && (
-                <div className="gs-overlay" onClick={() => setIsTeamsModalOpen(false)}>
+                <div className="gs-overlay">
                     <div className="gs-modal" onClick={e => e.stopPropagation()}>
                         <div className="gs-header">
                             <Video size={20} />

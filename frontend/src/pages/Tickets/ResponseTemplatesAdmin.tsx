@@ -224,7 +224,6 @@ export default function ResponseTemplatesAdmin() {
       {/* ─── MODALE ─── */}
       {showModal && (
         <div
-          onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 20px' }}
         >
           <div style={{ background: 'white', borderRadius: 14, width: '100%', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>

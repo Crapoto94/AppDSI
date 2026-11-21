@@ -795,7 +795,7 @@ const [versionMdFile, setVersionMdFile] = useState<File | null>(null);
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 1000
-            }} onClick={() => setShowVersionModal(false)}>
+            }}>
               <div style={{
                 background: 'white',
                 borderRadius: '12px',

@@ -758,7 +758,7 @@ const Tiers: React.FC<TiersProps> = ({ embedded = false }) => {
         )}
 
         {previewFile && (
-          <div className="modal-backdrop" onClick={() => setPreviewFile(null)}>
+          <div className="modal-backdrop">
             <div className="modal-window" style={{ maxWidth: '90%', width: '1200px', height: '90vh' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Prévisualisation Facture : {previewFile.name}</h2>
@@ -776,7 +776,7 @@ const Tiers: React.FC<TiersProps> = ({ embedded = false }) => {
         )}
 
         {showColumnConfig && (
-          <div className="modal-backdrop" onClick={() => setShowColumnConfig(false)}>
+          <div className="modal-backdrop">
             <div className="modal-window" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Configuration des Colonnes</h2>
@@ -865,7 +865,7 @@ const Tiers: React.FC<TiersProps> = ({ embedded = false }) => {
         )}
 
         {isContactModalOpen && (
-          <div className="modal-backdrop" onClick={() => setIsContactModalOpen(false)}>
+          <div className="modal-backdrop">
             <div className="modal-window modal-sm" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">{editingContact ? 'Modifier' : 'Nouveau'} Contact</h2>

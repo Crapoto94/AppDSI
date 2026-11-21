@@ -499,7 +499,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       </div>
 
       {showModal && changelog && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title-tabs">
@@ -689,7 +689,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       )}
 
       {showHelp && helpData && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
             <div className="modal-header">
               <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>

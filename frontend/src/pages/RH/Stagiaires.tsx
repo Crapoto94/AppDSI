@@ -606,7 +606,7 @@ export default function Stagiaires() {
       )}
 
       {modal && (
-        <div className="stg-overlay" onClick={() => setModal(null)}>
+        <div className="stg-overlay">
           <div className="stg-modal" onClick={e => e.stopPropagation()}>
             <h3>{modal === 'create' ? 'Nouveau stagiaire' : 'Modifier le stage'}<button className="stg-btn stg-btn-outline stg-btn-sm" onClick={() => setModal(null)}><X size={14} /></button></h3>
             <div className="stg-form">
@@ -660,7 +660,7 @@ export default function Stagiaires() {
       )}
 
       {importOpen && (
-        <div className="stg-overlay" onClick={() => setImportOpen(false)}>
+        <div className="stg-overlay">
           <div className="stg-modal" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
             <h3>Importer des stagiaires<button className="stg-btn stg-btn-outline stg-btn-sm" onClick={() => setImportOpen(false)}><X size={14} /></button></h3>
             <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 8px' }}>

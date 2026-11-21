@@ -2365,7 +2365,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL FUSION INSTALLATEURS ─── */}
       {instOpen && (
-        <div onClick={() => setInstOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               <Users size={18} color="#d97706" />
@@ -2466,7 +2466,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL LISTE ORDINATEURS (doublons / à renouveler) ─── */}
       {pcModal && (
-        <div onClick={() => setPcModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(900px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               {pcModal.kind === 'dup' ? <AlertTriangle size={18} color={C.amber} /> : <RefreshCw size={18} color={C.amber} />}
@@ -2510,7 +2510,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL TYPES DE DÉPLOIEMENT ─── */}
       {typesOpen && (
-        <div onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               <Tag size={18} color="#0891b2" />
@@ -2578,7 +2578,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL DOUBLONS ─── */}
       {doublonOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }} onClick={() => setDoublonOpen(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }}>
           <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 8px 48px rgba(0,0,0,.25)', width: '100%', maxWidth: 960, padding: 28 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2714,8 +2714,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        onClick={() => !adModal.applying && setAdModal(null)}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 520, maxWidth: '95vw', boxShadow: '0 24px 64px rgba(0,0,0,.25)' }}
           onClick={e => e.stopPropagation()}>
           <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>Recherche Active Directory</div>
@@ -2954,7 +2953,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
     return String(val);
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1600, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1600, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 760, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         {/* En-tête */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '20px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0', color: '#fff' }}>
@@ -3147,7 +3146,7 @@ const DeployEditModal: React.FC<{ row: any; token: string | null; onClose: () =>
   const inp: React.CSSProperties = { width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '.88rem', boxSizing: 'border-box' as const, fontFamily: 'inherit', color: C.text, outline: 'none' };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0' }}>
           <div style={{ color: '#fff' }}>
@@ -3294,7 +3293,7 @@ const DocViewer: React.FC<{ filePath: string; filename: string; token: string | 
   });
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Barre d'outils ── */}
       <div onClick={e => e.stopPropagation()}

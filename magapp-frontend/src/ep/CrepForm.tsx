@@ -261,6 +261,36 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const [formVisible, setFormVisible] = useState(true);
   const signedVerified = (entretien.crep_scans || []).some(sc => sc.signatures_ok === true) || !!entretien.crep_signed_at;
   const guided = !isAgent && (!!entretien.crep_mode || (canEdit && !locked));
+
+  // ─── Enregistrement automatique ───
+  // Toute modification (saisie, lecture appliquée, correction…) est enregistrée au bout d'1,5 s, et à la fermeture de la fenêtre.
+  const lastSaved = useRef<string>(JSON.stringify(crep));
+  const crepRef = useRef(crep);
+  crepRef.current = crep;
+  const autoOk = useRef(false);
+  autoOk.current = canEdit && !isAgent && entretien.statut !== 'cloture';
+  const [savedAt, setSavedAt] = useState('');
+  useEffect(() => { lastSaved.current = JSON.stringify(initialCrep(entretien)); setSavedAt(''); }, [entretien.id]);
+  useEffect(() => {
+    if (!autoOk.current) return;
+    const snap = JSON.stringify(crep);
+    if (snap === lastSaved.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers });
+        lastSaved.current = snap;
+        setSavedAt(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }));
+      } catch { /* sera retenté à la prochaine modification */ }
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [crep]);
+  // Fermeture de la fenêtre avec une modification en attente : on l'envoie quand même
+  useEffect(() => () => {
+    if (!autoOk.current) return;
+    const snap = JSON.stringify(crepRef.current);
+    if (snap === lastSaved.current) return;
+    axios.put(`/api/entretiens/${entretien.id}/crep`, { crep: crepRef.current, submit: false, keep_status: true }, { headers }).catch(() => {});
+  }, []);
   const gMode = entretien.crep_mode || null;
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
   const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
@@ -292,6 +322,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       if (!fresh || fresh.evaluation_statut !== 'soumis') return;   // validation refusée ou annulée : on s'arrête là
       onSaved(fresh);
     }
+    try { await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers }); } catch { /* la clôture contrôlera */ }
     if (!(await confirm('Clôturer l’entretien ?\n\nLe CREP signé est archivé et l’entretien est terminé. Vous ne pourrez plus le modifier.', { title: 'Clôturer l’entretien', confirmLabel: 'Clôturer' }))) return;
     setBusy('submit');
     try {
@@ -340,6 +371,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div><strong>Direction / Service :</strong> {entretien.service || entretien.direction || '—'}</div>
         <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
         <div><strong>Date de l’entretien :</strong> {entretien.date_entretien ? formatDateHeure(entretien.date_entretien) : '—'}</div>
+        {canEdit && !isAgent && entretien.statut !== 'cloture' && (
+          <div style={{ marginTop: 2, fontSize: 11.5, color: '#16a34a', fontWeight: 600 }}>
+            <Save size={11} style={{ verticalAlign: -1 }} /> Enregistrement automatique activé{savedAt ? ` · enregistré à ${savedAt}` : ''}
+          </div>
+        )}
       </div>
       {!isAgent && locked && (
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>

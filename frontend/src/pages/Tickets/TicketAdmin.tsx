@@ -1029,7 +1029,7 @@ function CategoryMappingManager() {
 
       {/* Picker logiciel métier */}
       {pickerFor && (
-        <div onClick={() => setPickerFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: 500, maxWidth: '92%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Choisir un logiciel métier</h3>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
@@ -2919,8 +2919,7 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
       </div>
 
       {showAdSearch && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => { setShowAdSearch(false); setAdResults([]); setSelectedAdUser(null); setAdQuery(''); }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 500, maxHeight: '80vh', overflow: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>Ajouter un membre depuis l'AD</h3>
@@ -2986,7 +2985,7 @@ function PauseModal({ tech, onConfirm, onClose }: { tech: any, onConfirm: (id: n
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 450 }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>Mettre en pause : {tech.displayname || tech.displayName}</h3>
         <div style={{ marginBottom: 16 }}>
@@ -5027,7 +5026,7 @@ function FormRequestsManager() {
       </div>
 
       {showPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setShowPreview(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ background: 'white', borderRadius: 12, padding: 28, width: 720, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginBottom: 4 }}>{selected.name}</h3>
             {selected.description && <p style={{ color: '#64748b', fontSize: 13, marginBottom: 18 }}>{selected.description}</p>}
