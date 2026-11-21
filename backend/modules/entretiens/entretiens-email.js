@@ -124,4 +124,27 @@ function analyseCrep({ evaluateur, agent, annee, ok, error, dureeMs, link }) {
     return { subject: ok ? `✅ Lecture du compte rendu manuscrit terminée — ${agent}` : `⚠️ Lecture du compte rendu manuscrit impossible — ${agent}`, ...render(ok ? '#16a34a' : '#d97706', ok ? '✅ Proposition prête à relire' : '⚠️ Lecture impossible', intro, bodyHtml, FOOTER) };
 }
 
-module.exports = { analyseCrep, entretiensUrl, preparation, compteRenduEnvoye, aPlanifier, rdvPlanifie, relancePreparation, relanceValidation, relanceEvaluateur, compteRenduRappele };
+/**
+ * Nom d'affichage : « Prénom Nom » avec la casse correcte. Les mots ENTIÈREMENT en majuscules sont le nom de famille
+ * (« CHEVALIER Marc », « Marc CHEVALIER ») ; si tout est en majuscules, le premier mot est le nom (convention RH « NOM PRÉNOM »).
+ */
+function nice(name) {
+    const raw = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!raw || !/\s/.test(raw)) return raw;
+    const cap = (w) => w.toLowerCase().replace(/(^|[-'’])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase());
+    const tokens = raw.split(' ');
+    const isUp = (t) => t.length > 1 && t === t.toUpperCase() && t !== t.toLowerCase();
+    let sur = tokens.filter(isUp), given = tokens.filter(t => !isUp(t));
+    if (!given.length) { sur = [tokens[0]]; given = tokens.slice(1); }
+    if (!sur.length) return tokens.map(cap).join(' ');
+    return [...given.map(cap), ...sur.map(cap)].join(' ');
+}
+
+// Tous les modèles reçoivent des noms propres (évaluateur, agent) : normalisés ici, une fois pour toutes
+const wrap = (fn) => (p = {}) => fn({ ...p, ...(p.agent ? { agent: nice(p.agent) } : {}), ...(p.evaluateur ? { evaluateur: nice(p.evaluateur) } : {}) });
+
+module.exports = {
+    analyseCrep: wrap(analyseCrep), entretiensUrl, nice,
+    preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
+    relancePreparation: wrap(relancePreparation), relanceValidation: wrap(relanceValidation), relanceEvaluateur: wrap(relanceEvaluateur), compteRenduRappele: wrap(compteRenduRappele),
+};

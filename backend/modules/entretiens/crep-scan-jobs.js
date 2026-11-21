@@ -134,11 +134,22 @@ async function notify({ job, row, ok, error, durationMs }) {
         const email = require('./entretiens-email');
         const svc = require('./entretiens.service');
         const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+        // Nom lisible : la session ne fournit parfois que l'identifiant (« machevalier ») ; l'annuaire des agents a « Marc CHEVALIER »
+        let nom = job.requested_by || '';
+        if (!/\s/.test(nom)) {
+            try {
+                const a = await pgDb.get(
+                    `SELECT prenom, nom FROM hub_entretiens.base_agents WHERE (? <> '' AND LOWER(ad_username) = LOWER(?)) OR (? <> '' AND LOWER(email) = LOWER(?)) LIMIT 1`,
+                    [nom, nom, job.requested_email || '', job.requested_email || '']);
+                if (a && (a.prenom || a.nom)) nom = `${a.prenom || ''} ${a.nom || ''}`.trim();
+            } catch (e) { /* on garde ce qu'on a */ }
+        }
         await sendParapheurEmail(job.requested_email, email.analyseCrep({
-            evaluateur: job.requested_by || 'Madame, Monsieur',
+            evaluateur: nom || 'Madame, Monsieur',
             agent: svc.fullName(row.agent_prenom, row.agent_nom) || 'un agent',
             annee: campaign?.annee, ok, error, dureeMs: durationMs,
-            link: await email.entretiensUrl('evaluations'),
+            // Lien direct : ouvre l'entretien et la proposition à relire (evaluations:<id>:prop)
+            link: await email.entretiensUrl(ok ? `evaluations:${row.id}:prop` : `evaluations:${row.id}`),
         }));
     } catch (e) { console.warn('[ENTRETIENS] e-mail de fin d’analyse non envoyé:', e.message); }
 }

@@ -86,6 +86,14 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     setEdit({ ...(job.result.fields || {}) });
     setVerified(false);
   };
+  // Lien « Relire la proposition » d'un mail : la fenêtre de relecture s'ouvre toute seule
+  useEffect(() => {
+    if (prop || !job || job.status !== 'termine' || !job.result) return;
+    try {
+      if (sessionStorage.getItem('ep_open_proposal') === String(entretienId)) { sessionStorage.removeItem('ep_open_proposal'); openProposal(); }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status, job?.id, prop]);
   const dismiss = async (applied = false) => {
     if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, { applied }, { headers }); } catch { /* ignore */ } }
     setJob(null); setProp(null);

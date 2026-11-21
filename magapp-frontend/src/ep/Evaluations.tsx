@@ -127,7 +127,11 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [onlyTodo, setOnlyTodo] = useState(true);
   const [page, setPage] = useState(1);
   const [openEvaluators, setOpenEvaluators] = useState<Set<string>>(new Set());
-  const [openId, setOpenId] = useState<number | null>(null);
+  // Lien d'un mail : ouvre directement l'entretien indiqué (sessionStorage posé par EpVille)
+  const [openId, setOpenId] = useState<number | null>(() => {
+    try { const v = sessionStorage.getItem('ep_open_entretien'); if (v) { sessionStorage.removeItem('ep_open_entretien'); return Number(v) || null; } } catch { /* ignore */ }
+    return null;
+  });
   const [planning, setPlanning] = useState<Entretien | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [printBusy, setPrintBusy] = useState<'blank' | 'filled' | null>(null);

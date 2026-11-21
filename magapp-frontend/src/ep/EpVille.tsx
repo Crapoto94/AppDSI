@@ -826,6 +826,12 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   }, []);
 
   useEffect(() => {
+    // Lien d'un mail : « evaluations:<id>:prop » ouvre directement l'entretien (et sa proposition de lecture à relire)
+    const [, entArg, propArg] = String(initialTab || '').split(':');
+    try {
+      if (entArg) sessionStorage.setItem('ep_open_entretien', entArg);
+      if (entArg && propArg === 'prop') sessionStorage.setItem('ep_open_proposal', entArg);
+    } catch { /* ignore */ }
     Promise.all([
       axios.get('/api/ep-ville/me', { headers: api() }),
       axios.get('/api/entretiens/me', { headers: api() }).then(r => r.data as MeData).catch(() => null),
@@ -841,9 +847,10 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
       const ent = d?.selfAccess?.allowed ? d?.entretien : null;
       // Lien d'un mail : « moi » = mon entretien d'agent ; « evaluations » = mes EP d'évaluateur ; « auto » = mon entretien s'il attend une action de ma part.
       const needsMe = !!ent && (ent.preparation_statut !== 'soumis' || ent.crep_statut === 'envoye_agent');
-      const wanted = initialTab === 'moi' ? (ent ? 'moi' : null)
-        : initialTab === 'evaluations' ? (asEvaluator ? 'evaluations' : null)
-        : initialTab === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
+      const tabArg = String(initialTab || '').split(':')[0];
+      const wanted = tabArg === 'moi' ? (ent ? 'moi' : null)
+        : tabArg === 'evaluations' ? (asEvaluator ? 'evaluations' : null)
+        : tabArg === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
       setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
   }, []);
