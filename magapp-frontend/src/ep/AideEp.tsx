@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   X, BookOpen, UserCheck, ShieldCheck, Sparkles, Users, CalendarClock,
   FileSignature, History, MousePointerClick, CheckCircle2, AlertTriangle,
-  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route, GraduationCap, ScanLine,
+  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route, GraduationCap, ScanLine, FlaskConical,
 } from 'lucide-react';
 import { COLORS, card, btnGhost, btnPrimary } from './ui';
 
@@ -691,6 +691,14 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div>« Exporter (CSV) » extrait toutes les demandes pour la DRH. L'analyse est conservée : relancez-la quand de nouveaux comptes rendus arrivent.</div>
               </div>
               <Callout tone="info">Un regroupement par l'IA est une aide à la décision : relisez les thèmes (une demande peut être mal classée) avant de bâtir le plan de formation.</Callout>
+            </Section>
+
+            <Section icon={<FlaskConical size={15} color={COLORS.primary} />} title="Mode simulation (Paramétrage)">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Dans <strong>Paramétrage → Mode simulation</strong>, un administrateur peut tester l'application sans polluer les données réelles. Les <strong>valideurs, « qui valide qui » et le lien Active Directory</strong> restent <strong>réels</strong> et ne sont jamais effacés ; les <strong>rendez-vous</strong> et les <strong>entretiens (avec leur contenu)</strong> sont <strong>provisoires</strong>.</div>
+                <div>Le bouton <strong>« Supprimer la base de simulation »</strong> remet à zéro tous les rendez-vous et entretiens (saisies, comptes rendus, scans). Il n'apparaît que lorsque la simulation est active.</div>
+                <div>Pendant la simulation, aucun mail ne part aux agents hors BETA et l'onglet « Demandes de formation » affiche des demandes <strong>fictives</strong> (la moitié des agents, selon leur métier), jamais enregistrées.</div>
+              </div>
             </Section>
 
             <Section icon={<ScanLine size={15} color={COLORS.primary} />} title="Documents conservés pour les comptes rendus manuscrits">

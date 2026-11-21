@@ -39,6 +39,11 @@ async function listDemandes(campaignId) {
             if (!isVide(texte)) out.push({ type: t.key, direction, service, texte, valide: r.evaluation_statut === 'soumis' });
         }
     }
+    // Mode simulation : demandes fictives (jamais enregistrées) pour pouvoir tester la vue et l'analyse.
+    try {
+        const sim = require('./simulation');
+        if (await sim.isOn()) out.push(...await sim.demandesFictives());
+    } catch (e) { console.warn('[ENTRETIENS] demandes fictives:', e.message); }
     return out;
 }
 

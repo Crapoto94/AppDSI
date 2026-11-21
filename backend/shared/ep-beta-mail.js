@@ -22,6 +22,11 @@ async function load() {
     try {
         const s = await pgDb.get('SELECT show_entretiens_pro FROM magapp.settings WHERE id = 1');
         published = !!(s && s.show_entretiens_pro);
+        // Mode simulation (réglage des entretiens) : jamais de mail aux agents hors BETA, même si la fonctionnalité est publiée.
+        try {
+            const sim = await pgDb.get("SELECT value FROM hub_entretiens.settings WHERE key = 'simulation'");
+            if (sim && ['1', 'true'].includes(String(sim.value).trim().toLowerCase())) published = false;
+        } catch (e) { /* table absente : pas de simulation */ }
         if (!published) {
             const rows = await pgDb.all(
                 `SELECT LOWER(fu.email) AS email, LOWER(u.email) AS user_email

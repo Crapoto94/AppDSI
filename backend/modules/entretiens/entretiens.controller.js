@@ -412,6 +412,7 @@ const entretiensController = {
                 svc.getAiSettings(), svc.getSelfSettings(), svc.getEsignSettings(),
             ]);
             res.json({
+                simulation: await require('./simulation').isOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -567,6 +568,7 @@ const entretiensController = {
                 svc.getAiSettings(), svc.getSelfSettings(), svc.getEsignSettings(),
             ]);
             res.json({
+                simulation: await require('./simulation').isOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -1223,8 +1225,30 @@ const entretiensController = {
             if (!campaign) return res.json({ campaign: null, types: [], directions: [], total: 0, analyse: null, etat: null });
             const fg = require('./formations-globales');
             const demandes = await fg.listDemandes(campaign.id);
-            res.json({ campaign, types: fg.TYPES, total: demandes.length, directions: fg.grouper(demandes), analyse: await fg.lastAnalysis(campaign.id), etat: fg.state() });
+            res.json({ simulation: await require('./simulation').isOn(), campaign, types: fg.TYPES, total: demandes.length, directions: fg.grouper(demandes), analyse: await fg.lastAnalysis(campaign.id), etat: fg.state() });
         } catch (err) { console.error('[ENTRETIENS] formationsGlobales:', err.message); fail(res, 500, err.message); }
+    },
+
+    // PUT /api/entretiens/simulation { on } — active / désactive le mode simulation (administrateurs du module)
+    setSimulation: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Le mode simulation est réservé aux administrateurs du module.');
+            const on = [true, 1, '1', 'true'].includes(req.body?.on);
+            await require('./simulation').setOn(on, actor);
+            res.json({ simulation: on });
+        } catch (err) { console.error('[ENTRETIENS] setSimulation:', err.message); fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/simulation/reset — « Supprimer la base de simulation » : efface RDV, entretiens et contenu ; garde valideurs et lien AD
+    resetSimulation: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const sim = require('./simulation');
+            if (!(await sim.isOn())) return fail(res, 409, 'Le mode simulation n’est pas actif : rien n’est supprimé (les données réelles sont protégées).');
+            res.json({ ok: true, ...(await sim.resetAll(actor, req)) });
+        } catch (err) { console.error('[ENTRETIENS] resetSimulation:', err.message); fail(res, 500, err.message); }
     },
 
     // POST /api/entretiens/formations/analyse — analyse globale par l'IA locale (tâche de fond)

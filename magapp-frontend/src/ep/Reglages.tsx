@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import SimulationPanel from './SimulationPanel';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
@@ -527,6 +528,8 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
           Le texte est éditable et conservé pour les prochains administrateurs.
         </div>
       </div>
+
+      <SimulationPanel />
 
       {/* Base des agents à évaluer (classeur « Outil CREP DSI ») */}
       <BaseAgents />

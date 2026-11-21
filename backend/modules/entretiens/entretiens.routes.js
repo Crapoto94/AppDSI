@@ -41,6 +41,8 @@ router.get('/directory', authenticateJWT, ctrl.directory);
 router.post('/free-slots', authenticateJWT, ctrl.freeSlots);
 
 router.get('/formations', authenticateJWT, ctrl.formationsGlobales);
+router.put('/simulation', authenticateJWT, ctrl.setSimulation);
+router.post('/simulation/reset', authenticateJWT, ctrl.resetSimulation);
 router.post('/formations/analyse', authenticateJWT, ctrl.formationsAnalyse);
 router.get('/export.xlsx', authenticateJWT, ctrl.exportXlsx);
 
