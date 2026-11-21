@@ -56,6 +56,18 @@ function Cas({ code, title, color = '#4f46e5', icon, children }: { code: string;
   );
 }
 
+/** Vraie capture d'écran de l'outil (données fictives), cliquable pour l'agrandir. */
+function Shot({ src, caption }: { src: string; caption: string }) {
+  return (
+    <figure style={{ margin: '8px 0 10px', padding: 0 }}>
+      <a href={src} target="_blank" rel="noopener noreferrer" title="Cliquer pour agrandir">
+        <img src={src} alt={caption} loading="lazy" style={{ display: 'block', width: '100%', maxWidth: 760, borderRadius: 9, border: `1px solid ${COLORS.border}`, boxShadow: '0 2px 8px rgba(15,23,42,.08)' }} />
+      </a>
+      <figcaption style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>📷 {caption} <span style={{ color: '#94a3b8' }}>(exemple avec des données fictives)</span></figcaption>
+    </figure>
+  );
+}
+
 /** Liste de gestes numérotés. */
 function Gestes({ items }: { items: React.ReactNode[] }) {
   return (
@@ -193,7 +205,7 @@ function Matrice() {
 
 export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
 
-export default function AideEp({ onClose, isAdmin, features }: { onClose: () => void; isAdmin?: boolean; features?: AideFeatures }) {
+export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose: () => void; isAdmin?: boolean; features?: AideFeatures; onTuto?: () => void }) {
   const [tab, setTab] = useState<'evaluateur' | 'admin'>(isAdmin ? 'admin' : 'evaluateur');
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
@@ -213,6 +225,11 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
           {isAdmin && (
             <button style={tab === 'admin' ? btnPrimary : btnGhost} onClick={() => setTab('admin')}>
               <ShieldCheck size={14} /> Je suis administrateur
+            </button>
+          )}
+          {onTuto && (
+            <button style={{ ...btnGhost, marginLeft: 'auto', color: '#6d28d9', borderColor: '#ddd6fe', background: '#f5f3ff' }} onClick={onTuto}>
+              <Sparkles size={14} /> Revoir le tutoriel interactif
             </button>
           )}
         </div>
@@ -246,6 +263,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
 
             <Section icon={<Users size={15} color={COLORS.primary} />} title="Où cliquer dans MagApp ?">
               <ScreenMap />
+              <Shot src="/aide-ep/01-liste.jpg" caption="Onglet « EP que je réalise » : une ligne par agent, avec les boutons Planifier, imprimer, changer l'évaluateur et Saisir l'EP" />
               <Callout tone="warn" title="Ne pas confondre les espaces">
                 <strong>« EP que je réalise »</strong> = les entretiens dont vous êtes l'évaluateur (vous les remplissez).
                 <strong> « EP de mon équipe »</strong> = la vue de contrôle de vos agents (souvent en lecture seule).
@@ -274,6 +292,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
               </Callout>
 
               <Cas code="Il manque un agent" title="M'ajouter un agent qui n'a pas encore de valideur" color="#16a34a" icon={<Users size={14} color="#16a34a" />}>
+                <Shot src="/aide-ep/03-ajouter-agent.jpg" caption="Fenêtre « Ajouter un agent » : les agents de votre direction sans évaluateur" />
                 <Gestes items={[
                   <>Aller dans l'onglet <strong>« EP que je réalise »</strong>.</>,
                   <>Cliquer sur le bouton bleu <strong>« Ajouter un agent »</strong> (au-dessus du tableau).</>,
@@ -287,6 +306,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
               </Cas>
 
               <Cas code="Mauvais valideur" title="Changer le valideur d'un agent" color="#4f46e5" icon={<UserCheck size={14} color="#4f46e5" />}>
+                <Shot src="/aide-ep/04-changer-valideur.jpg" caption="Fenêtre « Changer l'évaluateur » : l'évaluateur actuel, une recherche et un bouton Choisir" />
                 <Gestes items={[
                   <>Dans la liste, repérer la ligne de l'agent concerné.</>,
                   <>Cliquer sur l'icône <strong>« personne avec un engrenage »</strong> (info-bulle « Changer l'évaluateur ») à droite de la ligne.</>,
@@ -320,6 +340,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
                   <strong>Ce que vous pouvez faire :</strong> si vous savez que l'agent que vous évaluez a une adresse e-mail (il utilise Outlook, vous lui écrivez déjà…),
                   <strong> retrouvez-le vous-même dans l'annuaire informatique et faites le lien</strong> :
                 </div>
+                <Shot src="/aide-ep/05-lier-ad.jpg" caption="Fenêtre « Lier un compte AD » : on tape quelques lettres, on vérifie le nom et l'adresse, puis « Lier »" />
                 <Gestes items={[
                   <>Sur la ligne de l'agent, cliquer sur <strong>« Lier l'AD »</strong>.</>,
                   <>Taper <strong>quelques lettres de son nom</strong> (2 minimum) dans la zone de recherche. Essayez une orthographe plus courte ou son prénom seul si rien ne sort (ex. « mar » plutôt que « Marié-Dupont »).</>,
@@ -344,6 +365,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
             </Section>
 
             <Section icon={<CalendarClock size={15} color={COLORS.primary} />} title="Étape 2 — Prendre rendez-vous (planifier)">
+              <Shot src="/aide-ep/02-planifier.jpg" caption="Fenêtre « Planifier » : « Prochains créneaux libres » propose des horaires où l'agent et vous êtes disponibles" />
               <Gestes items={[
                 <>Dans « EP que je réalise », repérer la ligne de l'agent.</>,
                 <>Cliquer sur <strong>« Planifier »</strong> (ou « Modifier le RDV » si une date existe déjà).</>,
@@ -379,6 +401,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
             </Section>
 
             <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Étape 3 — Avant l'entretien : la préparation de l'agent">
+              <Shot src="/aide-ep/08-agent.jpg" caption="Ce que voit l'agent dans « Mon entretien » : la fiche de préparation à compléter" />
               <Cas code="En ligne" title="L'agent a un e-mail et l'accès à « Mon entretien »" color="#4f46e5">
                 Il remplit une fiche (bilan, difficultés, souhaits de formation, perspectives) <strong>dans MagApp</strong>. Vous la retrouvez dans « Saisir l'EP ».
                 Elle sert à <strong>nourrir l'échange</strong> : vous n'avez pas à la recopier.
@@ -393,6 +416,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
 
             <Section icon={<PenLine size={15} color={COLORS.primary} />} title="Étape 4 — Le jour de l'entretien : comment noter le compte rendu ?">
               <div style={{ marginBottom: 8 }}>Vous avez le choix. <strong>Les deux méthodes mènent au même document officiel.</strong></div>
+              <Shot src="/aide-ep/07-crep.jpg" caption="Le compte rendu : en bas, les boutons Enregistrer le brouillon, Valider, Vérifier la cohérence, Envoyer à l'agent, CREP manuscrit et Imprimer / PDF" />
 
               <Cas code="Méthode 1" title="Je saisis directement dans l'outil (recommandé)" color="#16a34a">
                 <Gestes items={[
@@ -467,6 +491,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
 
             <Section icon={<History size={15} color={COLORS.primary} />} title="Les statuts : que veulent-ils dire ?">
               <StatusSchema />
+              <Shot src="/aide-ep/06-statuts.jpg" caption="Dans « Tous », les EP réalisés : statut « Réalisé », compte rendu « Validé », et le bouton « CREP signé » quand le papier est archivé" />
               <div style={{ display: 'grid', gap: 4 }}>
                 <div><strong>À planifier</strong> : aucune date fixée. Action : planifier.</div>
                 <div><strong>Planifié</strong> : date fixée. Action : mener l'entretien, puis saisir le compte rendu.</div>
@@ -628,7 +653,8 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
             </Section>
 
             <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="La note à la Direction générale">
-              Dans « Paramétrage », le bouton <strong>« Note DG »</strong> ouvre la note stratégique dans un éditeur visuel : vous écrivez comme dans un traitement de texte
+              <Shot src="/aide-ep/09-note-dg.jpg" caption="L'éditeur visuel de la note : titres, gras, listes et liens, sans connaître le Markdown" />
+              Dans « Paramétrage », le bouton <strong>« Ouvrir / modifier la note »</strong> ouvre la note stratégique dans un éditeur visuel : vous écrivez comme dans un traitement de texte
               (titres, gras, listes, liens), sans connaître le Markdown. « Enregistrer » la conserve ; « Télécharger .md » en fait un fichier ;
               « Revenir au modèle proposé » recharge la version d'origine livrée avec l'outil.
             </Section>

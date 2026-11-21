@@ -200,6 +200,22 @@ async function attachParapheur(entretien) {
     } catch (e) { return entretien; }
 }
 
+/**
+ * Après un changement d'évaluateur ou le rattachement d'un e-mail à l'agent : remet à jour l'invitation Outlook
+ * et prévient les bonnes personnes (best effort, n'échoue jamais). Sans date de rendez-vous : rien à faire.
+ * who = 'evaluateur' (nouvel évaluateur : invitation + e-mail) | 'agent' (e-mail de préparation + CREP vierge).
+ */
+async function refreshAfterChange(rowId, actor, who) {
+    try {
+        const fresh = await svc.getEntretienById(rowId);
+        if (!fresh || !fresh.date_entretien || ['realise', 'cloture'].includes(fresh.statut)) return;
+        const campaign = await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [fresh.campaign_id]);
+        await svc.syncOutlook(fresh, actor, campaign);
+        if (who === 'evaluateur') await svc.sendEvaluatorMail(fresh, campaign);
+        if (who === 'agent' && fresh.preparation_statut !== 'soumis') await svc.sendPreparationMail(fresh, campaign);
+    } catch (e) { console.warn('[ENTRETIENS] mise à jour après changement:', e.message); }
+}
+
 const entretiensController = {
 
     // ─── Espace agent / rôle ─────────────────────────────────────────────
@@ -1657,6 +1673,7 @@ const entretiensController = {
                 [actor.username || '', actor.email || '', evaluatorName, row.id]
             );
             await svc.logAudit({ actor, action: 'agent_ajoute', entretien: row, details: { evaluator: evaluatorName, matricule } });
+            await refreshAfterChange(row.id, actor, 'evaluateur');
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
         } catch (err) {
             console.error('[ENTRETIENS] claimAgent:', err.message);
@@ -1697,6 +1714,7 @@ const entretiensController = {
                 || await canManageUnassigned(actor, row)
                 || (unassigned && (role.isEvaluator || baseValideur));
             if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            if (row.crep_statut === 'en_signature') return fail(res, 409, 'Le compte rendu est en cours de signature dans le parapheur avec l’évaluateur actuel : attendez la fin du circuit (ou faites annuler le parapheur par un administrateur) avant de changer d’évaluateur.');
             const matricule = text(req.body?.evaluator_matricule).trim();
             if (!matricule) return fail(res, 400, 'Choisissez le nouvel évaluateur.');
             if (String(matricule) === String(row.agent_matricule)) return fail(res, 400, 'Un agent ne peut pas être son propre évaluateur.');
@@ -1719,6 +1737,7 @@ const entretiensController = {
                 actor, action: 'evaluateur_change', entretien: row,
                 details: { ancien: oldName, nouveau: evaluator.nom_prenom || '', matricule },
             });
+            await refreshAfterChange(row.id, actor, 'evaluateur');
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
         } catch (err) {
             console.error('[ENTRETIENS] reassignEvaluator:', err.message);
@@ -1752,6 +1771,7 @@ const entretiensController = {
                 actor, action: 'agent_ad_lie', entretien: row,
                 details: { username: linked?.username || username, email: linked?.email || '' },
             });
+            if (linked?.email) await refreshAfterChange(row.id, actor, 'agent');
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(row.id)) });
         } catch (err) {
             if (err && err.status) return fail(res, err.status, err.message);

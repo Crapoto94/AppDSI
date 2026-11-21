@@ -9,6 +9,8 @@ import Reglages from './Reglages';
 import Evaluations from './Evaluations';
 import Journal from './Journal';
 import AideEp from './AideEp';
+import TutoEp, { tutoMarkSeen, tutoSeen } from './TutoEp';
+import type { TutoRole } from './TutoEp';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
@@ -813,6 +815,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'parametrage' | 'journal' | null>(null);
   const [showAide, setShowAide] = useState(false);
+  const [showTuto, setShowTuto] = useState(false);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
   const [base, setBase] = useState<{ isValideur: boolean; agents: number } | null>(null);
 
@@ -842,6 +845,17 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
       setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
   }, []);
+
+  // Tutoriel de première connexion : s'ouvre une seule fois par personne et par profil, rouvrable depuis l'aide.
+  const tutoRole: TutoRole | null = !me ? null
+    : (me.isValideur || dsi?.isEvaluator || base?.isValideur) ? 'valideur'
+      : (dsi?.entretien && dsi?.selfAccess?.allowed) ? 'agent'
+        : me.isAdmin ? 'admin' : null;
+  const tutoUser = dsi?.actor?.username || '';
+  useEffect(() => {
+    if (tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
+  }, [tutoRole, tutoUser]);
+  const closeTuto = () => { if (tutoRole) tutoMarkSeen(tutoRole, tutoUser); setShowTuto(false); };
 
   const tabs = [
     { key: 'moi' as const, label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!dsi?.entretien && !!dsi?.selfAccess?.allowed },
@@ -897,9 +911,11 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
           )}
         </div>
       </div>
+      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} />}
       {showAide && (
         <AideEp
           onClose={() => setShowAide(false)}
+          onTuto={tutoRole ? () => { setShowAide(false); setShowTuto(true); } : undefined}
           isAdmin={!!me?.isAdmin}
           features={{
             prep: !!dsi?.selfAccess?.enabled,
