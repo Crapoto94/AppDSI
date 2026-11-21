@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2, Upload } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2, Upload, Eye } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Entretien } from './types';
 import { formatDateHeure } from './types';
@@ -225,7 +225,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const openScan = async (idx: number) => {
     setBusy('scan'); setMsg(null);
     try {
-      await openViewer('Scan original', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' })).data);
+      await openViewer('CREP original', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' })).data);
     } catch (e: any) { setMsg({ ok: false, text: 'Scan indisponible.' }); } finally { setBusy(null); }
   };
 
@@ -414,13 +414,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
           {(entretien.crep_scans || []).length > 0 && (!entretien.campaign_closed || entretien.access?.isAdmin) && (
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
-              <b>Documents conservés :</b>
-              {(entretien.crep_scans || []).map((sc, i) => (
-                <button key={i} type="button" style={btnGhost} disabled={!!busy} onClick={() => openScan(i)}>
-                  <FileDown size={13} /> Scan original{sc.kind === 'agent' ? ' (commentaires agent)' : ''} · {new Date(sc.at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
-                </button>
-              ))}
-              <span style={{ fontSize: 11.5, color: '#64748b' }}>+ la version numérique (IA) via « Imprimer / PDF »</span>
+              <b>Document conservé :</b>
+              {/* Seul le dernier document téléversé est proposé */}
+              {(() => {
+                const list = entretien.crep_scans || [];
+                const i = list.length - 1; const sc = list[i];
+                return (
+                  <button type="button" style={btnGhost} disabled={!!busy} onClick={() => openScan(i)}>
+                    <Eye size={13} /> CREP original{sc.kind === 'agent' ? ' (commentaires agent)' : ''} · {new Date(sc.at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
+                  </button>
+                );
+              })()}
+              <span style={{ fontSize: 11.5, color: '#64748b' }}>+ la version numérique via « Imprimer / PDF »</span>
             </div>
           )}
         </div>

@@ -200,7 +200,7 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
           {((mode === 'manuscrit' && current >= 4) || (mode === 'outil' && current >= 6)) && (
             <div style={{ marginTop: 8, fontSize: 12 }}>
               <button type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} onClick={() => setFormVisible(!formVisible)}>
-                {formVisible ? 'Enrouler le CREP saisi' : 'Dérouler le CREP saisi'}
+                {formVisible ? 'Masquer le CREP saisi' : 'Visualiser le CREP saisi'}
               </button>
               <span style={{ color: '#64748b', marginLeft: 8 }}>{current >= (mode === 'outil' ? 6 : 5) ? 'En lecture seule à cette étape.' : 'Le formulaire sert à vérifier et corriger.'}</span>
             </div>
