@@ -689,7 +689,7 @@ const entretiensController = {
                 // CREP déjà saisi et validé dans l'outil (origine numérique) : le document signé à la main n'apporte que les 2 commentaires de l'agent
                 mode: row.evaluation_statut === 'soumis' ? 'agent' : 'complet',
                 files: up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })),
-                contexte: { poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
+                contexte: { agent: svc.fullName(row.agent_prenom, row.agent_nom), poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
             });
             await svc.logAudit({ actor, action: 'crep_analyse_lancee', entretien: row, details: { fichiers: up.length, job: job.id } });
             res.status(202).json({ job });

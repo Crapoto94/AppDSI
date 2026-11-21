@@ -65,6 +65,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const [edit, setEdit] = useState<Record<string, any>>({});
   const [job, setJob] = useState<ScanJob | null>(null);
   const [verified, setVerified] = useState(false);
+  const [identConfirmed, setIdentConfirmed] = useState(true);
 
   // Analyse en tâche de fond : on retrouve l'état à l'ouverture (même après avoir fermé la page) et on suit l'avancement tant qu'elle tourne.
   const refresh = useCallback(async () => {
@@ -85,6 +86,9 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     setProp(job.result);
     setEdit({ ...(job.result.fields || {}) });
     setVerified(false);
+    // Document d'un autre agent, ou formulaire d'une autre catégorie : confirmation explicite avant de relire
+    const r: any = job.result;
+    setIdentConfirmed(!(r?.identity?.concordance === 'different' || r?.formMismatch));
   };
   // Lien « Relire la proposition » d'un mail : la fenêtre de relecture s'ouvre toute seule
   useEffect(() => {
@@ -192,6 +196,16 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               <button style={btnGhost} onClick={() => setProp(null)} aria-label="Fermer"><X size={15} /></button>
             </div>
             <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {(prop as any).identity?.concordance === 'different' && (
+                <div style={{ background: '#fef2f2', border: '2px solid #dc2626', color: '#991b1b', borderRadius: 10, padding: '11px 14px', fontSize: 13.5, fontWeight: 700 }}>
+                  ⛔ ATTENTION — ce document semble être celui de « {(prop as any).identity.lu} », alors que vous l’affectez à « {(prop as any).identity.attendu} ».
+                </div>
+              )}
+              {(prop as any).formMismatch && (
+                <div style={{ background: '#fef2f2', border: '2px solid #dc2626', color: '#991b1b', borderRadius: 10, padding: '11px 14px', fontSize: 13.5, fontWeight: 700 }}>
+                  ⛔ ATTENTION — le papier n’est pas le formulaire de cet agent (autre catégorie de CREP) : vérifiez que vous importez le bon document.
+                </div>
+              )}
               {prop.warnings.map((w, i) => <div key={i} style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>⚠ {w}</div>)}
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 9, padding: '9px 12px', fontSize: 12.5, fontWeight: 600 }}>
                 ⚠ Cette lecture est une PROPOSITION : <b>vérifiez chaque ligne</b> en la comparant au document papier avant de l’appliquer, puis avant de valider le compte rendu.
@@ -227,21 +241,43 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 6 }}>
                     Grille d’appréciation (cases cochées lues) — {Object.keys(edit.valeur || {}).length} / {(definition?.criteria_groups || []).flatMap(g => g.items).length} reconnues
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '4px 14px' }}>
-                    {(definition?.criteria_groups || []).flatMap(g => g.items).map(it => {
-                      const v = (edit.valeur || {})[it.key] || '';
-                      const col = v === 'S' ? '#16a34a' : v === 'AS' ? '#b45309' : v === 'I' ? '#b91c1c' : '#94a3b8';
-                      return (
-                        <div key={it.key} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: '#334155' }}>
-                          <span style={{ flex: 1, minWidth: 0 }}>{it.lead || it.label}</span>
-                          <select value={v} style={{ ...input, width: 74, padding: '3px 6px', fontWeight: 800, color: col }}
-                            onChange={e => setEdit(x => ({ ...x, valeur: { ...(x.valeur || {}), [it.key]: e.target.value } }))}>
-                            <option value="">—</option><option value="S">S</option><option value="AS">AS</option><option value="I">I</option>
-                          </select>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {/* Présentation identique au CREP papier : une ligne par critère, trois cases à cocher S / AS / I */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9' }}>
+                        <th style={{ textAlign: 'left', padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>Critère</th>
+                        {([['S', 'Satisfaisant'], ['AS', 'Assez satisfaisant'], ['I', 'Insuffisant']] as const).map(([k, l]) => (
+                          <th key={k} title={l} style={{ width: 72, textAlign: 'center', padding: '5px 4px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{k}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(definition?.criteria_groups || []).flatMap(g => [
+                        ...(g.title ? [<tr key={'g' + g.key}><td colSpan={4} style={{ padding: '5px 8px', background: '#eef2ff', fontWeight: 800, color: '#3730a3', border: `1px solid ${COLORS.border}` }}>{g.title}</td></tr>] : []),
+                        ...g.items.map(it => {
+                          const v = (edit.valeur || {})[it.key] || '';
+                          return (
+                            <tr key={it.key} style={{ background: v ? '#fff' : '#fffbeb' }}>
+                              <td style={{ padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{it.label}</td>
+                              {(['S', 'AS', 'I'] as const).map(k => {
+                                const on = v === k;
+                                const col = k === 'S' ? '#16a34a' : k === 'AS' ? '#b45309' : '#b91c1c';
+                                return (
+                                  <td key={k} style={{ textAlign: 'center', border: `1px solid ${COLORS.border}`, padding: 0 }}>
+                                    <button type="button" aria-label={`${it.label} : ${k}`} aria-pressed={on}
+                                      onClick={() => setEdit(x => ({ ...x, valeur: { ...(x.valeur || {}), [it.key]: on ? '' : k } }))}
+                                      style={{ width: '100%', height: 30, border: 'none', background: on ? `${col}18` : 'transparent', cursor: 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
+                                      {on ? '☒' : '☐'}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        }),
+                      ])}
+                    </tbody>
+                  </table>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>S = satisfaisant · AS = assez satisfaisant · I = insuffisant</div>
                 </div>
               )}
@@ -284,6 +320,24 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11.5, background: '#f8fafc', border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 10, maxHeight: 240, overflowY: 'auto' }}>{prop.raw}</pre>
               </details>
             </div>
+            {!identConfirmed && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.65)', zIndex: 3100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                <div style={{ background: '#fff', borderRadius: 14, width: 'min(520px, 100%)', padding: '22px 24px', border: '3px solid #dc2626' }}>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#991b1b', marginBottom: 10 }}>⛔ Êtes-vous sûr de ce document ?</div>
+                  <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.65 }}>
+                    {(prop as any).identity?.concordance === 'different'
+                      ? <>Le document numérisé semble être celui de <strong>{(prop as any).identity.lu}</strong>, et vous souhaitez l’affecter à <strong>{(prop as any).identity.attendu || 'cet agent'}</strong>.</>
+                      : <>Le document numérisé ne correspond pas au formulaire de CREP de cet agent{(prop as any).identity?.attendu ? <> (<strong>{(prop as any).identity.attendu}</strong>)</> : null}.</>}
+                    {(prop as any).formMismatch && (prop as any).identity?.concordance === 'different' && <div style={{ marginTop: 6 }}>Le tableau d’appréciation est aussi celui d’une autre catégorie de CREP.</div>}
+                    <div style={{ marginTop: 8, fontWeight: 700 }}>Affecter ce document à cet agent est-il bien votre intention ?</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                    <button style={btnGhost} onClick={() => setProp(null)}>Non, annuler</button>
+                    <button style={{ ...btnPrimary, background: '#dc2626' }} onClick={() => setIdentConfirmed(true)}>Oui, je confirme</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: `1px solid ${COLORS.border}` }}>
               <button style={btnGhost} onClick={() => setProp(null)}>Annuler</button>
               <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginRight: 'auto' }}>

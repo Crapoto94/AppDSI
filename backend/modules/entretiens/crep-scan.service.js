@@ -486,6 +486,8 @@ async function scanDocuments(files, definition, opts = {}) {
             ]);
             const j = extractJson(a);
             const t = String(j.transcription || '').trim(); delete j.transcription;
+            if (j.agent_identite) { res.identite = String(j.agent_identite).replace(/\s+/g, ' ').trim(); }
+            delete j.agent_identite;
             res.raw = `--- Page ${i + 1} (${res.type}) ---\n${t || JSON.stringify(j)}`;
             res.crep = normalizeCrep(j, definition);
             if (b) { try { const j2 = extractJson(b); delete j2.transcription; for (const d of diffLeaves(res.crep, normalizeCrep(j2, definition))) res.doubts.push({ page: i + 1, ...d }); } catch { /* seconde lecture facultative */ } }
@@ -559,6 +561,16 @@ async function scanDocuments(files, definition, opts = {}) {
         } else warnings.push('La grille d’appréciation n’a pas été trouvée sur les pages fournies : cochez-la dans le formulaire (ou ajoutez la page qui la contient).');
     }
 
+    // Identité : le document est-il bien celui de l'agent auquel on veut l'affecter ?
+    const lu = (results.map(r => r.identite).find(Boolean) || '').trim();
+    const attendu = String(opts.contexte?.agent || '').trim();
+    let concordance = 'inconnu';
+    if (lu && attendu) {
+        const T = (x) => new Set(flat(x).replace(/[^a-z ]+/g, ' ').split(' ').filter(w => w.length > 1));
+        const A = T(attendu), L = T(lu);
+        const communs = [...A].filter(w => L.has(w)).length;
+        if (L.size >= 2 || A.size >= 1) concordance = communs >= 1 ? 'ok' : (L.size >= 1 ? 'different' : 'inconnu');
+    }
     if (mode === 'agent' && !results.some(r => r.type === 'perspectives')) warnings.push('La page contenant les observations de l’agent n’a pas été reconnue : ajoutez la dernière page du compte rendu.');
     if (mode === 'complet') crep.origine = 'manuscrit';
     // 5) Cohérence : seconde passe de l'IA locale (mots manifestement mal lus), corrections tracées et visibles du valideur
@@ -571,6 +583,7 @@ async function scanDocuments(files, definition, opts = {}) {
     for (const d of doubts) warnings.push(`Lecture incertaine (page ${d.page}) – ${d.champ} : « ${d.valeurs[0] || '—'} » ou « ${d.valeurs[1] || '—'} »`);
     return {
         mode, corrections, incertains: doubts,
+        identity: { lu, attendu, concordance }, formMismatch: !!gridMismatch,
         raw: raws.join('\n\n') || '(transcription non fournie par le modèle)',
         fields: crep,
         engine: { lecture: `${model} (API Ville, vision) · ${total} page(s)`, structuration: grille || 'sans grille' },

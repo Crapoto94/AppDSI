@@ -84,6 +84,7 @@ const DEFS = [
         description: 'ATTENTION : le format JSON demandé est lu par l’application ; ne changez pas les noms de champs.', vars: ['annee', 'regles'],
         text: INTRO + 'Page « Volet 1 – bilan de l’année écoulée ». Extrais :\n'
             + '{"date_convocation": "AAAA-MM-JJ", "date_entretien": "AAAA-MM-JJ", "date_notification": "AAAA-MM-JJ" (dates des trois cases en haut ; si l’année manque, utilise {{annee}} ; "" si vide),\n'
+            + ' "agent_identite": "NOM et prénom de l’agent évalué, tels qu’écrits ou imprimés en haut de la page (cadre d’identité) ; \"\" si absent",\n'
             + ' "missions": "texte du cadre « Rappel des missions de l’agent »",\n'
             + ' "objectifs_ecoules": [{"objectif": "texte imprimé de la ligne", "observations": "MANUSCRIT de la colonne Observations", "niveau": "A, PA ou NA : la lettre manuscrite de la colonne Niveau de réalisation"}] (une entrée par ligne numérotée du tableau, 4 au plus ; ligne vide = champs vides),\n'
             + ' "observations_complementaires": "MANUSCRIT du cadre « Observations complémentaires »"}' + FIN,
