@@ -91,20 +91,30 @@ function ProcessSchema() {
       <Step n={3} title="L'agent prépare son entretien" who="Agent">
         En ligne dans « Mon entretien » (s'il a un e-mail et l'accès), sinon sur le formulaire papier. Cette étape est facultative pour vous : l'entretien peut avoir lieu sans.
       </Step>
-      <Step n={4} title="L'entretien (EP) a lieu" who="Valideur + Agent">
-        Vous échangez avec l'agent. Vous notez ensuite le compte rendu (CREP) <strong>soit dans l'outil</strong>, <strong>soit à la main sur le papier</strong>.
+      <Step n={4} title="Vous préparez le CREP" who="Valideur">
+        Si vous souhaitez un CREP <strong>totalement manuscrit</strong>, vous <strong>l'imprimez</strong> (icône imprimante de la ligne de l'agent, « CREP vierge »). Si vous préférez saisir dans l'outil, il n'y a rien à préparer : passez à l'étape 5.
       </Step>
-      <Step n={5} title="Vous validez le CREP dans l'outil" who="Valideur">
-        « Vérifier la cohérence », puis « Valider le compte rendu ». L'entretien passe à « Réalisé ».
+      <Step n={5} title="L'entretien a lieu" who="Valideur + Agent">
+        Vous échangez avec l'agent et vous prenez vos notes : à la main sur le CREP imprimé, ou directement dans l'outil (« Saisir l'EP »).
       </Step>
-      <Step n={6} title="Signature : électronique ou papier" who="Agent + Valideur">
-        Si l'agent et vous avez un e-mail et que la signature électronique est ouverte : « Envoyer à l'agent », il valide, vous signez tous les deux dans le parapheur.
-        Sinon : vous imprimez, l'agent et vous signez, vous scannez les 4 pages.
-        <strong> Si le CREP est manuscrit, il faut le téléverser (scan ou photos) pour pouvoir le valider.</strong>
+      <Step n={6} title="Si vous avez saisi dans l'outil, vous imprimez" who="Valideur">
+        Compte rendu saisi dans l'outil : cliquez sur <strong>« Imprimer / PDF »</strong> pour obtenir le CREP à faire signer. (Si vous avez écrit à la main, vous avez déjà le papier.)
       </Step>
-      <Step n={7} title="Le CREP signé est archivé" who="Automatique / Valideur">
-        Le PDF signé reste consultable dans l'EP (bouton « CREP signé »). Rien à classer dans un classeur.
+      <Step n={7} title="Vous transmettez le CREP à l'agent" who="Valideur + Agent">
+        Vous remettez le CREP à l'agent. Il <strong>renseigne les 2 cadres qui le concernent</strong> (ses observations sur les conditions de travail, puis sur l'entretien) et <strong>le signe à la main</strong>.
       </Step>
+      <Step n={8} title="Vous contresignez" who="Valideur">
+        Quand l'agent vous rend le CREP signé, vous le <strong>contresignez</strong> à votre tour.
+      </Step>
+      <Step n={9} title="Vous numérisez et vous téléversez" who="Valideur">
+        Vous <strong>numérisez</strong> le CREP signé (scan ou photos des pages) et vous le <strong>téléversez dans l'outil</strong> (« Importer un compte rendu papier »). Un CREP manuscrit doit être téléversé pour pouvoir être validé. <strong>L'original signé part à la RH.</strong>
+      </Step>
+      <Step n={10} title="Vous vérifiez tout, puis vous validez le CREP" who="Valideur">
+        Vous contrôlez chaque rubrique (relecture ligne par ligne de ce qui a été lu sur le papier, puis « Vérifier la cohérence »), vous cliquez sur <strong>« Valider le compte rendu »</strong> : l'entretien passe à « Réalisé » et le PDF signé reste consultable dans l'EP (bouton « CREP signé »).
+      </Step>
+      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>
+        <strong>Variante électronique</strong> (l'agent et vous avez une adresse e-mail et la signature électronique est ouverte pour cet agent) : les étapes 6 à 9 sont remplacées par « Envoyer à l'agent » ; il valide, puis vous signez tous les deux dans le parapheur, et le document signé est archivé automatiquement.
+      </div>
     </div>
   );
 }

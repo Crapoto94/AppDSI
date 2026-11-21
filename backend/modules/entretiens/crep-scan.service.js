@@ -506,7 +506,13 @@ async function scanDocuments(files, definition, opts = {}) {
         grille = `grille lue par traitement d’image (${gridRows.filter(r => r.level).length}/${items.length} cases cochées reconnues)`;
         if (doubt.length) warnings.push(`Cases cochées à vérifier : ${doubt.join(' ; ')}.`);
     } else if (items.length && gridMismatch) {
-        warnings.push(`Le tableau d’appréciation du papier comporte ${gridMismatch} lignes alors que le modèle de CREP de cet agent en compte ${items.length} : les cases cochées n’ont pas été reprises (risque d’erreur de correspondance). Cochez-les dans le formulaire, et vérifiez que le bon modèle de CREP (catégorie de l’agent) est utilisé.`);
+        let autres = '';
+        try {
+            const tpls = await require('../ep-base/ep-base.service').listTemplates();
+            const match = tpls.filter(t => (t.definition?.criteria_groups || []).flatMap(g => g.items || []).length === gridMismatch).map(t => `« ${t.name} »`);
+            if (match.length) autres = ` Ce papier correspond au modèle ${match.join(' ou ')}.`;
+        } catch { /* modèles indisponibles : message générique */ }
+        warnings.push(`Le tableau d’appréciation du papier comporte ${gridMismatch} lignes alors que le modèle de CREP de cet agent ${definition?.name ? `(« ${definition.name} ») ` : ''}en compte ${items.length}.${autres} Ce n’est pas le formulaire prévu pour cet agent : les cases cochées n’ont volontairement pas été reprises (risque de décalage). Cochez-les dans le formulaire, ou utilisez le CREP imprimé depuis l’outil pour cet agent.`);
     } else if (items.length) {
         const aiGrid = {};
         await pool(results.filter(r => r.type === 'grille' || r.type === 'generique').map(r => async () => {
