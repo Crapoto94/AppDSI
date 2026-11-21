@@ -140,13 +140,26 @@ async function listFactures(user, q = {}) {
     if (!q.search && !q.sf && !q.kpi) {
         try {
             const seen = new Map();
+            const pairByBudgetService = new Map();
+            const servicesByBudget = new Map();
             for (const p of pairs.values()) {
+                const budget = String(p.budget || '');
+                const service = String(p.service || '');
+                if (!budget || !service) continue;
+                pairByBudgetService.set(`${budget.toUpperCase()}|${service.toUpperCase()}`, p);
+                if (!servicesByBudget.has(budget)) servicesByBudget.set(budget, new Set());
+                servicesByBudget.get(budget).add(service);
+            }
+            // Un appel par budget avec tous ses services, au lieu d'un appel par couple budget/service.
+            for (const [budget, services] of servicesByBudget) {
                 const rows = await seditApi.listAll('/factures', {
-                    exercice: year, budget: p.budget, service: p.service,
+                    exercice: year, budget, service: [...services].join(','),
                 }, { actor: user, clientApp: 'MAGAPP' });
                 for (const r of rows) {
                     if (String(r.date_entree || '').slice(0, 4) !== String(year)) continue;
-                    if (!seen.has(r.id)) seen.set(r.id, { ...r, _budgetRoo: p.budgetRoo, _serviceRoo: p.serviceRoo });
+                    const p = pairByBudgetService.get(`${budget.toUpperCase()}|${String(r.service?.code || '').toUpperCase()}`);
+                    if (!p || seen.has(r.id)) continue;
+                    seen.set(r.id, { ...r, _budgetRoo: p.budgetRoo, _serviceRoo: p.serviceRoo });
                 }
             }
             const list = [...seen.values()];
