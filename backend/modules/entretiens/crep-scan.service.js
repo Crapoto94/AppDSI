@@ -456,7 +456,10 @@ async function scanDocuments(files, definition, opts = {}) {
         const cands = landscape ? [90, 270] : [0, 180];
         const g = await gridP;
         let printed = '';
-        if (g) { res.grid = g.rows; deg = g.deg; log(`page ${i + 1} : grille lue, rotation ${g.deg}° (${g.note})`); }
+        if (g && g.mismatch) {
+            deg = g.deg; res.gridMismatch = g.found;
+            log(`page ${i + 1} : tableau détecté (${g.found} lignes, ${items.length} attendues), rotation ${g.deg}°`);
+        } else if (g) { res.grid = g.rows; deg = g.deg; log(`page ${i + 1} : grille lue, rotation ${g.deg}° (${g.note})`); }
         else {
             const pr = await pickRotation(apm, model, img, cands);
             deg = pr.deg; printed = pr.text;
@@ -486,7 +489,9 @@ async function scanDocuments(files, definition, opts = {}) {
     let crep = normalizeCrep({}, definition);
     const raws = [], doubts = [];
     let gridRows = null;
+    let gridMismatch = 0;
     for (const r of results) {
+        if (r.gridMismatch) gridMismatch = r.gridMismatch;
         crep = mergeCrep(crep, r.crep);
         if (r.raw) raws.push(r.raw);
         doubts.push(...r.doubts); warnings.push(...r.warns);
@@ -500,6 +505,8 @@ async function scanDocuments(files, definition, opts = {}) {
         const doubt = gridRows.map((r, idx) => (r.certain ? null : items[idx].label)).filter(Boolean);
         grille = `grille lue par traitement d’image (${gridRows.filter(r => r.level).length}/${items.length} cases cochées reconnues)`;
         if (doubt.length) warnings.push(`Cases cochées à vérifier : ${doubt.join(' ; ')}.`);
+    } else if (items.length && gridMismatch) {
+        warnings.push(`Le tableau d’appréciation du papier comporte ${gridMismatch} lignes alors que le modèle de CREP de cet agent en compte ${items.length} : les cases cochées n’ont pas été reprises (risque d’erreur de correspondance). Cochez-les dans le formulaire, et vérifiez que le bon modèle de CREP (catégorie de l’agent) est utilisé.`);
     } else if (items.length) {
         const aiGrid = {};
         await pool(results.filter(r => r.type === 'grille' || r.type === 'generique').map(r => async () => {
@@ -508,6 +515,9 @@ async function scanDocuments(files, definition, opts = {}) {
                 if (j) for (const [k, v] of Object.entries(j)) { const idx = Number(k) - 1; if (items[idx] && ['S', 'AS', 'I'].includes(v)) (aiGrid[idx] = aiGrid[idx] || []).push(v); }
             } catch { /* grille absente de cette page */ }
         }), PAGES_EN_PARALLELE);
+        // Une grille « lue par l'IA » où toutes les cases ont la même valeur est une invention du modèle : on l'écarte
+        const allVotes = Object.values(aiGrid).map(v => v[0]);
+        if (allVotes.length >= 8 && new Set(allVotes).size === 1) { for (const k of Object.keys(aiGrid)) delete aiGrid[k]; warnings.push('La grille d’appréciation n’a pas pu être lue de façon fiable : cochez-la dans le formulaire.'); }
         if (Object.keys(aiGrid).length) {
             for (const [idx, votes] of Object.entries(aiGrid)) {
                 const tally = votes.reduce((m, v) => (m[v] = (m[v] || 0) + 1, m), {});

@@ -102,6 +102,16 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   };
 
   const agentOnly = (prop?.mode || job?.mode) === 'agent';
+  // Rubrique texte de la proposition (en mode « commentaires de l'agent », seules les observations de l'agent sont proposées)
+  const txt = (k: string) => {
+    if (agentOnly && !k.startsWith('obs_agent')) return null;
+    const l = (TEXT_FIELDS.find(([f]) => f === k) || [k, k])[1];
+    return (
+      <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>{l}
+        <textarea style={textarea} rows={3} value={edit[k] || ''} onChange={e => setEdit(v => ({ ...v, [k]: e.target.value }))} /></label>
+    );
+  };
+
   const apply = () => {
     // Seules les rubriques non vides sont reprises : le contenu déjà saisi n'est pas effacé par une rubrique que la lecture n'a pas trouvée.
     const out: Record<string, any> = {};
@@ -180,6 +190,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 {agentOnly ? ' Seuls les 2 commentaires de l’agent sont repris.' : ' Le document produit sera marqué « non contractuel » : l’original papier signé fait foi.'}
               </div>
 
+              {!agentOnly && <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 1 — Volet 1 : bilan de l’année écoulée</div>}
               {!agentOnly && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
                 {[['date_convocation', 'Date de convocation'], ['date_entretien', 'Date de l’entretien'], ['date_notification', 'Date de notification']].map(([k, l]) => (
                   <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>{l}
@@ -188,6 +199,21 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 ))}
               </div>}
 
+              {txt('missions')}
+              {!agentOnly && (edit.objectifs_ecoules || []).map((o: any, i: number) => (
+                <div key={'oe' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 90px', gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Objectif {i + 1} (année écoulée)
+                    <textarea style={textarea} rows={2} value={o.objectif || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, objectif: e.target.value } : x) }))} /></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Observations
+                    <textarea style={textarea} rows={2} value={o.observations || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, observations: e.target.value } : x) }))} /></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Niveau
+                    <select style={input} value={o.niveau || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, niveau: e.target.value } : x) }))}>
+                      <option value="">—</option><option value="A">A</option><option value="PA">PA</option><option value="NA">NA</option></select></label>
+                </div>
+              ))}
+
+              {txt('observations_complementaires')}
+              {!agentOnly && <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 2 — Appréciation de la valeur professionnelle</div>}
               {!agentOnly && (definition?.criteria_groups || []).length > 0 && (
                 <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '10px 12px' }}>
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 6 }}>
@@ -212,23 +238,9 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 </div>
               )}
 
-              {!agentOnly && (edit.objectifs_ecoules || []).map((o: any, i: number) => (
-                <div key={'oe' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 90px', gap: 8 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Objectif {i + 1} (année écoulée)
-                    <textarea style={textarea} rows={2} value={o.objectif || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, objectif: e.target.value } : x) }))} /></label>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Observations
-                    <textarea style={textarea} rows={2} value={o.observations || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, observations: e.target.value } : x) }))} /></label>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Niveau
-                    <select style={input} value={o.niveau || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, niveau: e.target.value } : x) }))}>
-                      <option value="">—</option><option value="A">A</option><option value="PA">PA</option><option value="NA">NA</option></select></label>
-                </div>
-              ))}
-
-              {(agentOnly ? TEXT_FIELDS.filter(([k]) => k.startsWith('obs_agent')) : TEXT_FIELDS).map(([k, l]) => (
-                <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>{l}
-                  <textarea style={textarea} rows={3} value={edit[k] || ''} onChange={e => setEdit(v => ({ ...v, [k]: e.target.value }))} /></label>
-              ))}
-
+              {txt('appreciation_generale')}
+              {!agentOnly && <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 3 — Volet 2 : perspectives de l’année à venir</div>}
+              {txt('objectifs_service')}
               {!agentOnly && (edit.objectifs_futurs || []).map((o: any, i: number) => (
                 <div key={'of' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 8 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Objectif {i + 1} (année à venir)
@@ -243,6 +255,13 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   {k === 'obligatoires' ? 'Formations obligatoires' : k === 'metiers' ? 'Autres formations métiers' : 'Formations liées au parcours / projet professionnel'}
                   <textarea style={textarea} rows={2} value={(edit.formations || {})[k] || ''} onChange={e => setEdit(v => ({ ...v, formations: { ...(v.formations || {}), [k]: e.target.value } }))} /></label>
               ))}
+
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 4 — Perspectives d’évolution et observations de l’agent</div>
+              {txt('evolution')}
+              {txt('mobilite')}
+              {txt('obs_agent_conditions')}
+              {txt('obs_agent_entretien')}
+              {txt('visa_autorite')}
 
               {(prop.corrections || []).length > 0 && (
                 <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, color: '#5b21b6' }}>
