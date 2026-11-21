@@ -17,6 +17,7 @@ import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input, useConfirm } from './ui';
+import { useDocViewer } from './DocViewerModal';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -572,6 +573,7 @@ function LierAd({ agent, onClose, onDone }: { agent: MonAgent; onClose: () => vo
 
 function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   const [confirm, confirmDialog] = useConfirm();
+  const [openViewer, viewerElement] = useDocViewer();
   const [agents, setAgents] = useState<MonAgent[]>([]);
   const [sousAgents, setSousAgents] = useState<(MonAgent & { valideur_id: number })[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -652,9 +654,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   const crepSigned = (e: MonAgent['entretien']) => !!e && (e.crep_statut === 'signe_papier' || (e.crep_statut === 'en_signature' && e.crep_parapheur_status === 'termine'));
   const openSigned = async (entId: number) => {
     try {
-      const r = await axios.get(`/api/entretiens/${entId}/crep-signe.pdf`, { headers: api(), responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openViewer('CREP signé', async () => (await axios.get(`/api/entretiens/${entId}/crep-signe.pdf`, { headers: api(), responseType: 'blob' })).data);
     } catch (e) { setMsg({ ok: false, text: 'PDF signé indisponible.' }); }
   };
   const toggleSub = (id: number) => setExpanded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -704,6 +704,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   return (
     <div>
       {confirmDialog}
+      {viewerElement}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12.5, color: COLORS.muted }}>
           {campaignLabel} · {agents.length} agent{agents.length > 1 ? 's' : ''}{agents.length ? ` · ${realises} entretien${realises > 1 ? 's' : ''} réalisé${realises > 1 ? 's' : ''}` : ''}

@@ -7,6 +7,7 @@ import { STATUTS, formatDateCourte, nomComplet, repairText } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, KpiCard, Td, Th, btnDanger, btnGhost, btnPrimary, card, input, useConfirm } from './ui';
+import { useDocViewer } from './DocViewerModal';
 
 /**
  * Tableau de bord des EP. Par défaut : ceux que je réalise (évaluateur). Avec `endpoint=/api/ep-ville/equipe` et `readOnly` :
@@ -114,6 +115,7 @@ function crepEtat(e: Entretien): { label: string; hint?: string; color: string; 
 export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false, canReset = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean; canReset?: boolean }) {
   const { token } = useAuth();
   const [confirm, confirmDialog] = useConfirm();
+  const [openViewer, viewerElement] = useDocViewer();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -165,9 +167,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
 
   const openSigned = async (id: number) => {
     try {
-      const r = await axios.get(`/api/entretiens/${id}/crep-signe.pdf`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openViewer('CREP signé', async () => (await axios.get(`/api/entretiens/${id}/crep-signe.pdf`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })).data);
     } catch { setError('PDF signé indisponible.'); }
   };
 
@@ -176,9 +176,7 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     if (!list.length) { setError('Sélectionnez au moins un entretien.'); return; }
     setPrintBusy(mode); setError(null);
     try {
-      const r = await axios.post('/api/entretiens/print/crep', { ids: list, mode }, { headers, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openViewer(mode === 'blank' ? 'CREP vierge' : 'CREP', async () => (await axios.post('/api/entretiens/print/crep', { ids: list, mode }, { headers, responseType: 'blob' })).data);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Impression impossible.');
     } finally { setPrintBusy(null); }
@@ -738,6 +736,7 @@ Motif (obligatoire) :`, '');
         </div>
       )}
       {confirmDialog}
+      {viewerElement}
     </div>
   );
 }

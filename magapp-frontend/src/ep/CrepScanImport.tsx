@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import DocViewerModal, { type ViewerItem } from './DocViewerModal';
 import axios from 'axios';
 import { CheckCircle2, Clock, Loader2, ScanLine, X, AlertTriangle } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary, input, textarea } from './ui';
@@ -28,6 +29,9 @@ interface ScanJob {
   duration_ms?: number | null;
   result?: Proposal;
 }
+
+// Pages téléversées gardées en mémoire (session) : la visionneuse les affiche immédiatement
+const localDocs = new Map<number, File[]>();
 
 const fmtDuree = (ms?: number | null) => {
   if (!ms || ms < 1000) return 'quelques secondes';
@@ -107,14 +111,22 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.id, prop]);
   // Voir le document téléversé (photos assemblées en PDF), avant comme après la lecture
+  const [viewer, setViewer] = useState<{ items: ViewerItem[]; loading?: boolean; error?: string } | null>(null);
+  const closeViewer = () => { setViewer(v => { v?.items.forEach(i => URL.revokeObjectURL(i.url)); return null; }); };
   const viewDoc = async () => {
     if (!job) return;
+    // 1) les fichiers que l'on vient d'envoyer sont encore en mémoire : affichage immédiat, rien à construire ni à télécharger
+    const local = localDocs.get(entretienId);
+    if (local && local.length) {
+      setViewer({ items: local.map(f => ({ kind: /pdf/i.test(f.type) ? 'pdf' as const : 'image' as const, url: URL.createObjectURL(f), name: f.name })) });
+      return;
+    }
+    // 2) sinon (page rechargée) : récupération du document conservé sur le serveur, affiché dans la visionneuse
+    setViewer({ items: [], loading: true });
     try {
       const r = await axios.get(`/api/entretiens/${entretienId}/crep/scan/${job.id}/file.pdf`, { headers, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch { setError('Document indisponible.'); }
+      setViewer({ items: [{ kind: 'pdf', url: URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' })), name: 'CREP' }] });
+    } catch { setViewer({ items: [], error: 'Document indisponible.' }); }
   };
   const dismiss = async (applied = false, signaturesOk = false) => {
     if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, { applied, signatures_ok: signaturesOk }, { headers }); } catch { /* ignore */ } }
@@ -125,6 +137,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const upload = async (list: File[]) => {
     setBusy(true); setError('');
     try {
+      localDocs.set(entretienId, list.slice(0, 8));
       const fd = new FormData(); list.slice(0, 8).forEach(f => fd.append('files', f));
       const r = await axios.post(`/api/entretiens/${entretienId}/crep/scan`, fd, { headers, timeout: 300000 });
       setJob(r.data?.job || null);   // l'analyse se poursuit sur le serveur : réponse immédiate
@@ -199,15 +212,16 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               <button type="button" style={btnGhost} onClick={() => dismiss(false)}>Masquer</button>
             </div>
           )}
-          <button type="button" style={big ? { ...btnPrimary, width: '100%', justifyContent: 'center', fontSize: 16, padding: '22px 18px', borderRadius: 14 } : btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
+          <button type="button" style={big ? { ...btnPrimary, fontSize: 14, padding: '10px 16px' } : btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
             title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’écriture et les cases cochées sont lues en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
-            {busy ? <Loader2 size={big ? 20 : 14} className="spin" /> : <ScanLine size={big ? 20 : 14} />} {busy ? 'Envoi des pages…' : big ? 'Téléverser le CREP signé (scan ou photos des pages)' : 'Importer un compte rendu papier (photos / scan)'}
+            {busy ? <Loader2 size={big ? 17 : 14} className="spin" /> : <ScanLine size={big ? 17 : 14} />} {busy ? 'Envoi des pages…' : big ? 'Téléverser le CREP signé (scan ou photos des pages)' : 'Importer un compte rendu papier (photos / scan)'}
           </button>
           {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Lecture en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
         </>
       )}
       {error && <div style={{ marginTop: 6, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>}
 
+      {viewer && <DocViewerModal title="Document téléversé" items={viewer.items} loading={viewer.loading} error={viewer.error} onClose={closeViewer} />}
       {prop && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, width: 'min(920px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>

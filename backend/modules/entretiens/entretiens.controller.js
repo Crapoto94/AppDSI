@@ -1236,7 +1236,9 @@ const entretiensController = {
             const submit = req.body?.submit === true || req.body?.submit === 'true';
             if (submit) {
                 const missing = missingFields(crep, cdef);
-                if (missing.length) return res.status(400).json({ message: 'Le compte rendu est incomplet : il ne peut pas être validé.', missing });
+                // Mode manuscrit : le document papier signé fait foi, l'évaluateur peut valider en connaissance de cause
+                const tolere = req.body?.allow_incomplete === true && row.crep_mode === 'manuscrit';
+                if (missing.length && !tolere) return res.status(400).json({ message: 'Le compte rendu est incomplet : il ne peut pas être validé.', missing });
             }
             // keep_status : simple enregistrement de la saisie (ex. avant génération du PDF), sans changer le statut du compte rendu.
             const keepStatus = req.body?.keep_status === true && !submit;

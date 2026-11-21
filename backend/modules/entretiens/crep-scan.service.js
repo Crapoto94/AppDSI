@@ -422,6 +422,19 @@ async function pool(tasks, n) {
 
 const PAGES_EN_PARALLELE = 4;
 
+/** Signatures de l'agent et de l'évaluateur : deux lectures à des résolutions différentes, un « oui » à l'une ou l'autre suffit (on évite les faux « non »). */
+async function detectSignatures(apm, model, img, deg) {
+    const once = async (px) => {
+        try {
+            const sj = extractJson(await askVision(apm, model, prompts.get('crep.signatures'), jpeg(rotated(img, deg, px), 90), 300));
+            return { agent: sj.agent_signe === true, evaluateur: sj.evaluateur_signe === true };
+        } catch { return null; }
+    };
+    const [a, b] = await Promise.all([once(2000), once(3000)]);
+    if (!a && !b) return null;
+    return { agent: !!(a?.agent || b?.agent), evaluateur: !!(a?.evaluateur || b?.evaluateur) };
+}
+
 const STOP = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'ou', 'a', 'au', 'aux', 'en', 'd', 'l', 'un', 'une', 'son', 'sa', 'ses', 'dans', 'pour', 'sur', 'par']);
 const stem = (w) => w.replace(/(ement|ations?|ation|ites?|ite|eurs?|eur|ions?|ion|ees?|ee|es|s|x)$/, '').slice(0, 7);
 const words = (t) => new Set(flat(t).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w => w.length > 1 && !STOP.has(w)).map(stem));
@@ -486,12 +499,7 @@ async function scanDocuments(files, definition, opts = {}) {
             ]);
             const j = extractJson(a);
             const t = String(j.transcription || '').trim(); delete j.transcription;
-            if (res.type === 'perspectives') {
-                try {
-                    const sj = extractJson(await askVision(apm, model, prompts.get('crep.signatures'), jpeg(rotated(img, deg, 2000), 88), 300));
-                    res.signatures = { agent: sj.agent_signe === true, evaluateur: sj.evaluateur_signe === true };
-                } catch { /* détection facultative : le valideur vérifie de toute façon */ }
-            }
+            if (res.type === 'perspectives') res.signatures = await detectSignatures(apm, model, img, deg);
             if (j.agent_identite) { res.identite = String(j.agent_identite).replace(/\s+/g, ' ').trim(); }
             delete j.agent_identite;
             res.raw = `--- Page ${i + 1} (${res.type}) ---\n${t || JSON.stringify(j)}`;
@@ -567,6 +575,12 @@ async function scanDocuments(files, definition, opts = {}) {
         } else warnings.push('La grille d’appréciation n’a pas été trouvée sur les pages fournies : cochez-la dans le formulaire (ou ajoutez la page qui la contient).');
     }
 
+    // Repli : si la page des signatures n'a pas été reconnue, on cherche les signatures sur la dernière page
+    if (!results.some(r => r.signatures) && pages.length) {
+        const last = results[results.length - 1];
+        const sg = await detectSignatures(apm, model, pages[pages.length - 1], last ? last.deg : 0);
+        if (sg && last) last.signatures = sg;
+    }
     // Identité : le document est-il bien celui de l'agent auquel on veut l'affecter ?
     const lu = (results.map(r => r.identite).find(Boolean) || '').trim();
     const attendu = String(opts.contexte?.agent || '').trim();

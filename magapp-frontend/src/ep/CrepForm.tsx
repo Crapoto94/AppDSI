@@ -9,6 +9,7 @@ import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingField
 import CrepAiAssist from './CrepAiAssist';
 import CrepScanImport from './CrepScanImport';
 import CrepParcours from './CrepParcours';
+import { useDocViewer } from './DocViewerModal';
 import { COLORS, Field, btnGhost, btnPrimary, input, textarea, useConfirm } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -72,6 +73,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const headers = { Authorization: `Bearer ${token}` };
   const isAgent = mode === 'agent';
   const [confirm, confirmDialog] = useConfirm();
+  const [openViewer, viewerElement] = useDocViewer();
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
   const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | 'scan' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -85,7 +87,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const set = <K extends keyof Crep>(key: K, value: Crep[K]) => setCrep(c => ({ ...c, [key]: value }));
   // Une fois le CREP validé (ou l'entretien clôturé) : tout est en lecture seule, plus de bouton de saisie
   const locked = !isAgent && (entretien.evaluation_statut === 'soumis' || entretien.statut === 'cloture');
-  const dis = !canEdit || isAgent || locked;
+  const [step, setStep] = useState(0);
+  const finalStepFlag = !isAgent && ((entretien.crep_mode === 'manuscrit' && step >= 5 && step < 6) || (entretien.crep_mode === 'outil' && step >= 6 && step < 7) || entretien.statut === 'cloture');
+  const dis = !canEdit || isAgent || locked || finalStepFlag;
   const crepStatut = entretien.crep_statut || 'non_envoye';
   // Agent ou évaluateur sans adresse e-mail : pas de circuit parapheur, on imprime, on fait signer puis on téléverse le PDF signé.
   const noMail = !(entretien.agent_email || '').trim() || !(entretien.evaluator_email || '').trim();
@@ -102,11 +106,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       { title: 'Validation impossible', confirmLabel: 'Compris', hideCancel: true, danger: true });
   };
 
-  const save = async (submit: boolean) => {
+  const save = async (submit: boolean, allowIncomplete = false) => {
     setMsg(null); setMissing([]);
     if (submit) {
       const m = missingFields(crep, entretien.crep_definition);
-      if (m.length) { await showMissing(m); return; }
+      if (m.length && !allowIncomplete) { await showMissing(m); return; }
       // Critères de la grille sans réponse : simple avertissement (cela arrive), l'évaluateur peut valider.
       const gw = gridWarning(crep, entretien.crep_definition);
       if (gw && !(await confirm(`${gw}.\n\nVoulez-vous valider quand même le compte rendu ?`, { title: 'Grille d’appréciation incomplète', confirmLabel: 'Valider quand même' }))) return;
@@ -125,7 +129,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     }
     setBusy(submit ? 'submit' : 'save');
     try {
-      const r = await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit }, { headers });
+      const r = await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit, allow_incomplete: allowIncomplete || undefined }, { headers });
       onSaved(r.data.entretien);
       setMsg({ ok: true, text: submit ? (crep.origine === 'manuscrit' ? 'Compte rendu validé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH : ce document numérique est non contractuel.' : 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent.') : 'Brouillon enregistré.' });
     } catch (e: any) {
@@ -208,12 +212,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const openPdf = async () => {
     setBusy('pdf'); setMsg(null);
     try {
-      // On enregistre d'abord la saisie en cours, pour que le PDF reflète l'écran.
-      if (canEdit) await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers }).then(r => onSaved(r.data.entretien));
-      const r = await axios.get(`/api/entretiens/${entretien.id}/crep.pdf`, { headers, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      // La visionneuse s'ouvre tout de suite ; on enregistre d'abord la saisie en cours, pour que le PDF reflète l'écran.
+      await openViewer('CREP (4 pages)', async () => {
+        if (canEdit && !locked) await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers }).then(r => onSaved(r.data.entretien));
+        return (await axios.get(`/api/entretiens/${entretien.id}/crep.pdf`, { headers, responseType: 'blob' })).data;
+      });
     } catch (e: any) {
       setMsg({ ok: false, text: 'Génération du PDF impossible.' });
     } finally { setBusy(null); }
@@ -222,20 +225,14 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const openScan = async (idx: number) => {
     setBusy('scan'); setMsg(null);
     try {
-      const r = await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openViewer('Scan original', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' })).data);
     } catch (e: any) { setMsg({ ok: false, text: 'Scan indisponible.' }); } finally { setBusy(null); }
   };
 
   const openSignedPdf = async () => {
     setBusy('signedpdf'); setMsg(null);
     try {
-      const r = await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' });
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openViewer('CREP signé', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' })).data);
     } catch (e: any) {
       setMsg({ ok: false, text: 'PDF signé indisponible.' });
     } finally { setBusy(null); }
@@ -263,7 +260,6 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   // ─── Parcours guidé (mode manuscrit / outil) ───
   const [formVisible, setFormVisible] = useState(true);
   const signedVerified = (entretien.crep_scans || []).some(sc => sc.signatures_ok === true) || !!entretien.crep_signed_at;
-  const [step, setStep] = useState(0);
   const guided = !isAgent && (!!entretien.crep_mode || (canEdit && !locked));
   const gMode = entretien.crep_mode || null;
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
@@ -274,6 +270,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     // En mode manuscrit, le contenu vient du document scanné : le formulaire est replié tant que rien n'a été lu
     setFormVisible(!!entretien.crep_mode && !(entretien.crep_mode === 'manuscrit' && !signedVerified && crep.origine !== 'manuscrit'));
   }, [entretien.id, entretien.crep_mode]);
+  useEffect(() => { if (finalStepFlag) setFormVisible(false); }, [finalStepFlag]);
   const reloadEntretien = async () => {
     try { const r = await axios.get(`/api/entretiens/${entretien.id}`, { headers }); onSaved(r.data); } catch { /* ignore */ }
   };
@@ -281,7 +278,15 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const closeEntretien = async () => {
     setMsg(null);
     if (entretien.evaluation_statut !== 'soumis') {
-      await save(true);
+      let tolere = false;
+      if (entretien.crep_mode === 'manuscrit') {
+        const m = missingFields(crep, entretien.crep_definition);
+        if (m.length) {
+          if (!(await confirm(`Des rubriques ne sont pas renseignées :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nLe document papier signé fait foi : vous pouvez clôturer l’entretien sans les renseigner.\n\nClôturer quand même ?`, { title: 'Rubriques non renseignées', confirmLabel: 'Clôturer quand même' }))) return;
+          tolere = true;
+        }
+      }
+      await save(true, tolere);
       let fresh: Entretien | null = null;
       try { fresh = (await axios.get(`/api/entretiens/${entretien.id}`, { headers })).data; } catch { /* ignore */ }
       if (!fresh || fresh.evaluation_statut !== 'soumis') return;   // validation refusée ou annulée : on s'arrête là
@@ -328,6 +333,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   return (
     <div>
       {confirmDialog}
+      {viewerElement}
       {/* En-tête du document */}
       <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7 }}>
         <div><strong>Agent :</strong> {agent}</div>
@@ -433,7 +439,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
               // Contrôle de complétude dès la validation de l'import (mode manuscrit : tout le CREP vient du papier)
               if (gMode === 'manuscrit') {
                 const m = missingFields(merged, entretien.crep_definition);
-                if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nComplétez ces rubriques avant de clôturer.`, { title: 'Rubriques à compléter', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
+                if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nVous pouvez les compléter, ou clôturer sans les renseigner (le document papier signé fait foi).`, { title: 'Rubriques non renseignées', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
               }
             }}
             onApplied={() => { setFormVisible(true); reloadEntretien(); }} />

@@ -47,7 +47,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000,
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '28px 16px', overflowY: 'auto',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...card, width: '100%', maxWidth: 1000, overflow: 'hidden' }}>
+      <div style={{ ...card, width: '100%', maxWidth: 1000, overflow: 'clip' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: `1px solid ${COLORS.border}`, gap: 10 }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
             <Avatar name={entretien ? nomComplet(entretien) : '?'} size={36} />

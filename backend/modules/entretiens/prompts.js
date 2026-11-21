@@ -115,8 +115,11 @@ const DEFS = [
     {
         id: 'crep.signatures', group: 'Lecture des CREP manuscrits', label: 'Détection des signatures (dernière page)',
         description: 'Vérifie la présence d’une signature manuscrite de l’agent et de l’évaluateur. ATTENTION : ne changez pas les noms de champs JSON.', vars: [],
-        text: 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé, puis signé à la main. Regarde les cadres de SIGNATURE en bas de page : celui de l’AGENT évalué et celui de l’ÉVALUATEUR (supérieur hiérarchique qui a conduit l’entretien). '
-            + 'Pour chacun, indique s’il contient une signature MANUSCRITE (un tracé à l’encre, même simple, rapide ou illisible). Un cadre vide, ou qui ne contient que du texte imprimé, n’est PAS signé. Ne confonds pas une signature avec l’écriture d’un commentaire. '
+        text: 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé, puis signé à la main (la photo peut être couchée ou de travers). '
+            + 'Cherche les DEUX cadres de signature, placés l’un à côté de l’autre, au-dessus du grand cadre « Observations et visa de l’autorité territoriale » : '
+            + 'à gauche « DATE ET SIGNATURE DE L’AGENT », à droite « DATE ET SIGNATURE DE L’ÉVALUATEUR (le N+1) ». '
+            + 'Pour chacun, indique s’il contient une signature MANUSCRITE : un paraphe ou un tracé à l’encre (bleu, noir…), même simple, rapide, stylisé ou illisible, souvent accompagné d’une date écrite à la main (ex. « 23/11 »). '
+            + 'Un cadre vide, ou qui ne contient que du texte imprimé, n’est PAS signé. Ne confonds pas une signature avec le commentaire manuscrit écrit ailleurs sur la page. '
             + 'Réponds UNIQUEMENT par un objet JSON : {"agent_signe": true ou false, "evaluateur_signe": true ou false}.',
     },
     {
