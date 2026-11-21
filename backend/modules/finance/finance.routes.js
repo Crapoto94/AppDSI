@@ -4,7 +4,7 @@ const swr = require('../../shared/swr-cache');
 // Toute écriture (opérations, affectations de commandes…) invalide le cache des lectures /budget
 router.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => swr.clear()); next(); });
 const financeController = require('./finance.controller');
-const { authenticateJWT, authenticateAdminOrFinances } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminOrFinances } = require('../../shared/middleware');
 
 // Debug routes
 router.get('/debug/invoices-count', authenticateJWT, async (req, res) => {
@@ -34,6 +34,24 @@ router.get('/debug/orders-sample', authenticateJWT, async (req, res) => {
     }
 });
 
+// Source de lecture Sedit Finances : Oracle direct ou API Sedit
+const seditSource = require('./sedit-source.service');
+router.get('/sedit-source', authenticateAdmin, async (req, res) => {
+    try { res.json(await seditSource.getPublicConfig()); }
+    catch (e) { res.status(500).json({ message: e.message }); }
+});
+router.put('/sedit-source', authenticateAdmin, async (req, res) => {
+    try { res.json(await seditSource.saveConfig(req.body || {})); }
+    catch (e) { res.status(400).json({ message: e.message }); }
+});
+router.post('/sedit-source/test', authenticateAdmin, async (req, res) => {
+    try { res.json(await seditSource.testSources()); }
+    catch (e) { res.status(500).json({ message: e.message }); }
+});
+router.get('/sedit-source/compare', authenticateAdmin, async (req, res) => {
+    try { res.json(await seditSource.compare(req.query.exercice)); }
+    catch (e) { res.status(500).json({ message: e.message }); }
+});
 // Demande de virement de crédits (historique, parapheur, envoi au budget)
 const virements = require('./virement-credits.controller');
 router.get('/virement-credits/settings', authenticateJWT, virements.getSettings);

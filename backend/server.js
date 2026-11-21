@@ -5,6 +5,7 @@
 process.env.TZ = process.env.TZ || 'Europe/Paris';
 
 process.env.TZ = 'Europe/Paris';
+const STARTUP_T0 = Date.now();
 
 const express = require('express');
 const http = require('http');
@@ -3252,6 +3253,7 @@ let db;
 // Initialize Database
 setupDb().then(async database => {
     db = database;
+    console.log(`[STARTUP] SQLite prête en ${Date.now() - STARTUP_T0} ms`);
 
     // Connexions Oracle : lignes créées si absentes (RH et FINANCES sont créées
     // par l'admin ; DELIB/AIRS, ASTECH et CONCERTO sont pré-initialisées).
@@ -3306,7 +3308,9 @@ setupDb().then(async database => {
     await recalculateAllOperations();
 
     // Initialize PostgreSQL for MagApp
+    const tSetupPg = Date.now();
     await setupPgDb();
+    console.log(`[STARTUP] PostgreSQL prêt en ${Date.now() - tSetupPg} ms`);
     try { await require('./modules/ep-base/ep-base.service').loadTemplateCache(); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
     // Initialiser Mail Collector
@@ -3532,8 +3536,10 @@ setupDb().then(async database => {
         console.error('[Prets] Error seeding email templates:', e.message);
     }
 
+    console.log(`[STARTUP] prêt à écouter après ${Date.now() - STARTUP_T0} ms`);
     httpServer.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
+        console.log(`[STARTUP] écoute active après ${Date.now() - STARTUP_T0} ms`);
     });
 
     // ─── Rattrapage au démarrage ────────────────────────────────────────────

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Globe, Euro, Server, Eye, EyeOff, Save, CheckCircle, AlertCircle } from 'lucide-react';
+import { Database, Globe, Euro, Server, Eye, EyeOff, Save, CheckCircle, AlertCircle, Plug } from 'lucide-react';
 import axios from 'axios';
 import Admin from './Admin';
 import AdminFinance from './AdminFinance';
+import SeditSourceConfig from '../components/SeditSourceConfig';
 import { useAuth } from '../contexts/AuthContext';
 
-type DbTab = 'glpi' | 'glpi10' | 'oracle' | 'mariadb' | 'finance' | 'postgresql';
+type DbTab = 'glpi' | 'glpi10' | 'oracle' | 'mariadb' | 'finance' | 'seditapi' | 'postgresql';
 
 const TABS: { id: DbTab; label: string; Icon: React.ElementType }[] = [
   { id: 'glpi',       label: 'GLPI',           Icon: Globe    },
@@ -13,6 +14,7 @@ const TABS: { id: DbTab; label: string; Icon: React.ElementType }[] = [
   { id: 'oracle',     label: 'Oracle',          Icon: Database },
   { id: 'mariadb',    label: 'MariaDB',         Icon: Server   },
   { id: 'finance',    label: 'Finance Mapping', Icon: Euro     },
+  { id: 'seditapi',   label: 'API Sedit',       Icon: Plug     },
   { id: 'postgresql', label: 'PostgreSQL',      Icon: Database },
 ];
 
@@ -50,6 +52,7 @@ const AdminDatabases: React.FC = () => {
         {tab === 'oracle'     && <Admin section="oracle" />}
         {tab === 'mariadb'    && <Admin section="mariadb" />}
         {tab === 'finance'    && <AdminFinance />}
+        {tab === 'seditapi'   && <SeditSourceConfig />}
         {tab === 'postgresql' && <PostgreSQLConfig />}
       </div>
 

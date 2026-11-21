@@ -56,6 +56,11 @@ services:
       # En Docker, "localhost" designe le conteneur : mettre l'adresse reelle de l'API.
       - SEDITRH_API_URL=${SEDITRH_API_URL:-}
       - SEDITRH_API_KEY=${SEDITRH_API_KEY:-}
+      # API Sedit Finances (lecture budget) : valeurs dans le .env à côté de ce fichier.
+      - SEDITGF_API_URL=${SEDITGF_API_URL:-http://10.103.130.106:3420}
+      - SEDITGF_API_KEY=${SEDITGF_API_KEY:-}
+      # Migration historique tickets GLPI -> hub_tickets : désactivée par défaut (GLPI n'est plus la source des tickets).
+      - GLPI_TICKETS_MIGRATION=${GLPI_TICKETS_MIGRATION:-0}
     volumes:
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads

@@ -10,6 +10,9 @@ const { Pool } = require('pg');
  *  - colonnes dont le NOM évoque un secret → non accordées (droits par colonne) ;
  *  - aucun droit d'écriture, jamais.
  */
+const GLPI_TICKETS_MIGRATION_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.GLPI_TICKETS_MIGRATION || '0').trim().toLowerCase()
+);
 const DATAQUERY_ROLE = process.env.DATAQUERY_PG_USER || 'dq_readonly';
 const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_)';
 const DATAQUERY_DENY_COLUMNS = '(passw|pwd|secret|token|api_?key|apikey|hash|otp|private_?key|credential|pin_code|refresh|cookie|salt)';
@@ -5477,7 +5480,11 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // ─── Migration GLPI → hub_tickets + seed ─────────────────────
-    try {
+    // Migration GLPI -> hub_tickets : désactivée par défaut (GLPI n'est plus la source des tickets).
+    // Réactivable ponctuellement avec GLPI_TICKETS_MIGRATION=1.
+    if (!GLPI_TICKETS_MIGRATION_ENABLED) {
+        console.log('[PG DB] migration tickets GLPI ignorée (GLPI_TICKETS_MIGRATION=0)');
+    } else try {
         await client.query(`
             INSERT INTO hub_tickets.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22)
             SELECT glpi_id, title, content, status, priority, urgency, impact, category, type,

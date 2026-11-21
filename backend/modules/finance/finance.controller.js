@@ -2,6 +2,7 @@ const { getSqlite, pool, pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const { readEngagementRows } = require('./sedit-engagements.service');
 const seditLive = require('./sedit-live-facturation.service');
+const seditSource = require('./sedit-source.service');
 
 function parseNum(val) {
     if (val === undefined || val === null || val === '') return 0;
@@ -311,10 +312,12 @@ module.exports = {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
             }
 
-            // Lecture EN DIRECT dans Sedit (cache 3 min) ; repli sur la copie PostgreSQL si Sedit est injoignable.
+            // Source configurable : Oracle direct (historique) ou API Sedit. Repli copie PostgreSQL si les deux échouent.
             let rows = null;
             try {
-                const live = await seditLive.readFactures(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1' });
+                const result = await seditSource.readFactures(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1', budgetScope, actor: req.user, clientApp: req.headers['x-client-app'] || 'DSIHUB' });
+                const live = result.rows;
+                const source = result.source;
                 const links = await pgDb.all("SELECT target_id, operation_id FROM oracle.oracle_links WHERE target_table = 'invoices'");
                 const linkMap = new Map(links.map(l => [String(l.target_id).trim(), l.operation_id]));
                 const budgets = await pgDb.all('SELECT "BUDGET_BUDGET", MIN("BUDGET_ROO_IMA_REF") AS roo, MIN("BUDGET_LIBELLE") AS lib FROM oracle.gf_oracle_budget GROUP BY "BUDGET_BUDGET"');
@@ -322,7 +325,9 @@ module.exports = {
                 // L'état FACETAT de Sedit n'est renseigné que pour les factures mandatées (sinon « XXXXX ») : pour les autres on
                 // lit le VRAI avancement (suivi Sedit : refusée / mandatée / service fait / reçue) afin que « factures à traiter » soit juste.
                 const filtered = live.filter(r => budgetScope !== 'Ville' || String(r.FACTURE_POBJ_EXTRACT_1 || '').trim() === '00');
-                const reels = await seditLive.getEtatsReels(filtered.filter(r => !/MANDAT/i.test(String(r.FACETAT_LIBELLE || ''))).map(r => String(r.FACTURE_FACTURE || '').trim()));
+                const reels = source.startsWith('sedit-live')
+                    ? await seditLive.getEtatsReels(filtered.filter(r => !/MANDAT/i.test(String(r.FACETAT_LIBELLE || ''))).map(r => String(r.FACTURE_FACTURE || '').trim()))
+                    : {};
                 rows = filtered.map(r => {
                     const b = budMap.get(String(r.FACTURE_POBJ_EXTRACT_1 || '').trim());
                     const reel = reels[String(r.FACTURE_FACTURE || '').trim()];
@@ -331,9 +336,9 @@ module.exports = {
                         operation_id: linkMap.get(String(r.FACTURE_FACTURE || '').trim()) || null, BUDGET_LIBELLE: b ? b.lib : null, BUDGET_ROO_IMA_REF: b ? b.roo : null,
                     };
                 });
-                res.set('X-Source', 'sedit-live');
+                res.set('X-Source', source);
             } catch (e) {
-                console.warn('[getInvoices] Sedit injoignable, repli sur la copie synchronisée :', e.message);
+                console.warn('[getInvoices] Sedit/API injoignable, repli sur la copie synchronisée :', e.message);
             }
             if (!rows) {
                 const result = await pool.query(sql, params);
@@ -548,18 +553,19 @@ module.exports = {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
             }
 
-            // Lecture EN DIRECT dans Sedit (cache 3 min) ; repli sur la copie PostgreSQL si Sedit est injoignable.
+            // Source configurable : Oracle direct (historique) ou API Sedit. Repli copie PostgreSQL si les deux échouent.
             let pgRows = null;
             try {
-                const live = await seditLive.readCommandes(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1' });
+                const result = await seditSource.readCommandes(parseInt(fiscalYear, 10) || new Date().getFullYear(), { refresh: req.query.refresh === '1', budgetScope, actor: req.user, clientApp: req.headers['x-client-app'] || 'DSIHUB' });
+                const live = result.rows;
                 const links = await pgDb.all("SELECT target_id, operation_id, app_id FROM oracle.oracle_links WHERE target_table = 'orders'");
                 const linkMap = new Map(links.map(l => [String(l.target_id).trim(), l]));
                 pgRows = live
                     .filter(r => budgetScope !== 'Ville' || String(r.BUDGET_BUDGET || '').trim() === '00')
                     .map(r => { const l = linkMap.get(String(r.COMMANDE_COMMANDE || '').trim()); return { ...r, operation_id: l ? l.operation_id : null, app_id: l ? l.app_id : null }; });
-                res.set('X-Source', 'sedit-live');
+                res.set('X-Source', result.source);
             } catch (e) {
-                console.warn('[getOrders] Sedit injoignable, repli sur la copie synchronisée :', e.message);
+                console.warn('[getOrders] Sedit/API injoignable, repli sur la copie synchronisée :', e.message);
             }
             if (!pgRows) {
                 const result = await pool.query(sql, params);

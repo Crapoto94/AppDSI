@@ -40,7 +40,7 @@ async function get(apiPath, params, timeout = 30000) {
     try {
         resp = await axios.get(cfg('SEDITRH_API_URL').replace(/\/+$/, '') + apiPath, {
             params, timeout,
-            headers: { Authorization: `Bearer ${cfg('SEDITRH_API_KEY')}` },
+            headers: { Authorization: `Bearer ${cfg('SEDITRH_API_KEY')}`, 'X-Client-App': 'DSIHUB' },
             validateStatus: () => true,
         });
     } catch (e) {
