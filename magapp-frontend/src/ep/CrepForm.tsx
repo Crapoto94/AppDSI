@@ -301,7 +301,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
   const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
   const showBottom = isAgent || !guided || (gMode === 'outil' && step <= 2);
-  const scanOn = entretien.scan_reading !== false && entretien.scan_reading !== undefined ? true : entretien.scan_reading === true;
+  const scanOn = entretien.scan_reading === true;
   const incompleteAfterImport = gMode === 'manuscrit' && signedVerified && scanOn ? missingFields(crep, entretien.crep_definition) : [];
   useEffect(() => {
     // En mode manuscrit, le contenu vient du document scanné : le formulaire est replié tant que rien n'a été lu
