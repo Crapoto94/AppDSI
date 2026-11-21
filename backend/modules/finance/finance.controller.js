@@ -1,6 +1,5 @@
 const { getSqlite, pool, pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
-const { readEngagementRows } = require('./sedit-engagements.service');
 const seditLive = require('./sedit-live-facturation.service');
 const seditSource = require('./sedit-source.service');
 
@@ -393,10 +392,12 @@ module.exports = {
     // Lignes d'exécution lues EN DIRECT dans Sedit (DSI, exercice demandé) — plus d'import Excel.
     getLines: async (req, res) => {
         try {
-            const lines = await require('./sedit-budget-synthese.service').getBudgetLines({
-                exercice: req.query.fiscalYear, scope: req.query.budgetScope
+            const result = await seditSource.readBudgetLines({
+                exercice: req.query.fiscalYear, scope: req.query.budgetScope,
+                actor: req.user, clientApp: req.headers['x-client-app'] || 'DSIHUB',
             });
-            res.json(lines);
+            res.set('X-Source', result.source);
+            res.json(result.rows);
         } catch (error) {
             console.error('[Finance] getLines error:', error);
             res.status(500).json({ message: 'Erreur lecture lignes Sedit', error: error.message });
@@ -417,7 +418,9 @@ module.exports = {
         try {
             // Lecture EN DIRECT dans Sedit (DSI) — aucune donnée importée.
             const year = parseInt(req.query.fiscalYear, 10) || new Date().getFullYear();
-            const result = { rows: await readEngagementRows(year) };
+            const engResult = await seditSource.readEngagementRows(year, { actor: req.user, clientApp: req.headers['x-client-app'] || 'DSIHUB' });
+            res.set('X-Source', engResult.source);
+            const result = { rows: engResult.rows };
 
             // Un engagement (Code mouvement) est éclaté en plusieurs lignes : par code
             // fonction, et par avancement. Les lignes E1 portent le solde restant engagé,

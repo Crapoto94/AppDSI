@@ -193,6 +193,163 @@ async function readCommandes(year, opts = {}) {
     return { rows, source: 'sedit-live' };
 }
 
+function budgetLabel(code, lib) {
+    const c = String(code || '').trim();
+    const l = String(lib || '').trim();
+    return c && l ? `${c} - ${l}` : (l || c);
+}
+
+function mapEngagementRows(rows) {
+    return rows.map(r => {
+        const imp = String(r.ligne_budgetaire || '').split('.')[0] || '';
+        return {
+            'Code mouvement': r.mouvement || '',
+            'Libellé mouvement': r.libelle_mouvement || '',
+            'Libellé': r.libelle || '',
+            'Avancement': r.avancement || '',
+            'Exercice': String(r.exercice || ''),
+            'Budget': budgetLabel(r.budget_code, r.budget),
+            'Imputation': imp,
+            'Section': r.section || '',
+            'Article par nature': r.article || '',
+            'Chapitre par nature': r.chapitre || '',
+            'Référence Fonctionnelle': r.fonction || '',
+            'Service Gestionnaire': r.service || '',
+            'Nom tiers': r.tiers?.nom || '',
+            'Commande': r.commande?.numero || '',
+            'Montant TTC': n(r.montant_ttc),
+            'Reste engagé': n(r.reste_engage),
+        };
+    });
+}
+
+function mapBudgetLine(r) {
+    const code = r.code || '';
+    const budgetCode = r.budget_code || '';
+    const lib = r.budget || '';
+    const fonction = r.fonction || '';
+    return {
+        'Code': code,
+        'Libellé': r.libelle || '',
+        'Budget': budgetLabel(budgetCode, lib),
+        'Code budget': budgetCode,
+        'Masque': [r.chapitre, fonction, r.article].filter(Boolean).join('-'),
+        'Sens': r.sens || 'D',
+        'Section': r.section || '',
+        'Article par nature': r.article || '',
+        'Chapitre par nature': r.chapitre || '',
+        'Référence Fonctionnelle': fonction,
+        "Opération d'équipement": r.operation || '',
+        'Service Gestionnaire': r.service || '',
+        'Budget voté': n(r.vote),
+        'Disponible': n(r.disponible_prevision != null ? r.disponible_prevision : (n(r.vote) - n(r.prevision))),
+        'Mt. prévision': n(r.prevision),
+        'Mt. pré-engagé': n(r.pre_engage),
+        'Mt. engagé': n(r.engage),
+        'Mt. facturé': n(r.facture),
+        'Mt. pré-mandaté': n(r.pre_mandate),
+        'Mt. mandaté': n(r.mandate),
+        'Mt. payé': n(r.tresorerie),
+    };
+}
+
+async function readEngagementRows(year, opts = {}) {
+    const source = await getSource();
+    if (source === 'api') {
+        try {
+            const rows = await api.engagements(year, { actor: opts.actor, clientApp: opts.clientApp });
+            return { rows: mapEngagementRows(rows), source: 'sedit-api' };
+        } catch (e) {
+            console.warn('[SEDIT SOURCE] API engagements indisponible, repli direct :', e.message);
+            return { rows: await seditEngagements.readEngagementRows(year), source: 'sedit-live-fallback', warning: e.message };
+        }
+    }
+    return { rows: await seditEngagements.readEngagementRows(year), source: 'sedit-live' };
+}
+
+async function readBudgetLines({ exercice, scope, budget, actor, clientApp } = {}) {
+    const y = parseInt(exercice, 10) || new Date().getFullYear();
+    const source = await getSource();
+    if (source === 'api') {
+        try {
+            const rows = await api.lignesBudgetaires(y, {
+                budget: scope === 'Ville' ? 'PRINCIPAL' : budget,
+                actor, clientApp,
+            });
+            return { rows: rows.map(mapBudgetLine), source: 'sedit-api' };
+        } catch (e) {
+            console.warn('[SEDIT SOURCE] API lignes budget indisponible, repli direct :', e.message);
+            return { rows: await seditSynthese.getBudgetLines({ exercice: y, scope }), source: 'sedit-live-fallback', warning: e.message };
+        }
+    }
+    return { rows: await seditSynthese.getBudgetLines({ exercice: y, scope }), source: 'sedit-live' };
+}
+
+async function demandesEnCoursApi(year) {
+    const { pool } = require('../../shared/database');
+    const dem = (await pool.query(
+        `SELECT id, designation, montant, section, commande_roo FROM finance.demandes_commande
+          WHERE EXTRACT(YEAR FROM created_at) = $1 ORDER BY created_at, id`, [year]
+    )).rows;
+    const associated = new Set((await pool.query(
+        `SELECT TRIM(commande_roo) AS roo FROM finance.demandes_commande WHERE commande_roo IS NOT NULL`
+    )).rows.map(r => r.roo));
+    const commandes = await api.commandes(year);
+    const free = commandes
+        .filter(c => !associated.has(String(c.id || '').trim()))
+        .map(c => ({ montant: n(c.montant_ttc), used: false }));
+    const out = [];
+    for (const d of dem) {
+        if (d.commande_roo) continue;
+        const montant = n(d.montant);
+        const twin = free.find(c => !c.used && Math.abs(c.montant - montant) < 0.005);
+        if (twin) { twin.used = true; continue; }
+        out.push({ id: d.id, designation: d.designation, section: d.section || '', montant });
+    }
+    return out;
+}
+
+async function readBudgetSynthese({ exercice, scope, budget, actor, clientApp } = {}) {
+    const y = parseInt(exercice, 10) || new Date().getFullYear();
+    const source = await getSource();
+    if (source !== 'api') return seditSynthese.getBudgetSynthese({ exercice: y, scope, budget });
+    try {
+        const lines = (await api.lignesBudgetaires(y, {
+            budget: scope === 'Ville' ? 'PRINCIPAL' : budget, actor, clientApp,
+        })).map(mapBudgetLine);
+        const groups = new Map();
+        for (const l of lines) {
+            const key = [l.Section, l['Chapitre par nature'], l['Article par nature'], l['Service Gestionnaire']].join('|');
+            let g = groups.get(key);
+            if (!g) groups.set(key, g = {
+                section: l.Section || '', chapitre: l['Chapitre par nature'] || '', nature: l['Article par nature'] || '',
+                service: l['Service Gestionnaire'] || '', service_libelle: l['Service Gestionnaire'] || '',
+                vote: 0, disponible: 0, engage: 0, en_cours: 0, mandate: 0,
+            });
+            g.vote += n(l['Budget voté']);
+            g.disponible += n(l['Disponible']);
+            g.engage += n(l['Mt. engagé']);
+            g.en_cours += n(l['Mt. pré-engagé']) - n(l['Mt. engagé']);
+            g.mandate += n(l['Mt. mandaté']);
+        }
+        const demandes = await demandesEnCoursApi(y);
+        return {
+            exercice: y,
+            scope: scope === 'Ville' ? 'Ville' : 'All',
+            demandes_count: demandes.length,
+            rows: [...groups.values(), ...demandes.map(d => ({
+                section: d.section, chapitre: 'DEMANDES', nature: '', service: '', service_libelle: '',
+                vote: 0, disponible: 0, engage: 0, en_cours: d.montant, mandate: 0,
+                source: 'demande', demande_id: d.id, demande_designation: d.designation,
+            }))],
+            source: 'sedit-api',
+        };
+    } catch (e) {
+        console.warn('[SEDIT SOURCE] API synthèse indisponible, repli direct :', e.message);
+        return { ...(await seditSynthese.getBudgetSynthese({ exercice: y, scope, budget })), source: 'sedit-live-fallback', warning: e.message };
+    }
+}
+
 const n = (v) => Number(v) || 0;
 const money = (v) => Math.round(n(v) * 100) / 100;
 

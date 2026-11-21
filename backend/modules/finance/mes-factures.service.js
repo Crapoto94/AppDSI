@@ -3,6 +3,7 @@ const { pool } = require('../../shared/database');
 const financeShare = require('./finance-share.controller');
 const seditDroits = require('./sedit-droits.service');
 const dgp = require('./dgp.service');
+const seditApi = require('./sedit-api.client');
 
 // « Mes factures » (MagApp, BETA) : factures SEDIT que l'agent a le droit de VOIR, avec service fait et DGP.
 //
@@ -122,7 +123,7 @@ async function listFactures(user, q = {}) {
             budgetsInScope.add(sv.budget);
             if (budgetFilter && sv.budget.toUpperCase() !== budgetFilter) continue;
             const k = `${sv.budgetRoo}|${sv.serviceRoo}`;
-            if (!pairs.has(k)) pairs.set(k, { budgetRoo: sv.budgetRoo, serviceRoo: sv.serviceRoo, via: new Set() });
+            if (!pairs.has(k)) pairs.set(k, { budgetRoo: sv.budgetRoo, serviceRoo: sv.serviceRoo, budget: sv.budget, service: sv.service, via: new Set() });
             pairs.get(k).via.add(src.key);
         }
     }
@@ -132,6 +133,41 @@ async function listFactures(user, q = {}) {
     const budgets = [...budgetsInScope].filter(Boolean).sort();
     const empty = { budgets, dgp_alert: null, collectivite: null, rows: [], total: 0, stats: null, a_traiter: 0, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
     if (!pairs.size) return empty;
+
+    // Lecture de la liste par l'API Sedit (journalisée côté API avec l'utilisateur MagApp).
+    // Les filtres avancés (recherche, KPI, DGP) restent traités par la lecture directe ci-dessous.
+    let apiData = null;
+    if (!q.search && !q.sf && !q.kpi) {
+        try {
+            const seen = new Map();
+            for (const p of pairs.values()) {
+                const rows = await seditApi.listAll('/factures', {
+                    exercice: year, budget: p.budget, service: p.service,
+                }, { actor: user, clientApp: 'MAGAPP' });
+                for (const r of rows) {
+                    if (String(r.date_entree || '').slice(0, 4) !== String(year)) continue;
+                    if (!seen.has(r.id)) seen.set(r.id, { ...r, _budgetRoo: p.budgetRoo, _serviceRoo: p.serviceRoo });
+                }
+            }
+            const list = [...seen.values()];
+            const rows = list.map(r => ({
+                ROO: r.id, NUM: r.numero, NUM_FOURN: r.reference || '', LIBELLE: r.libelle || '',
+                DATE_RECEPTION: r.date_entree, MONTANT: r.montant_ttc, TIERS: r.tiers?.nom || '',
+                SERVICE: r.service?.code || '', BUDGET: r.budget || '',
+                BUDGET_ROO: r._budgetRoo, SERVICE_ROO: r._serviceRoo,
+                DATE_REJET: r.date_rejet || null,
+                _api_service_fait: r.service_fait === 'valide',
+            }));
+            apiData = {
+                total: rows.length,
+                rows: rows.slice(offset, offset + limit),
+                roos: rows.map(r => r.ROO),
+                aTraiter: rows.filter(r => !r._api_service_fait && !r.DATE_REJET).length,
+            };
+        } catch (e) {
+            console.warn('[MesFactures] API liste indisponible, repli direct :', e.message);
+        }
+    }
 
     const binds = { y0: `${year}-01-01`, y1: `${year + 1}-01-01` };
     const byBudget = new Map();
@@ -167,7 +203,7 @@ async function listFactures(user, q = {}) {
 
     // 1) ROO de tout le périmètre de l'exercice (hors filtres de recherche) : sert au résumé, au DGP et aux filtres rapides
     const baseBinds = pick(binds, Object.keys(binds).filter(k => k !== 'search'));
-    const roos = await financeShare.withFinanceOracle(async (conn) =>
+    const roos = apiData ? apiData.roos : await financeShare.withFinanceOracle(async (conn) =>
         ((await conn.execute(`SELECT TRIM(f.ROO_IMA_REF) AS ROO ${FROM} WHERE ${baseWhere.join(' AND ')}`, baseBinds, opts)).rows || []).map(r => r.ROO));
 
     // 2) DGP calculé À LA DEMANDE pour les factures du périmètre absentes du cache (ou de plus de 6 h) : pas de recalcul de toute la collectivité
@@ -194,7 +230,8 @@ async function listFactures(user, q = {}) {
         where.push(inList('TRIM(f.FACTURE)', nums, 'kc'));
     }
 
-    const data = await financeShare.withFinanceOracle(async (conn) => {
+    let data = apiData;
+    if (!data) data = await financeShare.withFinanceOracle(async (conn) => {
         const bindsRows = { ...binds };
         const total = Number((await conn.execute(`SELECT COUNT(*) AS N ${FROM} WHERE ${where.join(' AND ')}`, bindsRows, opts)).rows[0].N) || 0;
         const rows = (await conn.execute(
@@ -465,7 +502,7 @@ async function getDgpWeeklyForUser(user, q = {}) {
         blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
         bi++;
     }
-    const roos = await financeShare.withFinanceOracle(async (conn) => ((await conn.execute(
+    const roos = apiData ? apiData.roos : await financeShare.withFinanceOracle(async (conn) => ((await conn.execute(
         `SELECT TRIM(f.ROO_IMA_REF) AS ROO FROM FI.FACTURE f WHERE f.DATENTREE >= TO_DATE(:y0,'YYYY-MM-DD') AND f.DATENTREE < TO_DATE(:y1,'YYYY-MM-DD') AND (${blocks.join(' OR ')})`,
         binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 100000 })).rows || []).map(r => r.ROO));
     await dgp.ensureDgpForRoos(roos).catch(e => console.warn('[MesFactures] DGP à la demande:', e.message));

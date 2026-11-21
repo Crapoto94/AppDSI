@@ -35,7 +35,7 @@ export default function SeditSourceConfig() {
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const r = await axios.get('/api/finance/sedit-source', { headers });
+            const r = await axios.get('/api/budget/sedit-source', { headers });
             setCfg(c => ({ ...c, ...r.data, api_key: '' }));
         } catch (e: any) {
             setMsg({ ok: false, text: e.response?.data?.message || 'Chargement impossible.' });
@@ -49,31 +49,31 @@ export default function SeditSourceConfig() {
         try {
             const payload: any = { source: cfg.source, api_url: cfg.api_url, timeout_ms: cfg.timeout_ms };
             if (cfg.api_key.trim()) payload.api_key = cfg.api_key.trim();
-            const r = await axios.put('/api/finance/sedit-source', payload, { headers });
+            const r = await axios.put('/api/budget/sedit-source', payload, { headers });
             setCfg(c => ({ ...c, ...r.data, api_key: '' }));
             setMsg({ ok: true, text: 'Paramétrage enregistré.' });
         } catch (e: any) {
-            setMsg({ ok: false, text: e.response?.data?.message || 'Enregistrement impossible.' });
+            setMsg({ ok: false, text: e.response?.data?.message || e.response?.data?.detail || e.message || 'Enregistrement impossible.' });
         } finally { setSaving(false); }
     };
 
     const runTest = async () => {
         setTesting(true); setTest(null); setMsg(null);
         try {
-            const r = await axios.post('/api/finance/sedit-source/test', {}, { headers });
+            const r = await axios.post('/api/budget/sedit-source/test', {}, { headers });
             setTest(r.data);
         } catch (e: any) {
-            setMsg({ ok: false, text: e.response?.data?.message || 'Test impossible.' });
+            setMsg({ ok: false, text: e.response?.data?.message || e.response?.data?.detail || e.message || 'Test impossible.' });
         } finally { setTesting(false); }
     };
 
     const runCompare = async () => {
         setComparing(true); setCompare(null); setMsg(null);
         try {
-            const r = await axios.get('/api/finance/sedit-source/compare', { headers, params: { exercice: year } });
+            const r = await axios.get('/api/budget/sedit-source/compare', { headers, params: { exercice: year } });
             setCompare(r.data);
         } catch (e: any) {
-            setMsg({ ok: false, text: e.response?.data?.message || 'Comparaison impossible.' });
+            setMsg({ ok: false, text: e.response?.data?.message || e.response?.data?.detail || e.message || 'Comparaison impossible.' });
         } finally { setComparing(false); }
     };
 
@@ -104,6 +104,7 @@ export default function SeditSourceConfig() {
                         <div>
                             <label style={s.label}>URL de l’API</label>
                             <input style={s.input} value={cfg.api_url} onChange={e => setCfg(c => ({ ...c, api_url: e.target.value }))} placeholder="http://10.103.130.106:3420" />
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Sedit Finances : port 3420. Le 3440 correspond à Sedit RH.</div>
                         </div>
                         <div>
                             <label style={s.label}>Timeout (ms)</label>
