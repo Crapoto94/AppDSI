@@ -194,7 +194,7 @@ module.exports = {
     async liveLines(req, res) {
         try {
             const { getLiveLines } = require('./virement-credits-lines.service');
-            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, budget: req.query.budget, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services }));
+            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, budget: req.query.budget, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services, actor: req.user, clientApp: 'DSIHUB' }));
         } catch (e) {
             console.error('[VirementCredits] lignes SEDIT:', e.message);
             res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });

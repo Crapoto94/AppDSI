@@ -126,17 +126,24 @@ async function engagements(year, { budget, actor, clientApp } = {}) {
     return [...new Map(rows.map(r => [String(r.id), r])).values()];
 }
 
-async function lignesBudgetaires(year, { budget, actor, clientApp } = {}) {
+async function lignesBudgetaires(year, { budget, service = 'BF*', sens = 'D', actor, clientApp } = {}) {
     const opts = { actor, clientApp };
-    const params = { exercice: Number(year), service: 'BF*', sens: 'D' };
+    const params = { exercice: Number(year) };
+    if (service) params.service = service;
+    if (sens) params.sens = sens;
     if (budget) params.budget = budget;
     return listAll('/lignes-budgetaires', params, opts);
+}
+
+async function droits({ email, username, code } = {}, opts = {}) {
+    const data = await request('/utilisateurs/droits', { email, username, code }, opts);
+    return data?.data || { user: null, services: [] };
 }
 
 async function tiers(params = {}, { actor, clientApp } = {}) { return listAll('/tiers', params, { actor, clientApp }); }
 
 module.exports = {
-    getConfig, normalizeUrl, request, listAll, moi,
+    getConfig, normalizeUrl, request, listAll, moi, droits,
     factures, commandes, engagements, lignesBudgetaires, tiers,
     SETTING_URL, SETTING_KEY, SETTING_TIMEOUT,
 };

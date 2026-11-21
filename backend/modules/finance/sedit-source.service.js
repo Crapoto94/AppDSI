@@ -1,10 +1,7 @@
 /**
- * Source de lecture Sedit Finances : Oracle direct (comportement historique)
- * ou API Sedit (API-Nova). Bascule par paramétrage, sans redémarrage.
- *
- * Périmètre branché pour l'instant : factures et commandes de /budget.
- * Les autres lectures (engagements, lignes, synthèse) restent en direct ; le
- * comparateur permet de vérifier l'API avant de les basculer.
+ * Source de lecture Sedit Finances : API Sedit (API-Nova) par défaut.
+ * Aucun repli Oracle local n'est utilisé pour les lectures budgétaires.
+ * Le mode « internal » reste disponible uniquement pour les tests de parité.
  */
 const { getSqlite } = require('../../shared/database');
 const financeShare = require('./finance-share.controller');
@@ -14,7 +11,7 @@ const seditSynthese = require('./sedit-budget-synthese.service');
 const api = require('./sedit-api.client');
 
 const SETTING_SOURCE = 'finance.sedit_source';
-const DEFAULT_SOURCE = 'internal';
+const DEFAULT_SOURCE = 'api';
 
 async function readSetting(key) {
     const db = getSqlite();
@@ -164,14 +161,8 @@ function mapCommande(r) {
 async function readFactures(year, opts = {}) {
     const source = await getSource();
     if (source === 'api') {
-        try {
-            const rows = await api.factures(year, { budget: opts.budgetScope === 'Ville' ? 'PRINCIPAL' : undefined, actor: opts.actor, clientApp: opts.clientApp });
-            return { rows: rows.map(mapFacture), source: 'sedit-api' };
-        } catch (e) {
-            console.warn('[SEDIT SOURCE] API factures indisponible, repli direct :', e.message);
-            const rows = await seditLive.readFactures(year, { refresh: opts.refresh });
-            return { rows, source: 'sedit-live-fallback', warning: e.message };
-        }
+        const rows = await api.factures(year, { budget: opts.budgetScope === 'Ville' ? 'PRINCIPAL' : undefined, actor: opts.actor, clientApp: opts.clientApp });
+        return { rows: rows.map(mapFacture), source: 'sedit-api' };
     }
     const rows = await seditLive.readFactures(year, { refresh: opts.refresh });
     return { rows, source: 'sedit-live' };
@@ -180,14 +171,8 @@ async function readFactures(year, opts = {}) {
 async function readCommandes(year, opts = {}) {
     const source = await getSource();
     if (source === 'api') {
-        try {
-            const rows = await api.commandes(year, { budget: opts.budgetScope === 'Ville' ? 'PRINCIPAL' : undefined, actor: opts.actor, clientApp: opts.clientApp });
-            return { rows: rows.map(mapCommande), source: 'sedit-api' };
-        } catch (e) {
-            console.warn('[SEDIT SOURCE] API commandes indisponible, repli direct :', e.message);
-            const rows = await seditLive.readCommandes(year, { refresh: opts.refresh });
-            return { rows, source: 'sedit-live-fallback', warning: e.message };
-        }
+        const rows = await api.commandes(year, { budget: opts.budgetScope === 'Ville' ? 'PRINCIPAL' : undefined, actor: opts.actor, clientApp: opts.clientApp });
+        return { rows: rows.map(mapCommande), source: 'sedit-api' };
     }
     const rows = await seditLive.readCommandes(year, { refresh: opts.refresh });
     return { rows, source: 'sedit-live' };
@@ -241,6 +226,9 @@ function mapBudgetLine(r) {
         'Référence Fonctionnelle': fonction,
         "Opération d'équipement": r.operation || '',
         'Service Gestionnaire': r.service || '',
+        EQUIPEMENT: r.equipement || '-',
+        TVA: '-',
+        JE: '-',
         'Budget voté': n(r.vote),
         'Disponible': n(r.disponible_prevision != null ? r.disponible_prevision : (n(r.vote) - n(r.prevision))),
         'Mt. prévision': n(r.prevision),
@@ -256,13 +244,8 @@ function mapBudgetLine(r) {
 async function readEngagementRows(year, opts = {}) {
     const source = await getSource();
     if (source === 'api') {
-        try {
-            const rows = await api.engagements(year, { actor: opts.actor, clientApp: opts.clientApp });
-            return { rows: mapEngagementRows(rows), source: 'sedit-api' };
-        } catch (e) {
-            console.warn('[SEDIT SOURCE] API engagements indisponible, repli direct :', e.message);
-            return { rows: await seditEngagements.readEngagementRows(year), source: 'sedit-live-fallback', warning: e.message };
-        }
+        const rows = await api.engagements(year, { actor: opts.actor, clientApp: opts.clientApp });
+        return { rows: mapEngagementRows(rows), source: 'sedit-api' };
     }
     return { rows: await seditEngagements.readEngagementRows(year), source: 'sedit-live' };
 }
@@ -271,21 +254,41 @@ async function readBudgetLines({ exercice, scope, budget, actor, clientApp } = {
     const y = parseInt(exercice, 10) || new Date().getFullYear();
     const source = await getSource();
     if (source === 'api') {
-        try {
-            const rows = await api.lignesBudgetaires(y, {
-                budget: scope === 'Ville' ? 'PRINCIPAL' : budget,
-                actor, clientApp,
-            });
-            return { rows: rows.map(mapBudgetLine), source: 'sedit-api' };
-        } catch (e) {
-            console.warn('[SEDIT SOURCE] API lignes budget indisponible, repli direct :', e.message);
-            return { rows: await seditSynthese.getBudgetLines({ exercice: y, scope }), source: 'sedit-live-fallback', warning: e.message };
-        }
+        const rows = await api.lignesBudgetaires(y, {
+            budget: scope === 'Ville' ? 'PRINCIPAL' : budget,
+            actor, clientApp,
+        });
+        return { rows: rows.map(mapBudgetLine), source: 'sedit-api' };
     }
     return { rows: await seditSynthese.getBudgetLines({ exercice: y, scope }), source: 'sedit-live' };
 }
 
-async function demandesEnCoursApi(year) {
+async function readVirementLines({ fiscalYear, budget = '', allBudgets = false, services = [], actor, clientApp } = {}) {
+    const y = Number(fiscalYear) || new Date().getFullYear();
+    const wanted = String(budget || '').trim().toUpperCase();
+    const allowed = wanted ? services.filter(s => String(s.budget).toUpperCase() === wanted)
+        : (allBudgets ? services : services.filter(s => String(s.budget).toUpperCase() === 'PRINCIPAL'));
+    if (!allowed.length) return { rows: [], source: 'sedit-api' };
+
+    const byBudget = new Map();
+    for (const s of allowed) {
+        if (!byBudget.has(s.budget)) byBudget.set(s.budget, new Set());
+        byBudget.get(s.budget).add(s.service);
+    }
+    const out = [];
+    for (const [budgetLabel, set] of byBudget) {
+        const rows = await api.lignesBudgetaires(y, {
+            budget: budgetLabel,
+            service: [...set].join(','),
+            sens: '',
+            actor, clientApp,
+        });
+        out.push(...rows.map(mapBudgetLine));
+    }
+    return { rows: out, source: 'sedit-api' };
+}
+
+async function demandesEnCoursApi(year, { actor, clientApp } = {}) {
     const { pool } = require('../../shared/database');
     const dem = (await pool.query(
         `SELECT id, designation, montant, section, commande_roo FROM finance.demandes_commande
@@ -294,7 +297,7 @@ async function demandesEnCoursApi(year) {
     const associated = new Set((await pool.query(
         `SELECT TRIM(commande_roo) AS roo FROM finance.demandes_commande WHERE commande_roo IS NOT NULL`
     )).rows.map(r => r.roo));
-    const commandes = await api.commandes(year);
+    const commandes = await api.commandes(year, { actor, clientApp });
     const free = commandes
         .filter(c => !associated.has(String(c.id || '').trim()))
         .map(c => ({ montant: n(c.montant_ttc), used: false }));
@@ -313,7 +316,7 @@ async function readBudgetSynthese({ exercice, scope, budget, actor, clientApp } 
     const y = parseInt(exercice, 10) || new Date().getFullYear();
     const source = await getSource();
     if (source !== 'api') return seditSynthese.getBudgetSynthese({ exercice: y, scope, budget });
-    try {
+    {
         const lines = (await api.lignesBudgetaires(y, {
             budget: scope === 'Ville' ? 'PRINCIPAL' : budget, actor, clientApp,
         })).map(mapBudgetLine);
@@ -332,7 +335,7 @@ async function readBudgetSynthese({ exercice, scope, budget, actor, clientApp } 
             g.en_cours += n(l['Mt. pré-engagé']) - n(l['Mt. engagé']);
             g.mandate += n(l['Mt. mandaté']);
         }
-        const demandes = await demandesEnCoursApi(y);
+        const demandes = await demandesEnCoursApi(y, { actor, clientApp });
         return {
             exercice: y,
             scope: scope === 'Ville' ? 'Ville' : 'All',
@@ -344,9 +347,6 @@ async function readBudgetSynthese({ exercice, scope, budget, actor, clientApp } 
             }))],
             source: 'sedit-api',
         };
-    } catch (e) {
-        console.warn('[SEDIT SOURCE] API synthèse indisponible, repli direct :', e.message);
-        return { ...(await seditSynthese.getBudgetSynthese({ exercice: y, scope, budget })), source: 'sedit-live-fallback', warning: e.message };
     }
 }
 
@@ -408,5 +408,5 @@ async function compare(year) {
 
 module.exports = {
     getSource, getPublicConfig, saveConfig, testSources, compare,
-    readFactures, readCommandes, readEngagementRows, readBudgetLines, readBudgetSynthese,
+    readFactures, readCommandes, readEngagementRows, readBudgetLines, readVirementLines, readBudgetSynthese,
 };
