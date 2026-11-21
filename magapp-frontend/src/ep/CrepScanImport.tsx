@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import DocViewerModal, { type ViewerItem } from './DocViewerModal';
 import axios from 'axios';
-import { CheckCircle2, Clock, Loader2, ScanLine, X, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, Loader2, ScanLine, X, AlertTriangle } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary, input, textarea } from './ui';
 import type { Crep } from './crep';
 
@@ -27,6 +27,7 @@ interface ScanJob {
   error?: string | null;
   estimate_ms?: number;
   duration_ms?: number | null;
+  silent?: boolean;
   result?: Proposal;
 }
 
@@ -56,7 +57,9 @@ const TEXT_FIELDS: Array<[string, string]> = [
  * Import d'un compte rendu papier : le document est numérisé et lu par l'IA interne (écriture manuscrite), qui PROPOSE un contenu.
  * L'évaluateur relit et corrige chaque rubrique, puis l'applique au formulaire (rien n'est enregistré avant son propre « Enregistrer »).
  */
-export default function CrepScanImport({ entretienId, headers, disabled, onApply, onApplied, definition, big }: {
+export default function CrepScanImport({ entretienId, headers, disabled, onApply, onApplied, definition, big, scanReading = true }: {
+  /** « Lecture des entretiens numérisés » activée : sinon on ne parle jamais de lecture au valideur. */
+  scanReading?: boolean;
   /** Présentation « étape de téléversement » : un grand bouton bien visible. */
   big?: boolean;
   /** Appelé après l'application (le document signé est conservé) : permet de rafraîchir l'entretien. */
@@ -180,7 +183,26 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   return (
     <>
       <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple style={{ display: 'none' }} onChange={e => { const l = Array.from(e.target.files || []); if (l.length) upload(l); }} />
-      {job && (job.status === 'en_attente' || job.status === 'en_cours') ? (
+      {job && job.silent ? (
+        // Lecture désactivée : le valideur consulte le document téléversé, confirme les 2 signatures et le valide (la lecture se fait en arrière-plan, sans lui en parler)
+        <div style={{ border: '2px solid #c7d2fe', background: '#f8faff', borderRadius: 12, padding: '14px 16px' }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>Document téléversé</div>
+          <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 10 }}>Consultez le document, vérifiez qu’il porte bien les signatures de l’agent et de l’évaluateur, puis validez-le.</div>
+          <div style={{ marginBottom: 10 }}><button type="button" style={btnPrimary} onClick={viewDoc}><Eye size={14} /> Consulter le document</button></div>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155' }}>
+            <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Le document porte la <u>signature de l’agent</u>
+          </label>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginTop: 3 }}>
+            <input type="checkbox" checked={sigEval} onChange={e => setSigEval(e.target.checked)} /> Le document porte la <u>signature de l’évaluateur</u> (la mienne)
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button type="button" style={{ ...btnPrimary, background: '#16a34a', opacity: sigAgent && sigEval ? 1 : .5 }} disabled={!(sigAgent && sigEval)} onClick={() => dismiss(true, true)}>
+              <CheckCircle2 size={14} /> Valider le document
+            </button>
+            <button type="button" style={btnGhost} onClick={() => dismiss(false)} title="Écarter ce document pour en téléverser un autre">Téléverser un autre document</button>
+          </div>
+        </div>
+      ) : job && (job.status === 'en_attente' || job.status === 'en_cours') ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 10, padding: '10px 13px', fontSize: 12.5, lineHeight: 1.55 }}>
           <Loader2 size={17} className="spin" style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
@@ -216,7 +238,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’écriture et les cases cochées sont lues en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
             {busy ? <Loader2 size={big ? 17 : 14} className="spin" /> : <ScanLine size={big ? 17 : 14} />} {busy ? 'Envoi des pages…' : big ? 'Téléverser le CREP signé (scan ou photos des pages)' : 'Importer un compte rendu papier (photos / scan)'}
           </button>
-          {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Lecture en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
+          {!busy && scanReading && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Lecture en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
         </>
       )}
       {error && <div style={{ marginTop: 6, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>}

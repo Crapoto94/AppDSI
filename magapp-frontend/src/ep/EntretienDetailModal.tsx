@@ -22,9 +22,10 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
   const [tab, setTab] = useState<'preparation' | 'crep'>('crep');
   // « Mon entretien » désactivé : les agents ne préparent rien, donc ni onglet ni statut de préparation.
   const [prepEnabled, setPrepEnabled] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   useEffect(() => {
     axios.get('/api/entretiens/me', { headers })
-      .then(r => { const ok = !!r.data?.selfAccess?.allowed; setPrepEnabled(ok); if (ok) setTab('preparation'); })
+      .then(r => { setIsAdminUser(!!r.data?.isAdmin); const ok = !!r.data?.selfAccess?.allowed; setPrepEnabled(ok); if (ok) setTab('preparation'); })
       .catch(() => setPrepEnabled(false));
   }, [token]);
 
@@ -119,7 +120,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
               {prepEnabled && tab === 'preparation' ? (
                 <PreparationView entretien={entretien} />
               ) : (
-                <CrepForm entretien={entretien} canEdit={canEdit} prepEnabled={prepEnabled}
+                <CrepForm entretien={entretien} canEdit={canEdit} prepEnabled={prepEnabled} isAdminUser={isAdminUser}
                   aiEnabled={!!entretien.ai_access?.draft?.allowed}
                   aiReviewEnabled={!!entretien.ai_access?.review?.allowed}
                   eSignEnabled={!!entretien.esign_access?.allowed}

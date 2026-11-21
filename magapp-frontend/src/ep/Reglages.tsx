@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SimulationPanel from './SimulationPanel';
 import IaPrompts from './IaPrompts';
+import ScanReadingPanel from './ScanReadingPanel';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
-  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download, RotateCcw, Lock,
+  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download, RotateCcw, Lock, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign } from './types';
@@ -62,6 +63,8 @@ function AccessCard({
   onToggle: (e: AiEvaluatorRef) => void;
   onSave: (mode: 'all' | 'selection' | 'disable') => void;
 }) {
+  // Liste des bénéficiaires potentiels repliée par défaut (on ne l'affiche que si l'administrateur la demande)
+  const [open, setOpen] = useState(false);
   const q = query.trim().toLowerCase();
   const visible = q
     ? candidates.filter(c => `${c.display_name || ''} ${c.username || ''} ${c.email || ''}`.toLowerCase().includes(q))
@@ -95,10 +98,14 @@ function AccessCard({
       )}
 
       <div style={{ borderTop: `1px solid ${COLORS.border}`, paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 8 }}>
+        <button type="button" onClick={() => setOpen(o => !o)}
+          style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: open ? 8 : 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+          {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           <UserCheck size={15} color={COLORS.primary} /> {entriesLabel}
-        </div>
+          <span style={{ fontWeight: 600, color: '#94a3b8' }}>· {entries.length} {entries.length > 1 ? entryMany : entryOne} sélectionné{entries.length > 1 ? 's' : ''} — {open ? 'masquer' : 'choisir'}</span>
+        </button>
 
+        {open && <>
         <div style={{ position: 'relative', maxWidth: 420, marginBottom: 8 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
           <input style={{ ...input, paddingLeft: 31 }} placeholder="Rechercher un nom, un identifiant ou un e-mail…"
@@ -143,6 +150,7 @@ function AccessCard({
           </button>
           <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{entries.length} {entries.length > 1 ? entryMany : entryOne} sélectionné{entries.length > 1 ? 's' : ''}</span>
         </div>
+        </>}
       </div>
     </div>
   );
@@ -554,6 +562,8 @@ Cette action est définitive.`)) return;
           Le texte est éditable et conservé pour les prochains administrateurs.
         </div>
       </div>
+
+      <ScanReadingPanel />
 
       <SimulationPanel />
 

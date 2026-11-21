@@ -25,6 +25,9 @@ router.get('/audit-logs', authenticateJWT, ctrl.auditLogs);
 router.get('/campaigns', authenticateJWT, ctrl.listCampaigns);
 router.post('/campaigns', authenticateJWT, ctrl.createCampaign);
 router.put('/campaigns/:id', authenticateJWT, ctrl.updateCampaign);
+router.get('/reopen-requests', authenticateJWT, ctrl.reopenRequestList);
+router.post('/reopen-requests/:id/decide', authenticateJWT, ctrl.reopenRequestDecide);
+router.post('/:id/reopen-request', authenticateJWT, ctrl.reopenRequestCreate);
 router.post('/campaigns/:id/close', authenticateJWT, ctrl.closeCampaign);
 router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
 
@@ -72,6 +75,7 @@ router.put('/:id/evaluation', authenticateJWT, ctrl.saveEvaluation);
 router.put('/:id/crep', authenticateJWT, ctrl.saveCrep);
 router.put('/:id/planning', authenticateJWT, ctrl.planning);
 router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
+router.get('/:id/crep/digital.pdf', authenticateJWT, ctrl.crepDigitalPdf);
 router.get('/:id/crep-signe.pdf', authenticateJWT, ctrl.crepSignedPdf);
 router.post('/:id/crep/scan', authenticateJWT, uploadPdf.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 8 }]), ctrl.crepScan);
 router.get('/:id/crep/scan/latest', authenticateJWT, ctrl.crepScanLatest);

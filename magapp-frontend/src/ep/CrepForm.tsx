@@ -52,10 +52,12 @@ const isoDay = (v?: string | null): string => {
   return d && !isNaN(d.getTime()) ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
 };
 
-export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, eSignGloballyEnabled = true, prepEnabled = true }: {
+export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = false, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, eSignGloballyEnabled = true, prepEnabled = true }: {
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
+  /** Administrateur du module (voit la version numérique lue en arrière-plan). */
+  isAdminUser?: boolean;
   /** La rédaction assistée par IA est ouverte par le paramétrage du module (évaluateurs choisis). */
   aiEnabled?: boolean;
   /** La relecture / évaluation des compétences par l'IA est ouverte par le paramétrage du module. */
@@ -255,6 +257,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   };
 
   const agent = `${entretien.agent_prenom || ''} ${entretien.agent_nom}`.trim();
+  /** Version numérique : lecture en arrière-plan (administrateurs seulement) si la lecture visible est désactivée, sinon le CREP saisi. */
+  const openDigital = async () => {
+    const silent = entretien.scan_reading === false && !!entretien.digital_silent;
+    await openViewer('Version numérique', async () => (await axios.get(`/api/entretiens/${entretien.id}/${silent ? 'crep/digital.pdf' : 'crep.pdf'}`, { headers, responseType: 'blob' })).data);
+  };
 
   // ─── Parcours guidé (mode manuscrit / outil) ───
   const [formVisible, setFormVisible] = useState(true);
@@ -294,7 +301,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
   const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
   const showBottom = isAgent || !guided || (gMode === 'outil' && step <= 2);
-  const incompleteAfterImport = gMode === 'manuscrit' && signedVerified ? missingFields(crep, entretien.crep_definition) : [];
+  const scanOn = entretien.scan_reading !== false && entretien.scan_reading !== undefined ? true : entretien.scan_reading === true;
+  const incompleteAfterImport = gMode === 'manuscrit' && signedVerified && scanOn ? missingFields(crep, entretien.crep_definition) : [];
   useEffect(() => {
     // En mode manuscrit, le contenu vient du document scanné : le formulaire est replié tant que rien n'a été lu
     setFormVisible(!!entretien.crep_mode && !(entretien.crep_mode === 'manuscrit' && !signedVerified && crep.origine !== 'manuscrit'));
@@ -306,7 +314,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   /** Clôture : valide la partie évaluateur si ce n'est pas fait (mode manuscrit), puis clôture l'entretien. */
   const closeEntretien = async () => {
     setMsg(null);
-    if (entretien.evaluation_statut !== 'soumis') {
+    // Lecture désactivée : on consulte et valide le document signé ; le formulaire n'est pas exigé (le serveur valide à la clôture)
+    if (entretien.evaluation_statut !== 'soumis' && scanOn) {
       let tolere = false;
       if (entretien.crep_mode === 'manuscrit') {
         const m = missingFields(crep, entretien.crep_definition);
@@ -360,6 +369,27 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     aiEnabled ? { entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx, crep: withCrep ? crep : undefined } : undefined
   );
 
+  // Entretien clôturé (évaluateur) : seulement afficher le CREP original, afficher la version numérique, demander la réouverture
+  if (!isAgent && entretien.statut === 'cloture') {
+    return (
+      <div>
+        {confirmDialog}
+        {viewerElement}
+        <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7 }}>
+          <div><strong>Agent :</strong> {agent}</div>
+          <div><strong>Direction / Service :</strong> {entretien.service || entretien.direction || '—'}</div>
+          <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
+        </div>
+        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={() => {}} onValidate={() => {}} onClose={() => {}}
+          formVisible={false} setFormVisible={() => {}} incomplete={[]} onStep={() => {}} scanReading={scanOn} isAdminUser={isAdminUser}
+          onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>
+          <strong>L’original signé doit être transmis à la RH.</strong> {entretien.campaign_closed ? 'La campagne est close : le CREP est consultable dans le dossier de l’agent.' : 'Les documents restent consultables jusqu’à la clôture de la campagne.'}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {confirmDialog}
@@ -391,7 +421,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
         <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
           onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible}
-          incomplete={incompleteAfterImport} onStep={setStep} />
+          incomplete={incompleteAfterImport} onStep={setStep} scanReading={scanOn} isAdminUser={isAdminUser}
+          onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
       )}
       {isAgent && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
@@ -482,7 +513,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
                 if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nVous pouvez les compléter, ou clôturer sans les renseigner (le document papier signé fait foi).`, { title: 'Rubriques non renseignées', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
               }
             }}
-            onApplied={() => { setFormVisible(true); reloadEntretien(); }} />
+            onApplied={() => { if (scanOn) setFormVisible(true); reloadEntretien(); }} scanReading={scanOn} />
         </div>
       )}
       <div style={{ display: formVisible ? 'block' : 'none' }}>

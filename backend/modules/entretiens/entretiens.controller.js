@@ -284,6 +284,7 @@ const entretiensController = {
                 evaluatorCount,
                 selfAccess,
                 esignAccess: await svc.esignAllowedFor(actor),
+                scan_reading: await svc.scanReadingOn(),
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
                     review: await svc.aiAccessFor(actor, 'review'),
@@ -361,6 +362,112 @@ const entretiensController = {
             );
             res.json(await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [id]));
         } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // GET /api/entretiens/:id/crep/digital.pdf — version numérique issue de la lecture en arrière-plan (ADMINISTRATEURS uniquement)
+    crepDigitalPdf: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const jobs = await pgDb.all("SELECT mode, result FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ? AND status = 'termine' AND result IS NOT NULL ORDER BY id DESC LIMIT 5", [row.id]);
+            const j = jobs[0];
+            if (!j) return fail(res, 404, 'Aucune lecture disponible pour cet entretien.');
+            const result = typeof j.result === 'string' ? JSON.parse(j.result) : j.result;
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
+            const base = typeof row.crep === 'string' ? JSON.parse(row.crep) : (row.crep || {});
+            // Mode « commentaires de l'agent » : seuls les 2 cadres de l'agent viennent de la lecture ; sinon tout le CREP
+            const fields = (j.mode === 'agent')
+                ? { ...base, obs_agent_conditions: result.fields?.obs_agent_conditions || base.obs_agent_conditions || '', obs_agent_entretien: result.fields?.obs_agent_entretien || base.obs_agent_entretien || '' }
+                : { ...(result.fields || {}), origine: 'manuscrit' };
+            const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            const pdf = await buildCrepPdf({ ...row, crep: normalizeCrep({ ...fields, origine: 'manuscrit' }, cdef) }, campaign?.annee);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'inline; filename="CREP-version-numerique.pdf"');
+            res.send(Buffer.from(pdf));
+        } catch (err) { console.error('[ENTRETIENS] crepDigitalPdf:', err.message); fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/reopen-request { reason } — l'évaluateur demande la réouverture d'un entretien clôturé (motif obligatoire)
+    reopenRequestCreate: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
+            if (row.statut !== 'cloture') return fail(res, 400, 'Cet entretien n’est pas clôturé.');
+            const reason = text(req.body?.reason).trim();
+            if (reason.length < 10) return fail(res, 400, 'Justifiez votre demande de réouverture (au moins 10 caractères).');
+            const camp = await pgDb.get('SELECT annee, statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            if (camp?.statut === 'close') return fail(res, 409, 'La campagne est close : l’entretien ne peut plus être rouvert.');
+            const reopen = require('./reopen');
+            const id = await reopen.create({ entretien: row, actor, reason });
+            await svc.logAudit({ actor, action: 'reouverture_demandee', entretien: row, details: { demande: id, motif: reason } });
+            // Mail aux administrateurs (le mail ne bloque jamais la demande)
+            let mails = 0;
+            try {
+                const emailTpl = require('./entretiens-email');
+                const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+                const link = await emailTpl.entretiensUrl('reouvertures');
+                const tpl = emailTpl.reouvertureDemande({ demandeur: actor.displayName || actor.username, agent: svc.fullName(row.agent_prenom, row.agent_nom), annee: camp?.annee, motif: reason, link });
+                for (const to of await reopen.adminEmails()) { try { await sendParapheurEmail(to, tpl); mails++; } catch (e) { console.warn('[ENTRETIENS] mail réouverture:', e.message); } }
+            } catch (e) { console.warn('[ENTRETIENS] mail réouverture:', e.message); }
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            res.status(201).json({ ok: true, id, mails, reopen_request: fresh.reopen_request });
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] reopenRequestCreate:', err.message); fail(res, 500, err.message); }
+    },
+
+    // GET /api/entretiens/reopen-requests?status= — menu « Demandes de réouverture » (administrateurs)
+    reopenRequestList: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const status = ['en_attente', 'acceptee', 'refusee'].includes(req.query.status) ? req.query.status : '';
+            res.json({ requests: await require('./reopen').list(status) });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/reopen-requests/:id/decide { accept, note } — un administrateur accepte (l'entretien redevient modifiable) ou refuse
+    reopenRequestDecide: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const reopen = require('./reopen');
+            await reopen.ensureTable();
+            const rq = await pgDb.get('SELECT * FROM hub_entretiens.reopen_requests WHERE id = ?', [Number(req.params.id)]);
+            if (!rq) return fail(res, 404, 'Demande introuvable.');
+            if (rq.status !== 'en_attente') return fail(res, 409, 'Cette demande a déjà été traitée.');
+            const accept = req.body?.accept === true;
+            const note = text(req.body?.note).trim();
+            if (!accept && note.length < 3) return fail(res, 400, 'Indiquez le motif du refus.');
+            const row = await svc.getEntretienById(rq.entretien_id);
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const camp = await pgDb.get('SELECT annee, statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            if (accept) {
+                if (camp?.statut === 'close') return fail(res, 409, 'La campagne est close : l’entretien ne peut plus être rouvert.');
+                if (row.crep_signed_path) { try { await storage.deleteFile(row.crep_signed_path); } catch (e) { /* déjà absent */ } }
+                await pgDb.run(
+                    `UPDATE hub_entretiens.entretiens SET evaluation_statut = 'brouillon', evaluator_submitted_at = NULL,
+                            statut = CASE WHEN date_entretien IS NULL THEN 'a_planifier' ELSE 'planifie' END,
+                            crep_statut = 'non_envoye', crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL, updated_at = NOW()
+                     WHERE id = ?`, [row.id]);
+            }
+            await pgDb.run("UPDATE hub_entretiens.reopen_requests SET status = ?, decided_by = ?, decided_at = NOW(), decision_note = ? WHERE id = ?",
+                [accept ? 'acceptee' : 'refusee', actor.username || actor.email || '', note, rq.id]);
+            await svc.logAudit({ actor, action: accept ? 'reouverture_acceptee' : 'reouverture_refusee', entretien: row, details: { demande: rq.id, note } });
+            try {
+                if (rq.requested_email) {
+                    const emailTpl = require('./entretiens-email');
+                    const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+                    await sendParapheurEmail(rq.requested_email, emailTpl.reouvertureDecision({
+                        demandeur: rq.requested_name || rq.requested_by, agent: svc.fullName(row.agent_prenom, row.agent_nom), annee: camp?.annee, accepte: accept, note, link: await emailTpl.entretiensUrl('evaluations') }));
+                }
+            } catch (e) { console.warn('[ENTRETIENS] mail décision réouverture:', e.message); }
+            res.json({ ok: true, status: accept ? 'acceptee' : 'refusee' });
+        } catch (err) { console.error('[ENTRETIENS] reopenRequestDecide:', err.message); fail(res, 500, err.message); }
     },
 
     // POST /api/entretiens/campaigns/:id/close — CLORE LA CAMPAGNE (administrateurs) : les documents de la campagne ne sont plus consultables
@@ -463,6 +570,7 @@ const entretiensController = {
             ]);
             res.json({
                 simulation: await require('./simulation').isOn(),
+                scan_reading: await svc.scanReadingOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -484,6 +592,9 @@ const entretiensController = {
 
             if (b.dg_note !== undefined) {
                 updates.dg_note = text(b.dg_note);
+            }
+            if (b.scan_reading !== undefined) {
+                updates.scan_reading = [true, 1, '1', 'true', 'on'].includes(typeof b.scan_reading === 'string' ? b.scan_reading.trim().toLowerCase() : b.scan_reading) ? '1' : '0';
             }
 
             if (b.calendar_organizer_email !== undefined) {
@@ -619,6 +730,7 @@ const entretiensController = {
             ]);
             res.json({
                 simulation: await require('./simulation').isOn(),
+                scan_reading: await svc.scanReadingOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -739,6 +851,7 @@ const entretiensController = {
                 // CREP déjà saisi et validé dans l'outil (origine numérique) : le document signé à la main n'apporte que les 2 commentaires de l'agent
                 // Mode « manuscrit » : tout le document est lu. Mode « outil » (ou CREP déjà validé) : seuls les 2 commentaires de l'agent.
                 mode: row.crep_mode === 'manuscrit' ? 'complet' : (row.evaluation_statut === 'soumis' ? 'agent' : 'complet'),
+                silent: !(await svc.scanReadingOn()),
                 files: up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })),
                 contexte: { agent: svc.fullName(row.agent_prenom, row.agent_nom), poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
             });
@@ -800,9 +913,14 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur (entretien non clôturé).');
-            if (row.evaluation_statut !== 'soumis') return fail(res, 400, 'Le compte rendu doit d’abord être validé.');
             const scans = typeof row.crep_scans === 'string' ? JSON.parse(row.crep_scans || '[]') : (row.crep_scans || []);
             const last = [...(Array.isArray(scans) ? scans : [])].reverse().find(s => s && s.path && s.signatures_ok === true);
+            if (row.evaluation_statut !== 'soumis') {
+                // Lecture désactivée : le valideur a consulté et validé le document signé (2 signatures) ; le formulaire n'est pas exigé
+                if (last && last.silent) {
+                    await pgDb.run("UPDATE hub_entretiens.entretiens SET evaluation_statut = 'soumis', evaluator_submitted_at = NOW(), statut = 'realise', updated_at = NOW() WHERE id = ?", [row.id]);
+                } else return fail(res, 400, 'Le compte rendu doit d’abord être validé.');
+            }
             if (!last && !row.crep_signed_path) return fail(res, 400, 'Téléversez le CREP signé et vérifiez la présence des 2 signatures (agent et évaluateur) avant de clôturer.');
             if (last && !row.crep_signed_path) {
                 // Le document signé vérifié devient le CREP signé archivé de l'entretien (copie indépendante du scan conservé)

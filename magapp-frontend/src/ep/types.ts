@@ -142,6 +142,13 @@ export interface Entretien {
   crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string; signatures_ok?: boolean }>;
   /** Mode de saisie du CREP choisi par l'évaluateur : « manuscrit » (papier, scan signé) ou « outil » (saisie informatisée). */
   crep_mode?: 'manuscrit' | 'outil' | null;
+  /** « Lecture des entretiens numérisés » activée ? (sinon le valideur consulte et valide le document sans lecture visible). */
+  scan_reading?: boolean;
+  /** Version numérique lue en arrière-plan (visible des seuls administrateurs). */
+  digital_silent?: boolean;
+  lecture_arriere_plan?: boolean;
+  /** Dernière demande de réouverture (entretien clôturé). */
+  reopen_request?: { id: number; status: 'en_attente' | 'acceptee' | 'refusee'; reason: string; created_at: string; decided_at?: string | null; decision_note?: string } | null;
   /** La campagne de cet entretien est close : les documents ne sont plus consultables ici (dossier de l'agent). */
   campaign_closed?: boolean;
   objectifs?: Objectif[];
@@ -164,6 +171,8 @@ export interface MeData {
   evaluatorCount: number;
   selfAccess?: SelfAccess;
   esignAccess?: EsignAccess;
+  /** « Lecture des entretiens numérisés » activée. */
+  scan_reading?: boolean;
   aiAccess?: AiAccessMap;
   now: string;
 }

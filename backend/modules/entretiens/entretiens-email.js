@@ -85,6 +85,24 @@ function compteRenduRappele({ agent, annee, evaluateur }) {
     return { subject: 'Votre compte rendu d’entretien professionnel est en cours de correction', ...render('#64748b', 'Compte rendu rappelé', intro, bodyHtml, FOOTER) };
 }
 
+/** Aux administrateurs : un évaluateur demande la réouverture d'un entretien clôturé. */
+function reouvertureDemande({ demandeur, agent, annee, motif, link }) {
+    const intro = `Bonjour,<br><br><strong>${esc(demandeur)}</strong> demande la <strong>réouverture</strong> de l’entretien professionnel${annee ? ` ${esc(annee)}` : ''} de <strong>${esc(agent)}</strong>, aujourd’hui clôturé.`;
+    const bodyHtml = `${infoBlock('Justification de la demande', [['Motif', motif]])}
+      <p style="font-size:13px;color:#64748b;">Vous pouvez accepter (l’entretien redevient modifiable) ou refuser, depuis le menu « Demandes de réouverture ».</p>
+      ${button(link, 'Traiter la demande', '#d97706')}`;
+    return { subject: `🔓 Demande de réouverture d’un entretien — ${agent}`, ...render('#d97706', '🔓 Demande de réouverture', intro, bodyHtml, FOOTER) };
+}
+
+/** Au demandeur : décision de l'administrateur. */
+function reouvertureDecision({ demandeur, agent, annee, accepte, note, link }) {
+    const intro = `Bonjour <strong>${esc(demandeur)}</strong>,<br><br>votre demande de réouverture de l’entretien professionnel${annee ? ` ${esc(annee)}` : ''} de <strong>${esc(agent)}</strong> a été <strong>${accepte ? 'acceptée' : 'refusée'}</strong>.`;
+    const bodyHtml = `${note ? infoBlock('Message de l’administrateur', [['Note', note]]) : ''}
+      <p style="font-size:14px;color:#334155;">${accepte ? 'L’entretien est de nouveau modifiable : vous pouvez le compléter puis le clôturer à nouveau.' : 'L’entretien reste clôturé.'}</p>
+      ${button(link, 'Ouvrir MagApp', accepte ? '#16a34a' : '#64748b')}`;
+    return { subject: `${accepte ? '✅' : '⛔'} Demande de réouverture ${accepte ? 'acceptée' : 'refusée'} — ${agent}`, ...render(accepte ? '#16a34a' : '#64748b', accepte ? 'Réouverture acceptée' : 'Réouverture refusée', intro, bodyHtml, FOOTER) };
+}
+
 /** Relance à l'agent : préparation non transmise alors que l'entretien approche. */
 function relancePreparation({ agent, annee, quand, link }) {
     const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} approche${quand ? ` (<strong>${esc(quand)}</strong>)` : ''} et votre fiche de préparation n’a pas encore été transmise à votre évaluateur.`;
@@ -146,5 +164,6 @@ const wrap = (fn) => (p = {}) => fn({ ...p, ...(p.agent ? { agent: nice(p.agent)
 module.exports = {
     analyseCrep: wrap(analyseCrep), entretiensUrl, nice,
     preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
+    reouvertureDemande: wrap(reouvertureDemande), reouvertureDecision: wrap(reouvertureDecision),
     relancePreparation: wrap(relancePreparation), relanceValidation: wrap(relanceValidation), relanceEvaluateur: wrap(relanceEvaluateur), compteRenduRappele: wrap(compteRenduRappele),
 };

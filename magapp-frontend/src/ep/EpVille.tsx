@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
-  GraduationCap,
+  GraduationCap, Unlock,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
@@ -18,6 +18,7 @@ import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input, useConfirm } from './ui';
 import { useDocViewer } from './DocViewerModal';
+import Reouvertures from './Reouvertures';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -815,7 +816,8 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'parametrage' | 'journal' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'reouvertures' | 'parametrage' | 'journal' | null>(null);
+  const [reopenPending, setReopenPending] = useState(0);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
@@ -850,6 +852,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
       const tabArg = String(initialTab || '').split(':')[0];
       const wanted = tabArg === 'moi' ? (ent ? 'moi' : null)
         : tabArg === 'evaluations' ? (asEvaluator ? 'evaluations' : null)
+        : tabArg === 'reouvertures' ? (v.data.isAdmin ? 'reouvertures' : null)
         : tabArg === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
       setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
@@ -872,6 +875,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agents', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
+    { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, badge: reopenPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin },
     { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
     { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
@@ -912,6 +916,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
               {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} />}
               {tab === 'formations' && me.isAdmin && <Formations />}
+              {tab === 'reouvertures' && me.isAdmin && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
@@ -932,6 +937,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
             aiDraft: !!dsi?.aiAccess?.draft?.allowed,
             aiReview: !!dsi?.aiAccess?.review?.allowed,
             esign: !!dsi?.esignAccess?.enabled,
+            scanReading: !!dsi?.scan_reading,
           }}
         />
       )}

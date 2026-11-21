@@ -268,13 +268,15 @@ Motif (obligatoire) :`, '');
   const [fSvc, setFSvc] = useState('');
   const [fSec, setFSec] = useState('');
   const [fCat, setFCat] = useState('');
+  // Lecture en arrière-plan (réglage « Lecture des entretiens numérisés » désactivé) : filtre pour les sélectionner ou les écarter
+  const [fLecture, setFLecture] = useState<'' | 'avec' | 'sans'>('');
   const dirOptions = useMemo(() => [...new Set(items.map(e => segs(e)[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items]);
   const svcOptions = useMemo(() => [...new Set(items.filter(e => !fDir || segs(e)[0] === fDir).map(e => segs(e)[1]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items, fDir]);
   const secOptions = useMemo(() => [...new Set(items.filter(e => (!fDir || segs(e)[0] === fDir) && (!fSvc || segs(e)[1] === fSvc)).map(e => segs(e)[2]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [items, fDir, fSvc]);
   const scopedItems = useMemo(() => !pilotage ? items : items.filter(e => {
     const sg = segs(e);
-    return (!fDir || sg[0] === fDir) && (!fSvc || sg[1] === fSvc) && (!fSec || sg[2] === fSec) && (!fCat || e.categorie === fCat);
-  }), [items, pilotage, fDir, fSvc, fSec, fCat]);
+    return (!fDir || sg[0] === fDir) && (!fSvc || sg[1] === fSvc) && (!fSec || sg[2] === fSec) && (!fCat || e.categorie === fCat) && (!fLecture || (fLecture === 'avec') === !!e.lecture_arriere_plan);
+  }), [items, pilotage, fDir, fSvc, fSec, fCat, fLecture]);
   const kpi = pilotage ? localStats(scopedItems) : stats;
   const todoCount = useMemo(() => scopedItems.filter(e => !['realise', 'cloture'].includes(e.statut)).length, [scopedItems]);
 
@@ -408,7 +410,12 @@ Motif (obligatoire) :`, '');
               <option value="">Toutes catégories</option>
               {['A', 'B', 'C'].map(c => <option key={c} value={c}>Catégorie {c}</option>)}
             </select>
-            {(fDir || fSvc || fSec || fCat) && <button style={btnGhost} onClick={() => { setFDir(''); setFSvc(''); setFSec(''); setFCat(''); }}>Réinitialiser</button>}
+            <select style={{ ...input, width: 'auto', minWidth: 210 }} value={fLecture} onChange={e => setFLecture(e.target.value as '' | 'avec' | 'sans')} title="Entretiens dont le document a été lu en arrière-plan">
+              <option value="">Lecture en arrière-plan : tous</option>
+              <option value="avec">Avec lecture en arrière-plan</option>
+              <option value="sans">Sans lecture en arrière-plan</option>
+            </select>
+            {(fDir || fSvc || fSec || fCat || fLecture) && <button style={btnGhost} onClick={() => { setFDir(''); setFSvc(''); setFSec(''); setFCat(''); setFLecture(''); }}>Réinitialiser</button>}
           </div>
           <ProgressTree rows={scopedItems} />
         </>
@@ -586,7 +593,10 @@ Motif (obligatoire) :`, '');
                         <CalendarClock size={13} /> {formatDateCourte(e.date_entretien)}
                       </div>
                     </Td>
-                    <Td><Badge {...st} /></Td>
+                    <Td>
+                      <Badge {...st} />
+                      {pilotage && e.lecture_arriere_plan && <div title="Le document téléversé a été lu en arrière-plan : version numérique visible des seuls administrateurs" style={{ marginTop: 4, display: 'inline-block', fontSize: 10.5, fontWeight: 800, color: '#5b21b6', background: '#ede9fe', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 8px' }}>Lecture en arrière-plan</div>}
+                    </Td>
                     {(pilotage || readOnly) && <Td><span style={{ fontSize: 12, color: '#475569' }}>{(e.modele || '').replace(/^Template_/i, '') || '—'}</span></Td>}
                     <Td>
                       {e.evaluation_statut === 'soumis'
@@ -613,6 +623,11 @@ Motif (obligatoire) :`, '');
                         <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
                           <Printer size={13} />
                         </button>
+                        {canReset && e.lecture_arriere_plan && (
+                          <button style={{ ...btnGhost, color: '#5b21b6', borderColor: '#ddd6fe' }} onClick={() => openViewer('Version numérique', async () => (await axios.get(`/api/entretiens/${e.id}/crep/digital.pdf`, { headers, responseType: 'blob' })).data)} title="Version numérique lue en arrière-plan (administrateurs)">
+                            <Eye size={13} /> Version numérique
+                          </button>
+                        )}
                         {canReset && e.evaluation_statut === 'soumis' && (
                           <button style={btnGhost} disabled={razBusy === e.id} onClick={() => unvalidateEp(e)}
                             title="Dévalider le CREP en cas d’erreur manifeste (administrateur)">

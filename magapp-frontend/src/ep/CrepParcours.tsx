@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { PenLine, Monitor, Printer, CheckCircle2, ChevronRight, Loader2, Lock, RefreshCw, ArrowRight } from 'lucide-react';
+import { PenLine, Monitor, Printer, CheckCircle2, ChevronRight, Loader2, Lock, RefreshCw, ArrowRight, Eye, FileText, Unlock } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary } from './ui';
 import type { Entretien } from './types';
 
@@ -18,7 +18,13 @@ const stageKey = (id: number) => `ep_parcours_stage_${id}`;
  * Parcours guidé du CREP : choix du mode de saisie (manuscrit ou dans l'outil), fil d'Ariane, et action à faire à l'étape en cours.
  * Le mode peut être changé à tout moment (tant que l'entretien n'est pas clôturé).
  */
-export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep }: {
+export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep, scanReading, isAdminUser, onViewOriginal, onViewDigital }: {
+  /** « Lecture des entretiens numérisés » activée : sinon on n'en parle jamais au valideur. */
+  scanReading: boolean;
+  isAdminUser: boolean;
+  /** Entretien clôturé : afficher le CREP original / la version numérique. */
+  onViewOriginal: () => void;
+  onViewDigital: () => void;
   /** Rubriques encore à compléter (mode manuscrit) après la lecture du document. */
   incomplete: string[];
   /** Étape en cours (pour que le formulaire n'affiche que ce qui est utile à cette étape). */
@@ -40,6 +46,18 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
   const verified = scans.some(s => (s as any).signatures_ok === true) || !!entretien.crep_signed_at;
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // Demande de réouverture (entretien clôturé) : motif obligatoire
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [reopenBusy, setReopenBusy] = useState(false);
+  const sendReopen = async () => {
+    setReopenBusy(true); setErr('');
+    try {
+      await axios.post(`/api/entretiens/${entretien.id}/reopen-request`, { reason: reopenReason }, { headers });
+      const r = await axios.get(`/api/entretiens/${entretien.id}`, { headers });
+      onChanged(r.data); setReopenOpen(false); setReopenReason('');
+    } catch (e: any) { setErr(e?.response?.data?.message || 'Envoi impossible.'); } finally { setReopenBusy(false); }
+  };
   // Étapes « hors outil » (impression, entretien, signatures) : l'évaluateur avance à la main, la progression est mémorisée sur ce poste
   const [stage, setStage] = useState<number>(() => { try { return Number(localStorage.getItem(stageKey(entretien.id))) || 0; } catch { return 0; } });
   useEffect(() => { try { setStage(Number(localStorage.getItem(stageKey(entretien.id))) || 0); } catch { setStage(0); } }, [entretien.id]);
@@ -133,8 +151,38 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
       </div>
 
       {closed ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: '#166534' }}>
-          <Lock size={15} /> Entretien clôturé : le CREP signé est archivé. Tout est terminé.
+        <div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 10 }}>
+            <Lock size={15} /> Entretien clôturé : le CREP signé est archivé. Tout est terminé.
+          </div>
+          {/* Un entretien clôturé n'offre que trois choses */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={btnGhost} onClick={onViewOriginal}><Eye size={14} /> Afficher le CREP original</button>
+            {(scanReading || isAdminUser) && <button style={btnGhost} onClick={onViewDigital}><FileText size={14} /> Afficher la version numérique</button>}
+            {entretien.reopen_request?.status === 'en_attente'
+              ? <span style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, alignSelf: 'center' }}>Demande de réouverture en attente de traitement</span>
+              : <button style={btnGhost} onClick={() => setReopenOpen(true)}><Unlock size={14} /> Demander la réouverture</button>}
+          </div>
+          {entretien.reopen_request?.status === 'refusee' && (
+            <div style={{ marginTop: 8, fontSize: 12.5, color: '#991b1b' }}>Dernière demande de réouverture refusée{entretien.reopen_request.decision_note ? ` : ${entretien.reopen_request.decision_note}` : '.'}</div>
+          )}
+          {reopenOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 3100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div style={{ background: '#fff', borderRadius: 14, width: 'min(520px, 100%)', padding: '20px 22px' }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.text, marginBottom: 6 }}>Demander la réouverture de l’entretien</div>
+                <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 8 }}>Les administrateurs sont prévenus par e-mail. <strong>Justifiez votre demande</strong> (obligatoire).</div>
+                <textarea value={reopenReason} onChange={e => setReopenReason(e.target.value)} rows={4} placeholder="Ex. : erreur sur l’appréciation générale, signature manquante…"
+                  style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, fontSize: 13 }} />
+                {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button style={btnGhost} onClick={() => { setReopenOpen(false); setErr(''); }}>Annuler</button>
+                  <button style={{ ...btnPrimary, opacity: reopenReason.trim().length >= 10 ? 1 : .5 }} disabled={reopenBusy || reopenReason.trim().length < 10} onClick={sendReopen}>
+                    {reopenBusy ? <Loader2 size={14} /> : <Unlock size={14} />} Envoyer la demande
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.65 }}>
@@ -152,7 +200,9 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             <div style={{ marginTop: 8 }}><button style={btnPrimary} onClick={() => advance(2)}>Le CREP est signé par les deux, passer au téléversement <ArrowRight size={13} /></button></div>
           </>}
           {mode === 'manuscrit' && current === 3 && <>
-            <div><strong>Téléversez le CREP signé</strong> (scan ou photos des pages) avec le grand bouton ci-dessous. L’outil lit le document, contrôle la présence des <strong>2 signatures</strong> et vérifie que tout est complété ; il vous demandera de tout vérifier.</div>
+            {scanReading
+              ? <div><strong>Téléversez le CREP signé</strong> (scan ou photos des pages) avec le grand bouton ci-dessous. L’outil lit le document, contrôle la présence des <strong>2 signatures</strong> et vérifie que tout est complété ; il vous demandera de tout vérifier.</div>
+              : <div><strong>Téléversez le CREP signé</strong> (scan ou photos des pages) avec le grand bouton ci-dessous. Vous pourrez ensuite le consulter, le valider, puis clore l’entretien.</div>}
           </>}
           {mode === 'manuscrit' && current === 4 && <>
             <div>Vérifiez le contenu du CREP et corrigez-le si besoin dans le formulaire ci-dessous.</div>
@@ -187,7 +237,9 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             <div style={{ marginTop: 8 }}><button style={btnPrimary} onClick={() => advance(2)}>Le CREP est signé par les deux, passer au téléversement <ArrowRight size={13} /></button></div>
           </>}
           {mode === 'outil' && current === 5 && <>
-            <div><strong>Téléversez le CREP signé</strong> (scan ou photos) avec « Importer un compte rendu papier » ci-dessous. L’outil lit <strong>les 2 cadres de l’agent</strong> et contrôle les <strong>2 signatures</strong> ; vous vérifiez ces éléments.</div>
+{scanReading
+              ? <div><strong>Téléversez le CREP signé</strong> (scan ou photos) avec le grand bouton ci-dessous. L’outil lit <strong>les 2 cadres de l’agent</strong> et contrôle les <strong>2 signatures</strong> ; vous vérifiez ces éléments.</div>
+              : <div><strong>Téléversez le CREP signé</strong> (scan ou photos) avec le grand bouton ci-dessous. Vous pourrez ensuite le consulter, le valider, puis clore l’entretien.</div>}
           </>}
           {mode === 'outil' && current === 6 && <>
             <div>Les 2 cadres de l’agent et les 2 signatures ont été vérifiés. Cliquez sur <strong>Clôturer l’entretien</strong> : le CREP signé est archivé.</div>
@@ -197,7 +249,7 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             </div>
           </>}
 
-          {((mode === 'manuscrit' && current >= 4) || (mode === 'outil' && current >= 6)) && (
+          {((mode === 'manuscrit' && current >= 4 && scanReading) || (mode === 'outil' && current >= 6)) && (
             <div style={{ marginTop: 8, fontSize: 12 }}>
               <button type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} onClick={() => setFormVisible(!formVisible)}>
                 {formVisible ? 'Masquer le CREP saisi' : 'Visualiser le CREP saisi'}

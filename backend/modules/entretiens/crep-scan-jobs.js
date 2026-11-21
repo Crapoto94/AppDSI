@@ -41,6 +41,8 @@ function ensureTable() {
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_scan_jobs ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'complet'`);
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_scan_jobs ADD COLUMN IF NOT EXISTS scan_path TEXT`);
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_scan_jobs ADD COLUMN IF NOT EXISTS scan_name TEXT`);
+            // Lecture « silencieuse » (réglage désactivé) : le valideur n'en voit ni le résultat ni la fin ; seuls les administrateurs voient la version numérique
+            await pgDb.run(`ALTER TABLE hub_entretiens.crep_scan_jobs ADD COLUMN IF NOT EXISTS silent BOOLEAN NOT NULL DEFAULT FALSE`);
             // Documents conservés sur l'entretien : scans originaux (papier signé) dont la lecture IA a été appliquée
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_scans JSONB DEFAULT '[]'::jsonb`);
             // Mode de saisie choisi par l'évaluateur : 'manuscrit' (papier, scan signé) ou 'outil' (saisie dans l'outil, puis impression et scan)
@@ -72,12 +74,13 @@ const shape = async (row, withResult) => {
         id: row.id, entretien_id: row.entretien_id, status: row.status, mode: row.mode || 'complet', files_count: row.files_count,
         progress: row.progress, progress_total: row.progress_total, error: row.error || null,
         created_at: row.created_at, started_at: row.started_at, finished_at: row.finished_at, duration_ms: row.duration_ms, applied_at: row.applied_at,
+        silent: !!row.silent,
     };
     if (row.status === 'en_attente' || row.status === 'en_cours') {
         const ahead = Number((await pgDb.get(`SELECT COUNT(*)::int AS n FROM hub_entretiens.crep_scan_jobs WHERE status IN ('en_attente','en_cours') AND id < ?`, [row.id]))?.n || 0);
         out.estimate_ms = await estimateMs(row.files_count, ahead);
     }
-    if (withResult && row.status === 'termine') out.result = row.result;
+    if (withResult && row.status === 'termine' && !row.silent) out.result = row.result;
     return out;
 };
 
@@ -99,7 +102,7 @@ async function ack(entretienId, jobId, applied, by, opts = {}) {
         const list = Array.isArray(ent?.crep_scans) ? ent.crep_scans : [];
         list.push({ kind: job.mode || 'complet', path: job.scan_path, name: job.scan_name || 'scan.pdf', at: new Date().toISOString(), by: by || '', job: job.id,
             // Le valideur a vérifié la présence des 2 signatures (agent et évaluateur) sur le document signé
-            signatures_ok: opts.signaturesOk === true, signatures_detectees: (job.result && job.result.signatures) || null });
+            signatures_ok: opts.signaturesOk === true, signatures_detectees: (job.result && job.result.signatures) || null, silent: !!job.silent });
         await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep_scans = CAST(? AS jsonb) WHERE id = ?`, [JSON.stringify(list), entretienId]);
     } else if (!applied && job.scan_path && !job.applied_at) {
         try { await storage.deleteFile(job.scan_path); } catch (e) { /* fichier déjà absent */ }
@@ -132,6 +135,7 @@ async function mergeScanPdf(files) {
 async function notify({ job, row, ok, error, durationMs }) {
     try {
         if (!job.requested_email) return;
+        if (job.silent) return;   // lecture en arrière-plan : aucun e-mail au valideur
         const epBeta = require('../../shared/ep-beta-mail');
         if (!(await epBeta.allowedForEntretien(row, job.requested_email, 'analyse CREP'))) return;
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
@@ -162,7 +166,7 @@ async function notify({ job, row, ok, error, durationMs }) {
  * Enregistre l'analyse et la met en file ; répond immédiatement (le travail se poursuit en arrière-plan).
  * @param {{ row: object, actor: object, files: Array<{buffer: Buffer, mimetype: string, name?: string}>, definition: object, contexte?: object, annee?: number }} p
  */
-async function start({ row, actor, files, definition, contexte, annee, mode }) {
+async function start({ row, actor, files, definition, contexte, annee, mode, silent }) {
     await ensureTable();
     const active = await pgDb.get(`SELECT id FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ? AND status IN ('en_attente','en_cours') LIMIT 1`, [row.id]);
     if (active) { const e = new Error('Une analyse est déjà en cours pour cet entretien : attendez son résultat (vous serez prévenu par e-mail).'); e.status = 409; throw e; }
@@ -179,6 +183,7 @@ async function start({ row, actor, files, definition, contexte, annee, mode }) {
         const saved = await require('../../shared/storage').saveFile('entretiens', row.id, { buffer: pdf, originalname: `CREP-scan-original-${mode === 'agent' ? 'agent' : 'complet'}.pdf` });
         await pgDb.run(`UPDATE hub_entretiens.crep_scan_jobs SET scan_path = ?, scan_name = ? WHERE id = ?`, [saved.dbPath, `CREP-scan-original-${mode === 'agent' ? 'agent' : 'complet'}.pdf`, job.id]);
     } catch (e) { console.warn('[ENTRETIENS] conservation du scan impossible:', e.message); }
+    if (silent) { await pgDb.run('UPDATE hub_entretiens.crep_scan_jobs SET silent = TRUE WHERE id = ?', [job.id]); job.silent = true; }
     waiting += 1;
     chain = chain.then(() => run({ job, row, files, definition, contexte, annee, mode })).catch(() => { /* déjà journalisé dans run */ });
     return shape(await pgDb.get('SELECT * FROM hub_entretiens.crep_scan_jobs WHERE id = ?', [job.id]), false);

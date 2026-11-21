@@ -374,11 +374,16 @@ async function withRelations(entretien) {
         modele = await epBase.modeleOfEntretien(entretien);
         if (modele) crep_definition = require('./crep.definition').definitionFor(modele);
     } catch (e) { /* modèles indisponibles : grille par défaut */ }
+    const scan_reading = await scanReadingOn();
+    let digital_silent = false;
+    try { digital_silent = !!(await pgDb.get("SELECT 1 AS x FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ? AND silent AND status = 'termine' AND result IS NOT NULL LIMIT 1", [entretien.id])); } catch (e) { /* table absente */ }
+    let reopen_request = null;
+    if (entretien.statut === 'cloture') { try { reopen_request = await require('./reopen').latestFor(entretien.id); } catch (e) { /* ignore */ } }
     let campaign_closed = false;
     try { campaign_closed = (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]))?.statut === 'close'; } catch (e) { /* campagne inconnue */ }
     return {
         ...entretien,
-        campaign_closed,
+        campaign_closed, reopen_request, scan_reading, digital_silent,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],
@@ -389,6 +394,7 @@ async function withRelations(entretien) {
 
 /** Liste enrichie (compteurs de préparation) avec filtres facultatifs. */
 async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, search, excludeVille, ratIds, limit = 2000 } = {}) {
+    try { await require('./crep-scan-jobs').ensureTable(); } catch (e) { /* table des lectures */ }
     const where = [];
     const params = [];
     if (excludeVille) where.push("COALESCE(e.source, 'hub') <> 'ville'");
@@ -407,7 +413,8 @@ async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, 
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id) AS objectifs_total,
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id AND o.niveau IS NOT NULL AND o.niveau <> '') AS objectifs_renseignes,
           (SELECT COUNT(*) FROM hub_entretiens.formations f WHERE f.entretien_id = e.id) AS formations_total,
-          (SELECT p.status FROM hub_parapheur.parapheurs p WHERE p.id = e.crep_parapheur_id) AS crep_parapheur_status
+          (SELECT p.status FROM hub_parapheur.parapheurs p WHERE p.id = e.crep_parapheur_id) AS crep_parapheur_status,
+          EXISTS (SELECT 1 FROM hub_entretiens.crep_scan_jobs j WHERE j.entretien_id = e.id AND j.silent AND j.status = 'termine' AND j.result IS NOT NULL) AS lecture_arriere_plan
         FROM hub_entretiens.entretiens e
         WHERE e.deleted_at IS NULL${where.length ? ' AND ' + where.join(' AND ') : ''}
         ORDER BY e.date_entretien NULLS LAST, e.agent_nom, e.agent_prenom
@@ -463,6 +470,11 @@ async function getSetting(key) {
         const row = await pgDb.get('SELECT value FROM hub_entretiens.settings WHERE key = ?', [key]);
         return row?.value || '';
     } catch (e) { return ''; }
+}
+
+/** Lecture des entretiens numérisés (désactivée par défaut) : si elle est désactivée, le valideur consulte et valide le document signé sans qu'on lui parle de lecture ; le document est quand même lu en arrière-plan (administrateurs seuls). */
+async function scanReadingOn() {
+    return ['1', 'true'].includes(String(await getSetting('scan_reading')).trim().toLowerCase());
 }
 
 async function setSetting(key, value) {
@@ -924,6 +936,7 @@ module.exports = {
     computeStats,
     getSetting,
     setSetting,
+    scanReadingOn,
     getAiEvaluators,
     getAiSettings,
     aiAccessFor,

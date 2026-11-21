@@ -81,7 +81,7 @@ const Activable = () => (
   <span title="Fonction non active par défaut : elle s'active dans Paramétrage" style={{ display: 'inline-block', marginLeft: 8, verticalAlign: 'middle', background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 8px', fontSize: 10.5, fontWeight: 800, letterSpacing: .2 }}>activable</span>
 );
 
-export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
+export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean; scanReading?: boolean }
 
 /** Étapes du chemin d'un EP : seules les fonctions activées apparaissent, la numérotation s'adapte. */
 function ProcessSchema({ f }: { f: AideFeatures }) {
@@ -99,7 +99,7 @@ function ProcessSchema({ f }: { f: AideFeatures }) {
     { title: "Vous transmettez le CREP à l'agent", who: 'Valideur + Agent', body: <>L'agent <strong>renseigne les 2 cadres qui le concernent</strong> (ses observations sur les conditions de travail, puis sur l'entretien) et <strong>signe à la main</strong>.</> },
     { title: 'Vous contresignez', who: 'Valideur', body: <>Quand l'agent vous rend le CREP signé, vous le <strong>contresignez</strong>.</> },
     { title: 'Vous numérisez et vous téléversez', who: 'Valideur', body: <>Vous <strong>numérisez</strong> le CREP signé (scan ou photos des pages) et vous le <strong>téléversez dans l'outil</strong>. C'est nécessaire <strong>dans tous les cas où il y a du papier</strong> : CREP écrit à la main, mais aussi CREP saisi dans l'outil puis imprimé et signé. <strong>L'original signé part à la RH.</strong></> },
-    { title: "Vous vérifiez tout, puis vous clôturez l'entretien", who: 'Valideur', body: <>L'outil lit le document et contrôle les <strong>2 signatures</strong> (agent et évaluateur) ; vous vérifiez ce qui a été lu (en mode outil : seulement les 2 cadres de l'agent et les signatures ; en mode manuscrit : tout le CREP) et vous confirmez les signatures. Vous cliquez ensuite sur <strong>« Clôturer l'entretien »</strong> : le CREP signé est archivé, tout est terminé.</> },
+    { title: "Vous vérifiez tout, puis vous clôturez l'entretien", who: 'Valideur', body: f.scanReading ? <>L'outil lit le document et contrôle les <strong>2 signatures</strong> (agent et évaluateur) ; vous vérifiez ce qui a été lu (en mode outil : seulement les 2 cadres de l'agent et les signatures ; en mode manuscrit : tout le CREP) et vous confirmez les signatures. Vous cliquez ensuite sur <strong>« Clôturer l'entretien »</strong> : le CREP signé est archivé, tout est terminé.</ : <>Vous <strong>consultez le document téléversé</strong>, vous confirmez qu'il porte les <strong>2 signatures</strong> (agent et évaluateur) et vous le validez. Vous cliquez ensuite sur <strong>« Clôturer l'entretien »</strong> : le CREP signé est archivé, tout est terminé.</>> },
   );
   return (
     <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, background: '#f8fafc', marginBottom: 10 }}>
@@ -411,6 +411,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 Que le CREP ait été <strong>écrit à la main</strong> ou <strong>saisi dans l'outil puis imprimé</strong>, la signature est manuscrite : le document signé doit être <strong>numérisé</strong> (scan ou photos des pages) et <strong>téléversé dans l'outil</strong>. <strong>L'original signé part à la RH.</strong> Le document numérique conservé dans l'outil est « non contractuel » : seul l'original signé fait foi.
               </Callout>
 
+              {f.scanReading ? (<>
               <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 6px' }}>Téléverser le CREP signé</div>
               <Gestes items={[
                 <>Ouvrir l'EP (« Saisir l'EP ») puis cliquer sur <strong>« Importer un compte rendu papier (scan ou photos) »</strong> et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone, ou PDF ; 8 pages au maximum, 25 Mo par fichier). Pour archiver le document signé, le bouton <strong>« CREP manuscrit (4 pages scannées) »</strong> est aussi disponible une fois le compte rendu validé.</>,
@@ -422,10 +423,23 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <div style={{ marginTop: 6 }}><strong>Ce qui est conservé :</strong> la <strong>version scannée</strong> (vos photos assemblées en un PDF, consultable via « CREP original ») et la <strong>version numérique</strong> (« Imprimer / PDF »), qui porte le filigrane <strong>« DOCUMENT NON CONTRACTUEL »</strong> et la mention <strong>« Document original manuscrit signé »</strong> à la place des signatures.</div>
               <div style={{ marginTop: 6 }}><strong>Si le papier n'est pas le formulaire de cet agent</strong> (par exemple un CREP d'une autre catégorie), l'outil le signale : les cases ne sont reprises que lorsqu'elles correspondent clairement à un critère du modèle de l'agent, et chacune est à vérifier.</div>
 
+              </>) : (<>
+              <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 6px' }}>Téléverser le CREP signé</div>
+              <Gestes items={[
+                <>Au moment de téléverser, cliquer sur le <strong>grand bouton « Téléverser le CREP signé »</strong> et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone, ou PDF ; 8 pages au maximum, 25 Mo par fichier).</>,
+                <>Cliquer sur <strong>« Consulter le document »</strong> : il s'ouvre aussitôt dans une visionneuse, sans rien télécharger.</>,
+                <>Cocher que le document porte la <strong>signature de l'agent</strong> et <strong>la vôtre</strong>, puis cliquer sur <strong>« Valider le document »</strong>.</>,
+                <>Cliquer sur <strong>« Clôturer l'entretien »</strong> (ou « Revenir à l'étape précédente »).</>,
+              ]} />
+              <div style={{ marginTop: 6, color: '#64748b' }}>Pour un meilleur résultat : une photo par page, à plat, bien éclairée, la page entière visible. <strong>L'original signé part à la RH.</strong></div>
+
+              </>)}
+
               <Callout tone="ok" title="Après la clôture : lecture seule, original à la RH, consultation">
                 Dès que le CREP est <strong>validé</strong>, tous les champs passent en <strong>lecture seule</strong> et les boutons de saisie disparaissent. L'outil rappelle que <strong>l'original signé doit être transmis à la RH</strong>.
                 Vous pouvez <strong>consulter les documents</strong> (scan du CREP signé, PDF) <strong>jusqu'à la clôture de la campagne</strong> ; une fois la campagne close, le CREP est consultable dans le <strong>dossier de l'agent</strong>.
-                Seul un administrateur peut dévalider un CREP, en cas d'erreur manifeste : prévenez-le dans ce cas.
+                Un entretien clôturé n'offre plus que <strong>trois actions</strong> : <strong>afficher le CREP original</strong>, <strong>afficher la version numérique</strong> et <strong>demander la réouverture</strong>.
+                La demande de réouverture doit être <strong>justifiée</strong> : elle prévient les administrateurs par e-mail, qui l'acceptent (l'entretien redevient modifiable) ou la refusent, et vous répondent par e-mail.
               </Callout>
 
               <Callout tone="warn" title="Valider : une étape obligatoire">
@@ -602,6 +616,10 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 Ces fonctions sont <strong>désactivées par défaut</strong> : elles s'ouvrent dans <strong>Paramétrage</strong>, pour tous les agents ou valideurs, ou pour une sélection de personnes.
                 <strong> Tant qu'une fonction n'est pas activée, l'aide des valideurs n'en parle pas</strong> : elle apparaît dans leur aide dès qu'elle est activée pour eux.
               </div>
+              <Cas code="Lecture des entretiens numérisés" title={<>Lecture des entretiens numérisés<Activable /></>} color="#0f766e" icon={<ScanLine size={14} color="#0f766e" />}>
+                <strong>Si la lecture est activée</strong> : après le téléversement du CREP signé, le contenu et les cases cochées sont lus et proposés au valideur, qui les relit, les corrige et valide.
+                <br /><strong>Si elle est désactivée (par défaut)</strong> : le valideur consulte le document téléversé dans une visionneuse, confirme les 2 signatures, le valide puis clôture, sans qu'on lui parle de lecture. Le document est quand même lu en arrière-plan : la <strong>version numérique est visible des seuls administrateurs</strong>, avec une pastille « Lecture en arrière-plan » et un filtre dans le Pilotage pour les sélectionner ou les écarter.
+              </Cas>
               <Cas code="Signature électronique" title={<>Signature par parapheur électronique<Activable /></>} color="#16a34a" icon={<Send size={14} color="#16a34a" />}>
                 <strong>Si la signature électronique est activée</strong> pour un agent (et qu'il a une adresse e-mail, comme son valideur) : le valideur dispose du bouton « Envoyer à l'agent » ; l'agent relit le CREP, remplit ses 2 cadres, valide, puis l'agent et le valideur signent par lien e-mail dans le parapheur ; le PDF signé est archivé automatiquement. Il n'y a ni impression, ni signature manuscrite, ni téléversement.
                 <br /><strong>Si elle n'est pas activée</strong> : le circuit est papier pour tous (impression, signature manuscrite, numérisation, téléversement). Les boutons et statuts du parapheur n'apparaissent pas.
@@ -636,6 +654,13 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div>Dans tous les cas, <strong>un agent sans e-mail reste au circuit papier</strong>, même si la signature est ouverte.</div>
               </div>
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agents.</Callout>
+            </Section>
+
+            <Section icon={<Lock size={15} color={COLORS.primary} />} title="Demandes de réouverture">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Un évaluateur dont l'entretien est <strong>clôturé</strong> peut <strong>demander la réouverture</strong>, en <strong>justifiant</strong> sa demande. Les administrateurs reçoivent un e-mail et la demande apparaît dans le menu <strong>« Demandes de réouverture »</strong> (avec un compteur).</div>
+                <div>L'administrateur <strong>accepte</strong> (l'entretien redevient modifiable, le CREP signé archivé est retiré) ou <strong>refuse</strong> (motif obligatoire) ; le demandeur est prévenu par e-mail. Impossible une fois la campagne close.</div>
+              </div>
             </Section>
 
             <Section icon={<Lock size={15} color={COLORS.primary} />} title="Clore la campagne et dévalider un CREP">
