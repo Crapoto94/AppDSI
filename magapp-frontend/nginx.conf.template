@@ -6,6 +6,26 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Compression : sans elle, les 70 Mo de l'éditeur PDF (PdfCraft, WebAssembly) circulaient en clair (~30 s à l'ouverture)
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types application/wasm application/javascript text/javascript text/css application/json image/svg+xml text/plain application/xml;
+
+    # PdfCraft : fichiers à nom unique (hash) → mis en cache 30 jours par le navigateur, même après un redéploiement
+    # (sinon l'ETag change à chaque déploiement et tout est retéléchargé). Seule la page d'entrée est revalidée souvent.
+    location /pdfcraft/ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000";
+        etag off;
+    }
+    location = /pdfcraft/index.html {
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
     # Pages publiques du DSI Hub servies sous le domaine MagApp : liens de validation du service fait envoyés par mail
     # (workflows lancés depuis « Mes factures »). La page est celle du Hub (proxy vers son conteneur) ; ses scripts
     # /assets/* absents de MagApp sont aussi relayés. Variable + resolver : MagApp démarre même si le Hub est arrêté.
@@ -18,6 +38,8 @@ server {
     }
 
     location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
         try_files $uri @hub_assets;
     }
 
