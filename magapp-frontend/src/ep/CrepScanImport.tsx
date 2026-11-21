@@ -27,8 +27,9 @@ const TEXT_FIELDS: Array<[string, string]> = [
  * Import d'un compte rendu papier : le document est numérisé et lu par l'IA interne (écriture manuscrite), qui PROPOSE un contenu.
  * L'évaluateur relit et corrige chaque rubrique, puis l'applique au formulaire (rien n'est enregistré avant son propre « Enregistrer »).
  */
-export default function CrepScanImport({ entretienId, headers, disabled, onApply }: {
+export default function CrepScanImport({ entretienId, headers, disabled, onApply, definition }: {
   entretienId: number;
+  definition?: { criteria_groups?: Array<{ key: string; title: string | null; items: Array<{ key: string; label: string; lead?: string }> }> } | null;
   headers: Record<string, string>;
   disabled?: boolean;
   onApply: (fields: Record<string, any>) => void;
@@ -39,10 +40,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const [prop, setProp] = useState<Proposal | null>(null);
   const [edit, setEdit] = useState<Record<string, any>>({});
 
-  const upload = async (file: File) => {
+  const upload = async (list: File[]) => {
     setBusy(true); setError('');
     try {
-      const fd = new FormData(); fd.append('file', file);
+      const fd = new FormData(); list.slice(0, 8).forEach(f => fd.append('files', f));
       const r = await axios.post(`/api/entretiens/${entretienId}/crep/scan`, fd, { headers, timeout: 600000 });
       const p = r.data as Proposal;
       setProp(p);
@@ -60,6 +61,8 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (objE.length) out.objectifs_ecoules = objE;
     const objF = (edit.objectifs_futurs || []).filter((o: any) => String(o.descriptif || '').trim());
     if (objF.length) out.objectifs_futurs = objF;
+    const val = Object.fromEntries(Object.entries(edit.valeur || {}).filter(([, v]) => v === 'S' || v === 'AS' || v === 'I'));
+    if (Object.keys(val).length) out.valeur = val;
     const f = edit.formations || {};
     if (['obligatoires', 'metiers', 'parcours'].some(k => String(f[k] || '').trim())) out.formations = f;
     onApply(out);
@@ -68,9 +71,9 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
 
   return (
     <>
-      <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+      <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple style={{ display: 'none' }} onChange={e => { const l = Array.from(e.target.files || []); if (l.length) upload(l); }} />
       <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
-        title="Numérise un compte rendu papier (écriture manuscrite) et propose son contenu, que vous relisez avant de l’appliquer">
+        title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’IA lit l’écriture et les cases cochées et propose son contenu, que vous relisez avant de l’appliquer">
         {busy ? <Loader2 size={14} className="spin" /> : <ScanLine size={14} />} {busy ? 'Lecture en cours (peut durer quelques minutes)…' : 'Importer un compte rendu papier (scan)'}
       </button>
       {error && <div style={{ marginTop: 6, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>}
@@ -96,6 +99,30 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   </label>
                 ))}
               </div>
+
+              {(definition?.criteria_groups || []).length > 0 && (
+                <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 6 }}>
+                    Grille d’appréciation (cases cochées lues) — {Object.keys(edit.valeur || {}).length} / {(definition?.criteria_groups || []).flatMap(g => g.items).length} reconnues
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '4px 14px' }}>
+                    {(definition?.criteria_groups || []).flatMap(g => g.items).map(it => {
+                      const v = (edit.valeur || {})[it.key] || '';
+                      const col = v === 'S' ? '#16a34a' : v === 'AS' ? '#b45309' : v === 'I' ? '#b91c1c' : '#94a3b8';
+                      return (
+                        <div key={it.key} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: '#334155' }}>
+                          <span style={{ flex: 1, minWidth: 0 }}>{it.lead || it.label}</span>
+                          <select value={v} style={{ ...input, width: 74, padding: '3px 6px', fontWeight: 800, color: col }}
+                            onChange={e => setEdit(x => ({ ...x, valeur: { ...(x.valeur || {}), [it.key]: e.target.value } }))}>
+                            <option value="">—</option><option value="S">S</option><option value="AS">AS</option><option value="I">I</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>S = satisfaisant · AS = assez satisfaisant · I = insuffisant</div>
+                </div>
+              )}
 
               {(edit.objectifs_ecoules || []).map((o: any, i: number) => (
                 <div key={'oe' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 90px', gap: 8 }}>

@@ -332,8 +332,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       )}
       {canEdit && !isAgent && (
         <div style={{ marginTop: 12 }}>
-          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null}
-            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) } }))} />
+          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any}
+            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) }, valeur: { ...c.valeur, ...(f.valeur || {}) } }))} />
         </div>
       )}
       <div style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', background: '#f8fafc', fontSize: 12.5, color: '#334155', lineHeight: 1.7 }}>

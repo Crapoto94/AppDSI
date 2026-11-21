@@ -676,10 +676,19 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Seul l’évaluateur peut importer un compte rendu papier.');
-            if (!req.file) return fail(res, 400, 'Aucun fichier reçu.');
-            if (!/^(application\/pdf|image\/(png|jpe?g|webp|tiff?))$/i.test(req.file.mimetype || '')) return fail(res, 400, 'Format non pris en charge : PDF ou image (PNG, JPEG).');
+            const up = [...(req.files?.files || []), ...(req.files?.file || [])].filter(f => f && f.buffer && f.buffer.length);
+            if (!up.length) return fail(res, 400, 'Aucun fichier reçu.');
+            if (up.some(f => !/^(application\/pdf|image\/(png|jpe?g|webp|tiff?))$/i.test(f.mimetype || ''))) return fail(res, 400, 'Format non pris en charge : PDF ou image (PNG, JPEG).');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
-            res.json(await require('./crep-scan.service').scanToProposal(req.file.buffer, req.file.mimetype, cdef));
+            const scan = require('./crep-scan.service');
+            // Plusieurs photos / pages : lecture page par page + cases cochées. Un seul fichier : même chemin (le PDF est découpé en pages).
+            try {
+                res.json(await scan.scanDocuments(up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })), cdef));
+            } catch (e) {
+                if (up.length !== 1) throw e;
+                console.warn('[ENTRETIENS] scanDocuments en échec, repli sur la lecture simple :', e.message);
+                res.json(await scan.scanToProposal(up[0].buffer, up[0].mimetype, cdef));
+            }
         } catch (err) {
             console.error('[ENTRETIENS] crepScan:', err.message);
             fail(res, 500, `Lecture du document impossible : ${err.message}`);
