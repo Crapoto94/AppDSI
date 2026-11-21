@@ -119,8 +119,8 @@ async function pool(items, n, fn) {
 }
 
 const norm = (t) => clean(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-const BATCH = 60;      // demandes par appel de classement
-const PARALLEL = 6;    // appels simultanés vers les DGX
+const BATCH = 30;      // demandes par appel de classement
+const PARALLEL = 8;    // appels simultanés vers les DGX
 
 /** Lit « clé = libellé » ligne par ligne dans le prompt des catégories. */
 function parseCategories(text) {
@@ -166,10 +166,24 @@ async function runAnalysis(campaignId, demandesOverride, progress = () => {}) {
     const classify = async (items) => {
         const lignes = items.map((u, i) => `${i + 1} | ${u.texte.slice(0, 180)}`).join('\n');
         const prompt = P.render('formations.classement', { categories: catList, lignes });
-        const j = parseJson(await apm.queryAi(prompt, model, { max_tokens: 2500, temperature: 0 }));
+        const raw = String(await apm.queryAi(prompt, model, { max_tokens: 1500, temperature: 0 })).replace(/<think>[\s\S]*?<\/think>/g, '');
+        // Format demandé : une ligne « numéro:clé » par demande (bien plus fiable que du JSON pour ce modèle) ; repli sur des paires JSON
+        const lignesRep = [...raw.matchAll(/^\W*(\d{1,4})\s*[:=\-–>)\]]+\s*\W*([A-Za-zÀ-ÿ_][\w'’ -]{1,40})/gm)].map(m => [Number(m[1]), m[2].trim()]);
+        let j = { r: lignesRep };
+        if (!lignesRep.length) { try { j = parseJson(raw); } catch (e) { j = { r: [] }; } }
+        // La clé peut revenir sous forme de liste (plusieurs catégories) ou de libellé : on retient la première reconnue
+        const resolve = (v) => {
+            for (const x of (Array.isArray(v) ? v : [v])) {
+                const k = norm(String(x || '')).replace(/ /g, '_');
+                if (catByKey.has(k)) return k;
+                const hit = cats.find(c => norm(c.label) === norm(String(x || '')) || (k.length > 3 && c.key.startsWith(k)));
+                if (hit) return hit.key;
+            }
+            return null;
+        };
         for (const pair of (Array.isArray(j.r) ? j.r : [])) {
-            const n = Number(pair?.[0]), key = String(pair?.[1] || '').toLowerCase().trim();
-            if (n >= 1 && n <= items.length && catByKey.has(key)) items[n - 1].cat = key;
+            const n = Number(pair?.[0]), key = resolve(pair?.[1]);
+            if (n >= 1 && n <= items.length && key) items[n - 1].cat = key;
         }
     };
     const batches = []; for (let i = 0; i < U.length; i += BATCH) batches.push(U.slice(i, i + BATCH));

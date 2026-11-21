@@ -50,14 +50,15 @@ const DEFS = [
             + 'Ta tâche : classer CHAQUE ligne dans UNE seule catégorie (choisis la dominante si la ligne en cite plusieurs), d’après le SUJET de la formation, jamais d’après la direction, ni l’organisme (le CNFPT est un organisme, pas un sujet).\n'
             + 'Catégories (clé = libellé) :\n{{categories}}\n\n'
             + 'Exemples : « formation management », « gestion d’equipe », « encadrment » → management ; « exel », « word excel », « bureautique » → bureautique ; « concour rédacteur », « prépa concours » → concours ; « PSC1 », « sst », « habilitation électrique » → obligatoires ; « BAFA », « certiphyto » → certifiantes.\n'
-            + 'Réponds UNIQUEMENT par un JSON compact : {"r":[[numéro,"clé"],[numéro,"clé"],…]} avec une entrée par ligne.\n\n{{lignes}}',
+            + 'Réponds UNIQUEMENT par une ligne par demande, au format numéro:clé (exemple : 1:management), avec UNE SEULE clé par ligne (celle de la liste ci-dessus), sans aucun autre texte.\n\n{{lignes}}',
     },
     {
         id: 'formations.sousthemes', group: 'Demandes de formation (analyse globale)', label: 'Sous-thèmes d’une catégorie',
         description: 'Envoyé en parallèle, une fois par catégorie : l’IA regroupe les formulations proches en sous-thèmes (ex. « management », « gestion d’équipe », « encadrement » → « Management d’équipe »).',
         vars: ['categorie', 'lignes'],
         text: 'Voici des demandes de formation d’une même catégorie (« {{categorie}} »), issues des entretiens professionnels d’une mairie. Les formulations varient (synonymes, abréviations, fautes) : REGROUPE celles qui désignent la même formation ou le même besoin sous un SOUS-THÈME clair.\n'
-            + 'Règles : 2 à 8 sous-thèmes, nommés clairement et en bon français (corrige les fautes) ; chaque ligne dans UN seul sous-thème ; ne cite aucun nom de personne ; ne mélange pas des besoins différents.\n'
+            + 'Règles : 2 à 8 sous-thèmes, nommés clairement et en bon français (corrige les fautes) ; chaque ligne dans UN seul sous-thème ; ne cite aucun nom de personne ; ne mélange pas des besoins différents. '
+            + 'Un sous-thème désigne un SUJET CONCRET (ex. « Secourisme (PSC1 / SST) », « Habilitation électrique », « Sécurité incendie », « Management d’équipe », « Excel ») : ne le nomme JAMAIS d’après la catégorie elle-même, ni « Formations obligatoires », « Autres demandes » ou « Formation » tout court ; sépare bien les sujets distincts.\n'
             + 'Réponds UNIQUEMENT par un JSON : {"sous_themes":[{"theme":"nom","items":[numéros]}]}\n\n{{lignes}}',
     },
     {
