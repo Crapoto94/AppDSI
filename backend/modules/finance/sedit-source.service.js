@@ -408,5 +408,5 @@ async function compare(year) {
 
 module.exports = {
     getSource, getPublicConfig, saveConfig, testSources, compare,
-    readFactures, readCommandes,
+    readFactures, readCommandes, readEngagementRows, readBudgetLines, readBudgetSynthese,
 };
