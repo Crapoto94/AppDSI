@@ -1,4 +1,4 @@
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require('../../shared/lazy').lazy('pdf-lib');
 
 // Génère le formulaire « Demande de modification budgétaire » (virement de crédits).
 // Aucune écriture dans SEDIT : le document est produit à partir de la saisie.

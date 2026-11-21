@@ -7,7 +7,7 @@
  * Repris de C:\dev\mandat\backend\services\officePreview.js (même approche, mêmes
  * dépendances déjà présentes dans ce backend).
  */
-const mammoth = require('mammoth');
+const mammoth = require('./lazy').lazy('mammoth');
 const XLSX = require('xlsx');
 const AdmZip = require('adm-zip');
 

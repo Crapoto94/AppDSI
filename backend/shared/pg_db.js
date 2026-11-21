@@ -207,7 +207,7 @@ const pgDb = {
     }
 };
 
-async function setupPgDb() {
+async function setupPgDbFull() {
   let client;
   try {
     client = await pool.connect();
@@ -8139,11 +8139,55 @@ async function setupPgDb() {
     }
 
     console.log('[PG DB] Schema and tables initialized successfully');
+    return true;
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
+    return false;
   } finally {
     if (client) client.release();
   }
+}
+
+/**
+ * Initialisation du schéma PostgreSQL — rejouée seulement quand elle peut avoir un effet.
+ *
+ * Les ~1 400 instructions de setupPgDbFull sont idempotentes mais coûtent plus d'une minute à chaque démarrage, même quand rien n'a changé.
+ * On mémorise donc une empreinte (contenu de ce fichier + options d'environnement) dans public.app_schema_state : si elle est identique à celle
+ * du dernier démarrage réussi (et vieille de moins de 7 jours), l'initialisation est sautée. Toute modification de ce fichier, l'option
+ * FORCE_SCHEMA_SYNC=1 ou une empreinte trop ancienne rejoue l'initialisation complète.
+ */
+async function setupPgDb() {
+  const t0 = Date.now();
+  let fingerprint = '';
+  try {
+    const fs = require('fs');
+    fingerprint = require('crypto').createHash('sha1')
+      .update(fs.readFileSync(__filename))
+      .update('|' + String(process.env.GLPI_TICKETS_MIGRATION || '0'))
+      .digest('hex');
+  } catch (e) { /* empreinte impossible : initialisation complète */ }
+  const force = ['1', 'true', 'yes'].includes(String(process.env.FORCE_SCHEMA_SYNC || '').toLowerCase());
+  if (fingerprint && !force) {
+    try {
+      await pool.query("CREATE TABLE IF NOT EXISTS public.app_schema_state (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())");
+      const r = await pool.query("SELECT value, updated_at FROM public.app_schema_state WHERE key = 'pg_setup_fingerprint'");
+      const row = r.rows[0];
+      if (row && row.value === fingerprint && Date.now() - new Date(row.updated_at).getTime() < 7 * 24 * 3600 * 1000) {
+        console.log(`[PG DB] Schéma inchangé (empreinte ${fingerprint.slice(0, 8)}) : initialisation sautée en ${Date.now() - t0} ms`);
+        return true;
+      }
+    } catch (e) { console.warn('[PG DB] lecture de l’empreinte impossible, initialisation complète :', e.message); }
+  }
+  const ok = await setupPgDbFull();
+  if (ok && fingerprint) {
+    try {
+      await pool.query(
+        `INSERT INTO public.app_schema_state (key, value, updated_at) VALUES ('pg_setup_fingerprint', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, [fingerprint]);
+    } catch (e) { console.warn('[PG DB] empreinte non enregistrée :', e.message); }
+  }
+  console.log(`[PG DB] Initialisation complète en ${Date.now() - t0} ms`);
+  return ok;
 }
 
 module.exports = {

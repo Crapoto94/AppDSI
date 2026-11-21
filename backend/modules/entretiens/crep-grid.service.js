@@ -10,7 +10,7 @@
  * Le résultat n'est utilisé que si le nombre de lignes lues correspond au nombre de critères du modèle : sinon on ne devine rien.
  * Les photos ne sortent pas du serveur : traitement 100 % local.
  */
-const { createCanvas } = require('@napi-rs/canvas');
+const { createCanvas } = require('../../shared/lazy').lazy('@napi-rs/canvas');
 
 const LEVEL_BY_COL = ['S', 'AS', 'I'];
 

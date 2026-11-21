@@ -211,7 +211,7 @@ async function scanToProposal(buffer, mimetype, definition) {
 }
 
 // ─── Lecture multi-pages (photos / scans), cases cochées comprises ───────────────────────────────────────────
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage } = require('../../shared/lazy').lazy('@napi-rs/canvas');
 const crepGrid = require('./crep-grid.service');
 
 const PAGE_PX = 2600;          // plus grand côté envoyé au modèle (assez fin pour le manuscrit, sans images énormes)

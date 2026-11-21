@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require('../../../shared/lazy').lazy('pdf-lib');
 const { pgDb } = require('../../../shared/database');
 const docs = require('../../../shared/documents.service');
 const deliveryRepo = require('../repositories/delivery.repository');

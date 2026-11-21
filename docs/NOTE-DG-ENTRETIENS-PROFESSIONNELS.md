@@ -45,9 +45,10 @@ Le dispositif couvre **tous les cas**, y compris les agents sans informatique.
 
 #### 3.1. La prise de rendez-vous
 
+- Cette étape est **facultative** : le valideur peut toujours fixer la date « à l'ancienne ». L'outil n'est qu'une **aide** (recherche de créneaux et envoi de la convocation par e-mail).
 - Le valideur clique sur « Planifier ». L'outil lui propose les **créneaux libres communs** (son agenda et celui de l'agent).
 - Si l'agent a une adresse e-mail : il reçoit une **invitation Outlook** et un e-mail contenant le **CREP vierge** et un lien vers MagApp.
-- Si l'agent n'a pas d'adresse e-mail : aucun envoi ; le valideur le prévient et lui remet le CREP vierge imprimé.
+- Si l'agent n'a pas d'adresse e-mail : aucun envoi ; le valideur doit **de toute façon le convoquer autrement** (vive voix, téléphone, courrier) et lui remet le CREP vierge imprimé.
 
 #### 3.2. L'entretien et le compte rendu
 

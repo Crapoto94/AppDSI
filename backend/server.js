@@ -367,6 +367,14 @@ const uploadReunion = multer({ storage: reunionStorage, limits: { fileSize: 50 *
 
 const app = express();
 const httpServer = http.createServer(app);
+
+// Le port s'ouvre dès que SQLite est prête ; tant que l'initialisation (PostgreSQL, migrations, amorçages) n'est pas terminée,
+// les requêtes reçoivent un 503 « réessayez » plutôt qu'une connexion refusée.
+let appReady = false;
+app.use((req, res, next) => {
+    if (appReady) return next();
+    res.set('Retry-After', '5').status(503).json({ message: 'Le serveur démarre, réessayez dans quelques secondes.' });
+});
 // Live chat socket.io
 const { setupSocket } = require('./modules/live/live.socket');
 setupSocket(httpServer);
@@ -3254,6 +3262,10 @@ let db;
 setupDb().then(async database => {
     db = database;
     console.log(`[STARTUP] SQLite prête en ${Date.now() - STARTUP_T0} ms`);
+    httpServer.listen(PORT, '0.0.0.0', () => {
+        console.log(`Backend server running on http://0.0.0.0:${PORT} (initialisation en cours, requêtes en 503 jusqu'à la fin)`);
+        console.log(`[STARTUP] écoute active après ${Date.now() - STARTUP_T0} ms`);
+    });
 
     // Connexions Oracle : lignes créées si absentes (RH et FINANCES sont créées
     // par l'admin ; DELIB/AIRS, ASTECH et CONCERTO sont pré-initialisées).
@@ -3317,7 +3329,8 @@ setupDb().then(async database => {
     } catch (e) {
         console.warn('[STARTUP] Synchronisation RH API impossible, miroir existant conservé :', e.message);
     }
-    try { await require('./modules/ep-base/ep-base.service').loadTemplateCache(); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
+    // Chargé en tâche de fond : ne retarde plus l'ouverture du serveur
+    try { require('./modules/ep-base/ep-base.service').loadTemplateCache().catch(e => console.warn('[ep-base] modèles de CREP non chargés :', e.message)); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
     // Initialiser Mail Collector
     try {
@@ -3412,14 +3425,20 @@ setupDb().then(async database => {
     try {
         const sqliteUsers = await db.all('SELECT username, role, is_approved, email, service_code, service_complement FROM users');
         let copied = 0;
-        for (const u of sqliteUsers) {
-            try {
-                await pool.query(
-                    'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement, role = EXCLUDED.role, is_approved = EXCLUDED.is_approved',
-                    [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null]
-                );
-                copied++;
-            } catch (e) {}
+        const UPSERT = ' ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement, role = EXCLUDED.role, is_approved = EXCLUDED.is_approved';
+        const rowParams = (u) => [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null];
+        try {
+            // En une seule requête (au lieu d'un aller-retour par utilisateur)
+            if (sqliteUsers.length) {
+                const marks = sqliteUsers.map((_, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(', ');
+                await pool.query('INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ' + marks + UPSERT, sqliteUsers.flatMap(rowParams));
+            }
+            copied = sqliteUsers.length;
+        } catch (batchErr) {
+            // Repli : ligne par ligne (une ligne invalide ne bloque pas les autres)
+            for (const u of sqliteUsers) {
+                try { await pool.query('INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6)' + UPSERT, rowParams(u)); copied++; } catch (e) {}
+            }
         }
         console.log(`[MIGRATION] ${copied}/${sqliteUsers.length} utilisateurs SQLite → magapp.users`);
     } catch (e) {
@@ -3542,11 +3561,8 @@ setupDb().then(async database => {
         console.error('[Prets] Error seeding email templates:', e.message);
     }
 
-    console.log(`[STARTUP] prêt à écouter après ${Date.now() - STARTUP_T0} ms`);
-    httpServer.listen(PORT, '0.0.0.0', () => {
-        console.log(`Backend server running on http://0.0.0.0:${PORT}`);
-        console.log(`[STARTUP] écoute active après ${Date.now() - STARTUP_T0} ms`);
-    });
+    appReady = true;
+    console.log(`[STARTUP] serveur prêt (requêtes acceptées) après ${Date.now() - STARTUP_T0} ms`);
 
     // ─── Rattrapage au démarrage ────────────────────────────────────────────
     // Le serveur est redémarré plus souvent que le rythme des crons : on
@@ -6185,11 +6201,17 @@ pool.on('connect', () => {
     console.log('[PG POOL] Nouvelle connexion établie');
 });
 
-console.log('[SCHEDULED SYNC] Initialisation du cron...');
-cron.schedule('* * * * *', () => {
-    glpiController.processScheduledSyncs();
-});
-console.log('[SCHEDULED SYNC] Cron job enregistré');
+// GLPI n'est plus connecté (tout est interne) : la synchronisation planifiée n'est plus lancée chaque minute.
+// Pour la réactiver (import historique) : variable d'environnement GLPI_SCHEDULED_SYNC=1.
+if (['1', 'true', 'yes'].includes(String(process.env.GLPI_SCHEDULED_SYNC || '').toLowerCase())) {
+    console.log('[SCHEDULED SYNC] Initialisation du cron...');
+    cron.schedule('* * * * *', () => {
+        glpiController.processScheduledSyncs();
+    });
+    console.log('[SCHEDULED SYNC] Cron job enregistré');
+} else {
+    console.log('[SCHEDULED SYNC] désactivé (GLPI non connecté ; GLPI_SCHEDULED_SYNC=1 pour réactiver)');
+}
 
 // Mentions @ : mail récapitulatif des notifications non lues, tous les jours à 20h
 cron.schedule('0 20 * * *', async () => {

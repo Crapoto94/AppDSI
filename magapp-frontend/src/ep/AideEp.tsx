@@ -92,6 +92,7 @@ function ProcessSchema() {
       </Step>
       <Step n={2} title="Vous prenez rendez-vous avec l'agent" who="Valideur">
         Bouton « Planifier ». L'outil envoie l'invitation Outlook et un e-mail à l'agent (s'il a une adresse e-mail), avec le CREP vierge en pièce jointe.
+        Cette étape est <strong>facultative</strong> : vous pouvez toujours fixer la date « à l'ancienne ». Si l'agent n'a pas d'e-mail, vous devez de toute façon le convoquer autrement.
       </Step>
       <Step n={3} title="L'agent prépare son entretien" who="Agent">
         En ligne dans « Mon entretien » (s'il a un e-mail et l'accès), sinon sur le formulaire papier. Cette étape est facultative pour vous : l'entretien peut avoir lieu sans.
@@ -365,6 +366,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             </Section>
 
             <Section icon={<CalendarClock size={15} color={COLORS.primary} />} title="Étape 2 — Prendre rendez-vous (planifier)">
+              <Callout tone="info" title="Cette étape est facultative">
+                Vous pouvez toujours fixer la date <strong>« à l'ancienne »</strong> (de vive voix, par téléphone, par courrier ou dans votre agenda) sans passer par l'outil.
+                L'assistant de planification n'est qu'une <strong>aide</strong> : <strong>recherche de créneaux</strong> communs et <strong>envoi de la convocation par e-mail</strong> (invitation Outlook et CREP vierge).
+                <strong> Si l'agent n'a pas d'adresse e-mail, il faut de toute façon le convoquer par un autre moyen</strong> (voir le cas C ci-dessous).
+              </Callout>
               <Shot src="/aide-ep/02-planifier.jpg" caption="Fenêtre « Planifier » : « Prochains créneaux libres » propose des horaires où l'agent et vous êtes disponibles" />
               <Gestes items={[
                 <>Dans « EP que je réalise », repérer la ligne de l'agent.</>,
@@ -386,7 +392,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Cas code="Cas C" title="L'agent n'a PAS d'adresse e-mail" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
                 <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
                   <li><strong>Aucun e-mail ni invitation ne part à l'agent.</strong> Le rendez-vous est quand même enregistré, et il apparaît dans votre agenda.</li>
-                  <li>C'est à <strong>vous de prévenir l'agent</strong> (de vive voix, par téléphone ou par courrier) : date, heure, lieu.</li>
+                  <li>C'est à <strong>vous de convoquer l'agent par un autre moyen</strong> (de vive voix, par téléphone ou par courrier) : date, heure, lieu. Cette convocation est <strong>obligatoire</strong>, l'outil ne peut pas la faire à votre place.</li>
                   <li>Remettez-lui le <strong>CREP vierge imprimé</strong> : cliquer sur l'icône imprimante de sa ligne, puis choisir le CREP vierge (ou cocher plusieurs agents et imprimer en une fois).</li>
                   <li>Si vous savez que l'agent a en réalité une adresse e-mail, faites le lien vous-même avec « Lier l'AD » (étape 1) : le cas A ou B s'appliquera alors.</li>
                 </ul>

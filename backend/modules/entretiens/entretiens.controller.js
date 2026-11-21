@@ -1,5 +1,5 @@
 const { pgDb } = require('../../shared/database');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument } = require('../../shared/lazy').lazy('pdf-lib');
 const svc = require('./entretiens.service');
 const { normalizeCrep, missingFields, definitionFor, gridWarning } = require('./crep.definition');
 const epBase = require('../ep-base/ep-base.service');

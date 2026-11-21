@@ -5,7 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb, degrees } = require('../../shared/lazy').lazy('pdf-lib');
 const { LEVELS, normalizeCrep, definitionFor, groupsOf } = require('./crep.definition');
 
 const W = 595.28;

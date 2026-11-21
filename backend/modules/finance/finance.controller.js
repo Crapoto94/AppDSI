@@ -53,12 +53,19 @@ const computeUsedMap = async () => {
 const recalculateAllOperations = async () => {
     try {
         const usedMap = await computeUsedMap();
-        const operations = await pgDb.all('SELECT id FROM oracle.operations');
+        const operations = await pgDb.all('SELECT id, used_amount FROM oracle.operations');
+        // Seules les opérations dont le montant a changé sont mises à jour, en une seule requête (au lieu d'un UPDATE par opération).
+        const ids = [], vals = [];
         for (const op of operations) {
             const used = usedMap[String(op.id)] || 0;
-            await pgDb.run('UPDATE oracle.operations SET used_amount = $1 WHERE id = $2', [used, op.id]);
+            if (Math.abs((Number(op.used_amount) || 0) - used) > 0.0049) { ids.push(op.id); vals.push(used); }
         }
-        console.log('[Finance] Synchronisation montants terminée.');
+        if (ids.length) {
+            await pool.query(
+                `UPDATE oracle.operations o SET used_amount = v.used
+                 FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::numeric[]) AS used) v WHERE o.id = v.id`, [ids, vals]);
+        }
+        console.log(`[Finance] Synchronisation montants terminée (${ids.length}/${operations.length} mises à jour).`);
     } catch (error) {
         console.error('[Finance] Erreur synchronisation:', error);
     }
