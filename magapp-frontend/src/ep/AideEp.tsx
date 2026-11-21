@@ -269,7 +269,52 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
                 <>Vérifier que chaque agent de votre équipe apparaît <strong>une seule fois</strong>.</>,
               ]} />
               <Callout tone="warn" title="Un agent manque ou le valideur affiché est faux ?">
-                <strong>Ne rien saisir vous-même</strong> : prévenez l'administrateur du module. Un agent = un seul valideur.
+                Vous pouvez le corriger <strong>vous-même</strong>, sans attendre l'administrateur : voir les deux modes opératoires ci-dessous.
+                Règle à garder en tête : <strong>un agent = un seul valideur</strong>.
+              </Callout>
+
+              <Cas code="Il manque un agent" title="M'ajouter un agent qui n'a pas encore de valideur" color="#16a34a" icon={<Users size={14} color="#16a34a" />}>
+                <Gestes items={[
+                  <>Aller dans l'onglet <strong>« EP que je réalise »</strong>.</>,
+                  <>Cliquer sur le bouton bleu <strong>« Ajouter un agent »</strong> (au-dessus du tableau).</>,
+                  <>Une fenêtre liste les agents <strong>de votre direction qui n'ont encore aucun évaluateur</strong>. Taper un nom dans la zone de recherche puis <strong>« Rechercher »</strong> si besoin.</>,
+                  <>Cliquer sur <strong>« Ajouter »</strong> en face de l'agent : il apparaît aussitôt dans votre liste, prêt à être planifié.</>,
+                ]} />
+                <Callout tone="info" title="L'agent n'est pas dans la liste ?">
+                  Soit il a <strong>déjà un valideur</strong> (voir le mode opératoire suivant : changer de valideur), soit il n'est pas dans votre direction ou pas dans la base des agents :
+                  prévenez l'administrateur.
+                </Callout>
+              </Cas>
+
+              <Cas code="Mauvais valideur" title="Changer le valideur d'un agent" color="#4f46e5" icon={<UserCheck size={14} color="#4f46e5" />}>
+                <Gestes items={[
+                  <>Dans la liste, repérer la ligne de l'agent concerné.</>,
+                  <>Cliquer sur l'icône <strong>« personne avec un engrenage »</strong> (info-bulle « Changer l'évaluateur ») à droite de la ligne.</>,
+                  <>La fenêtre affiche l'évaluateur actuel et la liste des évaluateurs possibles. Chercher le bon nom (nom, matricule ou e-mail).</>,
+                  <>Cliquer sur <strong>« Choisir »</strong> en face du bon valideur. L'agent quitte votre liste (ou rejoint la vôtre) immédiatement.</>,
+                ]} />
+                <div style={{ marginTop: 4 }}>
+                  <strong>Pour récupérer un agent d'un collègue</strong> (ou donner un de vos agents à un collègue), c'est le même geste : ouvrir la fenêtre « Changer l'évaluateur » de cet agent et choisir le nouveau valideur.
+                  Le droit est réservé à l'évaluateur actuel de l'agent, à son supérieur et aux administrateurs.
+                </div>
+                <Callout tone="warn" title="Si l'EP est déjà commencé">
+                  Changer de valideur ne supprime rien de ce qui a été saisi, mais le nouveau valideur reprend la main à partir de là.
+                  Prévenez l'ancien valideur et l'agent. Toutes les modifications sont inscrites dans le <strong>Journal</strong>.
+                </Callout>
+              </Cas>
+
+              <Cas code="Vue équipe" title="Si vous êtes directeur ou DGA : depuis « EP de mon équipe »" color="#64748b" icon={<Users size={14} color="#64748b" />}>
+                Dans l'onglet <strong>« EP de mon équipe »</strong>, les agents sont rangés par valideur (cliquer sur « Tout déplier »). Le bouton « Ajouter un agent » devient
+                <strong> « Choisir l'évaluateur »</strong> : vous choisissez d'abord l'agent sans évaluateur, puis le valideur à lui affecter, parmi les valideurs de votre périmètre.
+                Pour un agent déjà affecté, utilisez aussi l'icône « Changer l'évaluateur ».
+              </Cas>
+
+              <Cas code="Pas d'e-mail" title="Un agent est affiché sans adresse e-mail" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
+                Sur sa ligne, cliquer sur <strong>« Lier l'AD »</strong>, rechercher son nom, puis <strong>« Lier »</strong> : son compte (donc son e-mail) est rattaché, et il pourra recevoir les invitations et signer en ligne.
+                Si l'agent n'a aucun compte, laissez-le sans e-mail : il suivra le circuit papier.
+              </Cas>
+              <Callout tone="ok">
+                Rien de tout cela ne casse l'historique : chaque ajout et chaque changement de valideur est tracé. En cas de doute, contactez l'administrateur plutôt que de bricoler.
               </Callout>
             </Section>
 
@@ -424,7 +469,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
 
             <Section icon={<AlertTriangle size={15} color={COLORS.primary} />} title="Si quelque chose ne va pas">
               <div style={{ display: 'grid', gap: 6 }}>
-                <div><strong>L'agent n'apparaît pas.</strong> Il n'est pas rattaché à vous. Prévenir l'administrateur.</div>
+                <div><strong>L'agent n'apparaît pas.</strong> Il n'est pas rattaché à vous : utilisez « Ajouter un agent » ou « Changer l'évaluateur » (étape 1). Si l'agent reste introuvable, prévenir l'administrateur.</div>
                 <div><strong>L'agent dit n'avoir rien reçu.</strong> Vérifier son adresse e-mail. Si elle est vide : cas C (voir étape 2). Vérifier aussi ses courriers indésirables.</div>
                 <div><strong>Je me suis trompé de date.</strong> « Modifier le RDV ». Ne pas recréer un EP.</div>
                 <div><strong>Je n'ai pas le bouton « Envoyer à l'agent ».</strong> L'agent ou vous n'avez pas d'e-mail, ou la signature électronique n'est pas ouverte pour lui, ou le compte rendu n'est pas encore validé. Utiliser le circuit papier.</div>
