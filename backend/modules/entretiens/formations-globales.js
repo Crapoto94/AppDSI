@@ -208,14 +208,14 @@ async function runAnalysis(campaignId, demandesOverride, progress = () => {}) {
     const catsUsed = cats.filter(c => byCat.get(c.key).length);
     progress({ phase: 'regroupement', label: 'Regroupement des formulations proches par catégorie', done: 0, total: catsUsed.length });
     let cd = 0;
-    const subs = await pool(catsUsed, 4, async (c) => {
+    const subs = await pool(catsUsed, 6, async (c) => {
         const us = byCat.get(c.key).slice().sort((a, b) => b.n - a.n);
         let res = null;
         if (us.length >= 4) {
-            const top = us.slice(0, 220);
+            const top = us.slice(0, 120);
             try {
                 const prompt = P.render('formations.sousthemes', { categorie: c.label, lignes: top.map((u, i) => `${i + 1} | ${u.texte.slice(0, 160)}`).join('\n') });
-                const j = parseJson(await apm.queryAi(prompt, model, { max_tokens: 3000, temperature: 0.1 }));
+                const j = parseJson(await apm.queryAi(prompt, model, { max_tokens: 1800, temperature: 0.1 }));
                 const seen = new Set();
                 res = (Array.isArray(j.sous_themes) ? j.sous_themes : []).map(st => {
                     const idx = (Array.isArray(st.items) ? st.items : []).map(Number).filter(n => n >= 1 && n <= top.length && !seen.has(n));
