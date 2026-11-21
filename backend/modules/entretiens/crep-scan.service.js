@@ -295,19 +295,12 @@ async function pickRotation(apm, model, img, candidates) {
 }
 
 // ─── Prompts par type de page (lecture ciblée du manuscrit) ────────────────────────────────────────────────
-const GLOSSAIRE = 'Vocabulaire fréquent dans ces comptes rendus (collectivité territoriale) : M57 (nomenclature budgétaire et comptable), M14, DGP (délai global de paiement), '
-    + 'Sedit Finances, Sedit RH, RGPD, CNFPT, SIRH, GLPI, PES, DSI, DGS, DRH, CAP, VAE, Excel, Word, CACES, SST, "néant", "RAS" (rien à signaler), "1er trimestre", "2e semestre".';
-
-const REGLES_MANUSCRIT = 'Le manuscrit est écrit vite, en lettres courtes, avec des fautes et des mots peu lisibles : donne TA MEILLEURE LECTURE, en choisissant des mots français vraisemblables '
-    + 'dans le contexte d’une mairie (finances, informatique, ressources humaines, services techniques). Si le cadre est vide, réponds "". N’invente jamais un texte qui n’est pas écrit. '
-    + 'Un cadre peut contenir PLUSIEURS LIGNES manuscrites (deux ou trois) : lis TOUTES les lignes du cadre, de haut en bas, sans en oublier une, et réunis-les en une seule phrase. Ne recopie pas le texte imprimé du formulaire (titres, consignes) dans les réponses : seulement ce qui a été écrit à la main (sauf indication contraire). ' + GLOSSAIRE;
+const prompts = require('./prompts');
+const reglesManuscrit = () => prompts.render('crep.regles', { glossaire: prompts.get('crep.glossaire') });
 
 /** Document d'origine NUMÉRIQUE (compte rendu déjà saisi et validé dans l'outil, imprimé puis signé) : seuls les 2 commentaires de l'agent sont lus. */
 function agentPrompt() {
-    return 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé. Seuls deux cadres ont été remplis À LA MAIN par l’agent. Extrais :\n'
-        + '{"obs_agent_conditions": "MANUSCRIT du cadre « Observations de l’agent sur les conditions de travail et le fonctionnement du service »",\n'
-        + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »"}\n'
-        + 'Réponds UNIQUEMENT par un objet JSON valide, sans commentaire. ' + REGLES_MANUSCRIT;
+    return prompts.render('crep.agent', { regles: reglesManuscrit() });
 }
 
 function pageType(printedText) {
@@ -320,32 +313,8 @@ function pageType(printedText) {
 }
 
 function pagePrompt(type, annee) {
-    const intro = 'Cette image est une page d’un compte rendu d’entretien professionnel (formulaire imprimé, rempli à la main). ';
-    const fin = '\nRéponds UNIQUEMENT par un objet JSON valide, sans commentaire. ' + REGLES_MANUSCRIT;
-    if (type === 'volet1') {
-        return intro + 'Page « Volet 1 – bilan de l’année écoulée ». Extrais :\n'
-            + '{"date_convocation": "AAAA-MM-JJ", "date_entretien": "AAAA-MM-JJ", "date_notification": "AAAA-MM-JJ" (dates des trois cases en haut ; si l’année manque, utilise ' + (annee || 'l’année en cours') + ' ; "" si vide),\n'
-            + ' "missions": "texte du cadre « Rappel des missions de l’agent »",\n'
-            + ' "objectifs_ecoules": [{"objectif": "texte imprimé de la ligne", "observations": "MANUSCRIT de la colonne Observations", "niveau": "A, PA ou NA : la lettre manuscrite de la colonne Niveau de réalisation"}] (une entrée par ligne numérotée du tableau, 4 au plus ; ligne vide = champs vides),\n'
-            + ' "observations_complementaires": "MANUSCRIT du cadre « Observations complémentaires »"}' + fin;
-    }
-    if (type === 'grille') {
-        return intro + 'Page « Appréciation de la valeur professionnelle ». Les cases cochées sont lues par ailleurs : ne t’en occupe pas. Extrais seulement :\n'
-            + '{"appreciation_generale": "MANUSCRIT du grand cadre « Appréciation générale sur l’exercice des missions »"}' + fin;
-    }
-    if (type === 'volet2') {
-        return intro + 'Page « Volet 2 – échanges sur les perspectives de l’année à venir ». Extrais :\n'
-            + '{"objectifs_service": "texte éventuel du cadre « rappel des objectifs du service » (souvent vide)",\n'
-            + ' "objectifs_futurs": [{"descriptif": "MANUSCRIT colonne Descriptif", "moyens": "MANUSCRIT colonne Moyens et échéances"}] (une entrée par ligne numérotée, 4 au plus),\n'
-            + ' "formations": {"obligatoires": "MANUSCRIT « Formations obligatoires »", "metiers": "MANUSCRIT « Autres formations métiers »", "parcours": "MANUSCRIT « Formations liées à l’accompagnement des parcours… »"}}' + fin;
-    }
-    if (type === 'perspectives') {
-        return intro + 'Page « Perspectives d’évolution… », avec des cadres à remplir à la main. Extrais, cadre par cadre :\n'
-            + '{"evolution": "MANUSCRIT du cadre « 1. Évolution des missions et/ou de carrière » (un mot comme « retraite », « mobilité », « néant » est possible)",\n'
-            + ' "mobilite": "MANUSCRIT du cadre « 2. Mobilité »",\n'
-            + ' "obs_agent_conditions": "MANUSCRIT du cadre « Observations de l’agent sur les conditions de travail et le fonctionnement du service »",\n'
-            + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »",\n'
-            + ' "visa_autorite": "MANUSCRIT du cadre « Observations et visa de l’autorité territoriale » (souvent vide ; les signatures ne sont pas du texte)"}' + fin;
+    if (['volet1', 'grille', 'volet2', 'perspectives'].includes(type)) {
+        return prompts.render('crep.page.' + type, { annee: annee || 'l’année en cours', regles: reglesManuscrit() });
     }
     return visionPrompt();
 }
@@ -375,14 +344,7 @@ async function coherencePass(apm, crep, contexte, log) {
         objectifs_futurs: crep.objectifs_futurs, formations: crep.formations, evolution: crep.evolution, mobilite: crep.mobilite,
         obs_agent_conditions: crep.obs_agent_conditions, obs_agent_entretien: crep.obs_agent_entretien,
     };
-    const prompt = 'Tu relis la transcription automatique d’un compte rendu d’entretien professionnel écrit à la main (mairie). L’écriture est difficile : certains mots ont été mal lus. '
-        + 'Ta tâche : repérer les mots ou groupes de mots MANIFESTEMENT mal lus et proposer la correction la plus vraisemblable, en t’appuyant sur le contexte (poste, service, autres rubriques : par exemple si un objectif parle de « délai global de paiement », « DGP à 28 j » est cohérent, pas « VGP ») '
-        + 'et sur le vocabulaire courant. ' + GLOSSAIRE + '\n'
-        + 'Contexte de l’agent : ' + JSON.stringify(contexte) + '\n'
-        + 'Transcription (JSON) : ' + JSON.stringify(champs) + '\n\n'
-        + 'Réponds UNIQUEMENT par un JSON {"corrections":[{"avant":"texte exact tel qu’il figure dans la transcription","apres":"texte corrigé","raison":"très court"}]}. '
-        + 'Règles : « avant » doit être une partie EXACTE d’une valeur ci-dessus ; « apres » remplace un mot mal lu par un mot de GRAPHIE PROCHE (jamais un synonyme ni une reformulation, jamais de mot ajouté ou retiré) ; ne corrige pas le style, les fautes d’orthographe de l’auteur ni le sens ; ne corrige pas un mot qui peut être correct ; '
-        + 'au plus 12 corrections ; aucune correction = {"corrections":[]}.';
+    const prompt = prompts.render('crep.coherence', { glossaire: prompts.get('crep.glossaire'), contexte: JSON.stringify(contexte), transcription: JSON.stringify(champs) });
     const out = await apm.queryAi(prompt, model, { max_tokens: 1500, temperature: 0.1 });
     const j = parseObj(String(out)) || {};
     const list = (Array.isArray(j.corrections) ? j.corrections : []).filter(c => c && typeof c.avant === 'string' && typeof c.apres === 'string' && c.avant.trim() && c.avant !== c.apres && plausibleFix(c.avant, c.apres));
@@ -461,6 +423,7 @@ async function pool(tasks, n) {
 const PAGES_EN_PARALLELE = 4;
 
 async function scanDocuments(files, definition, opts = {}) {
+    await prompts.refresh();
     const warnings = [];
     const log = (m) => console.log('[ENTRETIENS] scan CREP :', m);
     const apm = require('../../shared/apm_ai');

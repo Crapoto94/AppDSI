@@ -122,12 +122,13 @@ L'outil applique le principe de **minimisation** et des accès limités : l'agen
 
 ---
 
-### 7. Décisions attendues
+### 7. Évolutions possibles (et déjà activables)
 
-1. **Valider le principe** : MagApp comme outil unique des entretiens professionnels de la Ville.
-2. **Fixer le calendrier** : date d'ouverture de la campagne et date limite des EP.
-3. **Désigner les administrateurs du module** et le périmètre des valideurs (directeurs, DGA).
-4. **Arbitrer la signature électronique** : ouverte à tous les agents équipés, ou par direction.
-5. **Mandater la DPD** pour les règles de conservation et d'anonymisation.
+Le socle est en place ; les fonctions ci-dessous sont **déjà développées** et s'activent par un simple réglage, par direction ou pour tous :
+
+- **Signature par parapheur électronique** : l'agent et le valideur signent le compte rendu en ligne, sans impression ni scan ; l'archivage est automatique.
+- **Préparation de l'entretien par l'agent, vue par le N+1** : l'agent prépare sa fiche en ligne (réalisations, difficultés, souhaits d'évolution et de formation) et son valideur la retrouve avant l'entretien.
+- **Aide à la rédaction par l'IA** : reformulation des notes du valideur et **analyse de cohérence** du compte rendu (appréciation générale, grille, objectifs) avant validation, avec une IA hébergée dans la collectivité.
+- **Dès l'année prochaine : reprise automatique des objectifs** fixés lors de l'entretien précédent, proposés d'office pour le bilan.
 
 **Prochaine étape :** dès accord, publication du module, ouverture de la campagne et courrier d'annonce aux valideurs.

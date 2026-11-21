@@ -41,6 +41,8 @@ router.get('/directory', authenticateJWT, ctrl.directory);
 router.post('/free-slots', authenticateJWT, ctrl.freeSlots);
 
 router.get('/formations', authenticateJWT, ctrl.formationsGlobales);
+router.get('/prompts', authenticateJWT, ctrl.listPrompts);
+router.put('/prompts/:id', authenticateJWT, ctrl.savePrompt);
 router.put('/simulation', authenticateJWT, ctrl.setSimulation);
 router.post('/simulation/reset', authenticateJWT, ctrl.resetSimulation);
 router.post('/formations/analyse', authenticateJWT, ctrl.formationsAnalyse);

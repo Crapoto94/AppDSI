@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SimulationPanel from './SimulationPanel';
+import IaPrompts from './IaPrompts';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
@@ -220,6 +221,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [esignCandidates, setEsignCandidates] = useState<AiEvaluatorRef[]>([]);
 
   // Note à l'attention de la Direction générale : éditable par les administrateurs du module.
+  const [sub, setSub] = useState<'general' | 'ia'>('general');
   const [dgNote, setDgNote] = useState('');
   const [dgNoteDefault, setDgNoteDefault] = useState('');
   const [showDgNote, setShowDgNote] = useState(false);
@@ -513,6 +515,13 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 16 }}>
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
       </div>
+      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
+        {([['general', 'Général'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setSub(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', fontSize: 13.5, fontWeight: 700, color: sub === k ? COLORS.primary : '#64748b', borderBottom: `2px solid ${sub === k ? COLORS.primary : 'transparent'}`, marginBottom: -1 }}>{l}</button>
+        ))}
+      </div>
+      {sub === 'ia' && <IaPrompts />}
+      <div style={{ display: sub === 'ia' ? 'none' : 'block' }}>
 
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -753,6 +762,8 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
 
       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 14 }}>
         Campagnes existantes : {campaigns.map(c => `${c.libelle || c.annee} (${formatDateFr(c.date_limite_ep)})`).join(' · ') || 'aucune'}
+      </div>
+
       </div>
 
       {showDgNote && (

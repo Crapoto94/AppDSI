@@ -1229,6 +1229,26 @@ const entretiensController = {
         } catch (err) { console.error('[ENTRETIENS] formationsGlobales:', err.message); fail(res, 500, err.message); }
     },
 
+    // GET /api/entretiens/prompts — prompts de l'IA locale (administrateurs) ; PUT /api/entretiens/prompts/:id { text } — modifier / rétablir (text vide)
+    listPrompts: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const P = require('./prompts');
+            await P.refresh(true);
+            res.json({ prompts: P.list() });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+    savePrompt: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            await require('./prompts').save(String(req.params.id), req.body?.text);
+            await svc.logAudit({ actor, action: 'prompt_ia', entretien: null, details: { id: req.params.id, rétabli: !String(req.body?.text || '').trim() } });
+            res.json({ ok: true, prompts: require('./prompts').list() });
+        } catch (err) { fail(res, err.status || 500, err.message); }
+    },
+
     // PUT /api/entretiens/simulation { on } — active / désactive le mode simulation (administrateurs du module)
     setSimulation: async (req, res) => {
         try {

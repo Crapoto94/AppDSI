@@ -9,6 +9,8 @@ const { getSqlite } = require('../../shared/database');
 const svc = require('./entretiens.service');
 const { draftIssues, sentimentIssues } = require('./crep.coherence');
 
+const prompts = require('./prompts');
+const promptsRefresh = () => prompts.refresh();
 const TIMEOUT_MS = 240000;
 const clip = (v, max) => String(v ?? '').replace(/\r/g, '').trim().slice(0, max);
 
@@ -179,7 +181,7 @@ async function draftComment({ rubrique, notes, contexte, existant, agent, cohere
     if (coherent && crep && sentimentIssues(crep, notes).length) {
         warnings.push('Vos notes semblent contredire la grille d’appréciation que vous avez renseignée : le texte proposé reprend vos notes. Corrigez la grille ou vos notes pour que le compte rendu reste cohérent.');
     }
-    let { out, model } = await complete({ system: SYSTEM, exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT, question });
+    let { out, model } = await complete({ system: (await promptsRefresh(), prompts.get('redaction.systeme')), exIn: EXAMPLE_IN, exOut: EXAMPLE_OUT, question });
     let text = cleanName(coherent ? stripLeaks(extractAnswer(out)) : extractAnswer(out), agent);
     if (!text) throw new Error('L’IA n’a renvoyé aucun texte.');
     if (coherent && crep) {
@@ -205,7 +207,7 @@ const REVIEW_EX_OUT = '««- L’appréciation générale indique que les object
  */
 async function reviewCrep(summary) {
     const { out, model } = await complete({
-        system: REVIEW_SYSTEM, exIn: REVIEW_EX_IN, exOut: REVIEW_EX_OUT, question: `Compte rendu :\n${clip(summary, 9000)}`, temperature: 0.2,
+        system: (await promptsRefresh(), prompts.get('redaction.relecture')), exIn: REVIEW_EX_IN, exOut: REVIEW_EX_OUT, question: `Compte rendu :\n${clip(summary, 9000)}`, temperature: 0.2,
     });
     const text = String(out || '').replace(/<think>[\s\S]*?<\/think>/g, '');
     const i = text.indexOf('««');
