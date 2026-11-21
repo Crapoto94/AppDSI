@@ -106,6 +106,59 @@ const METIERS = [
 ];
 const DEFAUT = [['PSC1 secourisme', 'Sécurité incendie'], ['Word et Excel — niveau intermédiaire', 'Rédaction administrative', 'Travail en équipe et communication'], ['Préparation à un concours', 'Bilan de compétences', 'Formation d’adaptation à la prise de poste']];
 
+// ─── Rendu « vraies données » : les agents écrivent librement (pas de liste déroulante) ─────────────────────
+// Plusieurs formulations pour un même besoin (l'IA doit les regrouper), des abréviations, des fautes, la mention du CNFPT…
+const VARIANTES = {
+    'Management d’équipe': ['management', 'formation management', 'gestion d’équipe', 'encadrement', 'manager une équipe', 'animer mon équipe', 'postures managériales', 'encadrement d’équipe'],
+    'Conduite du changement': ['conduite du changement', 'accompagner le changement dans le service', 'gestion du changement'],
+    'Gestion des conflits': ['gestion des conflits', 'gérer les situations tendues', 'médiation / conflits', 'communication et gestion du conflit'],
+    'Conduite de projet': ['conduite de projet', 'gestion de projet', 'méthodo projet', 'piloter un projet'],
+    'Excel avancé et tableaux croisés dynamiques': ['excel', 'excel avancé', 'Excel TCD', 'bureautique (excel)', 'perfectionnement excel'],
+    'Word et Excel — niveau intermédiaire': ['word excel', 'bureautique', 'informatique de base', 'outlook word excel', 'office 365'],
+    'PSC1 secourisme': ['PSC1', 'secourisme', 'sst', 'recyclage secourisme', 'sauveteur secouriste du travail'],
+    'Habilitation électrique B0H0V': ['habilitation électrique', 'hab elec B0H0V', 'recyclage habilitation électrique', 'habilitation électrique (recyclage)'],
+    'Hygiène alimentaire HACCP': ['HACCP', 'hygiène alimentaire', 'formation hygiène et sécurité alimentaire', 'plan de maîtrise sanitaire'],
+    'Sécurité incendie': ['sécurité incendie', 'incendie / évacuation', 'extincteurs et évacuation', 'équipier de première intervention'],
+    'Gestes et postures': ['gestes et postures', 'port de charges', 'prévention TMS', 'ergonomie du poste'],
+    'Préparation au concours de rédacteur principal': ['concours rédacteur', 'préparation concours', 'prépa concours catégorie B', 'passer le concours de rédacteur principal'],
+    'Préparation au concours d’attaché': ['concours attaché', 'prépa concours attaché', 'préparation au concours'],
+    'Préparation au concours d’agent de maîtrise': ['concours agent de maîtrise', 'prépa concours AM', 'promotion interne'],
+    'Bilan de compétences': ['bilan de compétences', 'bilan de compétence', 'faire le point sur mon parcours', 'réflexion sur mon évolution'],
+    'Sensibilisation à la cybersécurité': ['cybersécurité', 'sécurité informatique', 'sensibilisation phishing', 'sécurité des SI'],
+    'Formation RGPD': ['RGPD', 'protection des données', 'RGPD / données personnelles'],
+    'Code de la commande publique': ['marchés publics', 'commande publique', 'code des marchés', 'rédaction des CCTP', 'achats publics'],
+    'Comptabilité publique M57': ['M57', 'comptabilité publique', 'nomenclature M57', 'compta M57', 'comptabilité M57 et exécution budgétaire'],
+    'Accueil du public et relation à l’usager': ['accueil du public', 'relation usagers', 'accueil physique et téléphonique', 'qualité de l’accueil'],
+    'Gestion de l’agressivité à l’accueil': ['gestion de l’agressivité', 'incivilités / agressivité du public', 'faire face aux usagers agressifs'],
+    'BAFA / BAFD': ['BAFA', 'BAFD', 'diplôme BAFA'],
+    'Certiphyto': ['certiphyto', 'certi phyto', 'certificat phytosanitaire'],
+    'CACES engins': ['CACES', 'caces nacelle / chariot', 'CACES R482'],
+    'Travail en hauteur': ['travail en hauteur', 'travaux en hauteur / harnais', 'port du harnais'],
+    'Statut de la fonction publique territoriale': ['statut FPT', 'statut de la fonction publique', 'carrière et statut'],
+    'Droit du travail en collectivité': ['droit du travail', 'droit social en collectivité', 'droit RH'],
+    'Gestion de la paie et du temps de travail': ['paie', 'gestion de la paie', 'temps de travail / paie', 'logiciel de paie'],
+};
+const FAUTES = [
+    [/formation/i, 'formtion'], [/management/i, 'managment'], [/excel/i, 'exel'], [/habilitation/i, 'abilitation'], [/bureautique/i, 'bureautic'],
+    [/comptabilit/i, 'comptabilitt'], [/concours/i, 'concour'], [/encadrement/i, 'encadrment'], [/accueil/i, 'acceuil'], [/informatique/i, 'informatik'],
+    [/secourisme/i, 'secourime'], [/équipe/i, 'equipe'], [/évolution/i, 'evolution'], [/gestion/i, 'gesiton'],
+];
+const PREFIXES = ['', '', '', '', 'Formation ', 'stage ', 'Je souhaite une formation ', 'besoin : ', 'Voir pour ', 'Formation sur ', 'souhaite suivre : '];
+const SUFFIXES = ['', '', '', '', ' au CNFPT', ' (CNFPT)', ' - CNFPT', ' via le CNFPT', ' en intra si possible', ' à voir avec la DRH', ' en 2027', ' (si budget)', ' - urgent', ' ?', ' idéalement au CNFPT', ' (déjà demandé l’an dernier)'];
+
+/** Donne à une formation « canonique » l'allure d'une saisie libre d'agent (variante, casse, faute, CNFPT, abréviation…). */
+function stylise(texte, h) {
+    const vs = VARIANTES[texte];
+    let t = vs ? vs[(h >>> 11) % vs.length] : texte;
+    const r = (h >>> 17) % 10;
+    if (r === 0) t = t.toLowerCase();
+    else if (r === 1 && t.length < 24) t = t.toUpperCase();
+    else if (r === 2) t = t.split(' ').slice(0, 3).join(' '); // texte tronqué, imprécis
+    if ((h >>> 21) % 4 === 0) { const f = FAUTES.find(([re]) => re.test(t)); if (f) t = t.replace(f[0], f[1]); }
+    t = (PREFIXES[(h >>> 3) % PREFIXES.length] + t).replace(/^\s+/, '') + SUFFIXES[(h >>> 9) % SUFFIXES.length];
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 /** Demandes fictives : la moitié des agents de la base (a_conserver) demandent 1 à 3 formations, selon leur métier. */
 async function demandesFictives() {
     let agents = [];
@@ -126,7 +179,12 @@ async function demandesFictives() {
         const pools = [['obligatoires', ob], ['metiers', me], ['parcours', pa]];
         for (let i = 0; i < nb; i++) {
             const [type, pool] = pools[((h >>> 5) + i) % 3];
-            out.push({ type, direction, service, texte: pool[((h >>> 7) + i) % pool.length], valide: true, simule: true });
+            const canon = pool[((h >>> 7) + i) % pool.length];
+            const hi = hash(`${a.matricule}|${i}`);
+            let texte = stylise(canon, hi);
+            // Certains agents citent deux besoins dans la même case (« management + excel »)
+            if (hi % 7 === 0) { const autre = pool[((h >>> 9) + i + 1) % pool.length]; if (autre !== canon) texte += [' et ', ' + ', ', ', ' / '][hi % 4] + stylise(autre, hash(`${a.matricule}|b${i}`)).toLowerCase(); }
+            out.push({ type, direction, service, texte, valide: true, simule: true });
         }
     }
     return out;

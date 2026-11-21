@@ -90,7 +90,8 @@ async function runAnalysis(campaignId, demandesOverride) {
     if (!demandes.length) return { campaign_id: campaignId, generated_at: new Date().toISOString(), duration_ms: 0, nb_demandes: 0, themes: [], synthese: 'Aucune demande de formation dans les comptes rendus de cette campagne.' };
     const apm = require('../../shared/apm_ai');
     const model = await require('./ai.service').pickApmModel(apm);
-    const items = demandes.slice(0, 600);
+    const pas = demandes.length / 600;
+    const items = demandes.length > 600 ? Array.from({ length: 600 }, (_, i) => demandes[Math.floor(i * pas)]) : demandes; // échantillon régulier (toutes directions représentées)
 
     const prompt = 'Voici des demandes de formation, anonymes, issues des entretiens professionnels d’une mairie. Chaque ligne : numéro | type | direction | texte libre (parfois plusieurs formations, parfois en abrégé).\n'
         + 'Ta tâche : REGROUPER ces demandes en thèmes de besoins cohérents, pour préparer le plan de formation. Exemples de regroupements attendus : « management », « encadrement », « animer une équipe » → thème « Management et encadrement » ; '
