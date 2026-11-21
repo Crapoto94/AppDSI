@@ -680,19 +680,47 @@ const entretiensController = {
             if (!up.length) return fail(res, 400, 'Aucun fichier reçu.');
             if (up.some(f => !/^(application\/pdf|image\/(png|jpe?g|webp|tiff?))$/i.test(f.mimetype || ''))) return fail(res, 400, 'Format non pris en charge : PDF ou image (PNG, JPEG).');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
-            const scan = require('./crep-scan.service');
-            // Plusieurs photos / pages : lecture page par page + cases cochées. Un seul fichier : même chemin (le PDF est découpé en pages).
-            try {
-                res.json(await scan.scanDocuments(up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })), cdef));
-            } catch (e) {
-                if (up.length !== 1) throw e;
-                console.warn('[ENTRETIENS] scanDocuments en échec, repli sur la lecture simple :', e.message);
-                res.json(await scan.scanToProposal(up[0].buffer, up[0].mimetype, cdef));
-            }
+            // Analyse en tâche de fond (plusieurs minutes) : on répond tout de suite, l'évaluateur est prévenu par e-mail à la fin.
+            const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            const job = await require('./crep-scan-jobs').start({
+                row, actor, definition: cdef, annee: campaign?.annee,
+                files: up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })),
+                contexte: { poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
+            });
+            await svc.logAudit({ actor, action: 'crep_analyse_lancee', entretien: row, details: { fichiers: up.length, job: job.id } });
+            res.status(202).json({ job });
         } catch (err) {
+            if (err && err.status) return fail(res, err.status, err.message);
             console.error('[ENTRETIENS] crepScan:', err.message);
             fail(res, 500, `Lecture du document impossible : ${err.message}`);
         }
+    },
+
+    // GET /api/entretiens/:id/crep/scan/latest — dernière analyse du CREP manuscrit de cet entretien (en cours, terminée, en échec)
+    crepScanLatest: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur.');
+            res.json({ job: await require('./crep-scan-jobs').latest(row.id) });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/crep/scan/:jobId/ack — la proposition a été appliquée ou écartée : on la range
+    crepScanAck: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur.');
+            await require('./crep-scan-jobs').ack(row.id, Number(req.params.jobId));
+            res.json({ ok: true });
+        } catch (err) { fail(res, 500, err.message); }
     },
 
     // GET /api/entretiens/stats?campaign_id=...

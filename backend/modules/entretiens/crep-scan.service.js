@@ -214,7 +214,7 @@ async function scanToProposal(buffer, mimetype, definition) {
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const crepGrid = require('./crep-grid.service');
 
-const PAGE_PX = 2000;          // plus grand côté envoyé au modèle (assez fin pour le manuscrit, sans images énormes)
+const PAGE_PX = 2600;          // plus grand côté envoyé au modèle (assez fin pour le manuscrit, sans images énormes)
 
 /** Page (image décodée) → canvas pivoté de `deg` (0/90/180/270), plus grand côté ≤ maxSide. */
 function rotated(img, deg, maxSide) {
@@ -265,87 +265,299 @@ function mergeCrep(acc, page) {
 }
 
 /**
+ * Sens de lecture d'une page par l'ORDRE des intitulés imprimés : le modèle lit le texte dans tous les sens, mais à l'envers il le restitue
+ * de bas en haut. On transcrit la page dans chaque sens candidat et on garde celui où les intitulés connus du formulaire apparaissent
+ * dans l'ordre du document. Sans intitulé reconnu (formulaire inconnu), on garde le sens par défaut.
+ */
+const FORM_MARKERS = ['compte rendu d entretien', 'volet 1', 'observations complementaires', 'appreciation de la valeur', 'appreciation generale', 'volet 2',
+    'objectifs individuels', 'actions de formation', 'perspectives d evolution', 'evolution des missions', 'mobilite', 'conditions de travail',
+    'observations de l agent sur l entretien', 'voies de recours'];
+const flat = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ');
+function orderScore(text) {
+    const t = flat(text);
+    const pos = FORM_MARKERS.map(m => t.indexOf(m)).map((p, i) => ({ p, i })).filter(x => x.p >= 0);
+    if (pos.length < 2) return { score: 0, n: pos.length };
+    let up = 0, down = 0;
+    for (let a = 0; a < pos.length; a++) for (let b = a + 1; b < pos.length; b++) { if (pos[b].p > pos[a].p) up++; else down++; }
+    return { score: (up - down) / (up + down), n: pos.length };
+}
+async function pickRotation(apm, model, img, candidates) {
+    let best = { deg: candidates[0], score: -2, text: '' };
+    for (const d of candidates) {
+        let out = '';
+        try { out = await askVision(apm, model, 'Transcris tous les titres et intitulés IMPRIMÉS de cette page, dans l’ordre où tu les lis, du haut vers le bas. Ne transcris pas le manuscrit.', jpeg(rotated(img, d, 1400), 82), 900); } catch { continue; }
+        const r = orderScore(out);
+        if (r.n >= 2 && r.score > best.score) best = { deg: d, score: r.score, text: out };
+        if (!best.text) best.text = out;
+        if (r.n >= 3 && r.score >= 0.99) return { deg: d, text: out };
+    }
+    return { deg: best.deg, text: best.text };
+}
+
+// ─── Prompts par type de page (lecture ciblée du manuscrit) ────────────────────────────────────────────────
+const GLOSSAIRE = 'Vocabulaire fréquent dans ces comptes rendus (collectivité territoriale) : M57 (nomenclature budgétaire et comptable), M14, DGP (délai global de paiement), '
+    + 'Sedit Finances, Sedit RH, RGPD, CNFPT, SIRH, GLPI, PES, DSI, DGS, DRH, CAP, VAE, Excel, Word, CACES, SST, "néant", "RAS" (rien à signaler), "1er trimestre", "2e semestre".';
+
+const REGLES_MANUSCRIT = 'Le manuscrit est écrit vite, en lettres courtes, avec des fautes et des mots peu lisibles : donne TA MEILLEURE LECTURE, en choisissant des mots français vraisemblables '
+    + 'dans le contexte d’une mairie (finances, informatique, ressources humaines, services techniques). Si le cadre est vide, réponds "". N’invente jamais un texte qui n’est pas écrit. '
+    + 'Ne recopie pas le texte imprimé du formulaire (titres, consignes) dans les réponses : seulement ce qui a été écrit à la main (sauf indication contraire). ' + GLOSSAIRE;
+
+function pageType(printedText) {
+    const t = flat(printedText);
+    if (/perspectives d evolution|voies de recours|conditions de travail|evolution des missions/.test(t)) return 'perspectives';
+    if (/volet 2|objectifs individuels|actions de formation/.test(t)) return 'volet2';
+    if (/appreciation de la valeur|appreciation generale|sens du service public|satisfaisant/.test(t)) return 'grille';
+    if (/volet 1|rappel des objectifs|compte rendu d entretien|rappel des missions/.test(t)) return 'volet1';
+    return 'generique';
+}
+
+function pagePrompt(type, annee) {
+    const intro = 'Cette image est une page d’un compte rendu d’entretien professionnel (formulaire imprimé, rempli à la main). ';
+    const fin = '\nRéponds UNIQUEMENT par un objet JSON valide, sans commentaire. ' + REGLES_MANUSCRIT;
+    if (type === 'volet1') {
+        return intro + 'Page « Volet 1 – bilan de l’année écoulée ». Extrais :\n'
+            + '{"date_convocation": "AAAA-MM-JJ", "date_entretien": "AAAA-MM-JJ", "date_notification": "AAAA-MM-JJ" (dates des trois cases en haut ; si l’année manque, utilise ' + (annee || 'l’année en cours') + ' ; "" si vide),\n'
+            + ' "missions": "texte du cadre « Rappel des missions de l’agent »",\n'
+            + ' "objectifs_ecoules": [{"objectif": "texte imprimé de la ligne", "observations": "MANUSCRIT de la colonne Observations", "niveau": "A, PA ou NA : la lettre manuscrite de la colonne Niveau de réalisation"}] (une entrée par ligne numérotée du tableau, 4 au plus ; ligne vide = champs vides),\n'
+            + ' "observations_complementaires": "MANUSCRIT du cadre « Observations complémentaires »"}' + fin;
+    }
+    if (type === 'grille') {
+        return intro + 'Page « Appréciation de la valeur professionnelle ». Les cases cochées sont lues par ailleurs : ne t’en occupe pas. Extrais seulement :\n'
+            + '{"appreciation_generale": "MANUSCRIT du grand cadre « Appréciation générale sur l’exercice des missions »"}' + fin;
+    }
+    if (type === 'volet2') {
+        return intro + 'Page « Volet 2 – échanges sur les perspectives de l’année à venir ». Extrais :\n'
+            + '{"objectifs_service": "texte éventuel du cadre « rappel des objectifs du service » (souvent vide)",\n'
+            + ' "objectifs_futurs": [{"descriptif": "MANUSCRIT colonne Descriptif", "moyens": "MANUSCRIT colonne Moyens et échéances"}] (une entrée par ligne numérotée, 4 au plus),\n'
+            + ' "formations": {"obligatoires": "MANUSCRIT « Formations obligatoires »", "metiers": "MANUSCRIT « Autres formations métiers »", "parcours": "MANUSCRIT « Formations liées à l’accompagnement des parcours… »"}}' + fin;
+    }
+    if (type === 'perspectives') {
+        return intro + 'Page « Perspectives d’évolution… », avec des cadres à remplir à la main. Extrais, cadre par cadre :\n'
+            + '{"evolution": "MANUSCRIT du cadre « 1. Évolution des missions et/ou de carrière » (un mot comme « retraite », « mobilité », « néant » est possible)",\n'
+            + ' "mobilite": "MANUSCRIT du cadre « 2. Mobilité »",\n'
+            + ' "obs_agent_conditions": "MANUSCRIT du cadre « Observations de l’agent sur les conditions de travail et le fonctionnement du service »",\n'
+            + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »",\n'
+            + ' "visa_autorite": "MANUSCRIT du cadre « Observations et visa de l’autorité territoriale » (souvent vide ; les signatures ne sont pas du texte)"}' + fin;
+    }
+    return visionPrompt();
+}
+
+/** Une correction de lecture remplace un mot MAL LU par un mot proche : même nombre de mots et forte ressemblance de graphie. Pas de reformulation. */
+function plausibleFix(avant, apres) {
+    const A = flat(avant).trim().split(' '), Bw = flat(apres).trim().split(' ');
+    if (A.join(' ') === Bw.join(' ')) return false;               // simple accent / casse : sans intérêt
+    if (A.length !== Bw.length) return false;                      // mots ajoutés ou retirés : reformulation
+    const sim = (a, b) => {
+        const la = a.length, lb = b.length;
+        const d = Array.from({ length: la + 1 }, (_, i) => [i, ...Array(lb).fill(0)]);
+        for (let j = 1; j <= lb; j++) d[0][j] = j;
+        for (let i = 1; i <= la; i++) for (let j = 1; j <= lb; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        return 1 - d[la][lb] / Math.max(la, lb, 1);
+    };
+    // chaque mot modifié doit ressembler à l'original (graphie proche) : c'est une erreur de lecture, pas un remplacement de mot
+    return A.every((w, i) => w === Bw[i] || sim(w, Bw[i]) >= 0.6);
+}
+
+/** Seconde passe : cohérence. L'IA locale relit l'ensemble avec le contexte et propose de corriger les mots manifestement mal lus. */
+async function coherencePass(apm, crep, contexte, log) {
+    const model = await require('./ai.service').pickApmModel(apm);
+    const champs = {
+        missions: crep.missions, observations_complementaires: crep.observations_complementaires, appreciation_generale: crep.appreciation_generale,
+        objectifs_ecoules: (crep.objectifs_ecoules || []).map(o => ({ objectif: o.objectif, observations: o.observations })),
+        objectifs_futurs: crep.objectifs_futurs, formations: crep.formations, evolution: crep.evolution, mobilite: crep.mobilite,
+        obs_agent_conditions: crep.obs_agent_conditions, obs_agent_entretien: crep.obs_agent_entretien,
+    };
+    const prompt = 'Tu relis la transcription automatique d’un compte rendu d’entretien professionnel écrit à la main (mairie). L’écriture est difficile : certains mots ont été mal lus. '
+        + 'Ta tâche : repérer les mots ou groupes de mots MANIFESTEMENT mal lus et proposer la correction la plus vraisemblable, en t’appuyant sur le contexte (poste, service, autres rubriques : par exemple si un objectif parle de « délai global de paiement », « DGP à 28 j » est cohérent, pas « VGP ») '
+        + 'et sur le vocabulaire courant. ' + GLOSSAIRE + '\n'
+        + 'Contexte de l’agent : ' + JSON.stringify(contexte) + '\n'
+        + 'Transcription (JSON) : ' + JSON.stringify(champs) + '\n\n'
+        + 'Réponds UNIQUEMENT par un JSON {"corrections":[{"avant":"texte exact tel qu’il figure dans la transcription","apres":"texte corrigé","raison":"très court"}]}. '
+        + 'Règles : « avant » doit être une partie EXACTE d’une valeur ci-dessus ; « apres » remplace un mot mal lu par un mot de GRAPHIE PROCHE (jamais un synonyme ni une reformulation, jamais de mot ajouté ou retiré) ; ne corrige pas le style, les fautes d’orthographe de l’auteur ni le sens ; ne corrige pas un mot qui peut être correct ; '
+        + 'au plus 12 corrections ; aucune correction = {"corrections":[]}.';
+    const out = await apm.queryAi(prompt, model, { max_tokens: 1500, temperature: 0.1 });
+    const j = parseObj(String(out)) || {};
+    const list = (Array.isArray(j.corrections) ? j.corrections : []).filter(c => c && typeof c.avant === 'string' && typeof c.apres === 'string' && c.avant.trim() && c.avant !== c.apres && plausibleFix(c.avant, c.apres));
+    const applied = [];
+    const replaceIn = (v, c) => (typeof v === 'string' && v.includes(c.avant) ? v.replace(c.avant, c.apres) : v);
+    for (const c of list) {
+        let done = false;
+        const touch = (obj, key) => { const n = replaceIn(obj[key], c); if (n !== obj[key]) { obj[key] = n; done = true; } };
+        for (const k of ['missions', 'observations_complementaires', 'appreciation_generale', 'evolution', 'mobilite', 'obs_agent_conditions', 'obs_agent_entretien']) touch(crep, k);
+        for (const o of crep.objectifs_ecoules || []) { touch(o, 'objectif'); touch(o, 'observations'); }
+        for (const o of crep.objectifs_futurs || []) { touch(o, 'descriptif'); touch(o, 'moyens'); }
+        for (const k of Object.keys(crep.formations || {})) touch(crep.formations, k);
+        if (done) applied.push({ avant: c.avant, apres: c.apres, raison: String(c.raison || '').slice(0, 120) });
+    }
+    log(`cohérence : ${applied.length} correction(s) appliquée(s) sur ${list.length} proposée(s)`);
+    return { applied, model };
+}
+
+/** Champs (feuilles) lus différemment entre deux lectures d'une même page. */
+const LEAF_LABELS = { missions: 'Missions', observations_complementaires: 'Observations complémentaires', appreciation_generale: 'Appréciation générale', evolution: 'Évolution', mobilite: 'Mobilité',
+    obs_agent_conditions: 'Observations de l’agent (conditions de travail)', obs_agent_entretien: 'Observations de l’agent (entretien)', objectifs_service: 'Objectifs du service' };
+function diffLeaves(a, b) {
+    const out = [];
+    const cmp = (label, x, y) => { if (flat(x).trim() !== flat(y).trim() && (String(x || '').trim() || String(y || '').trim())) out.push({ champ: label, valeurs: [String(x || '').trim(), String(y || '').trim()] }); };
+    for (const [k, l] of Object.entries(LEAF_LABELS)) cmp(l, a[k], b[k]);
+    (a.objectifs_ecoules || []).forEach((o, i) => { const q = (b.objectifs_ecoules || [])[i] || {}; cmp(`Objectif ${i + 1} (bilan) – observations`, o.observations, q.observations); cmp(`Objectif ${i + 1} (bilan) – niveau`, o.niveau, q.niveau); });
+    (a.objectifs_futurs || []).forEach((o, i) => { const q = (b.objectifs_futurs || [])[i] || {}; cmp(`Objectif ${i + 1} (à venir) – descriptif`, o.descriptif, q.descriptif); cmp(`Objectif ${i + 1} (à venir) – moyens et échéances`, o.moyens, q.moyens); });
+    for (const k of ['obligatoires', 'metiers', 'parcours']) cmp(`Formations (${k})`, (a.formations || {})[k], (b.formations || {})[k]);
+    return out;
+}
+
+/** Nombre de rubriques renseignées (sert à départager deux sens de lecture d'une même page). */
+function filledCount(c) {
+    let n = 0;
+    for (const [k, v] of Object.entries(c)) {
+        if (k === 'valeur') continue;
+        if (typeof v === 'string') { if (v.trim()) n++; }
+        else if (Array.isArray(v)) n += v.filter(o => Object.values(o).some(x => String(x || '').trim())).length;
+        else if (v && typeof v === 'object') n += Object.values(v).filter(x => String(x || '').trim()).length;
+    }
+    return n;
+}
+
+/**
  * Lit un compte rendu composé d'une ou plusieurs pages (photos JPEG/PNG ou PDF) :
  *  - redresse chaque page, lit le manuscrit page par page (modèle multimodal de l'API Ville) et fusionne ;
  *  - lit les cases cochées de la grille par traitement d'image (fiable), l'IA ne servant que de repli.
  * @param {Array<{buffer: Buffer, mimetype: string, name?: string}>} files
  */
-async function scanDocuments(files, definition) {
+/** Lecture des cases d'une page dans un thread séparé (n'occupe pas le serveur). Renvoie { deg, rows, note } ou null. */
+function readGridInWorker(buf, degs, nExpected) {
+    return new Promise((resolve) => {
+        try {
+            const { Worker } = require('worker_threads');
+            const w = new Worker(require('path').join(__dirname, 'crep-grid.worker.js'), { workerData: { buf, degs, nExpected } });
+            let done = false;
+            const end = (v) => { if (!done) { done = true; resolve(v); } };
+            w.on('message', (m) => end(m && m.ok ? m : null));
+            w.on('error', () => end(null));
+            w.on('exit', () => end(null));
+            setTimeout(() => { try { w.terminate(); } catch { /* ignore */ } end(null); }, 120000);
+        } catch { resolve(null); }
+    });
+}
+
+/** Exécute des tâches avec au plus `n` en parallèle (le serveur d'IA regroupe les requêtes simultanées : le débit total augmente). */
+async function pool(tasks, n) {
+    const out = new Array(tasks.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, async () => {
+        while (next < tasks.length) { const i = next++; out[i] = await tasks[i](); }
+    }));
+    return out;
+}
+
+const PAGES_EN_PARALLELE = 4;
+
+async function scanDocuments(files, definition, opts = {}) {
     const warnings = [];
     const log = (m) => console.log('[ENTRETIENS] scan CREP :', m);
     const apm = require('../../shared/apm_ai');
     const model = await pickVisionModel(apm);
     const items = flatCriteria(definition);
 
-    // 1) Pages décodées
-    const pages = [];
+    // 1) Pages décodées (octets conservés pour le thread de lecture des cases)
+    const pageBufs = [];
     for (const f of files) {
         if (/pdf/i.test(f.mimetype || '') || f.buffer.slice(0, 5).toString('latin1') === '%PDF-') {
-            for (const png of await renderPages(f.buffer, 'application/pdf')) pages.push(await loadImage(png));
-        } else pages.push(await loadImage(f.buffer));
+            for (const png of await renderPages(f.buffer, 'application/pdf')) pageBufs.push(png);
+        } else pageBufs.push(f.buffer);
     }
-    if (!pages.length) throw new Error('Aucune page lisible dans ce document.');
-    if (pages.length > 8) throw new Error('8 pages maximum.');
+    if (!pageBufs.length) throw new Error('Aucune page lisible dans ce document.');
+    if (pageBufs.length > 8) throw new Error('8 pages maximum.');
+    const pages = [];
+    for (const b of pageBufs) pages.push(await loadImage(b));
+    const total = pages.length;
+    let done = 0;
+    const tick = () => { done++; if (opts.onProgress) { try { opts.onProgress(done, total + 1); } catch { /* ignore */ } } };
 
-    let crep = normalizeCrep({}, definition);
-    const raws = [];
-    let gridRows = null;
-    const aiGrid = {};
-
-    for (let i = 0; i < pages.length; i++) {
-        // Sens de la page : le modèle de vision lit le texte quel que soit le sens, mais pas le traitement d'image des cases.
-        // On essaie donc les 4 sens pour la grille ; celui qui donne exactement les lignes attendues est le bon sens de lecture.
-        const landscape = pages[i].width > pages[i].height * 1.1;
+    // 2) Chaque page : cases cochées (thread) + sens de lecture + type + lecture ciblée ×2 — les pages sont traitées en parallèle
+    const pageTasks = pages.map((img, i) => async () => {
+        const res = { i, crep: normalizeCrep({}, definition), raw: '', doubts: [], grid: null, deg: 0, type: 'generique', warns: [] };
+        const landscape = img.width > img.height * 1.1;
         let deg = landscape ? 90 : 0;
-        if (!gridRows && items.length) {
-            for (const d of (landscape ? [90, 270, 0, 180] : [0, 180, 90, 270])) {
-                try {
-                    const r = crepGrid.readCheckboxRows(rotated(pages[i], d, 3000));
-                    if (r && r.rows.length === items.length) { gridRows = r.rows; deg = d; log(`page ${i + 1} : grille lue, rotation ${d}° (${r.note})`); break; }
-                } catch (e) { log(`lecture de la grille impossible : ${e.message}`); }
-            }
+        const gridP = items.length ? readGridInWorker(pageBufs[i], landscape ? [90, 270, 0, 180] : [0, 180, 90, 270], items.length) : Promise.resolve(null);
+        // sens de lecture par l'IA : les deux sens candidats sont testés en même temps
+        const cands = landscape ? [90, 270] : [0, 180];
+        const g = await gridP;
+        let printed = '';
+        if (g) { res.grid = g.rows; deg = g.deg; log(`page ${i + 1} : grille lue, rotation ${g.deg}° (${g.note})`); }
+        else {
+            const pr = await pickRotation(apm, model, img, cands);
+            deg = pr.deg; printed = pr.text;
         }
-        log(`page ${i + 1}/${pages.length} lue (rotation ${deg}°)`);
-
-        // 3) Manuscrit : lecture page par page
-        const buf = jpeg(rotated(pages[i], deg, PAGE_PX), 88);
+        if (!printed) { try { printed = await askVision(apm, model, 'Transcris tous les titres et intitulés IMPRIMÉS de cette page, du haut vers le bas. Ne transcris pas le manuscrit.', jpeg(rotated(img, deg, 1400), 82), 900); } catch { /* type générique */ } }
+        res.deg = deg; res.type = pageType(printed);
+        log(`page ${i + 1} : sens de lecture ${deg}°, type « ${res.type} »`);
         try {
-            const j = extractJson(await askVision(apm, model, visionPrompt(), buf));
+            const prompt = pagePrompt(res.type, opts.annee);
+            const [a, b] = await Promise.all([
+                askVision(apm, model, prompt, jpeg(rotated(img, deg, PAGE_PX), 90)),
+                res.type !== 'generique' ? askVision(apm, model, prompt, jpeg(rotated(img, deg, 3300), 92)).catch(() => null) : Promise.resolve(null),
+            ]);
+            const j = extractJson(a);
             const t = String(j.transcription || '').trim(); delete j.transcription;
-            if (t) raws.push(`--- Page ${i + 1} ---\n${t}`);
-            crep = mergeCrep(crep, normalizeCrep(j, definition));
-        } catch (e) { warnings.push(`Page ${i + 1} : lecture du manuscrit impossible (${e.message}).`); }
+            res.raw = `--- Page ${i + 1} (${res.type}) ---\n${t || JSON.stringify(j)}`;
+            res.crep = normalizeCrep(j, definition);
+            if (b) { try { const j2 = extractJson(b); delete j2.transcription; for (const d of diffLeaves(res.crep, normalizeCrep(j2, definition))) res.doubts.push({ page: i + 1, ...d }); } catch { /* seconde lecture facultative */ } }
+        } catch (e) { res.warns.push(`Page ${i + 1} : lecture du manuscrit impossible (${e.message}).`); }
+        tick();
+        return res;
+    });
+    const results = await pool(pageTasks, PAGES_EN_PARALLELE);
 
-        // Repli IA pour la grille si le traitement d'image n'a rien donné sur cette page (une réponse par critère, majorité à la fin)
-        if (!gridRows && items.length) {
-            try {
-                const j = parseObj(await askVision(apm, model, gridPrompt(items), jpeg(rotated(pages[i], deg, 2200), 88), 1500));
-                if (j) for (const [k, v] of Object.entries(j)) { const idx = Number(k) - 1; if (items[idx] && ['S', 'AS', 'I'].includes(v)) (aiGrid[idx] = aiGrid[idx] || []).push(v); }
-            } catch { /* grille absente de cette page */ }
-        }
+    // 3) Fusion dans l'ordre des pages
+    let crep = normalizeCrep({}, definition);
+    const raws = [], doubts = [];
+    let gridRows = null;
+    for (const r of results) {
+        crep = mergeCrep(crep, r.crep);
+        if (r.raw) raws.push(r.raw);
+        doubts.push(...r.doubts); warnings.push(...r.warns);
+        if (!gridRows && r.grid) gridRows = r.grid;
     }
 
-    // 4) Cases cochées : résultat final
+    // 4) Cases cochées : résultat final (repli sur l'IA, une réponse par critère, si le tableau n'a pas pu être détecté)
     let grille = '';
     if (gridRows) {
         gridRows.forEach((r, idx) => { if (r.level) crep.valeur[items[idx].key] = r.level; });
         const doubt = gridRows.map((r, idx) => (r.certain ? null : items[idx].label)).filter(Boolean);
         grille = `grille lue par traitement d’image (${gridRows.filter(r => r.level).length}/${items.length} cases cochées reconnues)`;
         if (doubt.length) warnings.push(`Cases cochées à vérifier : ${doubt.join(' ; ')}.`);
-    } else if (items.length && Object.keys(aiGrid).length) {
-        for (const [idx, votes] of Object.entries(aiGrid)) {
-            const tally = votes.reduce((m, v) => (m[v] = (m[v] || 0) + 1, m), {});
-            crep.valeur[items[idx].key] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
-        }
-        grille = 'grille lue par l’IA (moins fiable)';
-        warnings.push('La grille d’appréciation a été lue par l’IA faute de pouvoir détecter le tableau : vérifiez toutes les cases cochées.');
     } else if (items.length) {
-        warnings.push('La grille d’appréciation n’a pas été trouvée sur les pages fournies : cochez-la dans le formulaire (ou ajoutez la page qui la contient).');
+        const aiGrid = {};
+        await pool(results.filter(r => r.type === 'grille' || r.type === 'generique').map(r => async () => {
+            try {
+                const j = parseObj(await askVision(apm, model, gridPrompt(items), jpeg(rotated(pages[r.i], r.deg, 2200), 88), 1500));
+                if (j) for (const [k, v] of Object.entries(j)) { const idx = Number(k) - 1; if (items[idx] && ['S', 'AS', 'I'].includes(v)) (aiGrid[idx] = aiGrid[idx] || []).push(v); }
+            } catch { /* grille absente de cette page */ }
+        }), PAGES_EN_PARALLELE);
+        if (Object.keys(aiGrid).length) {
+            for (const [idx, votes] of Object.entries(aiGrid)) {
+                const tally = votes.reduce((m, v) => (m[v] = (m[v] || 0) + 1, m), {});
+                crep.valeur[items[idx].key] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
+            }
+            grille = 'grille lue par l’IA (moins fiable)';
+            warnings.push('La grille d’appréciation a été lue par l’IA faute de pouvoir détecter le tableau : vérifiez toutes les cases cochées.');
+        } else warnings.push('La grille d’appréciation n’a pas été trouvée sur les pages fournies : cochez-la dans le formulaire (ou ajoutez la page qui la contient).');
     }
+
+    // 5) Cohérence : seconde passe de l'IA locale (mots manifestement mal lus), corrections tracées et visibles du valideur
+    let corrections = [];
+    try {
+        const cr = await coherencePass(apm, crep, opts.contexte || {}, log);
+        corrections = cr.applied;
+    } catch (e) { warnings.push(`Contrôle de cohérence indisponible (${e.message}).`); }
+    tick();
+    for (const d of doubts) warnings.push(`Lecture incertaine (page ${d.page}) – ${d.champ} : « ${d.valeurs[0] || '—'} » ou « ${d.valeurs[1] || '—'} »`);
     return {
+        corrections, incertains: doubts,
         raw: raws.join('\n\n') || '(transcription non fournie par le modèle)',
         fields: crep,
-        engine: { lecture: `${model} (API Ville, vision) · ${pages.length} page(s)`, structuration: grille || 'sans grille' },
+        engine: { lecture: `${model} (API Ville, vision) · ${total} page(s)`, structuration: grille || 'sans grille' },
         warnings,
     };
 }

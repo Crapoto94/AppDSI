@@ -64,6 +64,8 @@ router.put('/:id/planning', authenticateJWT, ctrl.planning);
 router.get('/:id/crep.pdf', authenticateJWT, ctrl.crepPdf);
 router.get('/:id/crep-signe.pdf', authenticateJWT, ctrl.crepSignedPdf);
 router.post('/:id/crep/scan', authenticateJWT, uploadPdf.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 8 }]), ctrl.crepScan);
+router.get('/:id/crep/scan/latest', authenticateJWT, ctrl.crepScanLatest);
+router.post('/:id/crep/scan/:jobId/ack', authenticateJWT, ctrl.crepScanAck);
 router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
 router.post('/:id/crep/manuscript', authenticateJWT, uploadPdf.array('files', 8), ctrl.crepManuscriptUpload);
 router.post('/:id/reset', authenticateJWT, ctrl.resetEntretien);

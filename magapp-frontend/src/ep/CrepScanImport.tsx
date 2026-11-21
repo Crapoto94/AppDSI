@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Loader2, ScanLine, X } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, ScanLine, X, AlertTriangle } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary, input, textarea } from './ui';
 import type { Crep } from './crep';
 
@@ -9,7 +9,29 @@ interface Proposal {
   fields: Partial<Crep> & Record<string, any>;
   engine: { lecture: string; structuration: string };
   warnings: string[];
+  corrections?: Array<{ avant: string; apres: string; raison?: string }>;
+  duration_ms?: number;
 }
+
+interface ScanJob {
+  id: number;
+  status: 'en_attente' | 'en_cours' | 'termine' | 'echec';
+  files_count: number;
+  progress: number;
+  progress_total: number;
+  error?: string | null;
+  estimate_ms?: number;
+  duration_ms?: number | null;
+  result?: Proposal;
+}
+
+const fmtDuree = (ms?: number | null) => {
+  if (!ms || ms < 1000) return 'quelques secondes';
+  const s = Math.round(ms / 1000);
+  if (s < 90) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min${s % 60 >= 10 ? ` ${s % 60} s` : ''}`;
+};
 
 const TEXT_FIELDS: Array<[string, string]> = [
   ['missions', 'Rappel des missions de l’agent'],
@@ -39,15 +61,38 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const [error, setError] = useState('');
   const [prop, setProp] = useState<Proposal | null>(null);
   const [edit, setEdit] = useState<Record<string, any>>({});
+  const [job, setJob] = useState<ScanJob | null>(null);
+
+  // Analyse en tâche de fond : on retrouve l'état à l'ouverture (même après avoir fermé la page) et on suit l'avancement tant qu'elle tourne.
+  const refresh = useCallback(async () => {
+    try {
+      const r = await axios.get(`/api/entretiens/${entretienId}/crep/scan/latest`, { headers });
+      setJob(r.data?.job || null);
+    } catch { /* sans analyse */ }
+  }, [entretienId]);
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!job || (job.status !== 'en_attente' && job.status !== 'en_cours')) return;
+    const t = setInterval(refresh, 6000);
+    return () => clearInterval(t);
+  }, [job?.status, job?.id, refresh]);
+
+  const openProposal = () => {
+    if (!job?.result) return;
+    setProp(job.result);
+    setEdit({ ...(job.result.fields || {}) });
+  };
+  const dismiss = async () => {
+    if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, {}, { headers }); } catch { /* ignore */ } }
+    setJob(null); setProp(null);
+  };
 
   const upload = async (list: File[]) => {
     setBusy(true); setError('');
     try {
       const fd = new FormData(); list.slice(0, 8).forEach(f => fd.append('files', f));
-      const r = await axios.post(`/api/entretiens/${entretienId}/crep/scan`, fd, { headers, timeout: 600000 });
-      const p = r.data as Proposal;
-      setProp(p);
-      setEdit({ ...(p.fields || {}) });
+      const r = await axios.post(`/api/entretiens/${entretienId}/crep/scan`, fd, { headers, timeout: 300000 });
+      setJob(r.data?.job || null);   // l'analyse se poursuit sur le serveur : réponse immédiate
     } catch (e: any) { setError(e?.response?.data?.message || e?.message || 'Lecture impossible.'); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
@@ -67,15 +112,48 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (['obligatoires', 'metiers', 'parcours'].some(k => String(f[k] || '').trim())) out.formations = f;
     onApply(out);
     setProp(null);
+    dismiss();
   };
 
   return (
     <>
       <input ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple style={{ display: 'none' }} onChange={e => { const l = Array.from(e.target.files || []); if (l.length) upload(l); }} />
-      <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
-        title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’IA lit l’écriture et les cases cochées et propose son contenu, que vous relisez avant de l’appliquer">
-        {busy ? <Loader2 size={14} className="spin" /> : <ScanLine size={14} />} {busy ? 'Lecture en cours (peut durer quelques minutes)…' : 'Importer un compte rendu papier (scan)'}
-      </button>
+      {job && (job.status === 'en_attente' || job.status === 'en_cours') ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 10, padding: '10px 13px', fontSize: 12.5, lineHeight: 1.55 }}>
+          <Loader2 size={17} className="spin" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <div style={{ fontWeight: 800 }}>
+              Analyse en cours par l’IA locale — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
+            </div>
+            <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que l’analyse sera terminée</strong>. Vous pourrez alors relire la proposition <strong>avant de valider</strong> le compte rendu.</div>
+          </div>
+        </div>
+      ) : job && job.status === 'termine' ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: '10px 13px', fontSize: 12.5 }}>
+          <CheckCircle2 size={17} />
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800 }}>Analyse terminée — proposition prête à relire</div>
+            <div>Réalisée en {fmtDuree(job.duration_ms)}. L’IA propose un contenu : relisez-le, corrigez-le, puis appliquez-le au formulaire et validez le compte rendu.</div>
+          </div>
+          <button type="button" style={btnPrimary} onClick={openProposal}>Voir la proposition</button>
+          <button type="button" style={btnGhost} onClick={dismiss} title="Écarter cette proposition">Écarter</button>
+        </div>
+      ) : (
+        <>
+          {job && job.status === 'echec' && (
+            <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginBottom: 8 }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1 }}><strong>La dernière analyse a échoué.</strong> {job.error || ''} Renvoyez les photos ou saisissez le compte rendu dans l’outil.</div>
+              <button type="button" style={btnGhost} onClick={dismiss}>Masquer</button>
+            </div>
+          )}
+          <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
+            title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’IA locale lit l’écriture et les cases cochées en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
+            {busy ? <Loader2 size={14} className="spin" /> : <ScanLine size={14} />} {busy ? 'Envoi des pages…' : 'Importer un compte rendu papier (photos / scan)'}
+          </button>
+          {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Analyse en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
+        </>
+      )}
       {error && <div style={{ marginTop: 6, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>}
 
       {prop && (
@@ -155,6 +233,14 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   {k === 'obligatoires' ? 'Formations obligatoires' : k === 'metiers' ? 'Autres formations métiers' : 'Formations liées au parcours / projet professionnel'}
                   <textarea style={textarea} rows={2} value={(edit.formations || {})[k] || ''} onChange={e => setEdit(v => ({ ...v, formations: { ...(v.formations || {}), [k]: e.target.value } }))} /></label>
               ))}
+
+              {(prop.corrections || []).length > 0 && (
+                <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, color: '#5b21b6' }}>
+                  <div style={{ fontWeight: 800, marginBottom: 3 }}>Corrections de cohérence apportées par l’IA (mots manifestement mal lus)</div>
+                  {(prop.corrections || []).map((c, i) => <div key={i}>« {c.avant} » → « {c.apres} »{c.raison ? <span style={{ color: '#7c3aed' }}> — {c.raison}</span> : null}</div>)}
+                  <div style={{ fontSize: 11.5, color: '#7c3aed', marginTop: 3 }}>Vérifiez ces corrections : elles sont déjà appliquées dans les rubriques ci-dessous.</div>
+                </div>
+              )}
 
               <details>
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#475569' }}>Texte brut lu sur le document</summary>
