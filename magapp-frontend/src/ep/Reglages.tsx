@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
-  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download,
+  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign } from './types';
@@ -10,6 +10,7 @@ import { formatDateFr } from './types';
 import { COLORS, Field, btnDanger, btnGhost, btnPrimary, card, input } from './ui';
 import BaseAgents from './BaseAgents';
 import MiniRichEditor from './MiniRichEditor';
+import MarkdownEditor from './MarkdownEditor';
 
 interface AgentOption { username: string; displayName: string; email: string; service?: string }
 
@@ -219,6 +220,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
 
   // Note à l'attention de la Direction générale : éditable par les administrateurs du module.
   const [dgNote, setDgNote] = useState('');
+  const [dgNoteDefault, setDgNoteDefault] = useState('');
   const [showDgNote, setShowDgNote] = useState(false);
   const [dgNoteDraft, setDgNoteDraft] = useState('');
   const [dgNoteSaving, setDgNoteSaving] = useState(false);
@@ -245,6 +247,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
       const r = await axios.get('/api/entretiens/settings', { headers });
       setOrganizer(r.data.calendar_organizer_email || '');
       setDgNote(r.data.dg_note || '');
+      setDgNoteDefault(r.data.dg_note_default || '');
       const remote = r.data.ai || {};
       const toUi = (feature: AiFeatureKey, prev: AiFeatureUi): AiFeatureUi => ({
         ...prev,
@@ -760,21 +763,21 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
               <button style={btnGhost} onClick={() => setShowDgNote(false)}>Fermer</button>
             </div>
             <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 10 }}>
-              Vous pouvez modifier librement le texte ci-dessous. Il est enregistré dans l'outil et sera présenté aux administrateurs suivants.
-              Le format Markdown est conservé.
+              Écrivez directement dans le texte, comme dans un traitement de texte : la barre d'outils permet les titres, le gras, les listes et les liens.
+              Le texte est enregistré dans l'outil (format Markdown, exportable).
             </div>
-            <textarea
-              value={dgNoteDraft}
-              onChange={e => setDgNoteDraft(e.target.value)}
-              spellCheck={false}
-              style={{ ...input, minHeight: '58vh', fontFamily: 'Consolas, Monaco, monospace', fontSize: 12.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}
-            />
+            <MarkdownEditor value={dgNoteDraft} onChange={setDgNoteDraft} />
             {dgNoteMsg && (
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 12.5, fontWeight: 600, color: dgNoteMsg.ok ? COLORS.success : COLORS.danger }}>
                 {dgNoteMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {dgNoteMsg.text}
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
+              {dgNoteDefault && (
+                <button style={btnGhost} onClick={() => { if (window.confirm('Remplacer le texte en cours par le modèle proposé (non enregistré tant que vous ne cliquez pas sur Enregistrer) ?')) setDgNoteDraft(dgNoteDefault); }}>
+                  <RotateCcw size={14} /> Revenir au modèle proposé
+                </button>
+              )}
               <button style={btnGhost} onClick={downloadDgNote}><Download size={14} /> Télécharger .md</button>
               <button style={btnGhost} onClick={() => setShowDgNote(false)}>Annuler</button>
               <button style={btnPrimary} disabled={dgNoteSaving} onClick={saveDgNote}>

@@ -398,6 +398,7 @@ const entretiensController = {
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
+                dg_note_default: DG_NOTE_DEFAULT,
                 ai,
                 self,
                 esign,
@@ -552,6 +553,7 @@ const entretiensController = {
             res.json({
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
+                dg_note_default: DG_NOTE_DEFAULT,
                 ai,
                 self,
                 esign,
