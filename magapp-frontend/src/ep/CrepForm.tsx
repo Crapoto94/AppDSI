@@ -510,7 +510,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
           </div>
-          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Analyse en cours{aiReviewEnabled ? ' (relecture par l’IA interne, quelques secondes)' : ''}…</div>}
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Vérification en cours{aiReviewEnabled ? ' (relecture automatique, quelques secondes)' : ''}…</div>}
           {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
             <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
           )}
@@ -573,7 +573,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
               {busy === 'submit' ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Valider le compte rendu
             </button>
             <button style={btnGhost} disabled={!!busy || !!check?.loading} onClick={runCheck}>
-              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} {check?.loading ? 'Analyse en cours…' : 'Vérifier la cohérence'}
+              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} {check?.loading ? 'Vérification en cours…' : 'Vérifier la cohérence'}
             </button>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>

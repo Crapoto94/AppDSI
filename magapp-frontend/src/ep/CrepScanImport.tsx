@@ -129,18 +129,18 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
           <Loader2 size={17} className="spin" style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
             <div style={{ fontWeight: 800 }}>
-              Analyse en cours par l’IA locale — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
+              Lecture des textes en cours — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
             </div>
-            {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent</strong> sont analysés : le compte rendu déjà validé dans l’outil n’est pas relu.</div>}
-            <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que l’analyse sera terminée</strong>. Vous pourrez alors relire la proposition <strong>avant de valider</strong> le compte rendu.</div>
+            {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent</strong> sont lus : le compte rendu déjà validé dans l’outil n’est pas modifié.</div>}
+            <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que la lecture sera terminée</strong>. Vous devrez alors <strong>relire et corriger la proposition</strong> avant de valider le compte rendu.</div>
           </div>
         </div>
       ) : job && job.status === 'termine' ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: '10px 13px', fontSize: 12.5 }}>
           <CheckCircle2 size={17} />
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontWeight: 800 }}>Analyse terminée — proposition prête à relire</div>
-            <div>Réalisée en {fmtDuree(job.duration_ms)}. L’IA propose un contenu : relisez-le, corrigez-le, puis appliquez-le au formulaire et validez le compte rendu.</div>
+            <div style={{ fontWeight: 800 }}>Lecture terminée — proposition prête à relire</div>
+            <div>Réalisée en {fmtDuree(job.duration_ms)}. Un contenu est proposé : relisez-le, corrigez-le, puis appliquez-le au formulaire et validez le compte rendu.</div>
           </div>
           <button type="button" style={btnPrimary} onClick={openProposal}>Voir la proposition</button>
           <button type="button" style={btnGhost} onClick={() => dismiss(false)} title="Écarter cette proposition (le scan n’est pas conservé)">Écarter</button>
@@ -155,10 +155,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             </div>
           )}
           <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
-            title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’IA locale lit l’écriture et les cases cochées en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
+            title="Photographiez ou scannez les pages du compte rendu papier (plusieurs fichiers possibles, dans l’ordre) : l’écriture et les cases cochées sont lues en tâche de fond, puis vous prévient par e-mail. Vous relisez sa proposition avant de valider.">
             {busy ? <Loader2 size={14} className="spin" /> : <ScanLine size={14} />} {busy ? 'Envoi des pages…' : 'Importer un compte rendu papier (photos / scan)'}
           </button>
-          {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Analyse en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
+          {!busy && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#64748b' }}><Clock size={11} style={{ verticalAlign: -1 }} /> Lecture en tâche de fond (quelques minutes) : vous serez prévenu par e-mail.</span>}
         </>
       )}
       {error && <div style={{ marginTop: 6, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>}
@@ -176,7 +176,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {prop.warnings.map((w, i) => <div key={i} style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>⚠ {w}</div>)}
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 9, padding: '9px 12px', fontSize: 12.5, fontWeight: 600 }}>
-                ⚠ Cette lecture est une PROPOSITION de l’IA : <b>vérifiez chaque ligne</b> en la comparant au document papier avant de l’appliquer, puis avant de valider le compte rendu.
+                ⚠ Cette lecture est une PROPOSITION : <b>vérifiez chaque ligne</b> en la comparant au document papier avant de l’appliquer, puis avant de valider le compte rendu.
                 {agentOnly ? ' Seuls les 2 commentaires de l’agent sont repris.' : ' Le document produit sera marqué « non contractuel » : l’original papier signé fait foi.'}
               </div>
 
@@ -246,7 +246,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
 
               {(prop.corrections || []).length > 0 && (
                 <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, color: '#5b21b6' }}>
-                  <div style={{ fontWeight: 800, marginBottom: 3 }}>Corrections de cohérence apportées par l’IA (mots manifestement mal lus)</div>
+                  <div style={{ fontWeight: 800, marginBottom: 3 }}>Corrections de cohérence apportées automatiquement (mots manifestement mal lus)</div>
                   {(prop.corrections || []).map((c, i) => <div key={i}>« {c.avant} » → « {c.apres} »{c.raison ? <span style={{ color: '#7c3aed' }}> — {c.raison}</span> : null}</div>)}
                   <div style={{ fontSize: 11.5, color: '#7c3aed', marginTop: 3 }}>Vérifiez ces corrections : elles sont déjà appliquées dans les rubriques ci-dessous.</div>
                 </div>

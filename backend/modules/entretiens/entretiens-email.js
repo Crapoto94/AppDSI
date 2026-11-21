@@ -114,14 +114,14 @@ function analyseCrep({ evaluateur, agent, annee, ok, error, dureeMs, link }) {
     const mins = dureeMs ? Math.max(1, Math.round(dureeMs / 60000)) : null;
     const intro = `Bonjour <strong>${esc(evaluateur)}</strong>,<br><br>`
         + (ok
-            ? `l’analyse du compte rendu manuscrit de <strong>${esc(agent)}</strong>${annee ? ` (entretien ${esc(annee)})` : ''} est terminée${mins ? ` (durée : ${mins} min)` : ''}.`
-            : `l’analyse du compte rendu manuscrit de <strong>${esc(agent)}</strong> n’a pas pu aboutir.`);
+            ? `la lecture du compte rendu manuscrit de <strong>${esc(agent)}</strong>${annee ? ` (entretien ${esc(annee)})` : ''} est terminée${mins ? ` (durée : ${mins} min)` : ''}.`
+            : `la lecture du compte rendu manuscrit de <strong>${esc(agent)}</strong> n’a pas pu aboutir.`);
     const bodyHtml = ok
-        ? `<p style="font-size:14px;color:#334155;">L’IA a lu les pages, les cases cochées et le manuscrit. <strong>Ce n’est qu’une proposition</strong> : ouvrez l’entretien, cliquez sur « Voir la proposition », relisez chaque rubrique (les lectures incertaines et les corrections de l’IA sont signalées), corrigez si besoin, puis appliquez-la et <strong>validez le compte rendu</strong>.</p>
+        ? `<p style="font-size:14px;color:#334155;">Les pages, les cases cochées et le manuscrit ont été lus. <strong>Ce n’est qu’une proposition</strong> : ouvrez l’entretien, cliquez sur « Voir la proposition », relisez et corrigez chaque rubrique (les lectures incertaines et les corrections automatiques sont signalées), puis appliquez-la et <strong>validez le compte rendu</strong>.</p>
            ${button(link, 'Relire la proposition', '#4f46e5')}`
         : `<p style="font-size:14px;color:#334155;">${esc(error || 'Erreur inconnue.')}</p><p style="font-size:13px;color:#64748b;">Vous pouvez renvoyer les photos depuis l’entretien, ou saisir le compte rendu à la main dans l’outil.</p>
            ${button(link, 'Ouvrir « Mes EP »', '#4f46e5')}`;
-    return { subject: ok ? `✅ Analyse du compte rendu manuscrit terminée — ${agent}` : `⚠️ Analyse du compte rendu manuscrit impossible — ${agent}`, ...render(ok ? '#16a34a' : '#d97706', ok ? '✅ Proposition prête à relire' : '⚠️ Analyse impossible', intro, bodyHtml, FOOTER) };
+    return { subject: ok ? `✅ Lecture du compte rendu manuscrit terminée — ${agent}` : `⚠️ Lecture du compte rendu manuscrit impossible — ${agent}`, ...render(ok ? '#16a34a' : '#d97706', ok ? '✅ Proposition prête à relire' : '⚠️ Lecture impossible', intro, bodyHtml, FOOTER) };
 }
 
 module.exports = { analyseCrep, entretiensUrl, preparation, compteRenduEnvoye, aPlanifier, rdvPlanifie, relancePreparation, relanceValidation, relanceEvaluateur, compteRenduRappele };
