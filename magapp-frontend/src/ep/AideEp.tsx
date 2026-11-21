@@ -613,7 +613,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
 
             <Section icon={<Sparkles size={15} color={COLORS.primary} />} title={<>Fonctions activables<Activable /></>}>
               <div style={{ marginBottom: 8 }}>
-                Ces fonctions sont <strong>désactivées par défaut</strong> : elles s'ouvrent dans <strong>Paramétrage</strong>, pour tous les agents ou valideurs, ou pour une sélection de personnes.
+                Ces fonctions sont <strong>désactivées par défaut</strong> : elles s'ouvrent dans <strong>Paramétrage → Options</strong>, pour tous les agents ou valideurs, ou pour une sélection de personnes.
                 <strong> Tant qu'une fonction n'est pas activée, l'aide des valideurs n'en parle pas</strong> : elle apparaît dans leur aide dès qu'elle est activée pour eux.
               </div>
               <Cas code="Lecture des entretiens numérisés" title={<>Lecture des entretiens numérisés<Activable /></>} color="#0f766e" icon={<ScanLine size={14} color="#0f766e" />}>
@@ -706,7 +706,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
 
             <Section icon={<FlaskConical size={15} color={COLORS.primary} />} title={<>Mode simulation (Paramétrage)<Activable /></>}>
               <div style={{ display: 'grid', gap: 4 }}>
-                <div>Dans <strong>Paramétrage → Mode simulation</strong>, un administrateur peut tester l'application sans polluer les données réelles. Les <strong>valideurs, « qui valide qui » et le lien Active Directory</strong> restent <strong>réels</strong> et ne sont jamais effacés ; les <strong>rendez-vous</strong> et les <strong>entretiens (avec leur contenu)</strong> sont <strong>provisoires</strong>.</div>
+                <div>Dans <strong>Paramétrage → Options → Mode simulation</strong>, un administrateur peut tester l'application sans polluer les données réelles. Les <strong>valideurs, « qui valide qui » et le lien Active Directory</strong> restent <strong>réels</strong> et ne sont jamais effacés ; les <strong>rendez-vous</strong> et les <strong>entretiens (avec leur contenu)</strong> sont <strong>provisoires</strong>.</div>
                 <div>Le bouton <strong>« Supprimer la base de simulation »</strong> remet à zéro tous les rendez-vous et entretiens (saisies, comptes rendus, scans). Il n'apparaît que lorsque la simulation est active.</div>
                 <div><strong>Si la simulation est activée</strong>, aucun mail ne part aux agents hors BETA et l'onglet « Demandes de formation » affiche des demandes <strong>fictives</strong> (la moitié des agents, selon leur métier), jamais enregistrées.</div>
               </div>

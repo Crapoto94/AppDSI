@@ -229,7 +229,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [esignCandidates, setEsignCandidates] = useState<AiEvaluatorRef[]>([]);
 
   // Note à l'attention de la Direction générale : éditable par les administrateurs du module.
-  const [sub, setSub] = useState<'general' | 'ia'>('general');
+  const [sub, setSub] = useState<'general' | 'agents' | 'admins' | 'options' | 'ia'>('general');
   const [dgNote, setDgNote] = useState('');
   const [dgNoteDefault, setDgNoteDefault] = useState('');
   const [showDgNote, setShowDgNote] = useState(false);
@@ -541,13 +541,14 @@ Cette action est définitive.`)) return;
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
       </div>
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
-        {([['general', 'Général'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
+        {([['general', 'Général'], ['agents', 'Agents à évaluer'], ['admins', 'Administrateurs'], ['options', 'Options'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', fontSize: 13.5, fontWeight: 700, color: sub === k ? COLORS.primary : '#64748b', borderBottom: `2px solid ${sub === k ? COLORS.primary : 'transparent'}`, marginBottom: -1 }}>{l}</button>
         ))}
       </div>
       {sub === 'ia' && <IaPrompts />}
       <div style={{ display: sub === 'ia' ? 'none' : 'block' }}>
 
+      {sub === 'general' && (<>
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
@@ -563,13 +564,22 @@ Cette action est définitive.`)) return;
         </div>
       </div>
 
+      </>)}
+
+      {sub === 'options' && (<>
       <ScanReadingPanel />
 
       <SimulationPanel />
 
+      </>)}
+
+      {sub === 'agents' && (<>
       {/* Base des agents à évaluer (classeur « Outil CREP DSI ») */}
       <BaseAgents />
 
+      </>)}
+
+      {sub === 'general' && (<>
       {/* Campagnes */}
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 14 }}>
@@ -659,10 +669,13 @@ Cette action est définitive.`)) return;
         </div>
       </div>
 
+      </>)}
+
+      {sub === 'admins' && (<>
       {/* Administrateurs */}
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>
-          <UserCog size={17} color={COLORS.primary} /> Administrateurs du module
+          <UserCog size={17} color={COLORS.primary} /> Administrateurs
         </div>
         <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
           En plus des administrateurs généraux de l’application, ces utilisateurs peuvent programmer et gérer les
@@ -698,6 +711,9 @@ Cette action est définitive.`)) return;
         )}
       </div>
 
+      </>)}
+
+      {sub === 'options' && (<>
       {/* Fonctions IA : rédaction et relecture des compétences */}
       {AI_CARDS.map(meta => {
         const st = ai[meta.key];
@@ -795,6 +811,8 @@ Cette action est définitive.`)) return;
       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 14 }}>
         Campagnes existantes : {campaigns.map(c => `${c.libelle || c.annee} (${formatDateFr(c.date_limite_ep)})`).join(' · ') || 'aucune'}
       </div>
+
+      </>)}
 
       </div>
 
