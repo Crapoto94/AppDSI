@@ -19,7 +19,7 @@ export default function SimulationPanel() {
 
   const toggle = async () => {
     const next = !on;
-    if (next && !window.confirm('Activer le mode simulation ?\n\nAucun mail ne partira aux agents hors BETA, et la vue « Demandes de formation » ajoutera des demandes FICTIVES (jamais enregistrées).')) return;
+    if (next && !window.confirm('Activer le mode simulation ?\n\nAucun mail ne partira aux agent·e·s hors BETA, et la vue « Demandes de formation » ajoutera des demandes FICTIVES (jamais enregistrées).')) return;
     setBusy(true); setMsg(null);
     try {
       const r = await axios.put('/api/entretiens/simulation', { on: next }, { headers });
@@ -29,7 +29,7 @@ export default function SimulationPanel() {
   };
 
   const supprimer = async () => {
-    if (!window.confirm('Supprimer la base de simulation ?\n\nTous les rendez-vous et tous les entretiens professionnels (avec leur contenu : saisies, comptes rendus, scans, signatures en cours) seront effacés.\n\nNe sont PAS touchés : la définition des valideurs, « qui valide qui » et le lien avec l’Active Directory.\n\nCette action est définitive.')) return;
+    if (!window.confirm('Supprimer la base de simulation ?\n\nTous les rendez-vous et tous les entretiens professionnels (avec leur contenu : saisies, comptes rendus, scans, signatures en cours) seront effacés.\n\nNe sont PAS touchés : la définition des évaluateur·rice·s, « qui valide qui » et le lien avec l’Active Directory.\n\nCette action est définitive.')) return;
     setBusy(true); setMsg(null);
     try {
       const r = await axios.post('/api/entretiens/simulation/reset', {}, { headers });
@@ -67,7 +67,7 @@ export default function SimulationPanel() {
         </thead>
         <tbody>
           {([
-            ['Définition des valideurs', 'Réel', 'Non'],
+            ['Définition des évaluateur·rice·s', 'Réel', 'Non'],
             ['Qui valide qui', 'Réel', 'Non'],
             ['Lien Active Directory', 'Réel', 'Non'],
             ['Rendez-vous', 'Provisoire', 'Oui'],
@@ -82,8 +82,8 @@ export default function SimulationPanel() {
         </tbody>
       </table>
       <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 10, lineHeight: 1.55 }}>
-        Pendant la simulation : aucun mail ne part aux agents hors BETA, et la vue « Demandes de formation » ajoute des demandes <b>fictives</b> (la moitié des agents, selon leur métier) qui ne sont jamais enregistrées.
-        Le lien Active Directory sert à rattraper les agents sans e-mail : il est réel et conservé.
+        Pendant la simulation : aucun mail ne part aux agent·e·s hors BETA, et la vue « Demandes de formation » ajoute des demandes <b>fictives</b> (la moitié des agent·e·s, selon leur métier) qui ne sont jamais enregistrées.
+        Le lien Active Directory sert à rattraper les agent·e·s sans e-mail : il est réel et conservé.
       </div>
       {msg && (
         <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 12.5, fontWeight: 600, color: msg.ok ? COLORS.success : COLORS.danger }}>

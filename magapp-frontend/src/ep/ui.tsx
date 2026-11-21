@@ -84,9 +84,16 @@ export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   );
 }
 
-export function KpiCard({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: string; color: string }) {
+export function KpiCard({ label, value, sub, color, onClick, active }: { label: string; value: React.ReactNode; sub?: string; color: string; onClick?: () => void; active?: boolean }) {
   return (
-    <div style={{ ...card, padding: '9px 10px', borderLeft: `4px solid ${color}`, minWidth: 0 }}>
+    <div
+      onClick={onClick}
+      onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }) : undefined}
+      role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
+      title={onClick ? (active ? 'Cliquer pour retirer ce filtre' : 'Cliquer pour filtrer la liste') : undefined}
+      style={{ ...card, padding: '9px 10px', borderLeft: `4px solid ${color}`, minWidth: 0,
+        ...(onClick ? { cursor: 'pointer', userSelect: 'none' as const, transition: 'box-shadow .15s, background .15s' } : {}),
+        ...(active ? { background: `${color}12`, boxShadow: `0 0 0 2px ${color}` } : {}) }}>
       <div style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{value}</div>
       <div title={label} style={{ fontSize: 11.5, fontWeight: 700, color: '#334155', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
       {sub && <div title={sub} style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>}

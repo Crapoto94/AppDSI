@@ -47,6 +47,9 @@ function ensureTable() {
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_scans JSONB DEFAULT '[]'::jsonb`);
             // Mode de saisie choisi par l'évaluateur : 'manuscrit' (papier, scan signé) ou 'outil' (saisie dans l'outil, puis impression et scan)
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_mode TEXT`);
+            // Réception du CREP signé par la DRH (déclarée par un administrateur au Pilotage)
+            await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS drh_received_at TIMESTAMPTZ`);
+            await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS drh_received_by TEXT`);
             await pgDb.run(`CREATE INDEX IF NOT EXISTS idx_crep_scan_jobs_ent ON hub_entretiens.crep_scan_jobs (entretien_id, id DESC)`);
             // Analyses interrompues par un redémarrage du serveur : elles ne reprendront pas (les photos n'étaient qu'en mémoire).
             await pgDb.run(`UPDATE hub_entretiens.crep_scan_jobs SET status = 'echec', finished_at = NOW(),

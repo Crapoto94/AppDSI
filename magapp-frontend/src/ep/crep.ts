@@ -186,7 +186,7 @@ export function missingFields(c: Crep, def?: CrepDefinition | null): string[] {
   const out: string[] = [];
   if (empty(c.grade)) out.push('Grade actuel');
   if (empty(c.evaluateur_nom)) out.push('Nom de l’évaluateur');
-  if (empty(c.missions)) out.push('Rappel des missions de l’agent');
+  if (empty(c.missions)) out.push('Rappel des missions de l’agent·e');
   // Un objectif au minimum ; seule sa description est obligatoire (observations et niveau facultatifs).
   if (!c.objectifs_ecoules.some(o => !empty(o.objectif))) out.push('Au moins un objectif de l’année écoulée (description)');
   c.objectifs_ecoules.forEach((o, i) => { if (empty(o.objectif) && (!empty(o.observations) || o.niveau)) out.push(`Objectif ${i + 1} de l’année écoulée : description à renseigner`); });
@@ -198,6 +198,5 @@ export function missingFields(c: Crep, def?: CrepDefinition | null): string[] {
   if (empty(c.formations.obligatoires)) out.push('Formations obligatoires (indiquer « Néant » si aucune)');
   if (empty(c.formations.metiers)) out.push('Autres formations métiers (indiquer « Néant » si aucune)');
   if (empty(c.formations.parcours)) out.push('Formations liées à l’accompagnement des parcours (indiquer « Néant » si aucune)');
-  if (empty(c.mobilite)) out.push('Mobilité');
   return out;
 }

@@ -142,6 +142,9 @@ export interface Entretien {
   crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string; signatures_ok?: boolean }>;
   /** Mode de saisie du CREP choisi par l'évaluateur : « manuscrit » (papier, scan signé) ou « outil » (saisie informatisée). */
   crep_mode?: 'manuscrit' | 'outil' | null;
+  /** CREP signé reçu par la DRH (déclaré par un administrateur au Pilotage). */
+  drh_received_at?: string | null;
+  drh_received_by?: string | null;
   /** « Lecture des entretiens numérisés » activée ? (sinon le valideur consulte et valide le document sans lecture visible). */
   scan_reading?: boolean;
   /** Version numérique lue en arrière-plan (visible des seuls administrateurs). */
@@ -239,8 +242,21 @@ export function repairText(v?: string | null): string {
     .replace(/â€œ/g, '“').replace(/â€�/g, '”');
 }
 
+/** Nom d'une personne au format « Prénom NOM » : « PARISI CHRISTOPHE » (tout en majuscules, ordre RH) devient « Christophe PARISI ». */
+export function personneNom(v?: string | null): string {
+  const t = repairText(v).trim();
+  if (!t || t.includes('@')) return t;
+  const w = t.split(/\s+/);
+  if (w.length >= 2 && t === t.toUpperCase() && /[A-ZÀ-Ý]/.test(t)) {
+    const prenom = w[w.length - 1];
+    const cap = prenom.charAt(0) + prenom.slice(1).toLowerCase().replace(/(^|[-'’])([a-zà-ÿ])/g, (_m, a, b) => a + b.toUpperCase());
+    return `${cap} ${w.slice(0, -1).join(' ')}`;
+  }
+  return t;
+}
+
 export function nomComplet(e: Entretien): string {
-  return repairText([e.agent_prenom, e.agent_nom].filter(Boolean).join(' ').trim() || e.agent_nom || e.agent_email || 'Agent');
+  return repairText([e.agent_prenom, e.agent_nom].filter(Boolean).join(' ').trim() || e.agent_nom || e.agent_email || 'Agent·e');
 }
 
 export function formatDateHeure(value?: string | null): string {
@@ -297,6 +313,6 @@ export function crepMeta(e: { statut?: string; crep_statut?: string | null; crep
     return { label: 'En signature', color: '#2563eb', bg: '#dbeafe' };
   }
   if (st === 'signe_papier') return { label: 'Signé (papier)', color: '#16a34a', bg: '#dcfce7' };
-  if (st === 'envoye_agent') return { label: 'Envoyé à l’agent', color: '#b45309', bg: '#fef3c7' };
+  if (st === 'envoye_agent') return { label: 'Envoyé à l’agent·e', color: '#b45309', bg: '#fef3c7' };
   return e.statut === 'realise' ? { label: 'À envoyer', color: '#64748b', bg: '#f1f5f9' } : null;
 }

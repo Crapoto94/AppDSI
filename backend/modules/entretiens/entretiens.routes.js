@@ -30,6 +30,7 @@ router.post('/reopen-requests/:id/decide', authenticateJWT, ctrl.reopenRequestDe
 router.post('/:id/reopen-request', authenticateJWT, ctrl.reopenRequestCreate);
 router.post('/campaigns/:id/close', authenticateJWT, ctrl.closeCampaign);
 router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
+router.post('/drh-reception', authenticateJWT, ctrl.drhReception);
 
 // Administrateurs délégués & paramètres
 router.get('/admins', authenticateJWT, ctrl.listAdmins);

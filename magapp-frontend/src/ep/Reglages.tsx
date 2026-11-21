@@ -300,7 +300,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     if (!campForm.id) return;
     if (!window.confirm(`Clore la campagne « ${campForm.libelle || campForm.annee} » ?
 
-Les valideurs ne pourront plus consulter les documents des entretiens dans ce module : les CREP clôturés seront consultables dans le dossier de l’agent. Les administrateurs gardent l’accès.
+Les évaluateur·rice·s ne pourront plus consulter les documents des entretiens dans ce module : les CREP clôturés seront consultables dans le dossier de l’agent·e. Les administrateurs gardent l’accès.
 
 Cette action est définitive.`)) return;
     setSavingCampaign(true); setCampMsg(null);
@@ -430,9 +430,9 @@ Cette action est définitive.`)) return;
     });
   };
   const saveSelf = async (mode: 'all' | 'selection' | 'disable') => {
-    if (mode === 'disable' && !window.confirm('Fermer « Mon entretien » pour tous les agents ?')) return;
+    if (mode === 'disable' && !window.confirm('Fermer « Mon entretien » pour tous les agent·e·s ?')) return;
     if (mode === 'selection' && self.evaluators.length === 0) {
-      patchSelf({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».' } });
+      patchSelf({ msg: { ok: false, text: 'Sélectionnez au moins un·e agent·e avant d’ouvrir « Mon entretien ».' } });
       return;
     }
     patchSelf({ msg: null, saving: mode });
@@ -452,10 +452,10 @@ Cette action est définitive.`)) return;
         msg: {
           ok: true,
           text: mode === 'disable'
-            ? '« Mon entretien » est fermé pour tous les agents.'
+            ? '« Mon entretien » est fermé pour tous les agent·e·s.'
             : mode === 'all'
-              ? '« Mon entretien » est ouvert à tous les agents.'
-              : `« Mon entretien » est ouvert à ${(next.agents || []).length} agent(s).`,
+              ? '« Mon entretien » est ouvert à tous les agent·e·s.'
+              : `« Mon entretien » est ouvert à ${(next.agents || []).length} agent·e(s).`,
         },
       });
       setSelfCandidates(Array.isArray(next.candidates) ? next.candidates : selfCandidates);
@@ -473,9 +473,9 @@ Cette action est définitive.`)) return;
     });
   };
   const saveEsign = async (mode: 'all' | 'selection' | 'disable') => {
-    if (mode === 'disable' && !window.confirm('Fermer la signature électronique du compte rendu pour tous les agents ?')) return;
+    if (mode === 'disable' && !window.confirm('Fermer la signature électronique du compte rendu pour tous les agent·e·s ?')) return;
     if (mode === 'selection' && esign.evaluators.length === 0) {
-      patchEsign({ msg: { ok: false, text: 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.' } });
+      patchEsign({ msg: { ok: false, text: 'Sélectionnez au moins un·e agent·e avant d’ouvrir la signature électronique.' } });
       return;
     }
     patchEsign({ msg: null, saving: mode });
@@ -495,10 +495,10 @@ Cette action est définitive.`)) return;
         msg: {
           ok: true,
           text: mode === 'disable'
-            ? 'Signature électronique fermée pour tous les agents.'
+            ? 'Signature électronique fermée pour tous les agent·e·s.'
             : mode === 'all'
-              ? 'Signature électronique ouverte à tous les agents.'
-              : `Signature électronique ouverte à ${(next.agents || []).length} agent(s).`,
+              ? 'Signature électronique ouverte à tous les agent·e·s.'
+              : `Signature électronique ouverte à ${(next.agents || []).length} agent·e(s).`,
         },
       });
       setEsignCandidates(Array.isArray(next.candidates) ? next.candidates : esignCandidates);
@@ -541,7 +541,7 @@ Cette action est définitive.`)) return;
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
       </div>
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
-        {([['general', 'Général'], ['agents', 'Agents à évaluer'], ['admins', 'Administrateurs'], ['options', 'Options'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
+        {([['general', 'Général'], ['agents', 'Agent·e·s à évaluer'], ['admins', 'Administrateurs'], ['options', 'Options'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', fontSize: 13.5, fontWeight: 700, color: sub === k ? COLORS.primary : '#64748b', borderBottom: `2px solid ${sub === k ? COLORS.primary : 'transparent'}`, marginBottom: -1 }}>{l}</button>
         ))}
       </div>
@@ -559,7 +559,7 @@ Cette action est définitive.`)) return;
           </button>
         </div>
         <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 6 }}>
-          Note de cadrage sur le fonctionnement des entretiens professionnels, les valideurs, le papier et le dématérialisé, les bénéfices et la DPD.
+          Note de cadrage sur le fonctionnement des entretiens professionnels, les évaluateur·rice·s, le papier et le dématérialisé, les bénéfices et la DPD.
           Le texte est éditable et conservé pour les prochains administrateurs.
         </div>
       </div>
@@ -645,7 +645,7 @@ Cette action est définitive.`)) return;
           </Field>
         </div>
         <div style={{ marginTop: 11 }}>
-          <Field label="Consignes affichées aux agents" hint="Visible par tous les agents sur leur page de préparation.">
+          <Field label="Consignes affichées aux agent·e·s" hint="Visible par tous les agent·e·s sur leur page de préparation.">
             <MiniRichEditor value={campForm.instructions} placeholder="Consignes pour la préparation de l’entretien…"
               onChange={html => setCampForm(f => ({ ...f, instructions: html }))} />
           </Field>
@@ -662,7 +662,7 @@ Cette action est définitive.`)) return;
             {savingCampaign ? <Loader2 size={15} /> : <Save size={15} />} {campForm.id ? 'Enregistrer la campagne' : 'Créer la campagne'}
           </button>
           {campForm.id && campForm.statut !== 'close' && (
-            <button style={btnDanger} disabled={savingCampaign} onClick={closeCampaign} title="Clore la campagne : les CREP passent dans le dossier de l’agent">
+            <button style={btnDanger} disabled={savingCampaign} onClick={closeCampaign} title="Clore la campagne : les CREP passent dans le dossier de l’agent·e">
               <Lock size={15} /> Clore la campagne
             </button>
           )}
@@ -679,7 +679,7 @@ Cette action est définitive.`)) return;
         </div>
         <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
           En plus des administrateurs généraux de l’application, ces utilisateurs peuvent programmer et gérer les
-          entretiens de tous les agents. Ils peuvent être n’importe quel agent de l’annuaire, pas seulement ceux du
+          entretiens de tous les agent·e·s. Ils peuvent être n’importe quel agent·e de l’annuaire, pas seulement ceux du
           calendrier DSI. Les encadrants, eux, n’ont pas besoin d’être déclarés ici : il suffit qu’ils soient désignés
           comme évaluateurs sur au moins un entretien.
         </p>
@@ -740,8 +740,8 @@ Cette action est définitive.`)) return;
       {/* Accès à « Mon entretien » */}
       <AccessCard
         title="Accès à « Mon entretien »"
-        description="Par défaut, les agents ne voient pas leur espace « Mon entretien » (préparation, compte rendu, validation). Sélectionnez les agents pour qui cet espace est ouvert. Les évaluateurs et administrateurs du module conservent leurs accès."
-        entriesLabel="Ouvrir pour des agents"
+        description="Par défaut, les agent·e·s ne voient pas leur espace « Mon entretien » (préparation, compte rendu, validation). Sélectionnez les agent·e·s pour qui cet espace est ouvert. Les évaluateurs et administrateurs du module conservent leurs accès."
+        entriesLabel="Ouvrir pour des agent·e·s"
         entryOne="agent" entryMany="agents"
         enabled={self.enabled}
         all={self.all}
@@ -758,8 +758,8 @@ Cette action est définitive.`)) return;
       {/* Signature électronique du CREP */}
       <AccessCard
         title="Signature électronique du compte rendu"
-        description="Par défaut, le compte rendu ne peut pas être signé électroniquement : l’évaluateur l’imprime, le fait signer, puis téléverse le PDF signé. Sélectionnez les agents pour lesquels la signature électronique (parapheur) est ouverte."
-        entriesLabel="Ouvrir pour des agents"
+        description="Par défaut, le compte rendu ne peut pas être signé électroniquement : l’évaluateur l’imprime, le fait signer, puis téléverse le PDF signé. Sélectionnez les agent·e·s pour lesquels la signature électronique (parapheur) est ouverte."
+        entriesLabel="Ouvrir pour des agent·e·s"
         entryOne="agent" entryMany="agents"
         enabled={esign.enabled}
         all={esign.all}
@@ -878,7 +878,7 @@ function AdminAgentSearch({ onSelect }: { onSelect: (a: AgentOption) => void }) 
     <div style={{ position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: '8px 11px', background: '#fff' }}>
         <Search size={14} color="#94a3b8" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher n’importe quel agent (nom, login ou e-mail)…"
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher n’importe quel agent·e (nom, login ou e-mail)…"
           style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent' }} />
         {loading && <Loader2 size={14} className="spin" color="#94a3b8" />}
       </div>

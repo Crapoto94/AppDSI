@@ -99,7 +99,11 @@ const TTL = 300000;
 let agentsCache = { at: 0, agents: null, inflight: null };
 
 async function allAgents(force = false) {
-    if (!force && agentsCache.agents && Date.now() - agentsCache.at < TTL) return agentsCache.agents;
+    if (!force && agentsCache.agents) {
+        // Périmé : on répond tout de suite avec la copie en mémoire et on la rafraîchit en arrière-plan (plus d'attente de plusieurs secondes toutes les 5 min)
+        if (Date.now() - agentsCache.at >= TTL && !agentsCache.inflight) allAgents(true).catch(() => { /* on garde la copie précédente */ });
+        return agentsCache.agents;
+    }
     if (agentsCache.inflight) return agentsCache.inflight;
     agentsCache.inflight = (async () => {
         const agents = [];
@@ -116,6 +120,9 @@ async function allAgents(force = false) {
     })().catch((e) => { agentsCache.inflight = null; throw e; });
     return agentsCache.inflight;
 }
+
+// Préchargement au démarrage : la première ouverture d'une liste d'entretiens n'attend plus le chargement du référentiel RH
+setTimeout(() => { try { if (configured()) allAgents().catch(() => {}); } catch (e) { /* ignore */ } }, 20000).unref();
 
 /** Saisie prédictive : agents en poste dont nom, prénom ou matricule contient tous les mots saisis. */
 async function searchAgents(query, limit = 15) {

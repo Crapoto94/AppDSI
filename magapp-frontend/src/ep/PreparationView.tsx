@@ -25,11 +25,11 @@ export default function PreparationView({ entretien }: { entretien: Entretien })
 
   return (
     <div>
-      <Section number={1} title="Bilan de réalisation des objectifs" description="Niveau d'atteinte et éléments factuels renseignés par l'agent.">
+      <Section number={1} title="Bilan de réalisation des objectifs" description="Niveau d'atteinte et éléments factuels renseignés par l'agent·e.">
         {objectifs.length === 0 && entretien.reprise?.objectifs?.length ? (
           <div>
             <p style={{ margin: '0 0 10px', fontSize: 12.5, color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, padding: '8px 11px', lineHeight: 1.5 }}>
-              L’agent n’a pas encore renseigné son bilan : voici les <strong>objectifs fixés lors de l’entretien {entretien.reprise.annee}</strong>,
+              L’agent·e n’a pas encore renseigné son bilan : voici les <strong>objectifs fixés lors de l’entretien {entretien.reprise.annee}</strong>,
               qui lui sont proposés par défaut dans sa préparation.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -133,7 +133,7 @@ export default function PreparationView({ entretien }: { entretien: Entretien })
       {entretien.commentaire_agent && (
         <div style={{ ...card, padding: 14, marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-            <MessageSquare size={13} /> Commentaire libre de l'agent
+            <MessageSquare size={13} /> Commentaire libre de l'agent·e
           </div>
           <div style={{ fontSize: 13, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{entretien.commentaire_agent}</div>
         </div>
@@ -141,7 +141,7 @@ export default function PreparationView({ entretien }: { entretien: Entretien })
 
       {entretien.preparation_statut === 'soumis' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: COLORS.success, fontWeight: 600 }}>
-          <CheckCircle2 size={14} /> Préparation transmise par l'agent
+          <CheckCircle2 size={14} /> Préparation transmise par l'agent·e
         </div>
       )}
     </div>

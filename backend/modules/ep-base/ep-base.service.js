@@ -830,11 +830,30 @@ async function equipeEntretiens(actor) {
     if (!campaign || !mine.length) return { campaign: campaign || null, stats: ent.computeStats([]), items: [], portee: [] };
     const set = new Set();
     for (const m of mine) for (const x of await descendants(m)) set.add(x);
-    const all = await ent.listEntretiens({ campaignId: campaign.id });
-    const items = all.filter(r => r.agent_matricule && set.has(r.agent_matricule));
+    const items = await ent.listEntretiens({ campaignId: campaign.id, light: true, agentMatricules: [...set] });
     let enriched = items;
     try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* SEDIT RH indisponible : données de l'entretien seules */ }
-    return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched), portee: [`${set.size} agent(s) sous votre responsabilité`] };
+    // Fiche (poste, grade, service…) et chef hiérarchique de chaque évaluateur·rice, même quand son propre EP n'est pas dans la liste : vue hiérarchique complète
+    const evaluateurs = {};
+    try {
+        const base = await pgDb.all('SELECT matricule, nom_prenom, poste, grade, direction, service, email, ad_username, valideur_matricule FROM hub_entretiens.base_agents');
+        const fold = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(Boolean).sort().join(' ');
+        const byEmail = new Map(), byUser = new Map(), byName = new Map();
+        for (const b of base) {
+            if (b.email) byEmail.set(String(b.email).toLowerCase(), b);
+            if (b.ad_username) byUser.set(String(b.ad_username).toLowerCase(), b);
+            const k = fold(b.nom_prenom); if (k && !byName.has(k)) byName.set(k, b);
+        }
+        for (const r of items) {
+            const key = String(r.evaluator_username || r.evaluator_email || r.evaluator_nom || '').toLowerCase();
+            if (!key || evaluateurs[key]) continue;
+            const b = (r.evaluator_email && byEmail.get(String(r.evaluator_email).toLowerCase()))
+                || (r.evaluator_username && byUser.get(String(r.evaluator_username).toLowerCase()))
+                || byName.get(fold(r.evaluator_nom));
+            if (b) evaluateurs[key] = { matricule: b.matricule, nom: b.nom_prenom, poste: b.poste, grade: b.grade, direction: b.direction, service: b.service, email: b.email, valideur_matricule: b.valideur_matricule };
+        }
+    } catch (e) { /* base des agents indisponible : vue sans fiche */ }
+    return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched), portee: [`${set.size} agent·e·s sous votre responsabilité`], evaluateurs };
 }
 
 /** Pilotage (administrateurs) : tous les entretiens de la campagne en cours. */
@@ -842,7 +861,7 @@ async function pilotageEntretiens() {
     const ent = require('../entretiens/entretiens.service');
     const campaign = await ent.getCurrentCampaign();
     if (!campaign) return { campaign: null, stats: ent.computeStats([]), items: [] };
-    const items = await ent.listEntretiens({ campaignId: campaign.id });
+    const items = await ent.listEntretiens({ campaignId: campaign.id, light: true });
     let enriched = items;
     try { enriched = await require('../entretiens/ep-rh-enrich').enrichFromRh(items); } catch { /* idem */ }
     return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched) };

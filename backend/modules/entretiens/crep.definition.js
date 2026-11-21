@@ -154,7 +154,6 @@ function missingFields(crep, definition) {
     if (empty(c.formations.obligatoires)) out.push('Formations obligatoires (indiquer « Néant » si aucune)');
     if (empty(c.formations.metiers)) out.push('Autres formations métiers (indiquer « Néant » si aucune)');
     if (empty(c.formations.parcours)) out.push('Formations liées à l’accompagnement des parcours (indiquer « Néant » si aucune)');
-    if (empty(c.mobilite)) out.push('Mobilité');
     return out;
 }
 

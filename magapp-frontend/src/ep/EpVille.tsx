@@ -156,7 +156,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
     setBusy(true); setError('');
     try {
       await axios.post('/api/ep-ville/valideurs', { account: { username: user.username, displayName: user.displayName, email: user.email }, matricule: agent.matricule, niveau, directions: niveau === 'direction' ? [] : dirs }, { headers: api() });
-      onDone(`${user.displayName} (${user.username}) est désigné·e valideur.`);
+      onDone(`${user.displayName} (${user.username}) est désigné·e évaluateur·rice.`);
     } catch (e) { setError(errMsg(e, 'Désignation impossible.')); } finally { setBusy(false); }
   };
 
@@ -164,7 +164,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
 
   return (
     <div style={{ ...card, padding: 16, marginBottom: 16 }}>
-      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Désigner un valideur</div>
+      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Désigner un·e évaluateur·rice</div>
 
       {!user ? (
         <>
@@ -225,7 +225,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
                       </div>
                     </button>
                   ))}
-                  {!rh.results.length && !rh.loading && <div style={{ padding: 16, fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>Aucun agent trouvé en RH.</div>}
+                  {!rh.results.length && !rh.loading && <div style={{ padding: 16, fontSize: 12.5, color: '#94a3b8', textAlign: 'center' }}>Aucun agent·e trouvé en RH.</div>}
                 </div>
               )}
             </div>
@@ -237,9 +237,9 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
                 <div style={{ fontWeight: 700 }}>Lien RH : {agent.nom} {agent.prenom} <span style={{ fontWeight: 400, color: '#94a3b8' }}>· mat. {agent.matricule}</span></div>
                 <div style={{ color: COLORS.muted }}>{[agent.grade, agent.poste, agent.direction].filter(Boolean).join(' · ')}</div>
                 <div style={{ fontSize: 11, color: lien === 'matricule' ? COLORS.success : COLORS.warning, marginTop: 2 }}>
-                  {lien === 'matricule' ? 'Lien établi par le matricule.' : lien === 'nom' ? 'Lien établi par le nom (aucun matricule dans l’AD).' : 'Agent choisi à la main dans la base RH : vérifiez que c’est bien la même personne.'}
+                  {lien === 'matricule' ? 'Lien établi par le matricule.' : lien === 'nom' ? 'Lien établi par le nom (aucun matricule dans l’AD).' : 'Agent·e choisi à la main dans la base RH : vérifiez que c’est bien la même personne.'}
                 </div>
-                {lien === 'manuel' && <button style={{ ...btnGhost, marginTop: 6, padding: '3px 9px', fontSize: 11.5 }} onClick={() => { setAgent(null); setLien(null); }}>Choisir un autre agent</button>}
+                {lien === 'manuel' && <button style={{ ...btnGhost, marginTop: 6, padding: '3px 9px', fontSize: 11.5 }} onClick={() => { setAgent(null); setLien(null); }}>Choisir un autre agent·e</button>}
               </div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 {(['direction', 'dga', 'dg'] as const).map(n => (
@@ -251,7 +251,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
               </div>
               {niveau !== 'direction' ? (
                 <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>Directions placées sous sa responsabilité (agents proposés en priorité)</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>Directions placées sous sa responsabilité (agent·e·s proposés en priorité)</div>
                   <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 6, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 2 }}>
                     {directions.map(d => (
                       <label key={d.code} style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -259,7 +259,7 @@ function ValideurDesignation({ onCancel, onDone }: { onCancel: () => void; onDon
                       </label>
                     ))}
                   </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Les directeurs de la collectivité lui sont toujours proposés. Il peut de toute façon choisir n’importe quel agent.</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Les directeurs de la collectivité lui sont toujours proposés. Il peut de toute façon choisir n’importe quel agent·e.</div>
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>Périmètre proposé : sa direction ({agent.direction || 'non renseignée'}).</div>
@@ -290,7 +290,7 @@ function ValideursAdmin() {
     setLoading(true);
     Promise.all([axios.get('/api/ep-ville/valideurs', { headers: api() }), axios.get('/api/ep-ville/valideurs/agents', { headers: api() })])
       .then(([r, a]) => { setItems(r.data.valideurs || []); setAllAgents(a.data.agents || []); })
-      .catch(e => setMsg({ ok: false, text: errMsg(e, 'Impossible de charger les valideurs.') }))
+      .catch(e => setMsg({ ok: false, text: errMsg(e, 'Impossible de charger les évaluateur·rice·s.') }))
       .finally(() => setLoading(false));
   }, []);
   useEffect(load, [load]);
@@ -298,15 +298,15 @@ function ValideursAdmin() {
   const openAdd = () => { setAdding(true); setMsg(null); };
 
   const remove = async (v: Valideur) => {
-    if (!(await confirm(`Retirer ${v.display_name} de la liste des valideurs ?`, { title: 'Retirer un valideur', confirmLabel: 'Retirer', danger: true }))) return;
-    try { await axios.delete(`/api/ep-ville/valideurs/${v.id}`, { headers: api() }); setMsg({ ok: true, text: 'Valideur retiré.' }); load(); }
+    if (!(await confirm(`Retirer ${v.display_name} de la liste des évaluateur·rice·s ?`, { title: 'Retirer un·e évaluateur·rice', confirmLabel: 'Retirer', danger: true }))) return;
+    try { await axios.delete(`/api/ep-ville/valideurs/${v.id}`, { headers: api() }); setMsg({ ok: true, text: 'Évaluateur·rice retiré.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Suppression impossible.') }); }
   };
 
   const reassign = async (ratId: number, valideurId: number) => {
     try {
       await axios.put(`/api/ep-ville/rattachements/${ratId}`, { valideur_id: valideurId }, { headers: api() });
-      setMsg({ ok: true, text: 'Agent réaffecté.' }); load();
+      setMsg({ ok: true, text: 'Agent·e réaffecté.' }); load();
     } catch (e) { setMsg({ ok: false, text: errMsg(e, 'Réaffectation impossible.') }); }
   };
 
@@ -344,7 +344,7 @@ function ValideursAdmin() {
             <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[v.grade, v.direction_libelle, v.username, v.parent_nom && `désigné par ${v.parent_nom}`].filter(Boolean).join(' · ')}</div>
           </div>
           <span style={{ fontSize: 11.5, color: COLORS.muted }}><Users size={12} style={{ verticalAlign: -2 }} /> {rats.length} direct{rats.length > 1 ? 's' : ''}{total !== rats.length ? ` · ${total} au total` : ''}</span>
-          <button style={btnDanger} onClick={() => remove(v)} title="Retirer ce valideur"><Trash2 size={13} /></button>
+          <button style={btnDanger} onClick={() => remove(v)} title="Retirer cet·te évaluateur·rice"><Trash2 size={13} /></button>
         </div>
         {isOpen && (
           <div>
@@ -364,7 +364,7 @@ function ValideursAdmin() {
                 </div>
               ))}
             {extras.filter(w => !trail.has(w.id)).map(w => renderValideur(w, depth + 1, sub))}
-            {!children.length && !extras.length && <div style={{ padding: '7px 14px', paddingLeft: 14 + (depth + 1) * 26 + 24, fontSize: 12, color: '#94a3b8', borderBottom: `1px solid ${COLORS.border}` }}>Aucun agent rattaché.</div>}
+            {!children.length && !extras.length && <div style={{ padding: '7px 14px', paddingLeft: 14 + (depth + 1) * 26 + 24, fontSize: 12, color: '#94a3b8', borderBottom: `1px solid ${COLORS.border}` }}>Aucun agent·e rattaché.</div>}
           </div>
         )}
       </div>
@@ -379,14 +379,14 @@ function ValideursAdmin() {
       {confirmDialog}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12.5, color: COLORS.muted, maxWidth: 640 }}>
-          Les valideurs sont les directeurs, DGA et DG de la collectivité. Chacun choisit ensuite les agents dont il valide l’entretien.
-          En tant qu’administrateur, vous ne voyez que l’effectif de chaque valideur, jamais le contenu des entretiens.
+          Les évaluateur·rice·s sont les directeurs, DGA et DG de la collectivité. Chacun choisit ensuite les agent·e·s dont il valide l’entretien.
+          En tant qu’administrateur, vous ne voyez que l’effectif de chaque évaluateur·rice, jamais le contenu des entretiens.
         </div>
         {!adding && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button style={btnGhost} onClick={expandAll}>Tout déplier</button>
             <button style={btnGhost} onClick={() => setOpen(new Set())}>Tout replier</button>
-            <button style={btnPrimary} onClick={openAdd}><Plus size={14} /> Désigner un valideur</button>
+            <button style={btnPrimary} onClick={openAdd}><Plus size={14} /> Désigner un·e évaluateur·rice</button>
           </div>
         )}
       </div>
@@ -395,7 +395,7 @@ function ValideursAdmin() {
       {adding && <ValideurDesignation onCancel={() => setAdding(false)} onDone={(t) => { setAdding(false); setMsg({ ok: true, text: t }); load(); }} />}
 
       {loading ? <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}><Loader2 size={22} /></div>
-        : !items.length ? <EmptyState icon={<ShieldCheck size={28} />} title="Aucun valideur désigné" text="Désignez les directeurs, DGA et DG qui valideront les entretiens de leurs agents." />
+        : !items.length ? <EmptyState icon={<ShieldCheck size={28} />} title="Aucun évaluateur·rice désigné" text="Désignez les directeurs, DGA et DG qui valideront les entretiens de leurs agent·e·s." />
           : (
             <div style={{ ...card, overflow: 'hidden' }}>
               {roots.map(v => renderValideur(v, 0, new Set()))}
@@ -465,17 +465,17 @@ function AjoutAgents({ onClose, onDone }: { onClose: () => void; onDone: (r: { a
   );
 
   return (
-    <Overlay title="Ajouter des agents" onClose={onClose} width={760}>
+    <Overlay title="Ajouter des agent·e·s" onClose={onClose} width={760}>
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 12, flexWrap: 'wrap' }}>
         <Tab k="perimetre" label="Mon périmètre" icon={<Users size={14} />} />
-        <Tab k="recherche" label="Rechercher un agent" icon={<Search size={14} />} />
-        <Tab k="libre" label="Saisir un agent" icon={<UserPlus size={14} />} />
+        <Tab k="recherche" label="Rechercher un·e agent·e" icon={<Search size={14} />} />
+        <Tab k="libre" label="Saisir un·e agent·e" icon={<UserPlus size={14} />} />
       </div>
       {error && <Notice ok={false}>{error}</Notice>}
 
       {mode === 'libre' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-          <div style={{ gridColumn: '1 / -1', fontSize: 12, color: COLORS.muted }}>Pour un agent absent de SEDIT RH. Il n’aura pas de matricule : à privilégier seulement si la recherche ne le trouve pas.</div>
+          <div style={{ gridColumn: '1 / -1', fontSize: 12, color: COLORS.muted }}>Pour un·e agent·e absent de SEDIT RH. Il n’aura pas de matricule : à privilégier seulement si la recherche ne le trouve pas.</div>
           {([['nom', 'Nom *'], ['prenom', 'Prénom'], ['grade', 'Grade'], ['service', 'Service'], ['poste', 'Poste'], ['email', 'E-mail (facultatif)']] as const).map(([k, label]) => (
             <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569' }}>{label}
               <input style={input} value={libre[k]} onChange={e => setLibre(p => ({ ...p, [k]: e.target.value }))} />
@@ -508,17 +508,17 @@ function AjoutAgents({ onClose, onDone }: { onClose: () => void; onDone: (r: { a
                     <div style={{ fontSize: 11.5, color: COLORS.muted }}>{[a.grade, a.poste, a.service].filter(Boolean).join(' · ')}</div>
                   </div>
                   {a.mien && <span style={{ fontSize: 11, color: COLORS.success, fontWeight: 700 }}>Déjà dans ma liste</span>}
-                  {taken && <span style={{ fontSize: 11, color: COLORS.warning, fontWeight: 700 }}>Valideur : {a.valideur}</span>}
+                  {taken && <span style={{ fontSize: 11, color: COLORS.warning, fontWeight: 700 }}>Évaluateur·rice : {a.valideur}</span>}
                 </label>
               );
             })}
-            {!list.length && !loading && !searching && <div style={{ padding: 18, textAlign: 'center', fontSize: 12.5, color: '#94a3b8' }}>{mode === 'recherche' ? 'Tapez au moins 2 caractères.' : 'Aucun agent.'}</div>}
+            {!list.length && !loading && !searching && <div style={{ padding: 18, textAlign: 'center', fontSize: 12.5, color: '#94a3b8' }}>{mode === 'recherche' ? 'Tapez au moins 2 caractères.' : 'Aucun agent·e.'}</div>}
           </div>
         </>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
         <button style={btnPrimary} disabled={busy || (mode === 'libre' ? !libre.nom.trim() : sel.size === 0)} onClick={submit}>
-          {busy ? <Loader2 size={14} /> : <Plus size={14} />} {mode === 'libre' ? 'Ajouter cet agent' : `Ajouter ${sel.size || ''} agent${sel.size > 1 ? 's' : ''}`}
+          {busy ? <Loader2 size={14} /> : <Plus size={14} />} {mode === 'libre' ? 'Ajouter cet·te agent·e' : `Ajouter ${sel.size || ''} agent·e${sel.size > 1 ? '·s' : ''}`}
         </button>
         <button style={btnGhost} onClick={onClose}>Fermer</button>
       </div>
@@ -545,14 +545,14 @@ function LierAd({ agent, onClose, onDone }: { agent: MonAgent; onClose: () => vo
   return (
     <Overlay title={`Rattacher ${fullName(agent)} à un compte AD`} onClose={onClose} width={560}>
       <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 10 }}>
-        Cet agent n’a pas été retrouvé dans l’Active Directory sous son nom RH. Cherchez son compte (nom, identifiant ou e-mail) : l’adresse e-mail du compte sera utilisée pour les notifications et l’agent retrouvera son entretien à la connexion.
+        Cet·te agent·e n’a pas été retrouvé dans l’Active Directory sous son nom RH. Cherchez son compte (nom, identifiant ou e-mail) : l’adresse e-mail du compte sera utilisée pour les notifications et l’agent·e retrouvera son entretien à la connexion.
       </div>
       {error && <Notice ok={false}>{error}</Notice>}
       <input style={input} autoFocus value={q} placeholder="Nom, identifiant ou e-mail…" onChange={e => setQ(e.target.value)} />
       <div style={{ marginTop: 10, maxHeight: 280, overflowY: 'auto' }}>
         {ad.loading && <div style={{ color: '#94a3b8', fontSize: 12.5 }}><Loader2 size={14} /> Recherche…</div>}
         {ad.error && <Notice ok={false}>{ad.error}</Notice>}
-        {!ad.loading && !ad.error && q.trim().length >= 2 && !ad.results.length && <div style={{ color: '#94a3b8', fontSize: 12.5 }}>Aucun compte trouvé : l’agent n’est probablement pas dans l’AD (il restera sans e-mail).</div>}
+        {!ad.loading && !ad.error && q.trim().length >= 2 && !ad.results.length && <div style={{ color: '#94a3b8', fontSize: 12.5 }}>Aucun compte trouvé : l’agent·e n’est probablement pas dans l’AD (il restera sans e-mail).</div>}
         {ad.results.map(u => (
           <div key={u.username} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: `1px solid ${COLORS.border}` }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -592,8 +592,8 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
       const r = await axios.post('/api/ep-ville/mes-agents/importer-dsi', {}, { headers: api() });
       const d = r.data as { agents_repris: string[]; sous_valideurs: string[]; non_resolus: { agent: string; raison: string }[]; conflits: { agent: string; message: string }[] };
       if (d.agents_repris.length || !auto) {
-        const parts = [`${d.agents_repris.length} agent${d.agents_repris.length > 1 ? 's' : ''} repris de vos entretiens DSI.`];
-        if (d.sous_valideurs.length) parts.push(`Désignés valideurs (ils évaluent eux-mêmes des agents) : ${d.sous_valideurs.join(', ')}.`);
+        const parts = [`${d.agents_repris.length} agent·e${d.agents_repris.length > 1 ? '·s' : ''} repris de vos entretiens DSI.`];
+        if (d.sous_valideurs.length) parts.push(`Désignés évaluateur·rice·s (ils évaluent eux-mêmes des agent·e·s) : ${d.sous_valideurs.join(', ')}.`);
         if (d.non_resolus.length) parts.push(d.non_resolus.map(x => `${x.agent} : ${x.raison}`).join(' · '));
         if (d.conflits.length) parts.push(d.conflits.map(x => `${x.agent} : ${x.message}`).join(' · '));
         setMsg({ ok: !d.non_resolus.length && !d.conflits.length, text: parts.join(' ') });
@@ -614,7 +614,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
         setAgents(r.data.agents || []);
         setSousAgents(r.data.sous_agents || []);
       })
-      .catch(e => setMsg({ ok: false, text: errMsg(e, 'Impossible de charger vos agents.') }))
+      .catch(e => setMsg({ ok: false, text: errMsg(e, 'Impossible de charger vos agent·e·s.') }))
       .finally(() => setLoading(false));
   }, []);
   useEffect(load, [load]);
@@ -622,10 +622,10 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   const remove = async (a: MonAgent) => {
     const nb = a.sous_valideur ? sousAgents.filter(x => x.valideur_id === a.sous_valideur!.id).length : 0;
     const txt = a.sous_valideur
-      ? `${fullName(a)} est valideur : sa suppression retirera aussi ${nb ? `les ${nb} agent${nb > 1 ? 's' : ''} qu’il évalue (et leurs éventuels sous-agents)` : 'les agents qu’il évalue'}. Continuer ?`
+      ? `${fullName(a)} est évaluateur·rice : sa suppression retirera aussi ${nb ? `les ${nb} agent${nb > 1 ? 's' : ''} qu’il évalue (et leurs éventuels sous-agents)` : 'les agents qu’il évalue'}. Continuer ?`
       : `Retirer ${fullName(a)} de votre liste ?`;
     if (!(await confirm(txt, { title: 'Retirer de ma liste', confirmLabel: 'Retirer', danger: true }))) return;
-    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}`, { headers: api() }); setMsg({ ok: true, text: 'Agent retiré.' }); load(); }
+    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}`, { headers: api() }); setMsg({ ok: true, text: 'Agent·e retiré.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Suppression impossible.') }); }
   };
 
@@ -633,15 +633,15 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
     setPromoting({ ...p, busy: true, error: '' });
     try {
       await axios.post(`/api/ep-ville/mes-agents/${p.agent.id}/valideur`, { username: p.username.trim() || undefined }, { headers: api() });
-      setPromoting(null); setMsg({ ok: true, text: `${fullName(p.agent)} est désormais valideur : il peut choisir ses propres agents.` }); load();
+      setPromoting(null); setMsg({ ok: true, text: `${fullName(p.agent)} est désormais évaluateur·rice : il peut choisir ses propres agent·e·s.` }); load();
     } catch (e: any) {
       setPromoting({ ...p, busy: false, needUsername: p.needUsername || !!e?.response?.data?.need_username, error: errMsg(e, 'Désignation impossible.') });
     }
   };
 
   const demote = async (a: MonAgent) => {
-    if (!(await confirm(`Retirer la fonction de valideur à ${fullName(a)} ? Il restera dans votre liste.`, { title: 'Retirer la fonction de valideur', confirmLabel: 'Retirer', danger: true }))) return;
-    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}/valideur`, { headers: api() }); setMsg({ ok: true, text: 'Fonction de valideur retirée.' }); load(); }
+    if (!(await confirm(`Retirer la fonction d’évaluateur·rice à ${fullName(a)} ? Il restera dans votre liste.`, { title: 'Retirer la fonction d’évaluateur·rice', confirmLabel: 'Retirer', danger: true }))) return;
+    try { await axios.delete(`/api/ep-ville/mes-agents/${a.id}/valideur`, { headers: api() }); setMsg({ ok: true, text: 'Fonction d’évaluateur·rice retirée.' }); load(); }
     catch (e) { setMsg({ ok: false, text: errMsg(e, 'Retrait impossible.') }); }
   };
 
@@ -660,7 +660,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
   const toggleSub = (id: number) => setExpanded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const renderSub = (valideurId: number, depth: number, trail: number[]): React.ReactNode => {
     const rows = sousAgents.filter(x => x.valideur_id === valideurId);
-    if (!rows.length) return <div style={{ padding: '7px 14px', paddingLeft: 14 + depth * 28 + 30, fontSize: 12, color: '#94a3b8', borderBottom: `1px solid ${COLORS.border}` }}>Aucun agent rattaché.</div>;
+    if (!rows.length) return <div style={{ padding: '7px 14px', paddingLeft: 14 + depth * 28 + 30, fontSize: 12, color: '#94a3b8', borderBottom: `1px solid ${COLORS.border}` }}>Aucun agent·e rattaché.</div>;
     return rows.map(a => {
       const st = a.entretien ? STATUTS[a.entretien.statut] || STATUTS.a_planifier : null;
       const sv = a.sous_valideur && !trail.includes(a.sous_valideur.id) ? a.sous_valideur : null;
@@ -673,7 +673,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
               : <span style={{ width: 20 }} />}
             <Avatar name={fullName(a)} size={28} />
             <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{a.nom} {a.prenom}{sv && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px', marginLeft: 6 }}>Valideur · {sousAgents.filter(x => x.valideur_id === sv.id).length} agent{sousAgents.filter(x => x.valideur_id === sv.id).length > 1 ? 's' : ''}</span>}</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{a.nom} {a.prenom}{sv && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px', marginLeft: 6 }}>Évaluateur·rice · {sousAgents.filter(x => x.valideur_id === sv.id).length} agent{sousAgents.filter(x => x.valideur_id === sv.id).length > 1 ? 's' : ''}</span>}</div>
               <div style={{ fontSize: 11.5, color: COLORS.muted }}>{ficheLine(a)}</div>
               {a.ad
                 ? <div style={{ fontSize: 11.5, color: '#166534', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -689,7 +689,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
               {st && <Badge {...st} />}
               {a.entretien && <button style={btnGhost} onClick={() => setOpenId(a.entretien!.id)}><Eye size={13} /> Ouvrir</button>}
               {crepSigned(a.entretien) && <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(a.entretien!.id)} title="Compte rendu signé"><FileDown size={13} /> CREP signé</button>}
-              <button style={btnDanger} onClick={() => remove(a)} title={sv ? 'Retirer cet agent et les agents qu’il évalue' : 'Retirer cet agent'}><Trash2 size={13} /></button>
+              <button style={btnDanger} onClick={() => remove(a)} title={sv ? 'Retirer cet·te agent·e et les agent·e·s qu’il évalue' : 'Retirer cet·te agent·e'}><Trash2 size={13} /></button>
             </div>
           </div>
           {isOpen && sv && renderSub(sv.id, depth + 1, [...trail, sv.id])}
@@ -712,13 +712,13 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
         <div style={{ display: 'flex', gap: 8 }}>
           {sousAgents.length > 0 && <button style={btnGhost} onClick={() => setExpanded(prev => prev.size ? new Set() : new Set([...agents, ...sousAgents].filter(x => x.sous_valideur).map(x => x.sous_valideur!.id)))}>{expanded.size ? 'Tout replier' : 'Tout déplier'}</button>}
           {agents.length > 6 && <input style={{ ...input, width: 200 }} placeholder="Filtrer…" value={filter} onChange={e => setFilter(e.target.value)} />}
-          <button style={btnPrimary} onClick={() => setAdding(true)}><UserPlus size={14} /> Ajouter des agents</button>
+          <button style={btnPrimary} onClick={() => setAdding(true)}><UserPlus size={14} /> Ajouter des agent·e·s</button>
         </div>
       </div>
       {msg && <Notice ok={msg.ok}>{msg.text}</Notice>}
 
       {loading ? <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}><Loader2 size={22} /></div>
-        : !agents.length ? <EmptyState icon={<Users size={28} />} title="Aucun agent dans votre liste" text="Ajoutez les agents dont vous validez l’entretien : choisissez-les dans votre périmètre RH, recherchez-les dans SEDIT RH, ou saisissez-les." />
+        : !agents.length ? <EmptyState icon={<Users size={28} />} title="Aucun agent·e dans votre liste" text="Ajoutez les agent·e·s dont vous validez l’entretien : choisissez-les dans votre périmètre RH, recherchez-les dans SEDIT RH, ou saisissez-les." />
           : (
             <div style={{ ...card, overflow: 'hidden' }}>
               {shown.map(a => {
@@ -754,16 +754,16 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
                       {e && e.preparation_statut !== 'non_commencee' && <Badge {...(PREP_STATUTS[e.preparation_statut] || PREP_STATUTS.non_commencee)} />}
                       {e && e.evaluation_statut !== 'non_commencee' && <Badge {...(EVAL_STATUTS[e.evaluation_statut] || EVAL_STATUTS.non_commencee)} />}
                       {crep && <Badge {...crep} />}
-                      {a.sous_valideur && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '2px 9px' }}>Valideur · {a.sous_valideur.nb_agents} agent{a.sous_valideur.nb_agents > 1 ? 's' : ''}</span>}
+                      {a.sous_valideur && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '2px 9px' }}>Évaluateur·rice · {a.sous_valideur.nb_agents} agent{a.sous_valideur.nb_agents > 1 ? 's' : ''}</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button style={btnGhost} disabled={!e} onClick={() => e && setOpenId(e.id)}><Eye size={13} /> Ouvrir</button>
                       {crepSigned(e) && <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(e!.id)} title="Compte rendu signé"><FileDown size={13} /> CREP signé</button>}
                       <button style={btnGhost} disabled={!e} onClick={() => plan(a)}><CalendarClock size={13} /> Planifier</button>
                       {a.sous_valideur
-                        ? <button style={btnGhost} onClick={() => demote(a)} title="Retirer la fonction de valideur"><UserMinus size={13} /> Valideur</button>
-                        : <button style={btnGhost} onClick={() => setPromoting({ agent: a, username: '', needUsername: false, busy: false, error: '' })} title="Il choisira à son tour ses propres agents"><UserCog size={13} /> Désigner valideur</button>}
-                      <button style={btnDanger} onClick={() => remove(a)} title={a.sous_valideur ? 'Retirer cet agent et les agents qu’il évalue' : 'Retirer de ma liste'}><Trash2 size={13} /></button>
+                        ? <button style={btnGhost} onClick={() => demote(a)} title="Retirer la fonction d’évaluateur·rice"><UserMinus size={13} /> Valideur</button>
+                        : <button style={btnGhost} onClick={() => setPromoting({ agent: a, username: '', needUsername: false, busy: false, error: '' })} title="Il choisira à son tour ses propres agent·e·s"><UserCog size={13} /> Désigner évaluateur·rice</button>}
+                      <button style={btnDanger} onClick={() => remove(a)} title={a.sous_valideur ? 'Retirer cet·te agent·e et les agent·e·s qu’il évalue' : 'Retirer de ma liste'}><Trash2 size={13} /></button>
                     </div>
                   </div>
                   {subOpen && a.sous_valideur && renderSub(a.sous_valideur.id, 1, [a.sous_valideur.id])}
@@ -775,21 +775,21 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
 
       {adding && <AjoutAgents onClose={() => setAdding(false)} onDone={(r) => {
         const parts: string[] = [];
-        if (r.added.length) parts.push(`${r.added.length} agent${r.added.length > 1 ? 's ajoutés' : ' ajouté'}.`);
-        if (r.conflits.length) parts.push(`Déjà rattaché à un autre valideur : ${r.conflits.map((c: any) => `${c.agent} (${c.valideur})`).join(', ')}.`);
+        if (r.added.length) parts.push(`${r.added.length} agent·e${r.added.length > 1 ? '·s ajouté·e·s' : ' ajouté·e'}.`);
+        if (r.conflits.length) parts.push(`Déjà rattaché à un autre évaluateur·rice : ${r.conflits.map((c: any) => `${c.agent} (${c.valideur})`).join(', ')}.`);
         if (r.erreurs.length) parts.push(r.erreurs.map((x: any) => x.message).join(' '));
-        setMsg({ ok: r.added.length > 0 && !r.conflits.length && !r.erreurs.length, text: parts.join(' ') || 'Aucun agent ajouté.' });
+        setMsg({ ok: r.added.length > 0 && !r.conflits.length && !r.erreurs.length, text: parts.join(' ') || 'Aucun agent·e ajouté.' });
         if (r.added.length) { setAdding(false); load(); }
       }} />}
       {promoting && (
-        <Overlay title={`Désigner ${fullName(promoting.agent)} comme valideur`} onClose={() => setPromoting(null)} width={480}>
+        <Overlay title={`Désigner ${fullName(promoting.agent)} comme évaluateur·rice`} onClose={() => setPromoting(null)} width={480}>
           <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 12 }}>
-            Il pourra choisir ses propres agents (de son service, ou n’importe quel agent) et désigner à son tour des valideurs. Son propre entretien reste validé par vous.
+            Il pourra choisir ses propres agent·e·s (de son service, ou n’importe quel agent·e) et désigner à son tour des évaluateur·rice·s. Son propre entretien reste validé par vous.
           </div>
           {promoting.error && <Notice ok={false}>{promoting.error}</Notice>}
           {promoting.needUsername && (
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 12 }}>
-              Identifiant de connexion de l’agent
+              Identifiant de connexion de l’agent·e
               <input style={{ ...input, maxWidth: 280 }} autoFocus value={promoting.username} placeholder="ex. jdupont" onChange={e => setPromoting({ ...promoting, username: e.target.value })} />
             </label>
           )}
@@ -873,7 +873,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'moi' as const, label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!dsi?.entretien && !!dsi?.selfAccess?.allowed },
     { key: 'evaluations' as const, label: 'EP que je réalise', icon: <ClipboardCheck size={15} />, visible: !!dsi?.isEvaluator || !!me?.isValideur || !!base?.isValideur, badge: dsi?.evaluatorCount || 0 },
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
-    { key: 'agents' as const, label: 'Mes agents', icon: <Users size={15} />, visible: false },
+    { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
     { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, badge: reopenPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin },
@@ -885,9 +885,12 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}>
       <div style={{ ...card, width: '100%', maxWidth: 1560, background: '#f8fafc' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: '12px 12px 0 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <img src="/img/logo.jpg" alt="Ville d’Ivry-sur-Seine" style={{ height: 42, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>Entretiens professionnels</div>
             <div style={{ fontSize: 12, color: COLORS.muted }}>{me?.campaign ? me.campaign.libelle || `Campagne ${me.campaign.annee}` : 'Campagne annuelle'} · tous les services de la Ville</div>
+          </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button onClick={() => setShowAide(true)} title="Aide" style={{ border: 'none', background: '#eef2ff', color: COLORS.primary, height: 34, borderRadius: 8, cursor: 'pointer', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5 }}>
@@ -899,7 +902,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
         <div style={{ padding: 20 }}>
           {error ? <Notice ok={false}>{error}</Notice> : !me ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}><Loader2 size={24} /></div> : (
             <>
-              {!me.sedit_configured && (me.isAdmin || me.isValideur) && <Notice ok={false}>L’API SEDIT RH n’est pas configurée sur le serveur (SEDITRH_API_URL et SEDITRH_API_KEY) : la recherche d’agents est indisponible.</Notice>}
+              {!me.sedit_configured && (me.isAdmin || me.isValideur) && <Notice ok={false}>L’API SEDIT RH n’est pas configurée sur le serveur (SEDITRH_API_URL et SEDITRH_API_KEY) : la recherche d’agent·e·s est indisponible.</Notice>}
               {tabs.length > 1 && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #e2e8f0', marginBottom: 18 }}>
                   {tabs.map(t => (
@@ -921,12 +924,12 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
               {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />} {/* ancien onglet, masqué : remplacé par Paramétrage */}
-              {!tab && <EmptyState icon={<ArrowRightLeft size={28} />} title="Aucun entretien à afficher" text="Vous n’avez pas d’entretien dans la campagne en cours et vous n’êtes pas valideur des entretiens professionnels." />}
+              {!tab && <EmptyState icon={<ArrowRightLeft size={28} />} title="Aucun entretien à afficher" text="Vous n’avez pas d’entretien dans la campagne en cours et vous n’êtes pas évaluateur·rice des entretiens professionnels." />}
             </>
           )}
         </div>
       </div>
-      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} />}
+      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} />}
       {showAide && (
         <AideEp
           onClose={() => setShowAide(false)}

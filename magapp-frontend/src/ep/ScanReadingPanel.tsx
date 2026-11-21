@@ -31,8 +31,8 @@ export default function ScanReadingPanel() {
         </button>
       </div>
       <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 8, lineHeight: 1.6 }}>
-        <strong>Si elle est activée</strong> : après le téléversement du CREP signé, le contenu et les cases cochées sont lus et proposés au valideur, qui les relit, les corrige et valide.<br />
-        <strong>Si elle est désactivée</strong> (par défaut) : le valideur consulte le document téléversé, confirme les 2 signatures, le valide puis clôture l’entretien, sans qu’on lui parle de lecture. Le document est quand même lu en arrière-plan : la <strong>version numérique est visible des seuls administrateurs</strong>, signalée par une pastille dans le Pilotage (avec un filtre pour les sélectionner ou les écarter).
+        <strong>Si elle est activée</strong> : après le téléversement du CREP signé, le contenu et les cases cochées sont lus et proposés à l’évaluateur·rice, qui les relit, les corrige et valide.<br />
+        <strong>Si elle est désactivée</strong> (par défaut) : l’évaluateur·rice consulte le document téléversé, confirme les 2 signatures, le valide puis clôture l’entretien, sans qu’on lui parle de lecture. Le document est quand même lu en arrière-plan : la <strong>version numérique est visible des seuls administrateurs</strong>, signalée par une pastille dans le Pilotage (avec un filtre pour les sélectionner ou les écarter).
       </div>
       {msg && <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 8, fontSize: 12.5, fontWeight: 600, color: msg.ok ? COLORS.success : COLORS.danger }}>{msg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {msg.text}</div>}
     </div>

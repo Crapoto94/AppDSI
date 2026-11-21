@@ -72,7 +72,7 @@ export default function Formations() {
 
   return (
     <div>
-      {data.simulation && <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', borderRadius: 9, padding: '8px 12px', fontSize: 12.5, fontWeight: 600, marginBottom: 12 }}>🧪 Mode simulation : ces demandes sont FICTIVES (la moitié des agents, selon leur métier). Elles ne sont pas enregistrées.</div>}
+      {data.simulation && <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', borderRadius: 9, padding: '8px 12px', fontSize: 12.5, fontWeight: 600, marginBottom: 12 }}>🧪 Mode simulation : ces demandes sont FICTIVES (la moitié des agent·e·s, selon leur métier). Elles ne sont pas enregistrées.</div>}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, fontWeight: 800, color: COLORS.text }}>
           <GraduationCap size={18} color={COLORS.primary} /> Demandes de formation — campagne {data.campaign.annee} <span style={{ fontWeight: 600, color: COLORS.muted, fontSize: 12.5 }}>({data.total} demande{data.total > 1 ? 's' : ''})</span>

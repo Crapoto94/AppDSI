@@ -64,7 +64,7 @@ function compteRenduEnvoye({ agent, annee, evaluateur, dateLimite, link }) {
 function aPlanifier({ evaluateur, agent, annee, service, link }) {
     const intro = `Bonjour <strong>${esc(evaluateur)}</strong>,<br><br>vous êtes désigné(e) évaluateur de l’entretien professionnel${annee ? ` ${esc(annee)}` : ''} de <strong>${esc(agent)}</strong>.`;
     const bodyHtml = `${infoBlock('Entretien à planifier', [['Agent', agent], ['Service', service]])}
-      <p style="font-size:14px;color:#334155;">Vous pouvez fixer vous-même le rendez-vous : l’application propose les prochains créneaux libres communs à l’agent et à vous, envoie l’invitation Outlook et prévient l’agent pour qu’il prépare son entretien.</p>
+      <p style="font-size:14px;color:#334155;">Vous pouvez fixer vous-même le rendez-vous : l’application propose les prochains créneaux libres communs à l’agent·e et à vous, envoie l’invitation Outlook et prévient l’agent·e pour qu’il prépare son entretien.</p>
       ${button(link, 'Planifier dans « Mes EP »', '#4f46e5')}`;
     return { subject: `📅 Entretien professionnel à planifier — ${agent}`, ...render('#4f46e5', '📅 Entretien à planifier', intro, bodyHtml, FOOTER) };
 }
@@ -73,7 +73,7 @@ function aPlanifier({ evaluateur, agent, annee, service, link }) {
 function rdvPlanifie({ evaluateur, agent, annee, service, quand, duree, lieu, link }) {
     const intro = `Bonjour <strong>${esc(evaluateur)}</strong>,<br><br>l’entretien professionnel${annee ? ` ${esc(annee)}` : ''} de <strong>${esc(agent)}</strong> est planifié.`;
     const bodyHtml = `${infoBlock('Rendez-vous', [['Agent', agent], ['Service', service], ['Date et heure', quand], ['Durée', duree ? `${duree} minutes` : ''], ['Lieu', lieu]])}
-      <p style="font-size:14px;color:#334155;">L’agent a été invité à préparer son entretien. Après l’entretien, vous rédigez le compte rendu dans « Mes EP », puis vous l’envoyez à l’agent pour validation et signature.</p>
+      <p style="font-size:14px;color:#334155;">L’agent·e a été invité à préparer son entretien. Après l’entretien, vous rédigez le compte rendu dans « Mes EP », puis vous l’envoyez à l’agent·e pour validation et signature.</p>
       ${button(link, 'Ouvrir « Mes EP »', '#4f46e5')}`;
     return { subject: `📅 Entretien professionnel planifié — ${agent}`, ...render('#4f46e5', '📅 Entretien planifié', intro, bodyHtml, FOOTER) };
 }

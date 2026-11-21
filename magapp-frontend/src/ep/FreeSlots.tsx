@@ -67,7 +67,7 @@ export default function FreeSlots({ participants, dureeMinutes, value, onPick }:
         <label style={chk}>
           <input type="checkbox" checked={afterHours} onChange={e => { setAfterHours(e.target.checked); if (opened) fetchSlots({ afterHours: e.target.checked }); }} /> Hors heures ouvrées (8h–19h)
         </label>
-        <label style={chk} title="Ne propose que des créneaux où l'agent et l'évaluateur sont tous deux libres">
+        <label style={chk} title="Ne propose que des créneaux où l'agent·e et l'évaluateur sont tous deux libres">
           <input type="checkbox" checked={strict} onChange={e => { setStrict(e.target.checked); if (opened) fetchSlots({ strict: e.target.checked }); }} /> Les deux libres uniquement
         </label>
         <label style={chk}>Sur
@@ -78,7 +78,7 @@ export default function FreeSlots({ participants, dureeMinutes, value, onPick }:
         </label>
       </div>
 
-      {missing && <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>Choisissez l’agent et l’évaluateur (avec adresse e-mail) pour rechercher leurs créneaux communs.</div>}
+      {missing && <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>Choisissez l’agent·e et l’évaluateur (avec adresse e-mail) pour rechercher leurs créneaux communs.</div>}
       {!missing && !opened && (
         <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
           Cherche les 5 prochains créneaux de {h}h{m ? String(m).padStart(2, '0') : ''} libres pour l’agent et l’évaluateur ({afterHours ? '8h–19h' : '8h30–12h / 13h30–17h30, ven. 17h'}, lun–ven).

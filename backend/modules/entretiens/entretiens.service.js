@@ -393,7 +393,19 @@ async function withRelations(entretien) {
 }
 
 /** Liste enrichie (compteurs de préparation) avec filtres facultatifs. */
-async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, search, excludeVille, ratIds, limit = 2000 } = {}) {
+let _listCols = null;
+/** Colonnes de la liste sans le corps du compte rendu (volumineux, inutile dans un tableau). */
+async function listColumns() {
+    if (_listCols) return _listCols;
+    try {
+        const rows = await pgDb.all("SELECT column_name FROM information_schema.columns WHERE table_schema = 'hub_entretiens' AND table_name = 'entretiens'");
+        const cols = rows.map(r => r.column_name).filter(c => c !== 'crep');
+        if (cols.length > 5) _listCols = cols.map(c => `e."${c}"`).join(', ');
+    } catch (e) { /* repli : toutes les colonnes */ }
+    return _listCols || 'e.*';
+}
+
+async function listEntretiens({ campaignId, statut, evaluatorEmail, evaluatorIdentities, agentMatricules, light, agentEmail, search, excludeVille, ratIds, limit = 2000 } = {}) {
     try { await require('./crep-scan-jobs').ensureTable(); } catch (e) { /* table des lectures */ }
     const where = [];
     const params = [];
@@ -403,13 +415,27 @@ async function listEntretiens({ campaignId, statut, evaluatorEmail, agentEmail, 
     if (statut) { where.push('e.statut = ?'); params.push(statut); }
     if (evaluatorEmail) { where.push('LOWER(e.evaluator_email) = LOWER(?)'); params.push(evaluatorEmail); }
     if (agentEmail) { where.push('LOWER(e.agent_email) = LOWER(?)'); params.push(agentEmail); }
+    if (Array.isArray(agentMatricules)) {
+        if (!agentMatricules.length) return [];
+        where.push(`e.agent_matricule IN (${agentMatricules.map(() => '?').join(',')})`); params.push(...agentMatricules.map(String));
+    }
+    // Filtrage par évaluateur directement en base (au lieu de charger toute la campagne puis de trier en mémoire)
+    if (Array.isArray(evaluatorIdentities)) {
+        const ors = []; 
+        for (const id of evaluatorIdentities) {
+            if (id && id.emails && id.emails.length) { ors.push(`LOWER(e.evaluator_email) IN (${id.emails.map(() => '?').join(',')})`); params.push(...id.emails.map(x => String(x).toLowerCase())); }
+            if (id && id.usernames && id.usernames.length) { ors.push(`LOWER(e.evaluator_username) IN (${id.usernames.map(() => '?').join(',')})`); params.push(...id.usernames.map(x => String(x).toLowerCase())); }
+        }
+        if (!ors.length) return [];
+        where.push(`(${ors.join(' OR ')})`);
+    }
     if (search) {
         const q = `%${String(search).trim()}%`;
         where.push('(e.agent_nom ILIKE ? OR e.agent_prenom ILIKE ? OR e.agent_email ILIKE ? OR e.evaluator_nom ILIKE ? OR e.evaluator_email ILIKE ?)');
         params.push(q, q, q, q, q);
     }
     const sql = `
-        SELECT e.*,
+        SELECT ${light ? await listColumns() : 'e.*'},
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id) AS objectifs_total,
           (SELECT COUNT(*) FROM hub_entretiens.objectifs o WHERE o.entretien_id = e.id AND o.niveau IS NOT NULL AND o.niveau <> '') AS objectifs_renseignes,
           (SELECT COUNT(*) FROM hub_entretiens.formations f WHERE f.entretien_id = e.id) AS formations_total,

@@ -30,7 +30,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
       const o = r.data.outlook;
       setResult({
         ok: !o || o.ok !== false,
-        text: o && o.ok === false ? `Entretien planifié, mais l’invitation Outlook a échoué : ${o.error}` : 'Entretien planifié : invitation Outlook envoyée et agent prévenu par e-mail.',
+        text: o && o.ok === false ? `Entretien planifié, mais l’invitation Outlook a échoué : ${o.error}` : 'Entretien planifié : invitation Outlook envoyée et agent·e prévenu par e-mail.',
       });
       onSaved();
     } catch (e: any) {
@@ -63,7 +63,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                 </Field>
                 {date && (new Date(date).getTime() - Date.now()) < 8 * 86400000 && (
                   <div style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>
-                    ⚠ Ce rendez-vous est à moins de 8 jours : le délai de prévenance de l’agent est court. Vous pouvez néanmoins le planifier.
+                    ⚠ Ce rendez-vous est à moins de 8 jours : le délai de prévenance de l’agent·e est court. Vous pouvez néanmoins le planifier.
                   </div>
                 )}
                 <Field label="Durée (minutes)">

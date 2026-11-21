@@ -104,7 +104,7 @@ export default function EntretienDetailModal({ entretienId, onClose, onSaved }: 
 
               <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
                 {[
-                  ...(prepEnabled ? [{ key: 'preparation', label: 'Préparation de l’agent', icon: <ClipboardList size={14} /> }] : []),
+                  ...(prepEnabled ? [{ key: 'preparation', label: 'Préparation de l’agent·e', icon: <ClipboardList size={14} /> }] : []),
                   { key: 'crep', label: 'Compte rendu d’entretien (CREP)', icon: <FileSignature size={14} /> },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key as any)}

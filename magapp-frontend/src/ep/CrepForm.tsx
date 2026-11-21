@@ -75,7 +75,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   const headers = { Authorization: `Bearer ${token}` };
   const isAgent = mode === 'agent';
   const [confirm, confirmDialog] = useConfirm();
-  const [openViewer, viewerElement] = useDocViewer();
+  const [openViewer, viewerElement, openViews] = useDocViewer();
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
   const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | 'scan' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -132,7 +132,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     try {
       const r = await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit, allow_incomplete: allowIncomplete || undefined }, { headers });
       onSaved(r.data.entretien);
-      setMsg({ ok: true, text: submit ? (crep.origine === 'manuscrit' ? 'Compte rendu validé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH : ce document numérique est non contractuel.' : 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent.') : 'Brouillon enregistré.' });
+      setMsg({ ok: true, text: submit ? (crep.origine === 'manuscrit' ? 'Compte rendu validé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la DRH : ce document numérique est non contractuel.' : 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent·e.') : 'Brouillon enregistré.' });
     } catch (e: any) {
       if (Array.isArray(e.response?.data?.missing)) { await showMissing(e.response.data.missing); setBusy(null); return; }
       setMsg({ ok: false, text: e.response?.data?.message || e.message || 'Enregistrement impossible' });
@@ -150,12 +150,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   };
 
   const recall = async () => {
-    if (!(await confirm('Rappeler le compte rendu ? Il ne sera plus visible par l’agent (qui en sera informé) et vous pourrez le corriger avant de le renvoyer.', { title: 'Rappeler le compte rendu', confirmLabel: 'Rappeler' }))) return;
+    if (!(await confirm('Rappeler le compte rendu ? Il ne sera plus visible par l’agent·e (qui en sera informé) et vous pourrez le corriger avant de le renvoyer.', { title: 'Rappeler le compte rendu', confirmLabel: 'Rappeler' }))) return;
     setBusy('recall'); setMsg(null);
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/recall`, {}, { headers });
       onSaved(r.data.entretien);
-      setMsg({ ok: true, text: 'Compte rendu rappelé : vous pouvez le modifier puis le renvoyer à l’agent.' });
+      setMsg({ ok: true, text: 'Compte rendu rappelé : vous pouvez le modifier puis le renvoyer à l’agent·e.' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message || 'Rappel impossible' });
     } finally { setBusy(null); }
@@ -179,12 +179,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   };
 
   const sendToAgent = async () => {
-    if (!(await confirm('Envoyer le compte rendu à l’agent ? Il pourra le relire, renseigner ses observations puis le valider pour signature. Vous ne pourrez plus le modifier.', { title: 'Envoyer à l’agent', confirmLabel: 'Envoyer' }))) return;
+    if (!(await confirm('Envoyer le compte rendu à l’agent·e ? Il pourra le relire, renseigner ses observations puis le valider pour signature. Vous ne pourrez plus le modifier.', { title: 'Envoyer à l’agent·e', confirmLabel: 'Envoyer' }))) return;
     setBusy('send'); setMsg(null);
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/send-to-agent`, {}, { headers });
       onSaved(r.data.entretien);
-      setMsg({ ok: true, text: r.data.mail?.ok === false ? `Compte rendu envoyé à l’agent (e-mail de notification en échec : ${r.data.mail.error}).` : 'Compte rendu envoyé à l’agent, qui en a été informé par e-mail.' });
+      setMsg({ ok: true, text: r.data.mail?.ok === false ? `Compte rendu envoyé à l’agent·e (e-mail de notification en échec : ${r.data.mail.error}).` : 'Compte rendu envoyé à l’agent·e, qui en a été informé par e-mail.' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message || 'Envoi impossible' });
     } finally { setBusy(null); }
@@ -193,8 +193,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   const agentValidate = async () => {
     // Les deux observations de l'agent sont obligatoires (« Néant » si rien à signaler).
     const obsMissing: string[] = [];
-    if (!crep.obs_agent_conditions.trim()) obsMissing.push('Observations de l’agent sur les conditions de travail et le fonctionnement du service (« Néant » si rien à signaler)');
-    if (!crep.obs_agent_entretien.trim()) obsMissing.push('Observations de l’agent sur l’entretien (« Néant » si rien à signaler)');
+    if (!crep.obs_agent_conditions.trim()) obsMissing.push('Observations de l’agent·e sur les conditions de travail et le fonctionnement du service (« Néant » si rien à signaler)');
+    if (!crep.obs_agent_entretien.trim()) obsMissing.push('Observations de l’agent·e sur l’entretien (« Néant » si rien à signaler)');
     if (obsMissing.length) { setMsg(null); await showMissing(obsMissing); return; }
     setMissing([]);
     if (!(await confirm('Validez-vous toutes ces informations ?\n\nSi vous validez, le compte rendu est envoyé au parapheur pour être cosigné par vous et par votre évaluateur (signature simple). Vous ne pourrez plus le modifier.', { title: 'Valider et envoyer pour signature', confirmLabel: 'Valider' }))) return;
@@ -223,21 +223,22 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     } finally { setBusy(null); }
   };
 
-  const openScan = async (idx: number) => {
-    setBusy('scan'); setMsg(null);
+  /** Documents consultables : le CREP numérisé (original) et, si on y a droit, le CREP reconstruit (version numérique). */
+  const digitalSilent = entretien.scan_reading === false && !!entretien.digital_silent;
+  const canSeeDigital = isAdminUser || entretien.scan_reading === true;
+  const digitalView = { label: (entretien.crep_scans || []).slice(-1)[0]?.kind === 'agent' ? 'Éléments relevés' : 'CREP reconstruit', fetch: async () => (await axios.get(`/api/entretiens/${entretien.id}/${digitalSilent ? 'crep/digital.pdf' : 'crep.pdf'}`, { headers, responseType: 'blob' })).data as Blob };
+  const openCrep = async (original: { label: string; fetch: () => Promise<Blob> } | null, first: 'original' | 'digital', busyKey: 'scan' | 'signedpdf' | 'pdf') => {
+    setBusy(busyKey); setMsg(null);
     try {
-      await openViewer('CREP original', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' })).data);
-    } catch (e: any) { setMsg({ ok: false, text: 'Scan indisponible.' }); } finally { setBusy(null); }
+      const views = [...(original ? [original] : []), ...(canSeeDigital ? [digitalView] : [])];
+      if (!views.length) { setMsg({ ok: false, text: 'Aucun document à afficher.' }); return; }
+      await openViews('Aperçu du CREP', views, first === 'digital' && original && canSeeDigital ? 1 : 0);
+    } catch { setMsg({ ok: false, text: 'Document indisponible.' }); } finally { setBusy(null); }
   };
+  const scanView = (idx: number) => ({ label: 'CREP numérisé', fetch: async () => (await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' })).data as Blob });
+  const openScan = (idx: number) => openCrep(scanView(idx), 'original', 'scan');
 
-  const openSignedPdf = async () => {
-    setBusy('signedpdf'); setMsg(null);
-    try {
-      await openViewer('CREP signé', async () => (await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' })).data);
-    } catch (e: any) {
-      setMsg({ ok: false, text: 'PDF signé indisponible.' });
-    } finally { setBusy(null); }
-  };
+  const openSignedPdf = () => openCrep({ label: 'CREP numérisé', fetch: async () => (await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' })).data as Blob }, 'original', 'signedpdf');
 
   const uploadSigned = async (picked: FileList | null) => {
     const files = picked ? Array.from(picked) : [];
@@ -257,10 +258,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   };
 
   const agent = `${entretien.agent_prenom || ''} ${entretien.agent_nom}`.trim();
-  /** Version numérique : lecture en arrière-plan (administrateurs seulement) si la lecture visible est désactivée, sinon le CREP saisi. */
-  const openDigital = async () => {
-    const silent = entretien.scan_reading === false && !!entretien.digital_silent;
-    await openViewer('Version numérique', async () => (await axios.get(`/api/entretiens/${entretien.id}/${silent ? 'crep/digital.pdf' : 'crep.pdf'}`, { headers, responseType: 'blob' })).data);
+  /** Version numérique : s'ouvre sur le CREP reconstruit, avec le choix du CREP numérisé quand il existe. */
+  const openDigital = () => {
+    const list = entretien.crep_scans || [];
+    const original = entretien.crep_signed_at ? { label: 'CREP numérisé', fetch: async () => (await axios.get(`/api/entretiens/${entretien.id}/crep-signe.pdf`, { headers, responseType: 'blob' })).data as Blob }
+      : list.length ? scanView(list.length - 1) : null;
+    return openCrep(original, 'digital', 'pdf');
   };
 
   // ─── Parcours guidé (mode manuscrit / outil) ───
@@ -347,27 +350,41 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   const lines = (...p: Array<string | null | undefined | false>) => p.filter(x => x && String(x).trim()).join('\n');
   const generalCtx = lines(
     `Fonction : ${entretien.poste || 'non précisée'} — ${entretien.service || entretien.direction || ''}`,
-    entretien.realisations && `Réalisations marquantes (agent) : ${entretien.realisations}`,
-    entretien.difficultes && `Difficultés rencontrées (agent) : ${entretien.difficultes}`,
-    entretien.pistes_amelioration && `Pistes d’amélioration (agent) : ${entretien.pistes_amelioration}`,
-    entretien.competences_a_developper && `Compétences à développer (agent) : ${entretien.competences_a_developper}`,
-    entretien.perspectives_missions && `Perspectives — missions (agent) : ${entretien.perspectives_missions}`,
-    entretien.perspectives_projet && `Projet professionnel (agent) : ${entretien.perspectives_projet}`,
+    entretien.realisations && `Réalisations marquantes (agent·e) : ${entretien.realisations}`,
+    entretien.difficultes && `Difficultés rencontrées (agent·e) : ${entretien.difficultes}`,
+    entretien.pistes_amelioration && `Pistes d’amélioration (agent·e) : ${entretien.pistes_amelioration}`,
+    entretien.competences_a_developper && `Compétences à développer (agent·e) : ${entretien.competences_a_developper}`,
+    entretien.perspectives_missions && `Perspectives — missions (agent·e) : ${entretien.perspectives_missions}`,
+    entretien.perspectives_projet && `Projet professionnel (agent·e) : ${entretien.perspectives_projet}`,
   );
   const objCtx = (i: number) => {
     const o = (entretien.objectifs || [])[i];
     return lines(
       `Objectif : ${crep.objectifs_ecoules[i].objectif || '(non renseigné)'}`,
-      o?.niveau && `Niveau d’atteinte déclaré par l’agent : ${o.niveau}`,
-      o?.resultats && `Résultats (agent) : ${o.resultats}`,
-      o?.difficultes && `Difficultés (agent) : ${o.difficultes}`,
-      o?.contexte && `Contexte (agent) : ${o.contexte}`,
+      o?.niveau && `Niveau d’atteinte déclaré par l’agent·e : ${o.niveau}`,
+      o?.resultats && `Résultats (agent·e) : ${o.resultats}`,
+      o?.difficultes && `Difficultés (agent·e) : ${o.difficultes}`,
+      o?.contexte && `Contexte (agent·e) : ${o.contexte}`,
       crep.objectifs_ecoules[i].niveau && `Niveau retenu par l’évaluateur : ${crep.objectifs_ecoules[i].niveau}`,
     );
   };
   void objCtx; // contexte IA par objectif : repris du DSI Hub, non utilisé dans cette version
   const ai = (rubrique: string, contexte?: string, withCrep = false) => (
     aiEnabled ? { entretienId: entretien.id, rubrique, contexte: contexte ?? generalCtx, crep: withCrep ? crep : undefined } : undefined
+  );
+
+  const importEl = (
+    <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any} big={guided}
+            onApply={(f) => {
+              const merged = { ...crep, ...f, formations: { ...crep.formations, ...(f.formations || {}) }, valeur: { ...crep.valeur, ...(f.valeur || {}) } } as Crep;
+              setCrep(merged);
+              // Contrôle de complétude dès la validation de l'import (mode manuscrit : tout le CREP vient du papier)
+              if (gMode === 'manuscrit') {
+                const m = missingFields(merged, entretien.crep_definition);
+                if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nVous pouvez les compléter, ou clôturer sans les renseigner (le document papier signé fait foi).`, { title: 'Rubriques non renseignées', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
+              }
+            }}
+            onApplied={() => { if (scanOn) setFormVisible(true); reloadEntretien(); }} scanReading={scanOn} />
   );
 
   // Entretien clôturé (évaluateur) : seulement afficher le CREP original, afficher la version numérique, demander la réouverture
@@ -377,7 +394,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         {confirmDialog}
         {viewerElement}
         <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7 }}>
-          <div><strong>Agent :</strong> {agent}</div>
+          <div><strong>Agent·e :</strong> {agent}</div>
           <div><strong>Direction / Service :</strong> {entretien.service || entretien.direction || '—'}</div>
           <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
         </div>
@@ -385,7 +402,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           formVisible={false} setFormVisible={() => {}} incomplete={[]} onStep={() => {}} scanReading={scanOn} isAdminUser={isAdminUser}
           onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>
-          <strong>Veuillez transmettre le CREP signé (original papier) à la DRH.</strong> {entretien.campaign_closed ? 'La campagne est close : le CREP est consultable dans le dossier de l’agent.' : 'Les documents restent consultables jusqu’à la clôture de la campagne.'}
+          <strong>Veuillez transmettre le CREP signé (original papier) à la DRH.</strong> {entretien.campaign_closed ? 'La campagne est close : le CREP est consultable dans le dossier de l’agent·e.' : 'Les documents restent consultables jusqu’à la clôture de la campagne.'}
         </div>
       </div>
     );
@@ -397,7 +414,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       {viewerElement}
       {/* En-tête du document */}
       <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.7 }}>
-        <div><strong>Agent :</strong> {agent}</div>
+        <div><strong>Agent·e :</strong> {agent}</div>
         <div><strong>Direction / Service :</strong> {entretien.service || entretien.direction || '—'}</div>
         <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
         <div><strong>Date de l’entretien :</strong> {entretien.date_entretien ? formatDateHeure(entretien.date_entretien) : '—'}</div>
@@ -413,8 +430,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           <div><strong>Veuillez transmettre le CREP signé (original papier) à la DRH.</strong> Le document numérique conservé dans l’outil est non contractuel : seul l’original signé fait foi.</div>
           <div style={{ marginTop: 3 }}>
             {entretien.campaign_closed
-              ? <>La campagne est close : le CREP est consultable dans le <strong>dossier de l’agent</strong>.</>
-              : <>Les documents (scan du CREP signé, PDF) restent consultables ici <strong>jusqu’à la clôture de la campagne</strong> ; ensuite, le CREP sera consultable dans le dossier de l’agent.</>}
+              ? <>La campagne est close : le CREP est consultable dans le <strong>dossier de l’agent·e</strong>.</>
+              : <>Les documents (scan du CREP signé, PDF) restent consultables ici <strong>jusqu’à la clôture de la campagne</strong> ; ensuite, le CREP sera consultable dans le dossier de l’agent·e.</>}
             {' '}Seul un administrateur peut dévalider un CREP, en cas d’erreur manifeste.
           </div>
         </div>
@@ -422,7 +439,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
         <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
           onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible}
-          incomplete={incompleteAfterImport} onStep={setStep} scanReading={scanOn} isAdminUser={isAdminUser}
+          uploadSlot={canEdit && showImport && guided ? importEl : null} incomplete={incompleteAfterImport} onStep={setStep} scanReading={scanOn} isAdminUser={isAdminUser}
           onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
       )}
       {isAgent && (
@@ -439,14 +456,14 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           </span>
         </div>
       )}
-      {!isAgent && (crep.origine === 'manuscrit' || (entretien.crep_scans || []).length > 0) && (
+      {!isAgent && (crep.origine === 'manuscrit' || (entretien.crep_scans || []).length > 0) && (scanOn || gMode !== 'outil') && (
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, fontSize: 12.5, color: '#991b1b', lineHeight: 1.55 }}>
           {scanOn ? (<>
             <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
-            <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
+            <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la DRH</b>, puis validez ce pendant numérique.</div>
           </>) : (<>
             <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu manuscrit — le document papier signé fait foi</div>
-            <div>Le CREP a été réalisé sur papier : le <b>document téléversé</b> (scan ou photo) est l’original à contrôler. Vérifiez qu’il est lisible, complet et qu’il porte les <b>2 signatures</b> avant de le valider. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH.</b></div>
+            <div>Le CREP a été réalisé sur papier : le <b>document téléversé</b> (scan ou photo) est l’original à contrôler. Vérifiez qu’il est lisible, complet et qu’il porte les <b>2 signatures</b> avant de le valider. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la DRH.</b></div>
           </>)}
           {(entretien.crep_scans || []).length > 0 && (!entretien.campaign_closed || entretien.access?.isAdmin) && (
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
@@ -457,7 +474,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
                 const i = list.length - 1; const sc = list[i];
                 return (
                   <button type="button" style={btnGhost} disabled={!!busy} onClick={() => openScan(i)}>
-                    <Eye size={13} /> CREP original{sc.kind === 'agent' ? ' (commentaires agent)' : ''} · {new Date(sc.at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
+                    <Eye size={13} /> CREP original{sc.kind === 'agent' && scanOn ? ' (commentaires agent·e)' : ''} · {new Date(sc.at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
                   </button>
                 );
               })()}
@@ -471,8 +488,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
             {crepStatut === 'envoye_agent'
-              ? <>Compte rendu envoyé à l’agent{entretien.crep_sent_at ? ` le ${new Date(entretien.crep_sent_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} : en attente de sa relecture et de sa validation.</>
-              : <>Validé par l’agent{entretien.crep_agent_validated_at ? ` le ${new Date(entretien.crep_agent_validated_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} et transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}{entretien.crep_parapheur_status ? ` — statut : ${entretien.crep_parapheur_status}` : ''}. Pensez à le signer dans votre parapheur.</>}
+              ? <>Compte rendu envoyé à l’agent·e{entretien.crep_sent_at ? ` le ${new Date(entretien.crep_sent_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} : en attente de sa relecture et de sa validation.</>
+              : <>Validé par l’agent·e{entretien.crep_agent_validated_at ? ` le ${new Date(entretien.crep_agent_validated_at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''} et transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}{entretien.crep_parapheur_status ? ` — statut : ${entretien.crep_parapheur_status}` : ''}. Pensez à le signer dans votre parapheur.</>}
           </span>
         </div>
       )}
@@ -480,7 +497,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
-            {!(entretien.agent_email || '').trim() && !(entretien.evaluator_email || '').trim() ? 'L’agent et l’évaluateur n’ont pas d’adresse e-mail' : !(entretien.agent_email || '').trim() ? 'L’agent n’a pas d’adresse e-mail' : 'L’évaluateur n’a pas d’adresse e-mail'} :
+            {!(entretien.agent_email || '').trim() && !(entretien.evaluator_email || '').trim() ? 'L’agent·e et l’évaluateur n’ont pas d’adresse e-mail' : !(entretien.agent_email || '').trim() ? 'L’agent·e n’a pas d’adresse e-mail' : 'L’évaluateur n’a pas d’adresse e-mail'} :
             le compte rendu ne peut pas passer par le parapheur. <strong>Imprimez-le</strong> (bouton « Imprimer / PDF »), faites-le signer, puis <strong>téléversez le PDF signé</strong>.
           </span>
         </div>
@@ -489,17 +506,17 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
-            La signature électronique n’est pas activée pour cet agent. <strong>Imprimez le compte rendu</strong> (bouton « Imprimer / PDF »),
+            La signature électronique n’est pas activée pour cet·te agent·e. <strong>Imprimez le compte rendu</strong> (bouton « Imprimer / PDF »),
             faites-le signer, puis <strong>téléversez le PDF signé</strong> depuis cette page.
           </span>
         </div>
       )}
-      {canEdit && !isAgent && !(guided && gMode === 'manuscrit') && gMode !== null && (
+      {canEdit && !isAgent && !locked && !(guided && gMode === 'manuscrit') && gMode !== null && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
             {prepEnabled
-              ? <>Ce compte rendu est <strong>pré-rempli avec la saisie de l’agent</strong> dans sa préparation. L’évaluation, elle,
+              ? <>Ce compte rendu est <strong>pré-rempli avec la saisie de l’agent·e</strong> dans sa préparation. L’évaluation, elle,
                 est <strong>à rédiger par vous</strong> : relisez, corrigez et complétez chaque rubrique, renseignez la grille
                 d’appréciation et l’appréciation générale.</>
               : <>L’évaluation est <strong>à rédiger par vous</strong> : renseignez chaque rubrique, la grille
@@ -507,19 +524,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           </span>
         </div>
       )}
-      {canEdit && !isAgent && showImport && (
+      {canEdit && !isAgent && showImport && !guided && (
         <div style={{ marginTop: 12 }}>
-          <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any} big={guided}
-            onApply={(f) => {
-              const merged = { ...crep, ...f, formations: { ...crep.formations, ...(f.formations || {}) }, valeur: { ...crep.valeur, ...(f.valeur || {}) } } as Crep;
-              setCrep(merged);
-              // Contrôle de complétude dès la validation de l'import (mode manuscrit : tout le CREP vient du papier)
-              if (gMode === 'manuscrit') {
-                const m = missingFields(merged, entretien.crep_definition);
-                if (m.length) { setFormVisible(true); confirm(`Le document a été repris, mais le compte rendu est incomplet :\n\n${m.map(i => `• ${i}`).join('\n')}\n\nVous pouvez les compléter, ou clôturer sans les renseigner (le document papier signé fait foi).`, { title: 'Rubriques non renseignées', confirmLabel: 'Compris', hideCancel: true, danger: true }); }
-              }
-            }}
-            onApplied={() => { if (scanOn) setFormVisible(true); reloadEntretien(); }} scanReading={scanOn} />
+          {importEl}
         </div>
       )}
       <div style={{ display: formVisible ? 'block' : 'none' }}>
@@ -529,7 +536,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           {(entretien.crep_definition as any)?.organisme && (entretien.crep_definition as any).organisme !== 'Ville' ? ` · ${(entretien.crep_definition as any).organisme}` : ''}
           {entretien.modele ? <span style={{ fontWeight: 500, color: '#94a3b8' }}> (modèle {entretien.modele.replace(/^Template_/i, '')})</span> : null}
         </div>
-        <div><b>Agent :</b> {`${(entretien.agent_nom || '').toUpperCase()} ${(entretien.agent_prenom || '').toUpperCase()}`.trim()}</div>
+        <div><b>Agent·e :</b> {`${(entretien.agent_nom || '').toUpperCase()} ${(entretien.agent_prenom || '').toUpperCase()}`.trim()}</div>
         <div><b>Direction / Service :</b> {entretien.service || entretien.direction || '—'}</div>
         <div><b>Fonctions exercées :</b> {entretien.poste || '—'}</div>
         <div><b>Grade actuel :</b> {crep.grade || entretien.agent_grade || '—'}</div>
@@ -542,13 +549,13 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <Field label="Date de l’entretien" hint="Par défaut : date planifiée. Modifiable.">
           <input style={input} type="date" disabled={dis} value={crep.date_entretien || isoDay(entretien.date_entretien)} onChange={e => set('date_entretien', e.target.value)} />
         </Field>
-        <Field label="Date de notification à l’agent" hint="Par défaut : date d’envoi à l’agent. Modifiable.">
+        <Field label="Date de notification à l’agent·e" hint="Par défaut : date d’envoi à l’agent·e. Modifiable.">
           <input style={input} type="date" disabled={dis} value={crep.date_notification || isoDay(entretien.crep_sent_at)} onChange={e => set('date_notification', e.target.value)} />
         </Field>
         <Field label="Nom de l’évaluateur (N+1)"><input style={input} disabled={dis} value={crep.evaluateur_nom} onChange={e => set('evaluateur_nom', e.target.value)} /></Field>
       </div>
       <div style={{ marginTop: 12 }}>
-        <Area label="Rappel des missions de l’agent" rows={3} disabled={dis} value={crep.missions} onChange={v => set('missions', v)} />
+        <Area label="Rappel des missions de l’agent·e" rows={3} disabled={dis} value={crep.missions} onChange={v => set('missions', v)} />
       </div>
 
       {/* Volet 1 */}
@@ -582,39 +589,45 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
 
       {/* Appréciation */}
       <H sub="Une seule réponse par critère">Appréciation de la valeur professionnelle</H>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+      {/* Même présentation que le contrôle d'un document lu : une ligne par critère, trois cases à cocher */}
+      <div style={{ overflowX: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '10px 12px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 520 }}>
           <thead>
-            <tr>
-              <th />
+            <tr style={{ background: '#f1f5f9' }}>
+              <th style={{ textAlign: 'left', padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>Critère</th>
               {LEVELS.map(l => (
-                <th key={l.key} style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textAlign: 'center', padding: '4px 6px', width: 120, lineHeight: 1.25 }}>{l.label}</th>
+                <th key={l.key} title={l.label} style={{ width: 72, textAlign: 'center', padding: '5px 4px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{l.key}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {(entretien.crep_definition?.criteria_groups || CRITERIA_GROUPS).map(g => (
-              <React.Fragment key={g.key}>
-                {g.title && (
-                  <tr><td colSpan={4} style={{ padding: '12px 0 4px', fontSize: 12.5, fontWeight: 800, color: COLORS.text }}>{g.title}</td></tr>
-                )}
-                {g.items.map(it => (
-                  <tr key={it.key} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '7px 8px 7px 0', fontSize: 12.5, color: '#334155' }}>{it.label}</td>
-                    {LEVELS.map(l => (
-                      <td key={l.key} style={{ textAlign: 'center' }}>
-                        <input type="radio" name={`crep-${it.key}`} disabled={dis} checked={crep.valeur[it.key] === l.key}
-                          onChange={() => set('valeur', { ...crep.valeur, [it.key]: l.key })}
-                          onClick={() => { if (crep.valeur[it.key] === l.key && !dis) { const v = { ...crep.valeur }; delete v[it.key]; set('valeur', v); } }}
-                          style={{ width: 16, height: 16, accentColor: COLORS.primary, cursor: dis ? 'default' : 'pointer' }} />
-                      </td>
-                    ))}
+            {(entretien.crep_definition?.criteria_groups || CRITERIA_GROUPS).flatMap(g => [
+              ...(g.title ? [<tr key={'g' + g.key}><td colSpan={4} style={{ padding: '5px 8px', background: '#eef2ff', fontWeight: 800, color: '#3730a3', border: `1px solid ${COLORS.border}` }}>{g.title}</td></tr>] : []),
+              ...g.items.map(it => {
+                const v = crep.valeur[it.key] || '';
+                return (
+                  <tr key={it.key} style={{ background: v ? '#fff' : '#fffbeb' }}>
+                    <td style={{ padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{it.label}</td>
+                    {LEVELS.map(l => {
+                      const on = v === l.key;
+                      const col = l.key === 'S' ? '#16a34a' : l.key === 'AS' ? '#b45309' : '#b91c1c';
+                      return (
+                        <td key={l.key} style={{ textAlign: 'center', border: `1px solid ${COLORS.border}`, padding: 0 }}>
+                          <button type="button" disabled={dis} aria-label={`${it.label} : ${l.key}`} aria-pressed={on}
+                            onClick={() => { if (dis) return; const nv = { ...crep.valeur }; if (on) delete nv[it.key]; else nv[it.key] = l.key; set('valeur', nv); }}
+                            style={{ width: '100%', height: 30, border: 'none', background: on ? `${col}18` : 'transparent', cursor: dis ? 'default' : 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
+                            {on ? '☒' : '☐'}
+                          </button>
+                        </td>
+                      );
+                    })}
                   </tr>
-                ))}
-              </React.Fragment>
-            ))}
+                );
+              }),
+            ])}
           </tbody>
         </table>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>S = satisfaisant · AS = assez satisfaisant · I = insuffisant. Une seule réponse par critère ; recliquer sur une case la décoche.</div>
       </div>
       <div style={{ marginTop: 14 }}>
         <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
@@ -652,11 +665,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       {/* Champs réservés à l'agent : renseignés par lui, après réception du compte rendu */}
       {(isAgent && (agentCanValidate || crep.obs_agent_conditions || crep.obs_agent_entretien)) || (!isAgent && (crep.obs_agent_conditions || crep.obs_agent_entretien)) ? (
         <>
-          <H sub={isAgent ? 'Champs réservés à l’agent : à renseigner avant de valider' : 'Renseignées par l’agent'}>Observations de l’agent</H>
+          <H sub={isAgent ? 'Champs réservés à l’agent·e : à renseigner avant de valider' : 'Renseignées par l’agent·e'}>Observations de l’agent·e</H>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Area label="Observations de l’agent sur les conditions de travail et le fonctionnement du service" rows={4} disabled={!agentCanValidate}
+            <Area label="Observations de l’agent·e sur les conditions de travail et le fonctionnement du service" rows={4} disabled={!agentCanValidate}
               value={crep.obs_agent_conditions} onChange={v => set('obs_agent_conditions', v)} />
-            <Area label="Observations de l’agent sur l’entretien" rows={4} disabled={!agentCanValidate}
+            <Area label="Observations de l’agent·e sur l’entretien" rows={4} disabled={!agentCanValidate}
               value={crep.obs_agent_entretien} onChange={v => set('obs_agent_entretien', v)} />
           </div>
         </>
@@ -738,7 +751,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
             </button>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>
-                {busy === 'send' ? <Loader2 size={14} /> : <Send size={14} />} Envoyer à l’agent
+                {busy === 'send' ? <Loader2 size={14} /> : <Send size={14} />} Envoyer à l’agent·e
               </button>
             )}
           </>
@@ -749,11 +762,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
             </span>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>
-                {busy === 'send' ? <Loader2 size={14} /> : <Send size={14} />} Envoyer à l’agent
+                {busy === 'send' ? <Loader2 size={14} /> : <Send size={14} />} Envoyer à l’agent·e
               </button>
             )}
             {crepStatut === 'envoye_agent' && (
-              <button style={btnGhost} disabled={!!busy} onClick={recall} title="Annuler l’envoi tant que l’agent n’a pas validé">
+              <button style={btnGhost} disabled={!!busy} onClick={recall} title="Annuler l’envoi tant que l’agent·e n’a pas validé">
                 {busy === 'recall' ? <Loader2 size={14} /> : <Undo2 size={14} />} Rappeler le compte rendu
               </button>
             )}

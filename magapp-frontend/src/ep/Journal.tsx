@@ -17,13 +17,13 @@ interface AuditRow {
 }
 
 const ACTION_LABELS: Record<string, string> = {
-  agent_ajoute: 'Agent ajouté à un valideur',
+  agent_ajoute: 'Agent·e ajouté à un·e évaluateur·rice',
   evaluateur_change: 'Changement d’évaluateur',
   preparation_enregistree: 'Préparation enregistrée',
   preparation_transmise: 'Préparation transmise',
-  crep_observations_brouillon: 'Observations agent (brouillon)',
-  crep_valide_agent: 'CREP validé par l’agent',
-  crep_envoye_agent: 'CREP envoyé à l’agent',
+  crep_observations_brouillon: 'Observations agent·e (brouillon)',
+  crep_valide_agent: 'CREP validé par l’agent·e',
+  crep_envoye_agent: 'CREP envoyé à l’agent·e',
   impression_crep: 'Impression CREP renseigné',
   impression_crep_vierge: 'Impression CREP vierge',
   crep_manuscrit: 'CREP manuscrit archivé',
@@ -94,8 +94,8 @@ export default function Journal() {
             <input style={input} placeholder="Nom, login ou e-mail…" value={draft.user} onChange={e => setDraft(d => ({ ...d, user: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') apply(); }} />
           </div>
           <div style={{ flex: '1 1 220px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>Agent / détail</div>
-            <input style={input} placeholder="Nom de l’agent ou contenu…" value={draft.q} onChange={e => setDraft(d => ({ ...d, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') apply(); }} />
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.muted, marginBottom: 4 }}>Agent·e / détail</div>
+            <input style={input} placeholder="Nom de l’agent·e ou contenu…" value={draft.q} onChange={e => setDraft(d => ({ ...d, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') apply(); }} />
           </div>
           <button style={btnPrimary} onClick={apply} disabled={loading}><Search size={14} /> Filtrer</button>
           <button style={btnGhost} onClick={reset} disabled={loading}>Réinitialiser</button>
@@ -113,7 +113,7 @@ export default function Journal() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                  {['Date', 'Auteur', 'Action', 'Agent', 'Détails'].map(h => (
+                  {['Date', 'Auteur', 'Action', 'Agent·e', 'Détails'].map(h => (
                     <th key={h} style={{ padding: '9px 12px', fontSize: 11.5, color: '#64748b', borderBottom: `1px solid ${COLORS.border}` }}>{h}</th>
                   ))}
                 </tr>

@@ -375,6 +375,20 @@ const entretiensController = {
             const j = jobs[0];
             if (!j) return fail(res, 404, 'Aucune lecture disponible pour cet entretien.');
             const result = typeof j.result === 'string' ? JSON.parse(j.result) : j.result;
+            if (j.mode === 'agent') {
+                // Saisie dans l'outil : seuls les éléments ajoutés par la lecture (2 commentaires de l'agent, présence des signatures)
+                const scans = typeof row.crep_scans === 'string' ? JSON.parse(row.crep_scans || '[]') : (row.crep_scans || []);
+                const lastScan = [...(Array.isArray(scans) ? scans : [])].reverse().find(x => x && x.path) || {};
+                const camp = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+                const pdf = await require('./digital-extract-pdf').buildExtractPdf({
+                    agent: svc.fullName(row.agent_prenom, row.agent_nom), annee: camp?.annee,
+                    conditions: result.fields?.obs_agent_conditions || '', entretien: result.fields?.obs_agent_entretien || '',
+                    signatures: result.signatures || lastScan.signatures_detectees || null, valideur: lastScan.signatures_ok === true,
+                });
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', 'inline; filename="CREP-elements-releves.pdf"');
+                return res.send(Buffer.from(pdf));
+            }
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
             const base = typeof row.crep === 'string' ? JSON.parse(row.crep) : (row.crep || {});
             // Mode « commentaires de l'agent » : seuls les 2 cadres de l'agent viennent de la lecture ; sinon tout le CREP
@@ -452,7 +466,8 @@ const entretiensController = {
                 await pgDb.run(
                     `UPDATE hub_entretiens.entretiens SET evaluation_statut = 'brouillon', evaluator_submitted_at = NULL,
                             statut = CASE WHEN date_entretien IS NULL THEN 'a_planifier' ELSE 'planifie' END,
-                            crep_statut = 'non_envoye', crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL, updated_at = NOW()
+                            crep_statut = 'non_envoye', crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
+                            drh_received_at = NULL, drh_received_by = NULL, updated_at = NOW()
                      WHERE id = ?`, [row.id]);
             }
             await pgDb.run("UPDATE hub_entretiens.reopen_requests SET status = ?, decided_by = ?, decided_at = NOW(), decision_note = ? WHERE id = ?",
@@ -488,6 +503,28 @@ const entretiensController = {
         } catch (err) { console.error('[ENTRETIENS] closeCampaign:', err.message); fail(res, 500, err.message); }
     },
 
+    // POST /api/entretiens/drh-reception { ids: [..], received: true|false } — un administrateur déclare (ou annule) la réception du CREP signé par la DRH
+    drhReception: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id]).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+            if (!ids.length) return fail(res, 400, 'Aucun entretien indiqué.');
+            const received = req.body?.received !== false;
+            let ok = 0; const refused = [];
+            for (const id of ids) {
+                const row = await svc.getEntretienById(id);
+                if (!row) continue;
+                if (received && row.evaluation_statut !== 'soumis') { refused.push(`${svc.fullName(row.agent_prenom, row.agent_nom)} : CREP non validé`); continue; }
+                if (received) await pgDb.run('UPDATE hub_entretiens.entretiens SET drh_received_at = COALESCE(drh_received_at, NOW()), drh_received_by = COALESCE(drh_received_by, ?), updated_at = NOW() WHERE id = ?', [actor.username || actor.email || '', id]);
+                else await pgDb.run('UPDATE hub_entretiens.entretiens SET drh_received_at = NULL, drh_received_by = NULL, updated_at = NOW() WHERE id = ?', [id]);
+                await svc.logAudit({ actor, action: received ? 'crep_recu_drh' : 'crep_recu_drh_annule', entretien: row, details: {} });
+                ok++;
+            }
+            res.json({ ok: true, updated: ok, refused });
+        } catch (err) { console.error('[ENTRETIENS] drhReception:', err.message); fail(res, 500, err.message); }
+    },
+
     // POST /api/entretiens/:id/crep/unvalidate { reason } — « dévalider » un CREP en cas d'erreur manifeste (administrateurs uniquement)
     crepUnvalidate: async (req, res) => {
         try {
@@ -506,7 +543,7 @@ const entretiensController = {
                 `UPDATE hub_entretiens.entretiens SET evaluation_statut = 'brouillon', evaluator_submitted_at = NULL,
                         statut = CASE WHEN date_entretien IS NULL THEN 'a_planifier' ELSE 'planifie' END,
                         crep_statut = 'non_envoye', crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                        updated_at = NOW()
+                        drh_received_at = NULL, drh_received_by = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
             await svc.logAudit({ actor, action: 'crep_devalide', entretien: row, details: { motif: reason, statut_avant: row.statut } });
             res.json({ ok: true });
@@ -659,7 +696,7 @@ const entretiensController = {
 
                 let agents;
                 if (b.self_agents !== undefined) {
-                    if (!Array.isArray(b.self_agents)) return fail(res, 400, 'Liste d’agents invalide.');
+                    if (!Array.isArray(b.self_agents)) return fail(res, 400, 'Liste d’agent·e·s invalide.');
                     const seen = new Set();
                     agents = [];
                     for (const raw of b.self_agents) {
@@ -678,7 +715,7 @@ const entretiensController = {
                 }
 
                 if (enabled && !all && !agents.length) {
-                    return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir « Mon entretien ».');
+                    return fail(res, 400, 'Sélectionnez au moins un·e agent·e avant d’ouvrir « Mon entretien ».');
                 }
                 if (b.self_enabled !== undefined) updates.self_enabled = enabled ? 'true' : 'false';
                 if (b.self_all !== undefined) updates.self_all = all ? 'true' : 'false';
@@ -695,7 +732,7 @@ const entretiensController = {
 
                 let agents;
                 if (b.esign_agents !== undefined) {
-                    if (!Array.isArray(b.esign_agents)) return fail(res, 400, 'Liste d’agents invalide.');
+                    if (!Array.isArray(b.esign_agents)) return fail(res, 400, 'Liste d’agent·e·s invalide.');
                     const seen = new Set();
                     agents = [];
                     for (const raw of b.esign_agents) {
@@ -714,7 +751,7 @@ const entretiensController = {
                 }
 
                 if (enabled && !all && !agents.length) {
-                    return fail(res, 400, 'Sélectionnez au moins un agent avant d’ouvrir la signature électronique.');
+                    return fail(res, 400, 'Sélectionnez au moins un·e agent·e avant d’ouvrir la signature électronique.');
                 }
                 if (b.esign_enabled !== undefined) updates.esign_enabled = enabled ? 'true' : 'false';
                 if (b.esign_all !== undefined) updates.esign_all = all ? 'true' : 'false';
@@ -819,7 +856,7 @@ const entretiensController = {
             const matches = (r, identity) => (svc.norm(r.evaluator_email) && identity.emails.includes(svc.norm(r.evaluator_email)))
                 || (svc.norm(r.evaluator_username) && identity.usernames.includes(svc.norm(r.evaluator_username)));
 
-            const all = await svc.listEntretiens({ campaignId: campaign?.id });
+            const all = await svc.listEntretiens({ campaignId: campaign?.id, light: true, evaluatorIdentities: [identityCache, ...(isPlannerUser ? [pid] : [])] });
             const rows = [];
             for (const r of all) {
                 if (matches(r, identityCache)) rows.push(r);
@@ -872,7 +909,7 @@ const entretiensController = {
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
-            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son évaluateur·rice et aux administrateurs.');
             if (await documentsClosed(row, role)) return fail(res, 403, CLOSED_MSG);
             const job = await pgDb.get('SELECT scan_path, scan_name FROM hub_entretiens.crep_scan_jobs WHERE id = ? AND entretien_id = ?', [Number(req.params.jobId), row.id]);
             if (!job || !job.scan_path) return fail(res, 404, 'Document introuvable.');
@@ -921,7 +958,7 @@ const entretiensController = {
                     await pgDb.run("UPDATE hub_entretiens.entretiens SET evaluation_statut = 'soumis', evaluator_submitted_at = NOW(), statut = 'realise', updated_at = NOW() WHERE id = ?", [row.id]);
                 } else return fail(res, 400, 'Le compte rendu doit d’abord être validé.');
             }
-            if (!last && !row.crep_signed_path) return fail(res, 400, 'Téléversez le CREP signé et vérifiez la présence des 2 signatures (agent et évaluateur) avant de clôturer.');
+            if (!last && !row.crep_signed_path) return fail(res, 400, 'Téléversez le CREP signé et vérifiez la présence des 2 signatures (agent·e et évaluateur) avant de clôturer.');
             if (last && !row.crep_signed_path) {
                 // Le document signé vérifié devient le CREP signé archivé de l'entretien (copie indépendante du scan conservé)
                 const f = await storage.getFileForServe(last.path);
@@ -960,7 +997,7 @@ const entretiensController = {
             if (!row) return fail(res, 404, 'Entretien introuvable.');
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
-            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son évaluateur·rice et aux administrateurs.');
             if (await documentsClosed(row, role)) return fail(res, 403, CLOSED_MSG);
             const list = Array.isArray(row.crep_scans) ? row.crep_scans : [];
             const item = list[Number(req.params.idx)];
@@ -1051,15 +1088,15 @@ const entretiensController = {
             const agentNom = text(b.agent_nom || b.nom).trim();
             const agentPrenom = text(b.agent_prenom || b.prenom).trim();
             const agentEmail = text(b.agent_email || b.email).trim();
-            if (!agentNom && !agentPrenom) return fail(res, 400, 'Le nom de l’agent est requis.');
-            if (agentEmail && !svc.isEmail(agentEmail)) return fail(res, 400, 'Adresse email de l’agent invalide.');
+            if (!agentNom && !agentPrenom) return fail(res, 400, 'Le nom de l’agent·e est requis.');
+            if (agentEmail && !svc.isEmail(agentEmail)) return fail(res, 400, 'Adresse email de l’agent·e invalide.');
 
             if (agentEmail) {
                 const dup = await pgDb.get(
                     'SELECT id FROM hub_entretiens.entretiens WHERE deleted_at IS NULL AND campaign_id = ? AND LOWER(agent_email) = LOWER(?)',
                     [campaign.id, agentEmail]
                 );
-                if (dup) return fail(res, 409, 'Un entretien existe déjà pour cet agent sur cette campagne.');
+                if (dup) return fail(res, 409, 'Un entretien existe déjà pour cet·te agent·e sur cette campagne.');
             }
 
             const evaluatorEmail = text(b.evaluator_email).trim();
@@ -1101,7 +1138,7 @@ const entretiensController = {
             if (row.evaluator_email) await svc.sendEvaluatorMail(row, campaign); // sans date : à planifier ; avec date : confirmation
             res.status(201).json({ entretien: await svc.withRelations(row), outlook });
         } catch (err) {
-            if (err.code === '23505') return fail(res, 409, 'Un entretien existe déjà pour cet agent sur cette campagne.');
+            if (err.code === '23505') return fail(res, 409, 'Un entretien existe déjà pour cet·te agent·e sur cette campagne.');
             console.error('[ENTRETIENS] create:', err.message);
             fail(res, 500, err.message);
         }
@@ -1124,13 +1161,13 @@ const entretiensController = {
             if (b.agent_prenom !== undefined) add('agent_prenom', text(b.agent_prenom).trim());
             if (b.agent_email !== undefined) {
                 const email = text(b.agent_email).trim().toLowerCase();
-                if (email && !svc.isEmail(email)) return fail(res, 400, 'Adresse email de l’agent invalide.');
+                if (email && !svc.isEmail(email)) return fail(res, 400, 'Adresse email de l’agent·e invalide.');
                 if (email) {
                     const dup = await pgDb.get(
                         'SELECT id FROM hub_entretiens.entretiens WHERE deleted_at IS NULL AND campaign_id = ? AND LOWER(agent_email) = LOWER(?) AND id <> ?',
                         [current.campaign_id, email, id]
                     );
-                    if (dup) return fail(res, 409, 'Un entretien existe déjà pour cet agent sur cette campagne.');
+                    if (dup) return fail(res, 409, 'Un entretien existe déjà pour cet·te agent·e sur cette campagne.');
                 }
                 add('agent_email', email);
             }
@@ -1183,7 +1220,7 @@ const entretiensController = {
             }
             res.json({ entretien: await svc.withRelations(await svc.getEntretienById(id)), outlook });
         } catch (err) {
-            if (err.code === '23505') return fail(res, 409, 'Un entretien existe déjà pour cet agent sur cette campagne.');
+            if (err.code === '23505') return fail(res, 409, 'Un entretien existe déjà pour cet·te agent·e sur cette campagne.');
             console.error('[ENTRETIENS] update:', err.message);
             fail(res, 500, err.message);
         }
@@ -1347,7 +1384,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut renseigner le compte rendu.');
-            if (!access.canEditEvaluation) return fail(res, 403, row.crep_statut && row.crep_statut !== 'non_envoye' ? 'Le compte rendu a été envoyé à l’agent : il n’est plus modifiable.' : 'Cet entretien est clôturé.');
+            if (!access.canEditEvaluation) return fail(res, 403, row.crep_statut && row.crep_statut !== 'non_envoye' ? 'Le compte rendu a été envoyé à l’agent·e : il n’est plus modifiable.' : 'Cet entretien est clôturé.');
 
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
             const crep = normalizeCrep(req.body?.crep, cdef);
@@ -1762,7 +1799,7 @@ const entretiensController = {
                 const p = row.crep_parapheur_id ? await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]) : null;
                 if (p && !['refuse', 'annule'].includes(p.status)) return fail(res, 409, 'Ce compte rendu est en cours de signature dans le parapheur : attendez la fin du circuit (ou annulez-le) avant de téléverser une version papier.');
             }
-            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent : rappelez-le d’abord pour passer par une signature papier.');
+            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent·e : rappelez-le d’abord pour passer par une signature papier.');
             const saved = await storage.saveFile('entretiens', row.id, { buffer: f.buffer, originalname: f.originalname || 'crep-signe.pdf' });
             const previous = row.crep_signed_path;
             await pgDb.run(
@@ -1817,6 +1854,7 @@ const entretiensController = {
                 for (const pth of paths) { try { await storage.deleteFile(pth); } catch (e) { /* fichier déjà absent */ } }
                 await pgDb.run('DELETE FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ?', [row.id]).catch(() => {});
                 await pgDb.run('DELETE FROM hub_entretiens.relances WHERE entretien_id = ?', [row.id]).catch(() => {});
+                await pgDb.run('DELETE FROM hub_entretiens.reopen_requests WHERE entretien_id = ?', [row.id]).catch(() => {});   // demandes de réouverture
             } catch (e) { warnings.push('Scans originaux : ' + e.message); }
             try { await pgDb.run('DELETE FROM hub_entretiens.objectifs WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Objectifs : ' + e.message); }
             try { await pgDb.run('DELETE FROM hub_entretiens.formations WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Formations : ' + e.message); }
@@ -1835,7 +1873,7 @@ const entretiensController = {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, crep_mode = NULL, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
 
             await svc.logAudit({
@@ -1870,7 +1908,7 @@ const entretiensController = {
                 const p = row.crep_parapheur_id ? await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]) : null;
                 if (p && !['refuse', 'annule'].includes(p.status)) return fail(res, 409, 'Ce compte rendu est en cours de signature dans le parapheur : attendez la fin du circuit (ou annulez-le) avant de téléverser une version papier.');
             }
-            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent : rappelez-le d’abord pour passer par une signature papier.');
+            if (row.crep_statut === 'envoye_agent') return fail(res, 409, 'Ce compte rendu a été envoyé à l’agent·e : rappelez-le d’abord pour passer par une signature papier.');
             const files = Array.isArray(req.files) ? req.files.filter(f => f && f.buffer && f.buffer.length) : [];
             if (!files.length) return fail(res, 400, 'Aucun fichier reçu.');
             if (files.length > 8) return fail(res, 400, '8 pages maximum.');
@@ -1940,7 +1978,7 @@ const entretiensController = {
             const parts = (Array.isArray(participants) ? participants : [])
                 .filter(p => p && p.email && String(p.email).includes('@'))
                 .map(p => ({ email: p.email, name: p.name || p.email }));
-            if (parts.length === 0) return fail(res, 400, 'Choisissez d’abord l’agent et l’évaluateur (adresse e-mail requise).');
+            if (parts.length === 0) return fail(res, 400, 'Choisissez d’abord l’agent·e et l’évaluateur (adresse e-mail requise).');
 
             const { findCommonSlots } = require('../rencontres/outlook.service');
             const slots = await findCommonSlots({
@@ -2001,7 +2039,7 @@ const entretiensController = {
             const actor = await svc.getActor(req);
             const role = await svc.resolveRole(actor);
             const myMatricule = (!role.isAdmin && !role.isEvaluator) ? await epBase.meMatricule(actor) : '';
-            if (!role.isAdmin && !role.isEvaluator && !myMatricule) return fail(res, 403, 'Accès réservé aux évaluateurs et aux valideurs.');
+            if (!role.isAdmin && !role.isEvaluator && !myMatricule) return fail(res, 403, 'Accès réservé aux évaluateurs et aux évaluateur·rice·s.');
             const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
             if (!campaign) return res.json({ campaign: null, items: [] });
             const q = text(req.query.q).trim().toLowerCase();
@@ -2041,7 +2079,7 @@ const entretiensController = {
             if (row.evaluator_email || row.evaluator_username) return fail(res, 409, 'Cet entretien a déjà un évaluateur.');
             const matricule = await epBase.meMatricule(actor);
             if (!role.isAdmin) {
-                if (!matricule) return fail(res, 403, 'Vous n’êtes pas reconnu comme valideur dans la base des agents.');
+                if (!matricule) return fail(res, 403, 'Vous n’êtes pas reconnu comme évaluateur·rice dans la base des agent·e·s.');
             }
             const evaluatorName = actor.displayName || actor.username || actor.email || 'Évaluateur';
             if (matricule && row.agent_matricule) {
@@ -2075,7 +2113,7 @@ const entretiensController = {
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
                 || await canManageUnassigned(actor, row)
                 || (unassigned && (role.isEvaluator || baseValideur));
-            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son évaluateur·rice ou à un administrateur.');
             const candidates = await epBase.candidatesForAgent(row.agent_matricule || '', { all: true });
             res.json({ candidates, current: { username: row.evaluator_username || '', email: row.evaluator_email || '', nom: row.evaluator_nom || '' } });
         } catch (err) { fail(res, 500, err.message); }
@@ -2094,16 +2132,16 @@ const entretiensController = {
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
                 || await canManageUnassigned(actor, row)
                 || (unassigned && (role.isEvaluator || baseValideur));
-            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son évaluateur·rice ou à un administrateur.');
             if (row.crep_statut === 'en_signature') return fail(res, 409, 'Le compte rendu est en cours de signature dans le parapheur avec l’évaluateur actuel : attendez la fin du circuit (ou faites annuler le parapheur par un administrateur) avant de changer d’évaluateur.');
             const matricule = text(req.body?.evaluator_matricule).trim();
             if (!matricule) return fail(res, 400, 'Choisissez le nouvel évaluateur.');
-            if (String(matricule) === String(row.agent_matricule)) return fail(res, 400, 'Un agent ne peut pas être son propre évaluateur.');
+            if (String(matricule) === String(row.agent_matricule)) return fail(res, 400, 'Un·e agent·e ne peut pas être son propre évaluateur.');
             const candidates = await epBase.candidatesForAgent(row.agent_matricule || '', { all: true });
             const chosen = candidates.find(c => String(c.matricule) === String(matricule));
-            if (!chosen) return fail(res, 400, 'Cet agent ne fait pas partie des évaluateurs possibles pour cet entretien.');
+            if (!chosen) return fail(res, 400, 'Cet·te agent·e ne fait pas partie des évaluateurs possibles pour cet entretien.');
             const evaluator = await pgDb.get('SELECT matricule, nom_prenom, email, ad_username FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
-            if (!evaluator) return fail(res, 404, 'Évaluateur introuvable dans la base des agents.');
+            if (!evaluator) return fail(res, 404, 'Évaluateur introuvable dans la base des agent·e·s.');
             const oldName = row.evaluator_nom || row.evaluator_email || '';
             if (row.agent_matricule) {
                 try { await epBase.setValideurAndSync(row.agent_matricule, matricule, actor); } catch (e) { console.warn('[ENTRETIENS] reassign valideur:', e.message); }
@@ -2139,8 +2177,8 @@ const entretiensController = {
             const manager = !!(access && (access.isEvaluator || access.isSuperieur || access.isAdmin))
                 || await canManageUnassigned(actor, row)
                 || (unassigned && (role.isEvaluator || baseValideur));
-            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur ou à un administrateur.');
-            if (!row.agent_matricule) return fail(res, 400, 'Cet agent n’est pas rattaché à la base des agents : impossible de lier un compte AD.');
+            if (!manager) return fail(res, 403, 'Réservé à l’évaluateur, à son évaluateur·rice ou à un administrateur.');
+            if (!row.agent_matricule) return fail(res, 400, 'Cet·te agent·e n’est pas rattaché à la base des agent·e·s : impossible de lier un compte AD.');
             const username = text(req.body?.username).trim();
             if (!username) return fail(res, 400, 'Choisissez un compte AD.');
             const linked = await epBase.linkAd(row.agent_matricule, username);

@@ -51,7 +51,7 @@ function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers:
             <option value="">{agent.valideur_matricule ? current + ' (choix manuel)' : `— choisir (${cands.length} possibles) —`}</option>
             {cands.map(c => <option key={c.matricule} value={c.matricule}>{c.nom}{c.poste ? ` · ${c.poste}` : ''}</option>)}
           </select>
-        ) : current ? <span>{current}</span> : <span style={{ fontSize: 12, color: '#b91c1c' }}>Aucun valideur</span>}
+        ) : current ? <span>{current}</span> : <span style={{ fontSize: 12, color: '#b91c1c' }}>Aucun évaluateur·rice</span>}
         {agent.valideur_source === 'admin' && <span style={{ fontSize: 10.5, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 7px' }}>choisi</span>}
         <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => setOpen(o => !o)}>{open ? 'Fermer' : 'Choisir ailleurs…'}</button>
         {agent.valideur_matricule && agent.valideur_source === 'admin' && (
@@ -60,7 +60,7 @@ function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers:
       </div>
       {open && (
         <div style={{ marginTop: 6, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, background: '#fff', maxWidth: 340 }}>
-          <input autoFocus style={{ ...input, padding: '5px 8px', fontSize: 12 }} placeholder="Nom ou matricule du valideur (2 lettres min.)" value={q} onChange={e => setQ(e.target.value)} />
+          <input autoFocus style={{ ...input, padding: '5px 8px', fontSize: 12 }} placeholder="Nom ou matricule de l’évaluateur·rice (2 lettres min.)" value={q} onChange={e => setQ(e.target.value)} />
           <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 6 }}>
             {hits.map(h => (
               <button key={h.matricule} onClick={() => { onChoose(h.matricule); setOpen(false); setQ(''); }}
@@ -68,7 +68,7 @@ function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers:
                 <b>{h.nom}</b> <span style={{ color: COLORS.muted }}>· {h.poste || h.matricule}</span>
               </button>
             ))}
-            {q.trim().length >= 2 && !hits.length && <div style={{ fontSize: 12, color: COLORS.muted, padding: 4 }}>Aucun agent trouvé.</div>}
+            {q.trim().length >= 2 && !hits.length && <div style={{ fontSize: 12, color: COLORS.muted, padding: 4 }}>Aucun agent·e trouvé.</div>}
           </div>
         </div>
       )}
@@ -233,7 +233,7 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
         {sansValideur.length > 0 && (!matchSet || sansValideur.some(r => matchSet.has(r.matricule))) && (
           <div>
             <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 800, color: '#b91c1c', background: '#fef2f2' }}>
-              Sans valideur ({sansValideur.length}) : affectez-en un avec « Choisir ailleurs… »
+              Sans évaluateur·rice ({sansValideur.length}) : affectez-en un avec « Choisir ailleurs… »
             </div>
             {sansValideur.map(r => render(r, 1, new Set()))}
           </div>
@@ -383,7 +383,7 @@ export default function BaseAgents() {
       const r = await axios.post('/api/ep-base/import', fd, { headers });
       const d = r.data;
       const en = d.entretiens || {};
-      setMsg({ ok: !en.erreur, text: `${d.a_evaluer} agent(s) à évaluer sur ${d.agents} · ${d.modeles.length} modèle(s) de CREP lus · ${d.a_choisir} valideur(s) à choisir · ${d.sans_valideur} agent(s) sans valideur trouvé.${en.erreur ? ' Entretiens non générés : ' + en.erreur : ` Entretiens : ${en.crees || 0} créé(s), ${en.mis_a_jour || 0} mis à jour.`}` });
+      setMsg({ ok: !en.erreur, text: `${d.a_evaluer} agent·e(s) à évaluer sur ${d.agents} · ${d.modeles.length} modèle(s) de CREP lus · ${d.a_choisir} évaluateur·rice(s) à choisir · ${d.sans_valideur} agent·e(s) sans évaluateur·rice trouvé.${en.erreur ? ' Entretiens non générés : ' + en.erreur : ` Entretiens : ${en.crees || 0} créé(s), ${en.mis_a_jour || 0} mis à jour.`}` });
       await load();
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Import impossible.' }); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
@@ -394,19 +394,19 @@ export default function BaseAgents() {
     try {
       const r = await axios.post('/api/ep-base/entretiens/sync', {}, { headers });
       const d = r.data;
-      setMsg({ ok: !d.erreurs?.length, text: `Entretiens : ${d.crees} créé(s), ${d.mis_a_jour} mis à jour, ${d.retires} retiré(s), ${d.deja_commences} déjà commencé(s) (inchangés), ${d.sans_valideur} agent(s) sans valideur (aucun entretien).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.slice(0, 3).join(' · ') : ''}` });
+      setMsg({ ok: !d.erreurs?.length, text: `Entretiens : ${d.crees} créé(s), ${d.mis_a_jour} mis à jour, ${d.retires} retiré(s), ${d.deja_commences} déjà commencé(s) (inchangés), ${d.sans_valideur} agent·e(s) sans évaluateur·rice (aucun entretien).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.slice(0, 3).join(' · ') : ''}` });
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || ('Génération impossible' + (e?.response?.status ? ' (HTTP ' + e.response.status + ')' : ' : ' + (e?.message || ''))) }); }
     finally { setBusy(false); }
   };
 
   const purgeLegacy = async () => {
-    if (!window.confirm('Supprimer TOUS les anciens entretiens (tests, DSI comprise) et TOUS les anciens valideurs avec leurs listes d’agents ?\n\nSeuls les entretiens générés depuis la base des agents sont conservés. Les entretiens supprimés sont masqués (suppression logique).')) return;
+    if (!window.confirm('Supprimer TOUS les anciens entretiens (tests, DSI comprise) et TOUS les anciens évaluateur·rice·s avec leurs listes d’agent·e·s ?\n\nSeuls les entretiens générés depuis la base des agent·e·s sont conservés. Les entretiens supprimés sont masqués (suppression logique).')) return;
     if (window.prompt('Tapez SUPPRIMER pour confirmer') !== 'SUPPRIMER') return;
     setBusy(true); setMsg(null);
     try {
       const r = await axios.post('/api/ep-base/entretiens/purge', { confirm: 'SUPPRIMER' }, { headers });
       const d = r.data;
-      setMsg({ ok: !d.erreurs?.length, text: `${d.entretiens} ancien(s) entretien(s), ${d.valideurs} ancien(s) valideur(s) et ${d.listes} liste(s) d’agents supprimé(s).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.join(' · ') : ''}` });
+      setMsg({ ok: !d.erreurs?.length, text: `${d.entretiens} ancien(s) entretien(s), ${d.valideurs} ancien(s) évaluateur·rice(s) et ${d.listes} liste(s) d’agent·e·s supprimé(s).${d.erreurs?.length ? ' Erreurs : ' + d.erreurs.join(' · ') : ''}` });
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || ('Suppression impossible' + (e?.response?.status ? ' (HTTP ' + e.response.status + (e.response.status === 404 ? ' : route absente, le backend n’a pas été redémarré avec la nouvelle version ?' : '') + ')' : ' : ' + (e?.message || ''))) }); }
     finally { setBusy(false); }
   };
@@ -439,14 +439,14 @@ export default function BaseAgents() {
     <div style={{ ...card, padding: 18, marginBottom: 16 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 6 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
-          <Users size={17} color={COLORS.primary} /> Agents à évaluer
+          <Users size={17} color={COLORS.primary} /> Agent·e·s à évaluer
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input ref={fileRef} type="file" accept=".xlsm,.xlsx" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
           <button style={btnPrimary} disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} Déposer le classeur (Outil CREP)
           </button>
-          <button style={btnGhost} disabled={busy || !stats?.a_evaluer} onClick={syncEntretiens} title="Crée l’entretien de chaque agent qui a un valideur (l’évaluateur est son valideur)">
+          <button style={btnGhost} disabled={busy || !stats?.a_evaluer} onClick={syncEntretiens} title="Crée l’entretien de chaque agent·e qui a un·e évaluateur·rice (l’évaluateur est son évaluateur·rice)">
             <Users size={14} /> Générer les entretiens
           </button>
           <button style={{ ...btnGhost, color: '#b91c1c' }} disabled={busy} onClick={purgeLegacy} title="Supprime les anciens entretiens de test">
@@ -455,14 +455,14 @@ export default function BaseAgents() {
           <button style={btnGhost} disabled={!!ad?.running || !stats?.a_evaluer} onClick={() => refreshAd(false)} title="Cherche l’adresse e-mail dans l’AD (matricule, puis nom + prénom)">
             <Mail size={14} /> Rapprocher avec l’AD
           </button>
-          <button style={btnGhost} disabled={!!ad?.running || !stats?.a_evaluer} onClick={() => refreshAd(true)} title="Refait aussi les agents déjà rapprochés">
+          <button style={btnGhost} disabled={!!ad?.running || !stats?.a_evaluer} onClick={() => refreshAd(true)} title="Refait aussi les agent·e·s déjà rapprochés">
             <RefreshCw size={14} /> Tout refaire
           </button>
         </div>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
-        Source : onglet <b>Base_agents</b> du classeur (agents dont « à conserver » = O). Le champ <b>Modèle</b> désigne le formulaire de CREP (un onglet <b>Template_*</b> = un modèle).
-        Le valideur est proposé d’après le « Chemin publication » (code de l’unité) et le « Poste fonction » (Direc, DGA_1, DGS_1, DGST_, Respo). Redéposer le classeur met tout à jour ; vos choix de valideur sont conservés.
+        Source : onglet <b>Base_agents</b> du classeur (agent·e·s dont « à conserver » = O). Le champ <b>Modèle</b> désigne le formulaire de CREP (un onglet <b>Template_*</b> = un modèle).
+        L’évaluateur·rice est proposé d’après le « Chemin publication » (code de l’unité) et le « Poste fonction » (Direc, DGA_1, DGS_1, DGST_, Respo). Redéposer le classeur met tout à jour ; vos choix de évaluateur·rice sont conservés.
       </p>
 
       {msg && (
@@ -474,7 +474,7 @@ export default function BaseAgents() {
 
       {stats && !stats.dernier_import && !loading && (
         <div style={{ padding: 18, textAlign: 'center', color: COLORS.muted, fontSize: 13 }}>
-          <FileSpreadsheet size={26} style={{ marginBottom: 6 }} /><br />Aucun classeur déposé : déposez « Outil CREP DSI.xlsm » pour charger les agents et les modèles.
+          <FileSpreadsheet size={26} style={{ marginBottom: 6 }} /><br />Aucun classeur déposé : déposez « Outil CREP DSI.xlsm » pour charger les agent·e·s et les modèles.
         </div>
       )}
 
@@ -482,12 +482,12 @@ export default function BaseAgents() {
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, fontSize: 12 }}>
             {([
-              ['Agents à évaluer', stats.a_evaluer, COLORS.primary, ''],
+              ['Agent·e·s à évaluer', stats.a_evaluer, COLORS.primary, ''],
               ['Avec e-mail (AD)', stats.avec_email, '#166534', 'avec_email'],
               ['Dont adresse déduite', stats.email_deduit, '#b45309', 'email_deduit'],
-              ['Valideur défini', stats.avec_valideur, '#166534', 'avec_valideur'],
-              ['Valideur à choisir', stats.valideur_a_choisir, '#b45309', 'valideur_a_choisir'],
-              ['Sans valideur trouvé', stats.sans_valideur, '#b91c1c', 'sans_valideur'],
+              ['Évaluateur·rice défini', stats.avec_valideur, '#166534', 'avec_valideur'],
+              ['Évaluateur·rice à choisir', stats.valideur_a_choisir, '#b45309', 'valideur_a_choisir'],
+              ['Sans évaluateur·rice trouvé', stats.sans_valideur, '#b91c1c', 'sans_valideur'],
             ] as Array<[string, number, string, string]>).map(([l, v, c, k]) => {
               const active = statut === k;
               return (
@@ -537,13 +537,13 @@ export default function BaseAgents() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <input style={{ ...input, maxWidth: 260 }} placeholder="Rechercher (nom, matricule, service)…" value={q} onChange={e => setQ(e.target.value)} />
             <select style={{ ...input, maxWidth: 230 }} value={statut} onChange={e => setStatut(e.target.value)}>
-              <option value="">Tous les agents</option>
-              <option value="valideur_a_choisir">Valideur à choisir</option>
-              <option value="sans_valideur">Sans valideur trouvé</option>
+              <option value="">Tous les agent·e·s</option>
+              <option value="valideur_a_choisir">Évaluateur·rice à choisir</option>
+              <option value="sans_valideur">Sans évaluateur·rice trouvé</option>
               <option value="sans_email">Sans e-mail</option>
               <option value="avec_email">Avec e-mail</option>
               <option value="email_deduit">Adresse déduite (AD sans e-mail)</option>
-              <option value="avec_valideur">Valideur défini</option>
+              <option value="avec_valideur">Évaluateur·rice défini</option>
             </select>
             <select style={{ ...input, maxWidth: 170 }} value={categorie} onChange={e => setCategorie(e.target.value)}>
               <option value="">Toutes catégories</option>
@@ -582,12 +582,12 @@ export default function BaseAgents() {
                       <td style={{ ...td, position: 'sticky', right: 0, background: '#fff', zIndex: 1, minWidth: 240, boxShadow: '-6px 0 8px -8px rgba(0,0,0,.2)' }}><ValideurCell agent={a} headers={headers} onChoose={m => chooseValideur(a, m)} /></td>
                     </tr>
                   ))}
-                  {!agents.length && <tr><td style={{ ...td, textAlign: 'center', color: COLORS.muted }} colSpan={5}>Aucun agent.</td></tr>}
+                  {!agents.length && <tr><td style={{ ...td, textAlign: 'center', color: COLORS.muted }} colSpan={5}>Aucun agent·e.</td></tr>}
                 </tbody>
               </table>
             </div>
           )}
-          {agents.length > 600 && <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Les 600 premiers agents sont affichés : affinez la recherche.</div>}
+          {agents.length > 600 && <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Les 600 premiers agent·e·s sont affichés : affinez la recherche.</div>}
           </>}
           <DelegationsPanel headers={headers} onError={t => setMsg({ ok: false, text: t })} />
         </>

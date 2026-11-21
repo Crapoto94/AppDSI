@@ -43,14 +43,14 @@ const fmtDuree = (ms?: number | null) => {
 };
 
 const TEXT_FIELDS: Array<[string, string]> = [
-  ['missions', 'Rappel des missions de l’agent'],
+  ['missions', 'Rappel des missions de l’agent·e'],
   ['observations_complementaires', 'Observations complémentaires'],
   ['appreciation_generale', 'Appréciation générale'],
   ['objectifs_service', 'Rappel des objectifs du service / de la direction'],
   ['evolution', 'Évolution des missions et/ou de carrière'],
   ['mobilite', 'Mobilité'],
-  ['obs_agent_conditions', 'Observations de l’agent sur les conditions de travail'],
-  ['obs_agent_entretien', 'Observations de l’agent sur l’entretien'],
+  ['obs_agent_conditions', 'Observations de l’agent·e sur les conditions de travail'],
+  ['obs_agent_entretien', 'Observations de l’agent·e sur l’entretien'],
 ];
 
 /**
@@ -187,10 +187,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
         // Lecture désactivée : le valideur consulte le document téléversé, confirme les 2 signatures et le valide (la lecture se fait en arrière-plan, sans lui en parler)
         <div style={{ border: '2px solid #c7d2fe', background: '#f8faff', borderRadius: 12, padding: '14px 16px' }}>
           <div style={{ fontWeight: 800, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>Document téléversé</div>
-          <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 10 }}>Consultez le document, vérifiez qu’il porte bien les signatures de l’agent et de l’évaluateur, puis validez-le.</div>
+          <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 10 }}>Consultez le document, vérifiez qu’il porte bien les signatures de l’agent·e et de l’évaluateur, puis validez-le.</div>
           <div style={{ marginBottom: 10 }}><button type="button" style={btnPrimary} onClick={viewDoc}><Eye size={14} /> Consulter le document</button></div>
           <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155' }}>
-            <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Le document porte la <u>signature de l’agent</u>
+            <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Le document porte la <u>signature de l’agent·e</u>
           </label>
           <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginTop: 3 }}>
             <input type="checkbox" checked={sigEval} onChange={e => setSigEval(e.target.checked)} /> Le document porte la <u>signature de l’évaluateur</u> (la mienne)
@@ -210,7 +210,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               Lecture des textes en cours — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
             </div>
             <div style={{ margin: '4px 0' }}><button type="button" style={btnGhost} onClick={viewDoc}>Voir le document téléversé</button></div>
-            {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent</strong> sont lus : le compte rendu déjà validé dans l’outil n’est pas modifié.</div>}
+            {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent·e</strong> sont lus : le compte rendu déjà validé dans l’outil n’est pas modifié.</div>}
             <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que la lecture sera terminée</strong>. Vous devrez alors <strong>relire et corriger la proposition</strong> avant de valider le compte rendu.</div>
           </div>
         </div>
@@ -263,13 +263,13 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               )}
               {(prop as any).formMismatch && (
                 <div style={{ background: '#fef2f2', border: '2px solid #dc2626', color: '#991b1b', borderRadius: 10, padding: '11px 14px', fontSize: 13.5, fontWeight: 700 }}>
-                  ⛔ ATTENTION — le papier n’est pas le formulaire de cet agent (autre catégorie de CREP) : vérifiez que vous importez le bon document.
+                  ⛔ ATTENTION — le papier n’est pas le formulaire de cet·te agent·e (autre catégorie de CREP) : vérifiez que vous importez le bon document.
                 </div>
               )}
               {prop.warnings.map((w, i) => <div key={i} style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>⚠ {w}</div>)}
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 9, padding: '9px 12px', fontSize: 12.5, fontWeight: 600 }}>
                 ⚠ Cette lecture est une PROPOSITION : <b>vérifiez chaque ligne</b> en la comparant au document papier avant de l’appliquer, puis avant de valider le compte rendu.
-                {agentOnly ? ' Seuls les 2 commentaires de l’agent sont repris.' : ' Le document produit sera marqué « non contractuel » : l’original papier signé fait foi.'}
+                {agentOnly ? ' Seuls les 2 commentaires de l’agent·e sont repris.' : ' Le document produit sera marqué « non contractuel » : l’original papier signé fait foi.'}
               </div>
 
               {!agentOnly && <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 1 — Volet 1 : bilan de l’année écoulée</div>}
@@ -360,7 +360,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   <textarea style={textarea} rows={2} value={(edit.formations || {})[k] || ''} onChange={e => setEdit(v => ({ ...v, formations: { ...(v.formations || {}), [k]: e.target.value } }))} /></label>
               ))}
 
-              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 4 — Perspectives d’évolution et observations de l’agent</div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: .4, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3 }}>Page 4 — Perspectives d’évolution et observations de l’agent·e</div>
               {txt('evolution')}
               {txt('mobilite')}
               {txt('obs_agent_conditions')}
@@ -377,10 +377,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               <div style={{ border: '2px solid #c7d2fe', background: '#f8faff', borderRadius: 10, padding: '10px 14px' }}>
                 <div style={{ fontWeight: 800, fontSize: 13, color: '#3730a3', marginBottom: 4 }}>Signatures du document</div>
                 <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>
-                  Détection automatique : agent {prop.signatures ? (prop.signatures.agent ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'} · évaluateur {prop.signatures ? (prop.signatures.evaluateur ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'}. Cette détection est indicative : <strong>vérifiez vous-même le document</strong>.
+                  Détection automatique : agent·e {prop.signatures ? (prop.signatures.agent ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'} · évaluateur {prop.signatures ? (prop.signatures.evaluateur ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'}. Cette détection est indicative : <strong>vérifiez vous-même le document</strong>.
                 </div>
                 <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155' }}>
-                  <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Je confirme que le document porte la <u>signature de l’agent</u>
+                  <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Je confirme que le document porte la <u>signature de l’agent·e</u>
                 </label>
                 <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginTop: 3 }}>
                   <input type="checkbox" checked={sigEval} onChange={e => setSigEval(e.target.checked)} /> Je confirme que le document porte la <u>signature de l’évaluateur</u> (la mienne)
@@ -398,10 +398,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   <div style={{ fontSize: 17, fontWeight: 900, color: '#991b1b', marginBottom: 10 }}>⛔ Êtes-vous sûr de ce document ?</div>
                   <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.65 }}>
                     {(prop as any).identity?.concordance === 'different'
-                      ? <>Le document numérisé semble être celui de <strong>{(prop as any).identity.lu}</strong>, et vous souhaitez l’affecter à <strong>{(prop as any).identity.attendu || 'cet agent'}</strong>.</>
-                      : <>Le document numérisé ne correspond pas au formulaire de CREP de cet agent{(prop as any).identity?.attendu ? <> (<strong>{(prop as any).identity.attendu}</strong>)</> : null}.</>}
+                      ? <>Le document numérisé semble être celui de <strong>{(prop as any).identity.lu}</strong>, et vous souhaitez l’affecter à <strong>{(prop as any).identity.attendu || 'cet·te agent·e'}</strong>.</>
+                      : <>Le document numérisé ne correspond pas au formulaire de CREP de cet·te agent·e{(prop as any).identity?.attendu ? <> (<strong>{(prop as any).identity.attendu}</strong>)</> : null}.</>}
                     {(prop as any).formMismatch && (prop as any).identity?.concordance === 'different' && <div style={{ marginTop: 6 }}>Le tableau d’appréciation est aussi celui d’une autre catégorie de CREP.</div>}
-                    <div style={{ marginTop: 8, fontWeight: 700 }}>Affecter ce document à cet agent est-il bien votre intention ?</div>
+                    <div style={{ marginTop: 8, fontWeight: 700 }}>Affecter ce document à cet·te agent·e est-il bien votre intention ?</div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
                     <button style={btnGhost} onClick={() => setProp(null)}>Non, annuler</button>
@@ -412,7 +412,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: `1px solid ${COLORS.border}` }}>
               <button style={btnGhost} onClick={() => setProp(null)}>Annuler</button>
-              {!agentOk && <span style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700 }}>Renseignez les 2 cadres de l’agent (« Néant » si rien) pour continuer.</span>}
+              {!agentOk && <span style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700 }}>Renseignez les 2 cadres de l’agent·e (« Néant » si rien) pour continuer.</span>}
               <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginRight: 'auto' }}>
                 <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} /> J’ai vérifié chaque ligne par rapport au document papier
               </label>
