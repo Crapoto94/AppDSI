@@ -239,7 +239,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
               </div>
               <Matrice />
               <Callout tone="info" title="Comment savoir si l'agent a un e-mail ?">
-                Dans la liste « EP que je réalise », la colonne de l'agent indique son adresse. Si elle est vide, vous êtes dans le cas C.
+                Dans la liste « EP que je réalise », la colonne de l'agent indique son adresse. Si elle est vide, vous êtes dans le cas C, <strong>sauf si vous savez qu'il en a une</strong> : l'orthographe de son nom diffère peut-être entre la base RH et l'annuaire informatique, et vous pouvez faire le lien vous-même (étape 1, « Lier l'AD »).
                 Le bouton « Envoyer à l'agent » n'apparaît alors pas : c'est normal, passez par l'impression.
               </Callout>
             </Section>
@@ -309,9 +309,34 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
                 Pour un agent déjà affecté, utilisez aussi l'icône « Changer l'évaluateur ».
               </Cas>
 
-              <Cas code="Pas d'e-mail" title="Un agent est affiché sans adresse e-mail" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
-                Sur sa ligne, cliquer sur <strong>« Lier l'AD »</strong>, rechercher son nom, puis <strong>« Lier »</strong> : son compte (donc son e-mail) est rattaché, et il pourra recevoir les invitations et signer en ligne.
-                Si l'agent n'a aucun compte, laissez-le sans e-mail : il suivra le circuit papier.
+              <Cas code="Pas d'e-mail" title="Un agent est affiché sans adresse e-mail : le rapprochement RH ↔ annuaire informatique" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
+                <div style={{ marginBottom: 6 }}>
+                  <strong>Pourquoi ça arrive ?</strong> Les agents viennent de la <strong>base RH</strong>, mais les adresses e-mail sont dans l'<strong>annuaire informatique</strong> (l'AD, qui sert à vous connecter).
+                  L'outil relie les deux en comparant matricule, puis nom et prénom. Quand l'orthographe diffère entre les deux bases
+                  (accent, tiret, nom d'usage ou nom de naissance, prénom composé, faute de frappe), <strong>le lien ne se fait pas tout seul</strong> et l'agent apparaît « sans e-mail »,
+                  <strong> alors qu'il en a bien un</strong>.
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <strong>Ce que vous pouvez faire :</strong> si vous savez que l'agent que vous évaluez a une adresse e-mail (il utilise Outlook, vous lui écrivez déjà…),
+                  <strong> retrouvez-le vous-même dans l'annuaire informatique et faites le lien</strong> :
+                </div>
+                <Gestes items={[
+                  <>Sur la ligne de l'agent, cliquer sur <strong>« Lier l'AD »</strong>.</>,
+                  <>Taper <strong>quelques lettres de son nom</strong> (2 minimum) dans la zone de recherche. Essayez une orthographe plus courte ou son prénom seul si rien ne sort (ex. « mar » plutôt que « Marié-Dupont »).</>,
+                  <>Dans les résultats (nom affiché + adresse e-mail), repérer <strong>la bonne personne</strong> : vérifier l'adresse.</>,
+                  <>Cliquer sur <strong>« Lier »</strong>. L'adresse e-mail est rattachée à l'agent.</>,
+                ]} />
+                <Callout tone="ok" title="Ce que cela change">
+                  L'agent passe du <strong>cas C au cas A ou B</strong> : il reçoit l'invitation Outlook et l'e-mail de préparation, et peut signer en ligne si la signature électronique lui est ouverte.
+                  Si vous aviez déjà planifié, modifiez le rendez-vous pour que l'invitation lui parte.
+                </Callout>
+                <Callout tone="warn" title="Attention à l'homonymie">
+                  Ne liez que si vous êtes <strong>certain</strong> de la personne (même service, bonne adresse). Un mauvais lien enverrait les documents confidentiels de l'entretien à quelqu'un d'autre.
+                  Une adresse déjà utilisée par un autre agent (doublon) doit être traitée par l'administrateur.
+                </Callout>
+                <div>
+                  <strong>Si l'agent n'a vraiment pas d'adresse</strong> (agent sans poste informatique, par exemple) : ne liez rien. Il suit le circuit papier (cas C).
+                </div>
               </Cas>
               <Callout tone="ok">
                 Rien de tout cela ne casse l'historique : chaque ajout et chaque changement de valideur est tracé. En cas de doute, contactez l'administrateur plutôt que de bricoler.
@@ -341,7 +366,7 @@ export default function AideEp({ onClose, isAdmin, features }: { onClose: () => 
                   <li><strong>Aucun e-mail ni invitation ne part à l'agent.</strong> Le rendez-vous est quand même enregistré, et il apparaît dans votre agenda.</li>
                   <li>C'est à <strong>vous de prévenir l'agent</strong> (de vive voix, par téléphone ou par courrier) : date, heure, lieu.</li>
                   <li>Remettez-lui le <strong>CREP vierge imprimé</strong> : cliquer sur l'icône imprimante de sa ligne, puis choisir le CREP vierge (ou cocher plusieurs agents et imprimer en une fois).</li>
-                  <li>Demandez à l'administrateur de rattacher son compte AD si l'agent en possède un : le cas A pourra alors s'appliquer.</li>
+                  <li>Si vous savez que l'agent a en réalité une adresse e-mail, faites le lien vous-même avec « Lier l'AD » (étape 1) : le cas A ou B s'appliquera alors.</li>
                 </ul>
               </Cas>
               <Cas code="Rare" title="Vous n'avez pas d'e-mail vous-même" color="#d97706">
