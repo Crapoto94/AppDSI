@@ -72,7 +72,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   const isAgent = mode === 'agent';
   const [confirm, confirmDialog] = useConfirm();
   const [crep, setCrep] = useState<Crep>(() => initialCrep(entretien));
-  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'submit' | 'pdf' | 'send' | 'agent' | 'draft' | 'recall' | 'signedpdf' | 'upload' | 'scan' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
@@ -109,13 +109,15 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           return;
         }
       } catch (e) { /* contrôle indisponible : on ne bloque pas la validation */ }
-      if (!(await confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.', { title: 'Valider le compte rendu', confirmLabel: 'Valider' }))) return;
+      if (crep.origine === 'manuscrit') {
+        if (!(await confirm('Ce compte rendu a été repris d’un document manuscrit par l’IA.\n\nAvez-vous vérifié CHAQUE LIGNE (textes, niveaux, cases cochées) par rapport au document papier signé ?\n\nLe PDF produit sera marqué « DOCUMENT NON CONTRACTUEL » : vous devez envoyer l’ORIGINAL papier signé à la RH.', { title: 'Vérification ligne par ligne', confirmLabel: 'J’ai tout vérifié, valider' }))) return;
+      } else if (!(await confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.', { title: 'Valider le compte rendu', confirmLabel: 'Valider' }))) return;
     }
     setBusy(submit ? 'submit' : 'save');
     try {
       const r = await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit }, { headers });
       onSaved(r.data.entretien);
-      setMsg({ ok: true, text: submit ? 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent.' : 'Brouillon enregistré.' });
+      setMsg({ ok: true, text: submit ? (crep.origine === 'manuscrit' ? 'Compte rendu validé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH : ce document numérique est non contractuel.' : 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent.') : 'Brouillon enregistré.' });
     } catch (e: any) {
       if (Array.isArray(e.response?.data?.missing)) setMissing(e.response.data.missing);
       setMsg({ ok: false, text: e.response?.data?.message || e.message || 'Enregistrement impossible' });
@@ -207,6 +209,16 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     } finally { setBusy(null); }
   };
 
+  const openScan = async (idx: number) => {
+    setBusy('scan'); setMsg(null);
+    try {
+      const r = await axios.get(`/api/entretiens/${entretien.id}/crep/scans/${idx}.pdf`, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) { setMsg({ ok: false, text: 'Scan indisponible.' }); } finally { setBusy(null); }
+  };
+
   const openSignedPdf = async () => {
     setBusy('signedpdf'); setMsg(null);
     try {
@@ -287,6 +299,23 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
                   ? <>Vous avez validé ce compte rendu : il a été transmis en signature{entretien.crep_parapheur_ref ? ` (${entretien.crep_parapheur_ref})` : ''}. Retrouvez-le dans votre parapheur (« À signer »).</>
                   : <>Ce compte rendu est en lecture seule.</>}
           </span>
+        </div>
+      )}
+      {!isAgent && (crep.origine === 'manuscrit' || (entretien.crep_scans || []).length > 0) && (
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, fontSize: 12.5, color: '#991b1b', lineHeight: 1.55 }}>
+          <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
+          <div>L’IA a proposé ce contenu : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
+          {(entretien.crep_scans || []).length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
+              <b>Documents conservés :</b>
+              {(entretien.crep_scans || []).map((sc, i) => (
+                <button key={i} type="button" style={btnGhost} disabled={!!busy} onClick={() => openScan(i)}>
+                  <FileDown size={13} /> Scan original{sc.kind === 'agent' ? ' (commentaires agent)' : ''} · {new Date(sc.at).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
+                </button>
+              ))}
+              <span style={{ fontSize: 11.5, color: '#64748b' }}>+ la version numérique (IA) via « Imprimer / PDF »</span>
+            </div>
+          )}
         </div>
       )}
       {!isAgent && crepStatut !== 'non_envoye' && (

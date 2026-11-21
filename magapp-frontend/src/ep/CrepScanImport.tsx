@@ -11,6 +11,7 @@ interface Proposal {
   warnings: string[];
   corrections?: Array<{ avant: string; apres: string; raison?: string }>;
   duration_ms?: number;
+  mode?: 'complet' | 'agent';
 }
 
 interface ScanJob {
@@ -19,6 +20,7 @@ interface ScanJob {
   files_count: number;
   progress: number;
   progress_total: number;
+  mode?: 'complet' | 'agent';
   error?: string | null;
   estimate_ms?: number;
   duration_ms?: number | null;
@@ -62,6 +64,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const [prop, setProp] = useState<Proposal | null>(null);
   const [edit, setEdit] = useState<Record<string, any>>({});
   const [job, setJob] = useState<ScanJob | null>(null);
+  const [verified, setVerified] = useState(false);
 
   // Analyse en tâche de fond : on retrouve l'état à l'ouverture (même après avoir fermé la page) et on suit l'avancement tant qu'elle tourne.
   const refresh = useCallback(async () => {
@@ -81,9 +84,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (!job?.result) return;
     setProp(job.result);
     setEdit({ ...(job.result.fields || {}) });
+    setVerified(false);
   };
-  const dismiss = async () => {
-    if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, {}, { headers }); } catch { /* ignore */ } }
+  const dismiss = async (applied = false) => {
+    if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, { applied }, { headers }); } catch { /* ignore */ } }
     setJob(null); setProp(null);
   };
 
@@ -97,6 +101,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  const agentOnly = (prop?.mode || job?.mode) === 'agent';
   const apply = () => {
     // Seules les rubriques non vides sont reprises : le contenu déjà saisi n'est pas effacé par une rubrique que la lecture n'a pas trouvée.
     const out: Record<string, any> = {};
@@ -110,9 +115,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (Object.keys(val).length) out.valeur = val;
     const f = edit.formations || {};
     if (['obligatoires', 'metiers', 'parcours'].some(k => String(f[k] || '').trim())) out.formations = f;
+    if (!agentOnly && edit.origine === 'manuscrit') out.origine = 'manuscrit';
     onApply(out);
     setProp(null);
-    dismiss();
+    dismiss(true);
   };
 
   return (
@@ -125,6 +131,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div style={{ fontWeight: 800 }}>
               Analyse en cours par l’IA locale — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
             </div>
+            {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent</strong> sont analysés : le compte rendu déjà validé dans l’outil n’est pas relu.</div>}
             <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que l’analyse sera terminée</strong>. Vous pourrez alors relire la proposition <strong>avant de valider</strong> le compte rendu.</div>
           </div>
         </div>
@@ -136,7 +143,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div>Réalisée en {fmtDuree(job.duration_ms)}. L’IA propose un contenu : relisez-le, corrigez-le, puis appliquez-le au formulaire et validez le compte rendu.</div>
           </div>
           <button type="button" style={btnPrimary} onClick={openProposal}>Voir la proposition</button>
-          <button type="button" style={btnGhost} onClick={dismiss} title="Écarter cette proposition">Écarter</button>
+          <button type="button" style={btnGhost} onClick={() => dismiss(false)} title="Écarter cette proposition (le scan n’est pas conservé)">Écarter</button>
         </div>
       ) : (
         <>
@@ -144,7 +151,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginBottom: 8 }}>
               <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
               <div style={{ flex: 1 }}><strong>La dernière analyse a échoué.</strong> {job.error || ''} Renvoyez les photos ou saisissez le compte rendu dans l’outil.</div>
-              <button type="button" style={btnGhost} onClick={dismiss}>Masquer</button>
+              <button type="button" style={btnGhost} onClick={() => dismiss(false)}>Masquer</button>
             </div>
           )}
           <button type="button" style={btnGhost} disabled={disabled || busy} onClick={() => fileRef.current?.click()}
@@ -168,17 +175,20 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             </div>
             <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {prop.warnings.map((w, i) => <div key={i} style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>⚠ {w}</div>)}
-              <div style={{ fontSize: 12.5, color: '#475569' }}>Relisez et corrigez chaque rubrique : <b>c’est vous qui validez</b>. Les rubriques vides ne modifient pas le formulaire.</div>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 9, padding: '9px 12px', fontSize: 12.5, fontWeight: 600 }}>
+                ⚠ Cette lecture est une PROPOSITION de l’IA : <b>vérifiez chaque ligne</b> en la comparant au document papier avant de l’appliquer, puis avant de valider le compte rendu.
+                {agentOnly ? ' Seuls les 2 commentaires de l’agent sont repris.' : ' Le document produit sera marqué « non contractuel » : l’original papier signé fait foi.'}
+              </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+              {!agentOnly && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
                 {[['date_convocation', 'Date de convocation'], ['date_entretien', 'Date de l’entretien'], ['date_notification', 'Date de notification']].map(([k, l]) => (
                   <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>{l}
                     <input type="date" style={input} value={edit[k] || ''} onChange={e => setEdit(v => ({ ...v, [k]: e.target.value }))} />
                   </label>
                 ))}
-              </div>
+              </div>}
 
-              {(definition?.criteria_groups || []).length > 0 && (
+              {!agentOnly && (definition?.criteria_groups || []).length > 0 && (
                 <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '10px 12px' }}>
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: '#334155', marginBottom: 6 }}>
                     Grille d’appréciation (cases cochées lues) — {Object.keys(edit.valeur || {}).length} / {(definition?.criteria_groups || []).flatMap(g => g.items).length} reconnues
@@ -202,7 +212,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 </div>
               )}
 
-              {(edit.objectifs_ecoules || []).map((o: any, i: number) => (
+              {!agentOnly && (edit.objectifs_ecoules || []).map((o: any, i: number) => (
                 <div key={'oe' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 90px', gap: 8 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Objectif {i + 1} (année écoulée)
                     <textarea style={textarea} rows={2} value={o.objectif || ''} onChange={e => setEdit(v => ({ ...v, objectifs_ecoules: v.objectifs_ecoules.map((x: any, k: number) => k === i ? { ...x, objectif: e.target.value } : x) }))} /></label>
@@ -214,12 +224,12 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 </div>
               ))}
 
-              {TEXT_FIELDS.map(([k, l]) => (
+              {(agentOnly ? TEXT_FIELDS.filter(([k]) => k.startsWith('obs_agent')) : TEXT_FIELDS).map(([k, l]) => (
                 <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>{l}
                   <textarea style={textarea} rows={3} value={edit[k] || ''} onChange={e => setEdit(v => ({ ...v, [k]: e.target.value }))} /></label>
               ))}
 
-              {(edit.objectifs_futurs || []).map((o: any, i: number) => (
+              {!agentOnly && (edit.objectifs_futurs || []).map((o: any, i: number) => (
                 <div key={'of' + i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 8 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>Objectif {i + 1} (année à venir)
                     <textarea style={textarea} rows={2} value={o.descriptif || ''} onChange={e => setEdit(v => ({ ...v, objectifs_futurs: v.objectifs_futurs.map((x: any, k: number) => k === i ? { ...x, descriptif: e.target.value } : x) }))} /></label>
@@ -228,7 +238,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 </div>
               ))}
 
-              {(['obligatoires', 'metiers', 'parcours'] as const).map(k => (
+              {!agentOnly && (['obligatoires', 'metiers', 'parcours'] as const).map(k => (
                 <label key={k} style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {k === 'obligatoires' ? 'Formations obligatoires' : k === 'metiers' ? 'Autres formations métiers' : 'Formations liées au parcours / projet professionnel'}
                   <textarea style={textarea} rows={2} value={(edit.formations || {})[k] || ''} onChange={e => setEdit(v => ({ ...v, formations: { ...(v.formations || {}), [k]: e.target.value } }))} /></label>
@@ -249,7 +259,10 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 18px', borderTop: `1px solid ${COLORS.border}` }}>
               <button style={btnGhost} onClick={() => setProp(null)}>Annuler</button>
-              <button style={btnPrimary} onClick={apply}>Appliquer au formulaire</button>
+              <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginRight: 'auto' }}>
+                <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} /> J’ai vérifié chaque ligne par rapport au document papier
+              </label>
+              <button style={{ ...btnPrimary, opacity: verified ? 1 : .5 }} disabled={!verified} onClick={apply}>Appliquer au formulaire</button>
             </div>
           </div>
         </div>

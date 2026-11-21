@@ -138,6 +138,8 @@ export interface Entretien {
   crep_parapheur_status?: string | null;
   crep_signed_at?: string | null;
   crep_signed_name?: string | null;
+  /** Scans originaux (papier signé) conservés : lecture IA appliquée. */
+  crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string }>;
   objectifs?: Objectif[];
   formations?: Formation[];
   objectifs_total?: number;

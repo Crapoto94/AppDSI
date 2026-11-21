@@ -40,6 +40,8 @@ router.get('/directory', authenticateJWT, ctrl.directory);
 // Prochains créneaux libres (agent + évaluateur)
 router.post('/free-slots', authenticateJWT, ctrl.freeSlots);
 
+router.get('/formations', authenticateJWT, ctrl.formationsGlobales);
+router.post('/formations/analyse', authenticateJWT, ctrl.formationsAnalyse);
 router.get('/export.xlsx', authenticateJWT, ctrl.exportXlsx);
 
 // Relances automatiques (déclenchement manuel, administrateurs)
@@ -66,6 +68,7 @@ router.get('/:id/crep-signe.pdf', authenticateJWT, ctrl.crepSignedPdf);
 router.post('/:id/crep/scan', authenticateJWT, uploadPdf.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 8 }]), ctrl.crepScan);
 router.get('/:id/crep/scan/latest', authenticateJWT, ctrl.crepScanLatest);
 router.post('/:id/crep/scan/:jobId/ack', authenticateJWT, ctrl.crepScanAck);
+router.get('/:id/crep/scans/:idx.pdf', authenticateJWT, ctrl.crepScanFile);
 router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
 router.post('/:id/crep/manuscript', authenticateJWT, uploadPdf.array('files', 8), ctrl.crepManuscriptUpload);
 router.post('/:id/reset', authenticateJWT, ctrl.resetEntretien);

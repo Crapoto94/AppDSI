@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   X, BookOpen, UserCheck, ShieldCheck, Sparkles, Users, CalendarClock,
   FileSignature, History, MousePointerClick, CheckCircle2, AlertTriangle,
-  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route,
+  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route, GraduationCap, ScanLine,
 } from 'lucide-react';
 import { COLORS, card, btnGhost, btnPrimary } from './ui';
 
@@ -440,7 +440,12 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                         <strong> Les cases cochées de la grille d'appréciation sont aussi reconnues</strong> (par traitement d'image) : elles apparaissent dans la fenêtre de relecture, case par case (S, AS, I).
                         <div style={{ marginTop: 4 }}><strong>L'analyse prend quelques minutes</strong> (environ 30 secondes par page, pour un CREP de 4 pages : 2 minutes). Elle se fait <strong>en tâche de fond</strong> : un bandeau « Analyse en cours » s'affiche avec la durée estimée, vous pouvez fermer la fenêtre et continuer à travailler. <strong>Vous recevez un e-mail dès qu'elle est terminée</strong> ; revenez alors sur l'entretien et cliquez sur <strong>« Voir la proposition »</strong>. Si vous fermez la page, l'analyse continue : la proposition vous attend.</div>
                         <div style={{ marginTop: 4 }}><strong>Relisez tout avant de valider.</strong> L'IA relit aussi son travail : elle signale les <strong>lectures incertaines</strong> (deux lectures différentes d'un même mot) et indique les <strong>corrections de cohérence</strong> qu'elle a faites (par exemple « Sedit France » corrigé en « Sedit Finances »). Une écriture très difficile peut rester mal lue ; les cases signalées « à vérifier » sont à contrôler. Puis « Appliquer au formulaire ». Rien n'est enregistré tant que vous n'avez pas validé.</div>
-                        <div style={{ marginTop: 4, color: '#64748b' }}>Pour un meilleur résultat : une photo par page, à plat, bien éclairée, la page entière visible, écriture lisible. Le sens de la photo (page couchée ou à l'envers) n'est pas un problème.</div></li>
+                        <div style={{ marginTop: 4, color: '#64748b' }}>Pour un meilleur résultat : une photo par page, à plat, bien éclairée, la page entière visible, écriture lisible. Le sens de la photo (page couchée ou à l'envers) n'est pas un problème.</div>
+                        <div style={{ marginTop: 6, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 8, padding: '8px 11px' }}>
+                          <strong>Vérifiez chaque ligne.</strong> Avant d'appliquer, une case à cocher « J'ai vérifié chaque ligne par rapport au document papier » est obligatoire ; elle vous est redemandée au moment de « Valider le compte rendu ». L'IA est une aide, <strong>c'est vous qui répondez du contenu</strong>.
+                        </div>
+                        <div style={{ marginTop: 6 }}><strong>Ce qui est conservé :</strong> (1) <strong>la version scannée</strong> (vos photos assemblées en un PDF), consultable dans le compte rendu via « Scan original » ; (2) <strong>la version numérique lue par l'IA</strong> (« Imprimer / PDF »). Cette seconde version porte le <strong>filigrane « DOCUMENT NON CONTRACTUEL »</strong> et, à la place des signatures, la mention <strong>« Document original manuscrit signé »</strong> : on sait ainsi qu'elle n'est pas l'original.</div>
+                        <div style={{ marginTop: 6 }}><strong>Si le compte rendu a d'abord été saisi dans l'outil</strong> (puis imprimé et signé), l'IA ne lit que <strong>les 2 commentaires de l'agent</strong> (page 4), écrits à la main : le reste du compte rendu, déjà validé, n'est pas relu ni modifié. Le bandeau « Analyse en cours » le précise.</div></li>
                       <li><strong>Option sûre :</strong> recopier vous-même les rubriques dans l'outil.</li>
                     </ul>
                   </>,
@@ -484,6 +489,9 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                   Le statut passe à « Signé papier ». Le bouton « PDF signé » apparaît : le document est consultable par vous et les administrateurs. Pour remplacer un mauvais scan, utiliser « Remplacer le CREP manuscrit ».
                 </Callout>
               </Cas>
+              <Callout tone="warn" title="Dans tous les cas où il y a du papier : l'original signé part à la RH">
+                Quelle que soit la façon dont le compte rendu a été préparé (écrit à la main, importé par l'IA, saisi puis imprimé), <strong>vous envoyez l'ORIGINAL papier signé à la RH</strong> et vous <strong>validez son pendant numérique</strong> dans l'outil. Le document numérique issu d'un manuscrit est « non contractuel » : <strong>seul l'original signé fait foi</strong>.
+              </Callout>
               <Callout tone="warn" title="Blocages normaux à connaître">
                 <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
                   <li>« Envoyé à l'agent » : impossible de téléverser un papier tant que vous n'avez pas <strong>rappelé</strong> le compte rendu.</li>
@@ -672,6 +680,24 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div><strong>Signature électronique</strong> : ouverte agent par agent.</div>
                 <div><strong>IA</strong> : rédaction et relecture, ouvertes à certains valideurs.</div>
                 <div><strong>Réactiver pour tous</strong> ouvre à tout le monde ; <strong>Activer pour la sélection</strong> réserve aux personnes cochées.</div>
+              </div>
+            </Section>
+
+            <Section icon={<GraduationCap size={15} color={COLORS.primary} />} title="Demandes de formation (onglet « Demandes de formation »)">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Cet onglet rassemble les <strong>« Actions de formation à envisager »</strong> de tous les comptes rendus de la campagne, selon les <strong>3 types</strong> (formations obligatoires, autres formations métiers, formations liées au parcours), <strong>classées par direction puis par service</strong>. Cliquer sur une direction pour la déplier.</div>
+                <div><strong>La vue est non nominative</strong> : ni nom ni identifiant d'agent n'est affiché ou transmis à l'IA.</div>
+                <div>Le bouton <strong>« Analyser avec l'IA locale »</strong> confie l'ensemble à l'IA de la Ville (en tâche de fond, quelques dizaines de secondes) : elle <strong>regroupe les demandes en thèmes</strong> (ex. management et encadrement ensemble ; Word et Excel dans « Bureautique »), indique pour chaque thème le nombre de demandes, leur répartition par type et par direction, et rédige une synthèse des <strong>besoins globaux</strong> pour la DRH. Les chiffres sont recalculés par l'application, pas par l'IA.</div>
+                <div>« Exporter (CSV) » extrait toutes les demandes pour la DRH. L'analyse est conservée : relancez-la quand de nouveaux comptes rendus arrivent.</div>
+              </div>
+              <Callout tone="info">Un regroupement par l'IA est une aide à la décision : relisez les thèmes (une demande peut être mal classée) avant de bâtir le plan de formation.</Callout>
+            </Section>
+
+            <Section icon={<ScanLine size={15} color={COLORS.primary} />} title="Documents conservés pour les comptes rendus manuscrits">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Quand un valideur importe un CREP papier, <strong>deux versions sont conservées</strong> sur l'entretien : le <strong>scan original</strong> (PDF assemblé à partir des photos, dans le stockage GED) et la <strong>version numérique lue par l'IA</strong> (PDF généré à la demande).</div>
+                <div>La version numérique porte le filigrane <strong>« DOCUMENT NON CONTRACTUEL »</strong> et « Document original manuscrit signé » à la place des signatures. <strong>L'original papier signé est envoyé à la RH</strong> par le valideur.</div>
+                <div>L'analyse IA est réalisée par l'<strong>IA locale</strong> de la Ville (aucune donnée ne sort du réseau). Les analyses sont tracées dans le Journal.</div>
               </div>
             </Section>
 

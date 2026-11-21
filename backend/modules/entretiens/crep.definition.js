@@ -87,6 +87,7 @@ const emptyCrep = () => ({
     obs_agent_conditions: '',
     obs_agent_entretien: '',
     visa_autorite: '',
+    origine: '',   // 'manuscrit' : repris d'un document papier lu par l'IA (non contractuel, l'original signé fait foi)
 });
 
 const VALID_LEVELS = new Set(['S', 'AS', 'I']);
@@ -129,6 +130,7 @@ function normalizeCrep(input, definition) {
     out.obs_agent_conditions = str(src.obs_agent_conditions);
     out.obs_agent_entretien = str(src.obs_agent_entretien);
     out.visa_autorite = str(src.visa_autorite);
+    out.origine = src.origine === 'manuscrit' ? 'manuscrit' : '';
     return out;
 }
 

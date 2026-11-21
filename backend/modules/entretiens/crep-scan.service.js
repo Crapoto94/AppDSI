@@ -300,7 +300,15 @@ const GLOSSAIRE = 'Vocabulaire fréquent dans ces comptes rendus (collectivité 
 
 const REGLES_MANUSCRIT = 'Le manuscrit est écrit vite, en lettres courtes, avec des fautes et des mots peu lisibles : donne TA MEILLEURE LECTURE, en choisissant des mots français vraisemblables '
     + 'dans le contexte d’une mairie (finances, informatique, ressources humaines, services techniques). Si le cadre est vide, réponds "". N’invente jamais un texte qui n’est pas écrit. '
-    + 'Ne recopie pas le texte imprimé du formulaire (titres, consignes) dans les réponses : seulement ce qui a été écrit à la main (sauf indication contraire). ' + GLOSSAIRE;
+    + 'Un cadre peut contenir PLUSIEURS LIGNES manuscrites (deux ou trois) : lis TOUTES les lignes du cadre, de haut en bas, sans en oublier une, et réunis-les en une seule phrase. Ne recopie pas le texte imprimé du formulaire (titres, consignes) dans les réponses : seulement ce qui a été écrit à la main (sauf indication contraire). ' + GLOSSAIRE;
+
+/** Document d'origine NUMÉRIQUE (compte rendu déjà saisi et validé dans l'outil, imprimé puis signé) : seuls les 2 commentaires de l'agent sont lus. */
+function agentPrompt() {
+    return 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé. Seuls deux cadres ont été remplis À LA MAIN par l’agent. Extrais :\n'
+        + '{"obs_agent_conditions": "MANUSCRIT du cadre « Observations de l’agent sur les conditions de travail et le fonctionnement du service »",\n'
+        + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »"}\n'
+        + 'Réponds UNIQUEMENT par un objet JSON valide, sans commentaire. ' + REGLES_MANUSCRIT;
+}
 
 function pageType(printedText) {
     const t = flat(printedText);
@@ -457,7 +465,8 @@ async function scanDocuments(files, definition, opts = {}) {
     const log = (m) => console.log('[ENTRETIENS] scan CREP :', m);
     const apm = require('../../shared/apm_ai');
     const model = await pickVisionModel(apm);
-    const items = flatCriteria(definition);
+    const mode = opts.mode === 'agent' ? 'agent' : 'complet';
+    const items = mode === 'agent' ? [] : flatCriteria(definition);
 
     // 1) Pages décodées (octets conservés pour le thread de lecture des cases)
     const pageBufs = [];
@@ -492,8 +501,9 @@ async function scanDocuments(files, definition, opts = {}) {
         if (!printed) { try { printed = await askVision(apm, model, 'Transcris tous les titres et intitulés IMPRIMÉS de cette page, du haut vers le bas. Ne transcris pas le manuscrit.', jpeg(rotated(img, deg, 1400), 82), 900); } catch { /* type générique */ } }
         res.deg = deg; res.type = pageType(printed);
         log(`page ${i + 1} : sens de lecture ${deg}°, type « ${res.type} »`);
+        if (mode === 'agent' && res.type !== 'perspectives') { res.skipped = true; tick(); return res; }
         try {
-            const prompt = pagePrompt(res.type, opts.annee);
+            const prompt = mode === 'agent' ? agentPrompt() : pagePrompt(res.type, opts.annee);
             const [a, b] = await Promise.all([
                 askVision(apm, model, prompt, jpeg(rotated(img, deg, PAGE_PX), 90)),
                 res.type !== 'generique' ? askVision(apm, model, prompt, jpeg(rotated(img, deg, 3300), 92)).catch(() => null) : Promise.resolve(null),
@@ -545,16 +555,18 @@ async function scanDocuments(files, definition, opts = {}) {
         } else warnings.push('La grille d’appréciation n’a pas été trouvée sur les pages fournies : cochez-la dans le formulaire (ou ajoutez la page qui la contient).');
     }
 
+    if (mode === 'agent' && !results.some(r => r.type === 'perspectives')) warnings.push('La page contenant les observations de l’agent n’a pas été reconnue : ajoutez la dernière page du compte rendu.');
+    if (mode === 'complet') crep.origine = 'manuscrit';
     // 5) Cohérence : seconde passe de l'IA locale (mots manifestement mal lus), corrections tracées et visibles du valideur
     let corrections = [];
-    try {
+    if (mode === 'complet') try {
         const cr = await coherencePass(apm, crep, opts.contexte || {}, log);
         corrections = cr.applied;
     } catch (e) { warnings.push(`Contrôle de cohérence indisponible (${e.message}).`); }
     tick();
     for (const d of doubts) warnings.push(`Lecture incertaine (page ${d.page}) – ${d.champ} : « ${d.valeurs[0] || '—'} » ou « ${d.valeurs[1] || '—'} »`);
     return {
-        corrections, incertains: doubts,
+        mode, corrections, incertains: doubts,
         raw: raws.join('\n\n') || '(transcription non fournie par le modèle)',
         fields: crep,
         engine: { lecture: `${model} (API Ville, vision) · ${total} page(s)`, structuration: grille || 'sans grille' },
@@ -562,4 +574,4 @@ async function scanDocuments(files, definition, opts = {}) {
     };
 }
 
-module.exports = { scanToProposal, scanDocuments };
+module.exports = { scanToProposal, scanDocuments, pagePrompt, pageType };

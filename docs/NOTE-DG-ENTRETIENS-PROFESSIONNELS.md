@@ -64,6 +64,18 @@ Le dispositif couvre **tous les cas**, y compris les agents sans informatique.
 
 Aucun agent n'est écarté du dispositif du fait de sa situation numérique.
 
+#### 3.4. Le papier ne freine plus : lecture du manuscrit par l'IA locale
+
+Un valideur peut préférer écrire à la main. Il photographie alors les pages du compte rendu papier signé et les dépose dans l'outil :
+
+- **L'IA locale de la Ville** (hébergée sur un serveur dédié de la collectivité : **aucune donnée ne sort du réseau**) lit l'écriture manuscrite, les **cases cochées** de la grille d'appréciation et propose le contenu du compte rendu ;
+- l'analyse prend **quelques minutes** et se fait en **tâche de fond** : le valideur est **prévenu par e-mail** quand elle est terminée ;
+- **le valideur vérifie chaque ligne** avant de valider : l'IA propose, il décide et en répond (une case de confirmation est obligatoire) ;
+- **deux versions sont conservées** : le **scan original** et la **version numérique lue par l'IA**. Cette dernière porte le filigrane **« DOCUMENT NON CONTRACTUEL »** et la mention **« Document original manuscrit signé »** à la place des signatures : on sait immédiatement qu'elle n'est pas l'original ;
+- **dans tous les cas, le valideur envoie l'ORIGINAL papier signé à la RH** et valide son pendant numérique : **seul l'original signé fait foi**.
+
+Si le compte rendu a d'abord été saisi dans l'outil, puis imprimé et signé, l'IA ne lit que **les deux commentaires manuscrits de l'agent**.
+
 ---
 
 ### 4. Les avantages
@@ -84,6 +96,7 @@ Aucun agent n'est écarté du dispositif du fait de sa situation numérique.
 
 **Pour la DRH**
 - Demandes de formation centralisées et exportables, avec la compétence visée.
+- **Vue globale des besoins de formation**, par direction et par service, selon les trois types (obligatoires, métiers, parcours), **non nominative** : l'IA locale **regroupe les demandes par thème** (management et encadrement ; Word et Excel en bureautique…) et en tire une synthèse des besoins transversaux pour bâtir le plan de formation.
 - Fin des documents perdus et des ressaisies.
 
 **Pour la sécurité et la preuve**
@@ -95,7 +108,8 @@ Aucun agent n'est écarté du dispositif du fait de sa situation numérique.
 
 - L'outil couvre **l'ensemble du parcours** : désignation des valideurs, planification, préparation, saisie, validation, signature électronique ou papier, archivage, pilotage.
 - Il dispose d'un **mode de test (BETA)** : tant que la Direction générale n'a pas décidé, **aucun mail ne part aux agents hors BETA**. Le passage en production se fait par un simple réglage.
-- Le **guide pas à pas** pour valideurs et administrateurs est intégré à l'outil.
+- Le **guide pas à pas** pour valideurs et administrateurs est intégré à l'outil, avec un **tutoriel interactif** (façon jeu) à la première connexion.
+- La **lecture des comptes rendus manuscrits par l'IA locale** a été essayée sur des photos de qualité médiocre : les cases cochées de la grille sont reconnues, et le texte manuscrit l'est en grande partie, avec relecture obligatoire par le valideur.
 - La reprise des agents et des valideurs se fait à partir du classeur de référence existant.
 
 **Il suffit d'une décision pour lancer la campagne.**

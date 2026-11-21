@@ -27,6 +27,8 @@ export interface Crep {
   obs_agent_conditions: string;
   obs_agent_entretien: string;
   visa_autorite: string;
+  /** « manuscrit » : repris d'un document papier lu par l'IA (non contractuel : l'original signé fait foi). */
+  origine?: '' | 'manuscrit';
 }
 
 export const NB_OBJECTIFS = 4;
@@ -86,7 +88,7 @@ export function emptyCrep(): Crep {
     date_convocation: '', date_entretien: '', date_notification: '', observations_complementaires: '', valeur: {}, appreciation_generale: '', objectifs_service: '',
     objectifs_futurs: Array.from({ length: NB_OBJECTIFS }, () => ({ descriptif: '', moyens: '' })),
     formations: { obligatoires: '', metiers: '', parcours: '' },
-    evolution: '', mobilite: '', obs_agent_conditions: '', obs_agent_entretien: '', visa_autorite: '',
+    evolution: '', mobilite: '', obs_agent_conditions: '', obs_agent_entretien: '', visa_autorite: '', origine: '',
   };
 }
 
@@ -162,6 +164,7 @@ export function initialCrep(e: Entretien): Crep {
     obs_agent_conditions: saved.obs_agent_conditions || '',
     obs_agent_entretien: saved.obs_agent_entretien || '',
     visa_autorite: saved.visa_autorite || '',
+    origine: saved.origine === 'manuscrit' ? 'manuscrit' : '',
   };
 }
 

@@ -5,7 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 const { LEVELS, normalizeCrep, definitionFor, groupsOf } = require('./crep.definition');
 
 const W = 595.28;
@@ -352,7 +352,15 @@ async function buildCrepPdf(entretien, annee) {
     draw(page, 'DATE ET SIGNATURE DE L’ÉVALUATEUR', MX + sw + 8, sigTop + 6, { font: F.b, size: 7.5 });
     draw(page, '(le N+1) :', MX + sw + 8 + widthOf(F.b, 7.5, 'DATE ET SIGNATURE DE L’ÉVALUATEUR') + 8, sigTop + 6, { font: F.i, size: 8.5 });
     // Dates de signature = date de validation par l'agent (les signatures sont apposées par le parapheur)
-    const signDate = fmtDate(entretien.crep_agent_validated_at);
+    const manuscrit = crep.origine === 'manuscrit';
+    const signDate = manuscrit ? '' : fmtDate(entretien.crep_agent_validated_at);
+    if (manuscrit) {
+        // Transcription d'un document papier : pas de signature sur ce document, l'original signé est conservé à part
+        for (const x0 of [MX, MX + sw]) {
+            draw(page, 'Document original', x0, sigTop + 38, { font: F.b, size: 11, align: 'center', maxW: sw });
+            draw(page, 'manuscrit signé', x0, sigTop + 53, { font: F.b, size: 11, align: 'center', maxW: sw });
+        }
+    }
     if (signDate) {
         draw(page, `Le ${signDate}`, MX, sigTop + 6, { font: F.b, size: 8.5, align: 'right', maxW: sw - 8 });
         draw(page, `Le ${signDate}`, MX + sw, sigTop + 6, { font: F.b, size: 8.5, align: 'right', maxW: sw - 8 });
@@ -376,6 +384,24 @@ async function buildCrepPdf(entretien, annee) {
     line('Recours pour excès de pouvoir :', F.bi, 7.8);
     line('Auprès de l’autorité territoriale (recours gracieux) dans un délai de deux mois après réception de la réponse de la CAP', F.i);
     line('Auprès du Tribunal Administratif dans un délai de deux mois à compter de la présente notification', F.bi);
+
+    // Filigrane : ce document n'est pas l'original (transcription numérique d'un manuscrit signé)
+    if (manuscrit) {
+        const wm = rgb(0.75, 0.1, 0.1);
+        const ang = 40 * Math.PI / 180;
+        for (const pg of pdf.getPages()) {
+            const lines = [['DOCUMENT', 70], ['NON CONTRACTUEL', 50]];
+            lines.forEach(([txt, size], k) => {
+                const w = F.b.widthOfTextAtSize(txt, size);
+                // centre du texte au centre de la page, décalé perpendiculairement à la diagonale pour la 2e ligne
+                const off = (k === 0 ? 38 : -32);
+                const cx = W / 2 - off * Math.sin(ang), cy = H / 2 + off * Math.cos(ang);
+                pg.drawText(txt, { x: cx - (w / 2) * Math.cos(ang), y: cy - (w / 2) * Math.sin(ang), size, font: F.b, color: wm, opacity: 0.16, rotate: degrees(40) });
+            });
+            const foot = 'Transcription numérique d’un document manuscrit — NON CONTRACTUEL : l’original papier signé fait foi';
+            pg.drawText(foot, { x: (W - F.i.widthOfTextAtSize(foot, 7.5)) / 2, y: 14, size: 7.5, font: F.i, color: wm, opacity: 0.85 });
+        }
+    }
 
     return Buffer.from(await pdf.save());
 }

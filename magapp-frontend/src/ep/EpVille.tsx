@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
+  GraduationCap,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
@@ -9,6 +10,7 @@ import Reglages from './Reglages';
 import Evaluations from './Evaluations';
 import Journal from './Journal';
 import AideEp from './AideEp';
+import Formations from './Formations';
 import TutoEp, { tutoMarkSeen, tutoSeen } from './TutoEp';
 import type { TutoRole } from './TutoEp';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
@@ -813,7 +815,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'parametrage' | 'journal' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'parametrage' | 'journal' | null>(null);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
@@ -863,6 +865,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agents', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
+    { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin },
     { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
     { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
   ].filter(t => t.visible);
@@ -902,6 +905,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} canReset={!!me.isAdmin} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
               {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} />}
+              {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}

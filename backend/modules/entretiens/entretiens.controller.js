@@ -684,6 +684,8 @@ const entretiensController = {
             const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
             const job = await require('./crep-scan-jobs').start({
                 row, actor, definition: cdef, annee: campaign?.annee,
+                // CREP déjà saisi et validé dans l'outil (origine numérique) : le document signé à la main n'apporte que les 2 commentaires de l'agent
+                mode: row.evaluation_statut === 'soumis' ? 'agent' : 'complet',
                 files: up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })),
                 contexte: { poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
             });
@@ -709,6 +711,27 @@ const entretiensController = {
         } catch (err) { fail(res, 500, err.message); }
     },
 
+    // GET /api/entretiens/:id/crep/scans/:idx.pdf — scan original conservé (papier signé)
+    crepScanFile: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            const list = Array.isArray(row.crep_scans) ? row.crep_scans : [];
+            const item = list[Number(req.params.idx)];
+            if (!item) return fail(res, 404, 'Scan introuvable.');
+            const f = await storage.getFileForServe(item.path);
+            if (!f) return fail(res, 404, 'Fichier introuvable.');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${String(item.name || 'scan.pdf').replace(/[^\w.\-]+/g, '_')}"`);
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            res.send(f.buffer);
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
     // POST /api/entretiens/:id/crep/scan/:jobId/ack — la proposition a été appliquée ou écartée : on la range
     crepScanAck: async (req, res) => {
         try {
@@ -718,7 +741,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur.');
-            await require('./crep-scan-jobs').ack(row.id, Number(req.params.jobId));
+            await require('./crep-scan-jobs').ack(row.id, Number(req.params.jobId), req.body?.applied === true, actor.username || actor.email || '');
             res.json({ ok: true });
         } catch (err) { fail(res, 500, err.message); }
     },
@@ -1190,6 +1213,30 @@ const entretiensController = {
 
 
 
+
+    // GET /api/entretiens/formations — demandes de formation de la campagne (admin, non nominatif), par direction puis service
+    formationsGlobales: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const campaign = await loadCampaignOrCurrent(req.query.campaign_id);
+            if (!campaign) return res.json({ campaign: null, types: [], directions: [], total: 0, analyse: null, etat: null });
+            const fg = require('./formations-globales');
+            const demandes = await fg.listDemandes(campaign.id);
+            res.json({ campaign, types: fg.TYPES, total: demandes.length, directions: fg.grouper(demandes), analyse: await fg.lastAnalysis(campaign.id), etat: fg.state() });
+        } catch (err) { console.error('[ENTRETIENS] formationsGlobales:', err.message); fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/formations/analyse — analyse globale par l'IA locale (tâche de fond)
+    formationsAnalyse: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const campaign = await loadCampaignOrCurrent(req.body?.campaign_id);
+            if (!campaign) return fail(res, 400, 'Aucune campagne.');
+            res.status(202).json({ etat: require('./formations-globales').startAnalysis(campaign.id) });
+        } catch (err) { fail(res, 500, err.message); }
+    },
 
     // GET /api/entretiens/export.xlsx?campaign_id= — export Excel du suivi de la campagne (administrateurs du module)
     exportXlsx: async (req, res) => {
