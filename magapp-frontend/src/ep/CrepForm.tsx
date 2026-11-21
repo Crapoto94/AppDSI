@@ -331,12 +331,13 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       onSaved(fresh);
     }
     try { await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers }); } catch { /* la clôture contrôlera */ }
-    if (!(await confirm('Clôturer l’entretien ?\n\nLe CREP signé est archivé et l’entretien est terminé. Vous ne pourrez plus le modifier.', { title: 'Clôturer l’entretien', confirmLabel: 'Clôturer' }))) return;
+    if (!(await confirm('Clôturer l’entretien ?\n\nLe CREP signé est archivé et l’entretien est terminé. Vous ne pourrez plus le modifier.\n\nPensez à transmettre le CREP signé (original papier) à la DRH.', { title: 'Clôturer l’entretien', confirmLabel: 'Clôturer' }))) return;
     setBusy('submit');
     try {
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/close`, {}, { headers });
-      onSaved(r.data.entretien);
-      setMsg({ ok: true, text: 'Entretien clôturé : le CREP signé est archivé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH.' });
+      onSaved({ ...r.data.entretien, statut: 'cloture' });
+      await reloadEntretien();
+      setMsg({ ok: true, text: 'Entretien clôturé : le CREP signé est archivé. Pensez à transmettre le CREP signé (original papier) à la DRH.' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message || 'Clôture impossible.' });
     } finally { setBusy(null); }
@@ -384,7 +385,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           formVisible={false} setFormVisible={() => {}} incomplete={[]} onStep={() => {}} scanReading={scanOn} isAdminUser={isAdminUser}
           onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>
-          <strong>L’original signé doit être transmis à la RH.</strong> {entretien.campaign_closed ? 'La campagne est close : le CREP est consultable dans le dossier de l’agent.' : 'Les documents restent consultables jusqu’à la clôture de la campagne.'}
+          <strong>Veuillez transmettre le CREP signé (original papier) à la DRH.</strong> {entretien.campaign_closed ? 'La campagne est close : le CREP est consultable dans le dossier de l’agent.' : 'Les documents restent consultables jusqu’à la clôture de la campagne.'}
         </div>
       </div>
     );
@@ -409,7 +410,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       {!isAgent && locked && (
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>
           <div style={{ fontWeight: 800, marginBottom: 2 }}>Compte rendu validé — lecture seule</div>
-          <div><strong>L’original signé doit être transmis à la RH.</strong> Le document numérique conservé dans l’outil est non contractuel : seul l’original signé fait foi.</div>
+          <div><strong>Veuillez transmettre le CREP signé (original papier) à la DRH.</strong> Le document numérique conservé dans l’outil est non contractuel : seul l’original signé fait foi.</div>
           <div style={{ marginTop: 3 }}>
             {entretien.campaign_closed
               ? <>La campagne est close : le CREP est consultable dans le <strong>dossier de l’agent</strong>.</>
