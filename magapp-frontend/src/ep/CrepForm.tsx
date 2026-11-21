@@ -123,9 +123,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           return;
         }
       } catch (e) { /* contrôle indisponible : on ne bloque pas la validation */ }
-      if (crep.origine === 'manuscrit') {
-        if (!(await confirm('Ce compte rendu a été repris d’un document manuscrit par l’IA.\n\nAvez-vous vérifié CHAQUE LIGNE (textes, niveaux, cases cochées) par rapport au document papier signé ?\n\nLe PDF produit sera marqué « DOCUMENT NON CONTRACTUEL » : vous devez envoyer l’ORIGINAL papier signé à la RH.', { title: 'Vérification ligne par ligne', confirmLabel: 'J’ai tout vérifié, valider' }))) return;
-      } else if (!(await confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.', { title: 'Valider le compte rendu', confirmLabel: 'Valider' }))) return;
+      // En mode manuscrit, la clôture a sa propre confirmation : aucune question supplémentaire (plus de « vérification ligne par ligne »)
+      if (entretien.crep_mode !== 'manuscrit' && crep.origine !== 'manuscrit' && !(await confirm('Valider le compte rendu ? L’entretien sera marqué comme réalisé.', { title: 'Valider le compte rendu', confirmLabel: 'Valider' }))) return;
     }
     setBusy(submit ? 'submit' : 'save');
     try {
