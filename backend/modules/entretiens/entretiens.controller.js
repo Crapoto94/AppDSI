@@ -1565,6 +1565,16 @@ const entretiensController = {
             if (row.crep_signed_path) {
                 try { await storage.deleteFile(row.crep_signed_path); } catch (e) { warnings.push('Pièce jointe : ' + e.message); }
             }
+            // Scans originaux conservés (papier signé) et analyses en cours : supprimés avec l'EP
+            try {
+                const scans = typeof row.crep_scans === 'string' ? JSON.parse(row.crep_scans || '[]') : (row.crep_scans || []);
+                const paths = new Set((Array.isArray(scans) ? scans : []).map(s => s && s.path).filter(Boolean));
+                const jobs = await pgDb.all('SELECT scan_path FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ?', [row.id]).catch(() => []);
+                for (const j of jobs) if (j.scan_path) paths.add(j.scan_path);
+                for (const pth of paths) { try { await storage.deleteFile(pth); } catch (e) { /* fichier déjà absent */ } }
+                await pgDb.run('DELETE FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ?', [row.id]).catch(() => {});
+                await pgDb.run('DELETE FROM hub_entretiens.relances WHERE entretien_id = ?', [row.id]).catch(() => {});
+            } catch (e) { warnings.push('Scans originaux : ' + e.message); }
             try { await pgDb.run('DELETE FROM hub_entretiens.objectifs WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Objectifs : ' + e.message); }
             try { await pgDb.run('DELETE FROM hub_entretiens.formations WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Formations : ' + e.message); }
 
@@ -1582,7 +1592,7 @@ const entretiensController = {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    updated_at = NOW()
+                    crep_scans = '[]'::jsonb, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
 
             await svc.logAudit({

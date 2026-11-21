@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { COLORS, card, btnGhost, btnPrimary } from './ui';
 
-const Section = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
+const Section = ({ icon, title, children }: { icon: React.ReactNode; title: React.ReactNode; children: React.ReactNode }) => (
   <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>{icon}{title}</div>
     <div style={{ fontSize: 12.5, lineHeight: 1.6, color: '#475569' }}>{children}</div>
@@ -44,7 +44,7 @@ function Step({ n, title, who, children }: { n: number; title: string; who?: str
 }
 
 /** Un cas de figure (« Cas A », « Cas B »…) : bandeau coloré + déroulé. */
-function Cas({ code, title, color = '#4f46e5', icon, children }: { code: string; title: string; color?: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function Cas({ code, title, color = '#4f46e5', icon, children }: { code: string; title: React.ReactNode; color?: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ border: `1px solid ${color}55`, borderLeft: `5px solid ${color}`, borderRadius: 9, padding: '10px 12px', marginBottom: 10, background: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 13, color: COLORS.text, marginBottom: 5 }}>
@@ -76,51 +76,46 @@ const Chip = ({ label, color, bg }: { label: string; color: string; bg: string }
 );
 const Arrow = () => <span style={{ color: '#94a3b8', fontWeight: 900, fontSize: 16 }}>→</span>;
 
-/** Schéma du processus complet, avec qui fait quoi. */
-function ProcessSchema() {
+/** Pastille « activable » : fonction non active par défaut, ouverte par un administrateur. */
+const Activable = () => (
+  <span title="Fonction non active par défaut : elle s'active dans Paramétrage" style={{ display: 'inline-block', marginLeft: 8, verticalAlign: 'middle', background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 8px', fontSize: 10.5, fontWeight: 800, letterSpacing: .2 }}>activable</span>
+);
+
+export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
+
+/** Étapes du chemin d'un EP : seules les fonctions activées apparaissent, la numérotation s'adapte. */
+function ProcessSchema({ f }: { f: AideFeatures }) {
+  const steps: Array<{ title: string; who: string; body: React.ReactNode }> = [
+    { title: "L'administrateur désigne les valideurs", who: 'Administrateur', body: <>Il indique qui valide qui. Vous retrouvez simplement vos agents dans MagApp.</> },
+    { title: "Vous prenez rendez-vous avec l'agent", who: 'Valideur', body: <>
+      Cette étape est <strong>facultative</strong> : vous pouvez toujours fixer la date « à l'ancienne ». L'outil n'est qu'une <strong>aide</strong> (recherche de créneaux, envoi de la convocation par e-mail). <strong>Si l'agent n'a pas d'e-mail, vous devez de toute façon le convoquer autrement</strong> (vive voix, téléphone, courrier).
+    </> },
+  ];
+  if (f.prep) steps.push({ title: "L'agent prépare son entretien", who: 'Agent', body: <>Dans « Mon entretien » (il a une adresse e-mail et l'accès a été ouvert pour lui). Vous retrouvez sa préparation dans l'EP. Cette étape est facultative : l'entretien peut avoir lieu sans.</> });
+  steps.push(
+    { title: 'Vous préparez le CREP', who: 'Valideur', body: <>Si vous souhaitez un CREP <strong>totalement manuscrit</strong>, vous l'<strong>imprimez</strong> (icône imprimante de la ligne de l'agent, « CREP vierge »). Si vous saisissez dans l'outil, il n'y a rien à préparer.</> },
+    { title: "L'entretien a lieu", who: 'Valideur + Agent', body: <>Vous échangez avec l'agent et vous prenez vos notes : à la main sur le CREP imprimé, ou directement dans l'outil (« Saisir l'EP »).</> },
+    { title: "Si vous avez saisi dans l'outil, vous imprimez", who: 'Valideur', body: <>Cliquez sur <strong>« Imprimer / PDF »</strong> pour obtenir le CREP à faire signer. (Écrit à la main : vous avez déjà le papier.)</> },
+    { title: "Vous transmettez le CREP à l'agent", who: 'Valideur + Agent', body: <>L'agent <strong>renseigne les 2 cadres qui le concernent</strong> (ses observations sur les conditions de travail, puis sur l'entretien) et <strong>signe à la main</strong>.</> },
+    { title: 'Vous contresignez', who: 'Valideur', body: <>Quand l'agent vous rend le CREP signé, vous le <strong>contresignez</strong>.</> },
+    { title: 'Vous numérisez et vous téléversez', who: 'Valideur', body: <>Vous <strong>numérisez</strong> le CREP signé (scan ou photos des pages) et vous le <strong>téléversez dans l'outil</strong>. C'est nécessaire <strong>dans tous les cas où il y a du papier</strong> : CREP écrit à la main, mais aussi CREP saisi dans l'outil puis imprimé et signé. <strong>L'original signé part à la RH.</strong></> },
+    { title: 'Vous vérifiez tout, puis vous validez le CREP', who: 'Valideur', body: <>Vous contrôlez chaque rubrique (relecture ligne par ligne de ce qui a été lu sur le papier, puis « Vérifier la cohérence »), puis vous cliquez sur <strong>« Valider le compte rendu »</strong> : l'entretien passe à « Réalisé ».</> },
+  );
   return (
     <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, background: '#f8fafc', marginBottom: 10 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 800, color: COLORS.text, marginBottom: 8 }}>Le chemin d'un EP, de la désignation à l'archive</div>
-      <Step n={1} title="L'administrateur désigne les valideurs" who="Administrateur">
-        Il indique qui valide qui. Vous n'avez rien à faire : vous retrouvez simplement vos agents dans MagApp.
-      </Step>
-      <Step n={2} title="Vous prenez rendez-vous avec l'agent" who="Valideur">
-        Bouton « Planifier ». L'outil envoie l'invitation Outlook et un e-mail à l'agent (s'il a une adresse e-mail), avec le CREP vierge en pièce jointe.
-        Cette étape est <strong>facultative</strong> : vous pouvez toujours fixer la date « à l'ancienne ». Si l'agent n'a pas d'e-mail, vous devez de toute façon le convoquer autrement.
-      </Step>
-      <Step n={3} title="L'agent prépare son entretien" who="Agent">
-        En ligne dans « Mon entretien » (s'il a un e-mail et l'accès), sinon sur le formulaire papier. Cette étape est facultative pour vous : l'entretien peut avoir lieu sans.
-      </Step>
-      <Step n={4} title="Vous préparez le CREP" who="Valideur">
-        Si vous souhaitez un CREP <strong>totalement manuscrit</strong>, vous <strong>l'imprimez</strong> (icône imprimante de la ligne de l'agent, « CREP vierge »). Si vous préférez saisir dans l'outil, il n'y a rien à préparer : passez à l'étape 5.
-      </Step>
-      <Step n={5} title="L'entretien a lieu" who="Valideur + Agent">
-        Vous échangez avec l'agent et vous prenez vos notes : à la main sur le CREP imprimé, ou directement dans l'outil (« Saisir l'EP »).
-      </Step>
-      <Step n={6} title="Si vous avez saisi dans l'outil, vous imprimez" who="Valideur">
-        Compte rendu saisi dans l'outil : cliquez sur <strong>« Imprimer / PDF »</strong> pour obtenir le CREP à faire signer. (Si vous avez écrit à la main, vous avez déjà le papier.)
-      </Step>
-      <Step n={7} title="Vous transmettez le CREP à l'agent" who="Valideur + Agent">
-        Vous remettez le CREP à l'agent. Il <strong>renseigne les 2 cadres qui le concernent</strong> (ses observations sur les conditions de travail, puis sur l'entretien) et <strong>le signe à la main</strong>.
-      </Step>
-      <Step n={8} title="Vous contresignez" who="Valideur">
-        Quand l'agent vous rend le CREP signé, vous le <strong>contresignez</strong> à votre tour.
-      </Step>
-      <Step n={9} title="Vous numérisez et vous téléversez" who="Valideur">
-        Vous <strong>numérisez</strong> le CREP signé (scan ou photos des pages) et vous le <strong>téléversez dans l'outil</strong> (« Importer un compte rendu papier »). Un CREP manuscrit doit être téléversé pour pouvoir être validé. <strong>L'original signé part à la RH.</strong>
-      </Step>
-      <Step n={10} title="Vous vérifiez tout, puis vous validez le CREP" who="Valideur">
-        Vous contrôlez chaque rubrique (relecture ligne par ligne de ce qui a été lu sur le papier, puis « Vérifier la cohérence »), vous cliquez sur <strong>« Valider le compte rendu »</strong> : l'entretien passe à « Réalisé » et le PDF signé reste consultable dans l'EP (bouton « CREP signé »).
-      </Step>
-      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>
-        <strong>Variante électronique</strong> (l'agent et vous avez une adresse e-mail et la signature électronique est ouverte pour cet agent) : les étapes 6 à 9 sont remplacées par « Envoyer à l'agent » ; il valide, puis vous signez tous les deux dans le parapheur, et le document signé est archivé automatiquement.
-      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: COLORS.text, marginBottom: 8 }}>Le chemin d'un EP, de la désignation à la validation</div>
+      {steps.map((s, i) => <Step key={i} n={i + 1} title={s.title} who={s.who}>{s.body}</Step>)}
+      {f.esign && (
+        <div style={{ marginTop: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 8, padding: '8px 11px', fontSize: 12 }}>
+          <strong>Signature électronique ouverte pour cet agent</strong> (il a une adresse e-mail, vous aussi) : au lieu de faire imprimer, signer, numériser et téléverser, vous cliquez sur <strong>« Envoyer à l'agent »</strong> ; il relit, remplit ses 2 cadres et valide, puis vous signez tous les deux dans le parapheur. Le document signé est archivé automatiquement.
+        </div>
+      )}
     </div>
   );
 }
 
-/** Repères visuels à l'écran, sans capture d'écran. */
-function ScreenMap() {
+/** Repères visuels à l'écran : uniquement les éléments disponibles. */
+function ScreenMap({ f }: { f: AideFeatures }) {
   const box = (label: string, hint: string, color = '#e2e8f0') => (
     <div style={{ border: `1px solid ${color}`, background: '#fff', borderRadius: 7, padding: '7px 9px' }}>
       <div style={{ fontWeight: 800, fontSize: 11.5, color: COLORS.text }}>{label}</div>
@@ -133,22 +128,24 @@ function ScreenMap() {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         {box('Onglet « EP que je réalise »', 'Vos entretiens : c\'est ici que vous travaillez', '#bfdbfe')}
         {box('Onglet « EP de mon équipe »', 'Contrôle de vos agents (lecture)', '#bbf7d0')}
-        {box('Onglet « Mon entretien »', 'Votre propre EP, en tant qu\'agent', '#fde68a')}
+        {f.prep && box('Onglet « Mon entretien »', 'Votre propre EP, quand vous êtes évalué(e)', '#fde68a')}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 6 }}>
-        {box('Bouton « Planifier »', 'Fixer le rendez-vous')}
+        {box('Bouton « Planifier »', 'Fixer le rendez-vous (facultatif)')}
         {box('Bouton « Saisir l’EP »', 'Ouvrir et remplir le CREP')}
         {box('Icône imprimante', 'Imprimer le CREP (vierge ou rempli)')}
+        {box('« Importer un compte rendu papier »', 'Téléverser le CREP signé (scan ou photos)')}
         {box('« Valider le compte rendu »', 'Passe l\'EP à « Réalisé »')}
-        {box('« Envoyer à l’agent »', 'Circuit électronique')}
-        {box('« CREP manuscrit (4 pages scannées) »', 'Circuit papier')}
+        {f.esign && box('« Envoyer à l’agent »', 'Signature électronique (si ouverte pour l\'agent)')}
+        {f.aiDraft && box('« Rédiger avec l’IA »', 'Propose un texte à partir de vos notes')}
+        {f.aiReview && box('Relecture de cohérence', 'Signale les incohérences du compte rendu')}
       </div>
     </div>
   );
 }
 
-/** Schéma des statuts : rassure sur l'état de l'EP. */
-function StatusSchema() {
+/** Statuts : seuls ceux qui existent avec les fonctions activées. */
+function StatusSchema({ f }: { f: AideFeatures }) {
   return (
     <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
       <div style={{ fontSize: 12.5, fontWeight: 800, color: COLORS.text, marginBottom: 8 }}>Les statuts, dans l'ordre</div>
@@ -156,12 +153,10 @@ function StatusSchema() {
         <Chip label="À planifier" color="#92400e" bg="#fef3c7" /><Arrow />
         <Chip label="Planifié" color="#1e40af" bg="#dbeafe" /><Arrow />
         <Chip label="Réalisé (CREP validé)" color="#166534" bg="#dcfce7" /><Arrow />
-        <Chip label="Envoyé à l'agent" color="#6b21a8" bg="#f3e8ff" /><Arrow />
-        <Chip label="En signature" color="#9a3412" bg="#ffedd5" /><Arrow />
+        {f.esign && <><Chip label="Envoyé à l'agent" color="#6b21a8" bg="#f3e8ff" /><Arrow /><Chip label="En signature" color="#9a3412" bg="#ffedd5" /><Arrow /></>}
         <Chip label="Signé / archivé" color="#065f46" bg="#d1fae5" />
       </div>
       <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
-        Circuit papier : « Réalisé » <strong>→</strong> « Signé papier / archivé » (les deux étapes du milieu sont sautées).
         « À planifier » ne veut pas dire « en retard » : l'EP attend simplement votre action.
       </div>
     </div>
@@ -169,39 +164,30 @@ function StatusSchema() {
 }
 
 /** Tableau de synthèse « quelle situation, que se passe-t-il ». */
-function Matrice() {
+function Matrice({ f }: { f: AideFeatures }) {
   const th: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', background: '#f1f5f9', fontSize: 11.5, color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` };
   const td: React.CSSProperties = { padding: '6px 8px', fontSize: 12, borderBottom: `1px solid ${COLORS.border}`, verticalAlign: 'top' };
   return (
     <div style={{ overflowX: 'auto', marginBottom: 10 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
         <thead>
-          <tr><th style={th}>Situation</th><th style={th}>Prise de RDV</th><th style={th}>Préparation de l'agent</th><th style={th}>Compte rendu et signature</th></tr>
+          <tr><th style={th}>Situation</th><th style={th}>Rendez-vous</th>{f.prep && <th style={th}>Préparation de l'agent</th>}<th style={th}>Compte rendu et signature</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td style={td}><strong>A.</strong> L'agent et vous avez un e-mail, signature électronique ouverte</td>
-            <td style={td}>Invitation Outlook + e-mail à l'agent avec CREP vierge</td>
-            <td style={td}>En ligne, dans « Mon entretien »</td>
-            <td style={td}>Vous saisissez dans l'outil → « Envoyer à l'agent » → l'agent valide → signature dans le parapheur → archivage automatique</td>
+            <td style={td}><strong>L'agent a une adresse e-mail</strong></td>
+            <td style={td}>Invitation Outlook + e-mail avec le CREP vierge (si vous utilisez l'assistant de planification)</td>
+            {f.prep && <td style={td}>En ligne dans « Mon entretien », ou sur papier</td>}
+            <td style={td}>
+              CREP signé à la main : vous le numérisez et vous le téléversez, puis vous validez.
+              {f.esign && <> Si la signature électronique est ouverte pour lui : « Envoyer à l'agent » → il valide → signatures dans le parapheur → archivage automatique.</>}
+            </td>
           </tr>
           <tr>
-            <td style={td}><strong>B.</strong> L'agent a un e-mail mais la signature électronique n'est pas ouverte</td>
-            <td style={td}>Identique au cas A</td>
-            <td style={td}>En ligne ou sur papier</td>
-            <td style={td}>Vous saisissez dans l'outil et validez → vous imprimez → signatures papier → vous téléversez le scan</td>
-          </tr>
-          <tr>
-            <td style={td}><strong>C.</strong> L'agent n'a pas d'e-mail</td>
-            <td style={td}>Aucun mail ni invitation ne part à l'agent : vous le prévenez de vive voix et lui remettez le CREP vierge imprimé</td>
-            <td style={td}>Sur papier uniquement</td>
-            <td style={td}>Circuit papier (comme B)</td>
-          </tr>
-          <tr>
-            <td style={td}><strong>D.</strong> Vous décidez de remplir le CREP à la main</td>
-            <td style={td}>Identique à A, B ou C</td>
-            <td style={td}>Comme A, B ou C</td>
-            <td style={td}>Vous écrivez sur le papier pendant l'entretien. Ensuite : soit vous recopiez dans l'outil (ou « Importer un compte rendu papier »), validez, puis scannez le papier signé</td>
+            <td style={td}><strong>L'agent n'a pas d'e-mail</strong></td>
+            <td style={td}>Aucun envoi possible : vous le convoquez vous-même (vive voix, téléphone, courrier) et vous lui remettez le CREP vierge imprimé</td>
+            {f.prep && <td style={td}>Sur papier uniquement</td>}
+            <td style={td}>Toujours sur papier : impression, signatures, numérisation, téléversement, validation</td>
           </tr>
         </tbody>
       </table>
@@ -209,10 +195,12 @@ function Matrice() {
   );
 }
 
-export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean }
-
 export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose: () => void; isAdmin?: boolean; features?: AideFeatures; onTuto?: () => void }) {
+  const f: AideFeatures = features || {};
   const [tab, setTab] = useState<'evaluateur' | 'admin'>(isAdmin ? 'admin' : 'evaluateur');
+  // Numérotation des étapes détaillées : s'adapte aux fonctions activées
+  const nPrep = 3;
+  const nCrep = f.prep ? 4 : 3;
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}
       onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -243,37 +231,31 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
         {tab === 'evaluateur' ? (
           <>
             <Callout tone="ok" title="Pas besoin d'être à l'aise avec l'informatique">
-              Cette page vous tient la main. Lisez d'abord « Quelle est ma situation ? », puis suivez uniquement les étapes qui vous concernent.
+              Cette page vous tient la main. Lisez d'abord « Le processus en un coup d'œil », puis suivez uniquement les étapes qui vous concernent.
               Si un écran ne ressemble pas à ce qui est décrit, ne cherchez pas au hasard : appelez l'administrateur du module ou la DSI.
             </Callout>
 
             <Section icon={<MousePointerClick size={15} color={COLORS.primary} />} title="Le processus en un coup d'œil">
-              <ProcessSchema />
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                Retenez surtout ceci : <strong>vous planifiez</strong>, <strong>vous menez l'entretien</strong>, <strong>vous validez le CREP dans l'outil</strong>,
-                puis <strong>la signature se fait en ligne ou sur papier</strong> selon la situation de l'agent.
-              </div>
+              <ProcessSchema f={f} />
             </Section>
 
             <Section icon={<Route size={15} color={COLORS.primary} />} title="Quelle est ma situation ?">
               <div style={{ marginBottom: 8 }}>
-                Le déroulé change selon deux questions : <strong>l'agent a-t-il une adresse e-mail ?</strong> et <strong>la signature électronique est-elle ouverte pour lui ?</strong>
+                Le déroulé change surtout selon une question : <strong>l'agent a-t-il une adresse e-mail ?</strong>
                 {' '}Vous n'avez pas à le deviner : l'outil le sait et ne vous propose que les boutons qui marchent.
               </div>
-              <Matrice />
+              <Matrice f={f} />
               <Callout tone="info" title="Comment savoir si l'agent a un e-mail ?">
-                Dans la liste « EP que je réalise », la colonne de l'agent indique son adresse. Si elle est vide, vous êtes dans le cas C, <strong>sauf si vous savez qu'il en a une</strong> : l'orthographe de son nom diffère peut-être entre la base RH et l'annuaire informatique, et vous pouvez faire le lien vous-même (étape 1, « Lier l'AD »).
-                Le bouton « Envoyer à l'agent » n'apparaît alors pas : c'est normal, passez par l'impression.
+                Dans la liste « EP que je réalise », la colonne de l'agent indique son adresse. Si elle est vide, l'agent suit le circuit papier, <strong>sauf si vous savez qu'il en a une</strong> : l'orthographe de son nom diffère peut-être entre la base RH et l'annuaire informatique, et vous pouvez faire le lien vous-même (étape 1, « Lier l'AD »).
               </Callout>
             </Section>
 
             <Section icon={<Users size={15} color={COLORS.primary} />} title="Où cliquer dans MagApp ?">
-              <ScreenMap />
-              <Shot src="/aide-ep/01-liste.jpg" caption="Onglet « EP que je réalise » : une ligne par agent, avec les boutons Planifier, imprimer, changer l'évaluateur et Saisir l'EP" />
+              <ScreenMap f={f} />
               <Callout tone="warn" title="Ne pas confondre les espaces">
                 <strong>« EP que je réalise »</strong> = les entretiens dont vous êtes l'évaluateur (vous les remplissez).
                 <strong> « EP de mon équipe »</strong> = la vue de contrôle de vos agents (souvent en lecture seule).
-                <strong> « Mon entretien »</strong> = votre propre entretien, quand vous êtes évalué(e).
+                {f.prep && <><strong> « Mon entretien »</strong> = votre propre entretien, quand vous êtes évalué(e).</>}
               </Callout>
             </Section>
 
@@ -281,7 +263,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <div style={{ display: 'grid', gap: 6 }}>
                 <div><strong>1.</strong> Je suis bien connecté avec <strong>mon compte personnel</strong>, pas celui d'un collègue.</div>
                 <div><strong>2.</strong> Je vois le bon nombre d'agents dans « EP que je réalise » (ou « EP de mon équipe »).</div>
-                <div><strong>3.</strong> Je repère les agents <strong>sans adresse e-mail</strong> : ils suivent le circuit papier (cas C).</div>
+                <div><strong>3.</strong> Je repère les agents <strong>sans adresse e-mail</strong> : je devrai les convoquer moi-même, et ils suivent le circuit papier.</div>
               </div>
             </Section>
 
@@ -293,12 +275,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <>Vérifier que chaque agent de votre équipe apparaît <strong>une seule fois</strong>.</>,
               ]} />
               <Callout tone="warn" title="Un agent manque ou le valideur affiché est faux ?">
-                Vous pouvez le corriger <strong>vous-même</strong>, sans attendre l'administrateur : voir les deux modes opératoires ci-dessous.
+                Vous pouvez le corriger <strong>vous-même</strong>, sans attendre l'administrateur : voir les modes opératoires ci-dessous.
                 Règle à garder en tête : <strong>un agent = un seul valideur</strong>.
               </Callout>
 
               <Cas code="Il manque un agent" title="M'ajouter un agent qui n'a pas encore de valideur" color="#16a34a" icon={<Users size={14} color="#16a34a" />}>
-                <Shot src="/aide-ep/03-ajouter-agent.jpg" caption="Fenêtre « Ajouter un agent » : les agents de votre direction sans évaluateur" />
                 <Gestes items={[
                   <>Aller dans l'onglet <strong>« EP que je réalise »</strong>.</>,
                   <>Cliquer sur le bouton bleu <strong>« Ajouter un agent »</strong> (au-dessus du tableau).</>,
@@ -306,13 +287,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                   <>Cliquer sur <strong>« Ajouter »</strong> en face de l'agent : il apparaît aussitôt dans votre liste, prêt à être planifié.</>,
                 ]} />
                 <Callout tone="info" title="L'agent n'est pas dans la liste ?">
-                  Soit il a <strong>déjà un valideur</strong> (voir le mode opératoire suivant : changer de valideur), soit il n'est pas dans votre direction ou pas dans la base des agents :
-                  prévenez l'administrateur.
+                  Soit il a <strong>déjà un valideur</strong> (voir « changer le valideur »), soit il n'est pas dans votre direction ou pas dans la base des agents : prévenez l'administrateur.
                 </Callout>
               </Cas>
 
               <Cas code="Mauvais valideur" title="Changer le valideur d'un agent" color="#4f46e5" icon={<UserCheck size={14} color="#4f46e5" />}>
-                <Shot src="/aide-ep/04-changer-valideur.jpg" caption="Fenêtre « Changer l'évaluateur » : l'évaluateur actuel, une recherche et un bouton Choisir" />
                 <Gestes items={[
                   <>Dans la liste, repérer la ligne de l'agent concerné.</>,
                   <>Cliquer sur l'icône <strong>« personne avec un engrenage »</strong> (info-bulle « Changer l'évaluateur ») à droite de la ligne.</>,
@@ -320,63 +299,50 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                   <>Cliquer sur <strong>« Choisir »</strong> en face du bon valideur. L'agent quitte votre liste (ou rejoint la vôtre) immédiatement.</>,
                 ]} />
                 <div style={{ marginTop: 4 }}>
-                  <strong>Pour récupérer un agent d'un collègue</strong> (ou donner un de vos agents à un collègue), c'est le même geste : ouvrir la fenêtre « Changer l'évaluateur » de cet agent et choisir le nouveau valideur.
-                  Le droit est réservé à l'évaluateur actuel de l'agent, à son supérieur et aux administrateurs.
+                  <strong>Pour récupérer un agent d'un collègue</strong> (ou donner un de vos agents à un collègue), c'est le même geste. Le droit est réservé à l'évaluateur actuel de l'agent, à son supérieur et aux administrateurs.
                 </div>
                 <Callout tone="warn" title="Si l'EP est déjà commencé">
-                  Changer de valideur ne supprime rien de ce qui a été saisi, mais le nouveau valideur reprend la main à partir de là.
-                  Prévenez l'ancien valideur et l'agent. Toutes les modifications sont inscrites dans le <strong>Journal</strong>.
+                  Changer de valideur ne supprime rien de ce qui a été saisi, mais le nouveau valideur reprend la main à partir de là. Prévenez l'ancien valideur et l'agent. Toutes les modifications sont inscrites dans le <strong>Journal</strong>.
                 </Callout>
               </Cas>
 
               <Cas code="Vue équipe" title="Si vous êtes directeur ou DGA : depuis « EP de mon équipe »" color="#64748b" icon={<Users size={14} color="#64748b" />}>
                 Dans l'onglet <strong>« EP de mon équipe »</strong>, les agents sont rangés par valideur (cliquer sur « Tout déplier »). Le bouton « Ajouter un agent » devient
                 <strong> « Choisir l'évaluateur »</strong> : vous choisissez d'abord l'agent sans évaluateur, puis le valideur à lui affecter, parmi les valideurs de votre périmètre.
-                Pour un agent déjà affecté, utilisez aussi l'icône « Changer l'évaluateur ».
               </Cas>
 
               <Cas code="Pas d'e-mail" title="Un agent est affiché sans adresse e-mail : le rapprochement RH ↔ annuaire informatique" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
                 <div style={{ marginBottom: 6 }}>
-                  <strong>Pourquoi ça arrive ?</strong> Les agents viennent de la <strong>base RH</strong>, mais les adresses e-mail sont dans l'<strong>annuaire informatique</strong> (l'AD, qui sert à vous connecter).
-                  L'outil relie les deux en comparant matricule, puis nom et prénom. Quand l'orthographe diffère entre les deux bases
-                  (accent, tiret, nom d'usage ou nom de naissance, prénom composé, faute de frappe), <strong>le lien ne se fait pas tout seul</strong> et l'agent apparaît « sans e-mail »,
-                  <strong> alors qu'il en a bien un</strong>.
+                  <strong>Pourquoi ça arrive ?</strong> Les agents viennent de la <strong>base RH</strong>, mais les adresses e-mail sont dans l'<strong>annuaire informatique</strong> (l'AD).
+                  L'outil relie les deux en comparant matricule, puis nom et prénom. Quand l'orthographe diffère (accent, tiret, nom d'usage, prénom composé, faute de frappe), <strong>le lien ne se fait pas tout seul</strong> et l'agent apparaît « sans e-mail », <strong>alors qu'il en a bien un</strong>.
                 </div>
                 <div style={{ marginBottom: 6 }}>
-                  <strong>Ce que vous pouvez faire :</strong> si vous savez que l'agent que vous évaluez a une adresse e-mail (il utilise Outlook, vous lui écrivez déjà…),
-                  <strong> retrouvez-le vous-même dans l'annuaire informatique et faites le lien</strong> :
+                  <strong>Ce que vous pouvez faire :</strong> si vous savez que l'agent a une adresse e-mail, <strong>retrouvez-le vous-même dans l'annuaire informatique et faites le lien</strong> :
                 </div>
-                <Shot src="/aide-ep/05-lier-ad.jpg" caption="Fenêtre « Lier un compte AD » : on tape quelques lettres, on vérifie le nom et l'adresse, puis « Lier »" />
                 <Gestes items={[
                   <>Sur la ligne de l'agent, cliquer sur <strong>« Lier l'AD »</strong>.</>,
-                  <>Taper <strong>quelques lettres de son nom</strong> (2 minimum) dans la zone de recherche. Essayez une orthographe plus courte ou son prénom seul si rien ne sort (ex. « mar » plutôt que « Marié-Dupont »).</>,
+                  <>Taper <strong>quelques lettres de son nom</strong> (2 minimum). Essayez une orthographe plus courte ou son prénom seul si rien ne sort.</>,
                   <>Dans les résultats (nom affiché + adresse e-mail), repérer <strong>la bonne personne</strong> : vérifier l'adresse.</>,
                   <>Cliquer sur <strong>« Lier »</strong>. L'adresse e-mail est rattachée à l'agent.</>,
                 ]} />
                 <Callout tone="ok" title="Ce que cela change">
-                  L'agent passe du <strong>cas C au cas A ou B</strong> : il reçoit l'invitation Outlook et l'e-mail de préparation, et peut signer en ligne si la signature électronique lui est ouverte.
+                  L'agent peut désormais recevoir la convocation et le CREP vierge par e-mail
+                  {f.prep && <>, et accéder à « Mon entretien »</>}
+                  {f.esign && <>, et signer en ligne si la signature électronique lui est ouverte</>}.
                   Si vous aviez déjà planifié, modifiez le rendez-vous pour que l'invitation lui parte.
                 </Callout>
                 <Callout tone="warn" title="Attention à l'homonymie">
                   Ne liez que si vous êtes <strong>certain</strong> de la personne (même service, bonne adresse). Un mauvais lien enverrait les documents confidentiels de l'entretien à quelqu'un d'autre.
-                  Une adresse déjà utilisée par un autre agent (doublon) doit être traitée par l'administrateur.
                 </Callout>
-                <div>
-                  <strong>Si l'agent n'a vraiment pas d'adresse</strong> (agent sans poste informatique, par exemple) : ne liez rien. Il suit le circuit papier (cas C).
-                </div>
+                <div><strong>Si l'agent n'a vraiment pas d'adresse</strong> : ne liez rien. Vous le convoquez vous-même et il suit le circuit papier.</div>
               </Cas>
-              <Callout tone="ok">
-                Rien de tout cela ne casse l'historique : chaque ajout et chaque changement de valideur est tracé. En cas de doute, contactez l'administrateur plutôt que de bricoler.
-              </Callout>
             </Section>
 
-            <Section icon={<CalendarClock size={15} color={COLORS.primary} />} title="Étape 2 — Prendre rendez-vous (planifier)">
+            <Section icon={<CalendarClock size={15} color={COLORS.primary} />} title="Étape 2 — Prendre rendez-vous (facultatif)">
               <Callout tone="info" title="Cette étape est facultative">
                 Vous pouvez toujours fixer la date <strong>« à l'ancienne »</strong> (de vive voix, par téléphone, par courrier ou dans votre agenda) sans passer par l'outil.
                 L'assistant de planification n'est qu'une <strong>aide</strong> : <strong>recherche de créneaux</strong> communs et <strong>envoi de la convocation par e-mail</strong> (invitation Outlook et CREP vierge).
-                <strong> Si l'agent n'a pas d'adresse e-mail, il faut de toute façon le convoquer par un autre moyen</strong> (voir le cas C ci-dessous).
               </Callout>
-              <Shot src="/aide-ep/02-planifier.jpg" caption="Fenêtre « Planifier » : « Prochains créneaux libres » propose des horaires où l'agent et vous êtes disponibles" />
               <Gestes items={[
                 <>Dans « EP que je réalise », repérer la ligne de l'agent.</>,
                 <>Cliquer sur <strong>« Planifier »</strong> (ou « Modifier le RDV » si une date existe déjà).</>,
@@ -384,139 +350,113 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <>Pour être aidé : cliquer sur <strong>« Prochains créneaux libres »</strong>. L'outil lit votre agenda et celui de l'agent, puis propose des créneaux communs. Cliquer sur un créneau.</>,
                 <>Cliquer sur le bouton de validation. Un message vert confirme l'envoi.</>,
               ]} />
-
-              <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 6px' }}>Ce qui se passe ensuite, selon le cas</div>
-              <Cas code="Cas A / B" title="L'agent a une adresse e-mail" color="#16a34a" icon={<Mail size={14} color="#16a34a" />}>
+              <Cas code="Avec e-mail" title="L'agent a une adresse e-mail" color="#16a34a" icon={<Mail size={14} color="#16a34a" />}>
                 <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
                   <li>L'agent reçoit une <strong>invitation Outlook</strong> dans son agenda, comme vous.</li>
-                  <li>L'agent reçoit un <strong>e-mail « Préparez votre entretien »</strong> avec un bouton qui ouvre MagApp et le <strong>CREP vierge en PDF</strong> en pièce jointe.</li>
+                  <li>L'agent reçoit un <strong>e-mail</strong> avec le <strong>CREP vierge en PDF</strong> en pièce jointe{f.prep && <>, et un bouton qui ouvre MagApp pour préparer son entretien</>}.</li>
                   <li>Vous recevez aussi un e-mail de confirmation du rendez-vous.</li>
-                  <li>Si l'agent n'a toujours pas transmis sa préparation quand l'entretien approche, <strong>l'outil le relance tout seul</strong>. Vous n'avez rien à faire.</li>
+                  {f.prep && <li>Si l'agent n'a toujours pas transmis sa préparation quand l'entretien approche, <strong>l'outil le relance tout seul</strong>.</li>}
                 </ul>
               </Cas>
-              <Cas code="Cas C" title="L'agent n'a PAS d'adresse e-mail" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
+              <Cas code="Sans e-mail" title="L'agent n'a PAS d'adresse e-mail" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
                 <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
                   <li><strong>Aucun e-mail ni invitation ne part à l'agent.</strong> Le rendez-vous est quand même enregistré, et il apparaît dans votre agenda.</li>
                   <li>C'est à <strong>vous de convoquer l'agent par un autre moyen</strong> (de vive voix, par téléphone ou par courrier) : date, heure, lieu. Cette convocation est <strong>obligatoire</strong>, l'outil ne peut pas la faire à votre place.</li>
-                  <li>Remettez-lui le <strong>CREP vierge imprimé</strong> : cliquer sur l'icône imprimante de sa ligne, puis choisir le CREP vierge (ou cocher plusieurs agents et imprimer en une fois).</li>
-                  <li>Si vous savez que l'agent a en réalité une adresse e-mail, faites le lien vous-même avec « Lier l'AD » (étape 1) : le cas A ou B s'appliquera alors.</li>
+                  <li>Remettez-lui le <strong>CREP vierge imprimé</strong> : icône imprimante de sa ligne (ou cocher plusieurs agents et imprimer en une fois).</li>
+                  <li>Si vous savez que l'agent a en réalité une adresse e-mail, faites le lien avec « Lier l'AD » (étape 1).</li>
                 </ul>
-              </Cas>
-              <Cas code="Rare" title="Vous n'avez pas d'e-mail vous-même" color="#d97706">
-                L'outil ne peut pas envoyer l'invitation ni le circuit électronique. Utilisez le circuit papier (étape 5, cas B) et signalez-le à l'administrateur.
               </Cas>
               <Callout tone="info" title="Changer la date ou l'heure">
-                Rouvrir « Modifier le RDV ». L'invitation Outlook et l'e-mail sont mis à jour : <strong>ne recréez jamais un EP</strong>.
-                Un avertissement s'affiche si le rendez-vous est à moins de 8 jours.
+                Rouvrir « Modifier le RDV ». L'invitation Outlook et l'e-mail sont mis à jour : <strong>ne recréez jamais un EP</strong>. Un avertissement s'affiche si le rendez-vous est à moins de 8 jours.
               </Callout>
             </Section>
 
-            <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Étape 3 — Avant l'entretien : la préparation de l'agent">
-              <Shot src="/aide-ep/08-agent.jpg" caption="Ce que voit l'agent dans « Mon entretien » : la fiche de préparation à compléter" />
-              <Cas code="En ligne" title="L'agent a un e-mail et l'accès à « Mon entretien »" color="#4f46e5">
-                Il remplit une fiche (bilan, difficultés, souhaits de formation, perspectives) <strong>dans MagApp</strong>. Vous la retrouvez dans « Saisir l'EP ».
-                Elle sert à <strong>nourrir l'échange</strong> : vous n'avez pas à la recopier.
-              </Cas>
-              <Cas code="Papier" title="L'agent n'a pas d'e-mail, ou préfère le papier" color="#64748b" icon={<Printer size={14} color="#64748b" />}>
-                Il prépare sur le <strong>CREP vierge papier</strong> et vous le remet (ou le garde pour l'entretien). Dans ce cas, il n'y a rien dans l'outil : c'est normal.
-              </Cas>
-              <Callout tone="ok">
-                La préparation n'est <strong>pas obligatoire</strong> pour tenir l'entretien. Un agent qui n'a rien préparé peut être évalué normalement.
-              </Callout>
-            </Section>
+            {f.prep && (
+              <Section icon={<FileSignature size={15} color={COLORS.primary} />} title={`Étape ${nPrep} — Avant l'entretien : la préparation de l'agent, avec l'accès à « Mon entretien »`}>
+                <Cas code="En ligne" title="L'agent a un e-mail et l'accès à « Mon entretien »" color="#4f46e5">
+                  Il remplit une fiche (bilan, difficultés, souhaits de formation, perspectives) <strong>dans MagApp</strong>. Vous la retrouvez dans « Saisir l'EP ». Elle sert à <strong>nourrir l'échange</strong> : vous n'avez pas à la recopier.
+                </Cas>
+                <Cas code="Papier" title="L'agent n'a pas d'e-mail, ou préfère le papier" color="#64748b" icon={<Printer size={14} color="#64748b" />}>
+                  Il prépare sur le <strong>CREP vierge papier</strong> et vous le remet (ou le garde pour l'entretien). Dans ce cas, il n'y a rien dans l'outil : c'est normal.
+                </Cas>
+                <Callout tone="ok">La préparation n'est <strong>pas obligatoire</strong> pour tenir l'entretien. Un agent qui n'a rien préparé peut être évalué normalement.</Callout>
+              </Section>
+            )}
 
-            <Section icon={<PenLine size={15} color={COLORS.primary} />} title="Étape 4 — Le jour de l'entretien : comment noter le compte rendu ?">
-              <div style={{ marginBottom: 8 }}>Vous avez le choix. <strong>Les deux méthodes mènent au même document officiel.</strong></div>
-              <Shot src="/aide-ep/07-crep.jpg" caption="Le compte rendu : en bas, les boutons Enregistrer le brouillon, Valider, Vérifier la cohérence, Envoyer à l'agent, CREP manuscrit et Imprimer / PDF" />
+            <Section icon={<PenLine size={15} color={COLORS.primary} />} title={`Étape ${nCrep} — Le CREP : avant, pendant et après l'entretien`}>
+              <div style={{ marginBottom: 8 }}>Deux façons de tenir le compte rendu. <strong>Dans les deux cas, le CREP est signé à la main sur papier, puis téléversé dans l'outil</strong>{f.esign && <> (sauf signature électronique, voir plus bas)</>}.</div>
 
-              <Cas code="Méthode 1" title="Je saisis directement dans l'outil (recommandé)" color="#16a34a">
+              <Cas code="Méthode 1" title="Je saisis dans l'outil" color="#16a34a">
                 <Gestes items={[
-                  <>Cliquer sur <strong>« Saisir l'EP »</strong> sur la ligne de l'agent.</>,
-                  <>Lire la préparation de l'agent si elle existe.</>,
-                  <>Remplir le <strong>compte rendu</strong> : bilan, objectifs, compétences, formations, perspectives, <strong>appréciation générale</strong>.</>,
-                  <>Cliquer régulièrement sur <strong>« Enregistrer le brouillon »</strong> : vous pouvez fermer la page et reprendre plus tard, rien n'est envoyé.</>,
+                  <>Cliquer sur <strong>« Saisir l'EP »</strong> sur la ligne de l'agent{f.prep && <> et lire sa préparation si elle existe</>}.</>,
+                  <>Remplir le <strong>compte rendu</strong> : bilan, objectifs, compétences, formations, perspectives, <strong>appréciation générale</strong>. Cliquer régulièrement sur <strong>« Enregistrer le brouillon »</strong> : rien n'est envoyé.</>,
                   <>Cliquer sur <strong>« Vérifier la cohérence »</strong> : l'outil liste les rubriques oubliées. Les corriger.</>,
-                  <>Cliquer sur <strong>« Valider le compte rendu »</strong>. L'EP passe à « Réalisé ». Passer à l'étape 5.</>,
+                  <>Cliquer sur <strong>« Imprimer / PDF »</strong> : le CREP sort sur 4 pages, <strong>à faire signer</strong>.</>,
+                  <>Remettre le CREP à l'agent : il <strong>renseigne les 2 cadres qui le concernent</strong> et <strong>signe à la main</strong>. Quand il vous le rend, <strong>vous le contresignez</strong>.</>,
+                  <><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>,
+                  <>Vérifier le contenu puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>,
                 ]} />
               </Cas>
 
-              <Cas code="Méthode 2" title="Je préfère écrire à la main sur le CREP papier" color="#d97706" icon={<PenLine size={14} color="#d97706" />}>
-                C'est autorisé : le papier reste un document officiel. <strong>Mais l'outil doit quand même savoir que l'entretien est réalisé.</strong>
-                <div style={{ margin: '6px 0', background: '#fffbeb', border: '1px solid #fde68a', color: '#78350f', borderRadius: 8, padding: '8px 11px' }}>
-                  <strong>Un CREP manuscrit doit être téléversé dans l'outil</strong> (scan ou photos des pages, bouton « Importer un compte rendu papier ») <strong>pour pouvoir être validé.</strong> Sans ce téléversement, ne validez pas le compte rendu : le document papier n'est pas rattaché à l'EP.
-                </div>
-                Déroulé :
+              <Cas code="Méthode 2" title="Je préfère écrire à la main" color="#d97706" icon={<PenLine size={14} color="#d97706" />}>
                 <Gestes items={[
-                  <>Avant l'entretien : <strong>imprimer le CREP vierge</strong> (icône imprimante). L'agent en a aussi reçu un par e-mail s'il a une adresse.</>,
+                  <>Avant l'entretien : <strong>imprimer le CREP vierge</strong> (icône imprimante de la ligne de l'agent).</>,
                   <>Pendant l'entretien : écrire à la main, comme avant.</>,
-                  <>Après : ouvrir « Saisir l'EP » et, au choix :
-                    <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                      <li><strong>Option rapide (lecture par l'IA interne) :</strong> cliquer sur <strong>« Importer un compte rendu papier (scan) »</strong> et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone ou PDF ; 8 pages au maximum, 25 Mo par fichier). L'IA de la Ville lit l'écriture manuscrite et <strong>propose</strong> un texte rangé dans les bonnes rubriques ; les données ne quittent pas le réseau de la Ville.
-                        <strong> Les cases cochées de la grille d'appréciation sont aussi reconnues</strong> (par traitement d'image) : elles apparaissent dans la fenêtre de relecture, case par case (S, AS, I).
-                        <div style={{ marginTop: 4 }}><strong>L'analyse prend quelques minutes</strong> (environ 30 secondes par page, pour un CREP de 4 pages : 2 minutes). Elle se fait <strong>en tâche de fond</strong> : un bandeau « Analyse en cours » s'affiche avec la durée estimée, vous pouvez fermer la fenêtre et continuer à travailler. <strong>Vous recevez un e-mail dès qu'elle est terminée</strong> ; revenez alors sur l'entretien et cliquez sur <strong>« Voir la proposition »</strong>. Si vous fermez la page, l'analyse continue : la proposition vous attend.</div>
-                        <div style={{ marginTop: 4 }}><strong>Relisez tout avant de valider.</strong> L'IA relit aussi son travail : elle signale les <strong>lectures incertaines</strong> (deux lectures différentes d'un même mot) et indique les <strong>corrections de cohérence</strong> qu'elle a faites (par exemple « Sedit France » corrigé en « Sedit Finances »). Une écriture très difficile peut rester mal lue ; les cases signalées « à vérifier » sont à contrôler. Puis « Appliquer au formulaire ». Rien n'est enregistré tant que vous n'avez pas validé.</div>
-                        <div style={{ marginTop: 4, color: '#64748b' }}>Pour un meilleur résultat : une photo par page, à plat, bien éclairée, la page entière visible, écriture lisible. Le sens de la photo (page couchée ou à l'envers) n'est pas un problème.</div>
-                        <div style={{ marginTop: 6, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 8, padding: '8px 11px' }}>
-                          <strong>Vérifiez chaque ligne.</strong> Avant d'appliquer, une case à cocher « J'ai vérifié chaque ligne par rapport au document papier » est obligatoire ; elle vous est redemandée au moment de « Valider le compte rendu ». L'IA est une aide, <strong>c'est vous qui répondez du contenu</strong>.
-                        </div>
-                        <div style={{ marginTop: 6 }}><strong>Ce qui est conservé :</strong> (1) <strong>la version scannée</strong> (vos photos assemblées en un PDF), consultable dans le compte rendu via « Scan original » ; (2) <strong>la version numérique lue par l'IA</strong> (« Imprimer / PDF »). Cette seconde version porte le <strong>filigrane « DOCUMENT NON CONTRACTUEL »</strong> et, à la place des signatures, la mention <strong>« Document original manuscrit signé »</strong> : on sait ainsi qu'elle n'est pas l'original.</div>
-                        <div style={{ marginTop: 6 }}><strong>Si le compte rendu a d'abord été saisi dans l'outil</strong> (puis imprimé et signé), l'IA ne lit que <strong>les 2 commentaires de l'agent</strong> (page 4), écrits à la main : le reste du compte rendu, déjà validé, n'est pas relu ni modifié. Le bandeau « Analyse en cours » le précise.</div></li>
-                      <li><strong>Option sûre :</strong> recopier vous-même les rubriques dans l'outil.</li>
+                  <>Remettre le CREP à l'agent : il <strong>renseigne les 2 cadres qui le concernent</strong> et <strong>signe à la main</strong>. Quand il vous le rend, <strong>vous le contresignez</strong>.</>,
+                  <><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>,
+                  <>Vérifier le contenu lu sur le papier puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>,
+                ]} />
+              </Cas>
+
+              <Callout tone="warn" title="Téléverser le CREP signé : dans tous les cas où il y a du papier">
+                Que le CREP ait été <strong>écrit à la main</strong> ou <strong>saisi dans l'outil puis imprimé</strong>, la signature est manuscrite : le document signé doit être <strong>numérisé</strong> (scan ou photos des pages) et <strong>téléversé dans l'outil</strong>. <strong>L'original signé part à la RH.</strong> Le document numérique conservé dans l'outil est « non contractuel » : seul l'original signé fait foi.
+              </Callout>
+
+              <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 6px' }}>Téléverser le CREP signé</div>
+              <Gestes items={[
+                <>Ouvrir l'EP (« Saisir l'EP ») puis cliquer sur <strong>« Importer un compte rendu papier (scan ou photos) »</strong> et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone, ou PDF ; 8 pages au maximum, 25 Mo par fichier). Pour archiver le document signé, le bouton <strong>« CREP manuscrit (4 pages scannées) »</strong> est aussi disponible une fois le compte rendu validé.</>,
+                <>Les textes manuscrits et <strong>les cases cochées de la grille d'appréciation</strong> sont lus et rangés dans les bonnes rubriques. La lecture prend quelques minutes (environ 30 secondes par page) et se fait <strong>en tâche de fond</strong> : un bandeau « Lecture des textes en cours » s'affiche, vous pouvez fermer la fenêtre, et vous recevez un <strong>e-mail</strong> quand c'est prêt. Revenez alors sur l'entretien et cliquez sur <strong>« Voir la proposition »</strong>.</>,
+                <><strong>Relisez et corrigez la proposition, rubrique par rubrique, dans l'ordre des pages du CREP.</strong> Les lectures incertaines et les corrections automatiques sont signalées. Cochez « J'ai vérifié chaque ligne par rapport au document papier », puis « Appliquer au formulaire ». Rien n'est enregistré tant que vous n'avez pas validé.</>,
+              ]} />
+              <div style={{ marginTop: 6, color: '#64748b' }}>Pour un meilleur résultat : une photo par page, à plat, bien éclairée, la page entière visible, écriture lisible. Le sens de la photo (page couchée ou à l'envers) n'est pas un problème.</div>
+              <div style={{ marginTop: 6 }}><strong>Si le CREP avait été saisi dans l'outil</strong> avant d'être imprimé et signé, seuls <strong>les 2 commentaires manuscrits de l'agent</strong> (page 4) sont lus : le reste du compte rendu n'est ni relu ni modifié.</div>
+              <div style={{ marginTop: 6 }}><strong>Ce qui est conservé :</strong> la <strong>version scannée</strong> (vos photos assemblées en un PDF, consultable via « Scan original ») et la <strong>version numérique</strong> (« Imprimer / PDF »), qui porte le filigrane <strong>« DOCUMENT NON CONTRACTUEL »</strong> et la mention <strong>« Document original manuscrit signé »</strong> à la place des signatures.</div>
+              <div style={{ marginTop: 6 }}><strong>Si le papier n'est pas le formulaire de cet agent</strong> (par exemple un CREP d'une autre catégorie), l'outil le signale : les cases ne sont reprises que lorsqu'elles correspondent clairement à un critère du modèle de l'agent, et chacune est à vérifier.</div>
+
+              <Callout tone="warn" title="Valider : une étape obligatoire">
+                Cliquez sur <strong>« Valider le compte rendu »</strong> après avoir tout vérifié (toutes les rubriques obligatoires doivent être remplies). L'EP passe à « Réalisé ». Tant que le compte rendu n'est pas validé, l'EP n'est pas « Réalisé » et il apparaît « en retard » dans les statistiques de la Direction.
+              </Callout>
+
+              {f.esign && (
+                <Cas code="Signature électronique" title="Variante : l'agent et vous avez une adresse e-mail et la signature électronique est ouverte pour lui" color="#16a34a" icon={<Send size={14} color="#16a34a" />}>
+                  <Gestes items={[
+                    <>Saisir le compte rendu dans l'outil, le vérifier et le valider.</>,
+                    <>Cliquer sur <strong>« Envoyer à l'agent »</strong>.</>,
+                    <>L'agent reçoit un e-mail : il <strong>relit</strong>, remplit <strong>ses deux cases</strong> (« Néant » si rien) puis clique sur <strong>« Valider et envoyer pour signature »</strong>.</>,
+                    <>Le document part au <strong>parapheur</strong> : vous recevez, comme l'agent, un lien de signature par e-mail. Cliquez, signez.</>,
+                    <>Quand les deux signatures sont faites, le PDF signé est <strong>archivé automatiquement</strong> (bouton « CREP signé »). Il n'y a ni impression ni téléversement.</>,
+                  ]} />
+                  <Callout tone="info" title="Envoyé trop vite ?">
+                    Tant que l'agent n'a pas validé, cliquez sur <strong>« Rappeler le compte rendu »</strong> : il revient chez vous, vous corrigez, puis vous le renvoyez. L'outil envoie aussi des <strong>rappels automatiques</strong> à l'agent qui tarde.
+                  </Callout>
+                  <Callout tone="warn" title="Blocages normaux à connaître">
+                    <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
+                      <li>« Envoyé à l'agent » : impossible de téléverser un papier tant que vous n'avez pas <strong>rappelé</strong> le compte rendu.</li>
+                      <li>« En signature » : il faut attendre la fin du parapheur (ou son annulation/refus) pour passer en papier.</li>
+                      <li>Si le bouton « Envoyer à l'agent » n'apparaît pas pour un agent : la signature électronique n'est pas ouverte pour lui, ou il n'a pas d'e-mail. Ce n'est pas une panne : utilisez le circuit papier.</li>
                     </ul>
-                  </>,
-                  <>Une fois le papier <strong>téléversé</strong> (scan ou photos), cliquer sur <strong>« Valider le compte rendu »</strong> (toutes les rubriques obligatoires doivent être remplies).</>,
-                  <>Passer à l'étape 5, <strong>circuit papier</strong> : le scan de votre CREP signé sera archivé comme document officiel.</>,
-                ]} />
-              </Cas>
-              <Callout tone="warn" title="Pourquoi doit-on valider dans l'outil même si on écrit à la main ?">
-                Tant que le compte rendu n'est pas validé, l'EP n'est pas « Réalisé » : les boutons d'archivage restent fermés, et l'EP apparaît « en retard » dans les statistiques de la Direction.
-              </Callout>
-            </Section>
+                  </Callout>
+                </Cas>
+              )}
 
-            <Section icon={<Send size={15} color={COLORS.primary} />} title="Étape 5 — Signature : électronique ou papier">
-              <div style={{ marginBottom: 8 }}>L'outil ne vous propose le circuit électronique <strong>que si</strong> l'agent et vous avez une adresse e-mail <strong>et</strong> que la signature électronique est ouverte pour cet agent. Sinon, seul le circuit papier est proposé.</div>
-              <Callout tone="warn" title="CREP manuscrit : téléversement obligatoire avant validation">
-                Si le compte rendu est <strong>manuscrit</strong>, il faut le <strong>téléverser dans l'outil</strong> (scan ou photos des pages) <strong>pour pouvoir le valider</strong>. L'original papier signé part, lui, à la RH.
-              </Callout>
-
-              <Cas code="Circuit électronique" title="Cas A — tout le monde a un e-mail et la signature électronique est ouverte" color="#16a34a" icon={<Send size={14} color="#16a34a" />}>
-                <Gestes items={[
-                  <>Cliquer sur <strong>« Envoyer à l'agent »</strong>.</>,
-                  <>L'agent reçoit un e-mail : il <strong>relit</strong> le compte rendu, remplit <strong>ses deux cases</strong> (observations sur les conditions de travail, observations sur l'entretien, « Néant » si rien) puis clique sur <strong>« Valider et envoyer pour signature »</strong>.</>,
-                  <>Le document part au <strong>parapheur</strong> : vous recevez, comme l'agent, un lien de signature par e-mail. Cliquez, signez.</>,
-                  <>Quand les deux signatures sont faites, le PDF signé est <strong>archivé automatiquement</strong> (bouton « CREP signé »).</>,
-                ]} />
-                <Callout tone="info" title="Envoyé trop vite ?">
-                  Tant que l'agent n'a pas validé, cliquez sur <strong>« Rappeler le compte rendu »</strong> : il revient chez vous, vous corrigez, puis vous le renvoyez.
-                  Une fois l'agent ayant validé, il n'est plus possible de le rappeler.
-                </Callout>
-                <Callout tone="ok" title="L'agent tarde ?">
-                  L'outil envoie des <strong>rappels automatiques</strong> à l'agent, et un récapitulatif à vous. Vous pouvez aussi le prévenir directement.
-                </Callout>
-              </Cas>
-
-              <Cas code="Circuit papier" title="Cas B / C / D — pas d'e-mail, pas de signature électronique, ou CREP écrit à la main" color="#d97706" icon={<Printer size={14} color="#d97706" />}>
-                <Gestes items={[
-                  <>Si ce n'est pas déjà fait, cliquer sur <strong>« Valider le compte rendu »</strong> (étape 4).</>,
-                  <>Cliquer sur <strong>« Imprimer / PDF (4 pages) »</strong> : le CREP rempli sort sur 4 pages.</>,
-                  <>Faire <strong>signer l'agent et signer vous-même</strong> sur la page 4, puis garder l'original au dossier de l'agent selon vos règles internes.</>,
-                  <>Scanner les <strong>4 pages</strong> (JPG, PNG, ou un seul PDF — 8 pages maximum).</>,
-                  <>Cliquer sur <strong>« CREP manuscrit (4 pages scannées) »</strong>, sélectionner les fichiers, valider. L'outil fusionne et archive.</>,
-                ]} />
-                <Callout tone="ok">
-                  Le statut passe à « Signé papier ». Le bouton « PDF signé » apparaît : le document est consultable par vous et les administrateurs. Pour remplacer un mauvais scan, utiliser « Remplacer le CREP manuscrit ».
-                </Callout>
-              </Cas>
-              <Callout tone="warn" title="Dans tous les cas où il y a du papier : l'original signé part à la RH">
-                Quelle que soit la façon dont le compte rendu a été préparé (écrit à la main, importé par l'IA, saisi puis imprimé), <strong>vous envoyez l'ORIGINAL papier signé à la RH</strong> et vous <strong>validez son pendant numérique</strong> dans l'outil. Le document numérique issu d'un manuscrit est « non contractuel » : <strong>seul l'original signé fait foi</strong>.
-              </Callout>
-              <Callout tone="warn" title="Blocages normaux à connaître">
-                <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
-                  <li>« Envoyé à l'agent » : impossible de téléverser un papier tant que vous n'avez pas <strong>rappelé</strong> le compte rendu.</li>
-                  <li>« En signature » : il faut attendre la fin du parapheur (ou son annulation/refus) pour passer en papier.</li>
-                  <li>« La signature électronique n'est pas activée pour cet agent » : ce n'est pas une panne, utilisez le circuit papier.</li>
-                </ul>
-              </Callout>
+              {(f.aiDraft || f.aiReview) && (
+                <Cas code="Aides à la rédaction" title="Aides activées pour vous" color="#7c3aed" icon={<Sparkles size={14} color="#7c3aed" />}>
+                  <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
+                    {f.aiDraft && <li>Le bouton <strong>« Rédiger avec l'IA »</strong> propose un texte à partir de vos notes. Vous devez toujours le relire et le corriger.</li>}
+                    {f.aiReview && <li>La <strong>relecture de cohérence</strong> signale les incohérences entre les rubriques. Elle signale, elle ne décide pas à votre place.</li>}
+                  </ul>
+                </Cas>
+              )}
             </Section>
 
             <Section icon={<Users size={15} color={COLORS.primary} />} title="Cas particulier — vous êtes le N+1 d'un valideur qui n'a pas d'e-mail">
@@ -526,12 +466,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Gestes items={[
                 <>Ouvrir l'onglet <strong>« EP de mon équipe »</strong> et cliquer sur <strong>« Tout déplier »</strong>.</>,
                 <>Repérer le valideur marqué <strong>« Valideur sans e-mail : vous gérez ses EP »</strong>. Ses agents portent la mention « Sans e-mail · géré par son N+1 ».</>,
-                <>Sur la ligne d'un agent, vous avez les boutons <strong>« Planifier »</strong> et <strong>« Saisir l'EP »</strong> (au lieu de « Ouvrir »), exactement comme pour vos propres agents.</>,
-                <>Après l'entretien (mené par le valideur, sur le CREP papier), <strong>importez son compte rendu papier</strong> (« Importer un compte rendu papier (scan) ») ou recopiez-le, puis <strong>« Valider le compte rendu »</strong>.</>,
-                <>Faites signer le papier, scannez les 4 pages et cliquez sur <strong>« CREP manuscrit (4 pages scannées) »</strong>.</>,
+                <>Sur la ligne d'un agent, vous avez les boutons <strong>« Planifier »</strong> et <strong>« Saisir l'EP »</strong>, exactement comme pour vos propres agents.</>,
+                <>Après l'entretien (mené par le valideur, sur le CREP papier signé), <strong>téléversez le compte rendu papier</strong> (scan ou photos), vérifiez-le, puis <strong>« Valider le compte rendu »</strong>.</>,
               ]} />
               <Callout tone="info" title="Toujours le circuit papier">
-                Sans e-mail du valideur, il n'y a ni invitation Outlook pour lui, ni signature électronique : c'est normal. Le résultat (CREP signé archivé) est identique, et chaque action est tracée à <strong>votre</strong> nom dans le Journal.
+                Sans e-mail du valideur, il n'y a ni invitation Outlook pour lui{f.esign && <>, ni signature électronique</>} : c'est normal. Chaque action est tracée à <strong>votre</strong> nom dans le Journal.
               </Callout>
               <Callout tone="warn" title="Pas de relance automatique pour ces EP">
                 Les e-mails de rappel partent aux valideurs qui ont une adresse. Pour les EP gérés par délégation, <strong>c'est vous qui les suivez</strong> : la colonne « Compte rendu » de « EP de mon équipe » vous dit où ils en sont.
@@ -539,52 +478,54 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             </Section>
 
             <Section icon={<History size={15} color={COLORS.primary} />} title="Les statuts : que veulent-ils dire ?">
-              <StatusSchema />
-              <Shot src="/aide-ep/06-statuts.jpg" caption="Dans « Tous », les EP réalisés : statut « Réalisé », compte rendu « Validé », et le bouton « CREP signé » quand le papier est archivé" />
+              <StatusSchema f={f} />
               <div style={{ display: 'grid', gap: 4 }}>
-                <div><strong>À planifier</strong> : aucune date fixée. Action : planifier.</div>
-                <div><strong>Planifié</strong> : date fixée. Action : mener l'entretien, puis saisir le compte rendu.</div>
-                <div><strong>Réalisé</strong> : compte rendu validé. Action : envoyer à l'agent, ou imprimer.</div>
-                <div><strong>Envoyé à l'agent</strong> : l'agent doit relire et valider. Action : attendre (ou rappeler).</div>
-                <div><strong>En signature</strong> : le parapheur attend les signatures. Action : signer de votre côté.</div>
+                <div><strong>À planifier</strong> : aucune date fixée. Action : fixer la date (avec l'assistant ou « à l'ancienne »).</div>
+                <div><strong>Planifié</strong> : date fixée. Action : mener l'entretien, puis traiter le compte rendu.</div>
+                <div><strong>Réalisé</strong> : compte rendu validé. Action : suivre le circuit de signature{f.esign ? ' (envoi à l\'agent ou papier)' : ''}.</div>
+                {f.esign && <div><strong>Envoyé à l'agent</strong> : l'agent doit relire et valider. Action : attendre (ou rappeler).</div>}
+                {f.esign && <div><strong>En signature</strong> : le parapheur attend les signatures. Action : signer de votre côté.</div>}
                 <div><strong>Signé / Signé papier</strong> : terminé et archivé. Aucune action.</div>
               </div>
               <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 4px' }}>La colonne « Compte rendu » de la liste</div>
               <div style={{ display: 'grid', gap: 4 }}>
-                <div><strong>Validé</strong> + <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À envoyer</span> : à vous d'envoyer à l'agent (circuit électronique) ou d'imprimer.</div>
-                <div><strong>Validé</strong> + <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À imprimer et signer</span> : circuit papier (agent ou valideur sans e-mail).</div>
-                <div><strong>Validé</strong> + <span style={{ background: '#f3e8ff', color: '#6b21a8', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Chez l'agent</span> : l'agent doit relire et valider. Vous pouvez rappeler tant qu'il n'a pas validé.</div>
-                <div><strong>Validé</strong> + <span style={{ background: '#ffedd5', color: '#9a3412', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>En signature</span> : le parapheur attend les signatures.</div>
-                <div><strong>Validé</strong> + <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signature refusée / annulée</span> : reprendre en renvoyant, ou passer au papier.</div>
-                <div><strong>Validé</strong> + <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signé / Signé (papier)</span> : terminé.</div>
+                <div><strong>Validé</strong> + <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À imprimer et signer</span> : circuit papier.</div>
+                {f.esign && <div><strong>Validé</strong> + <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>À envoyer</span> : à vous d'envoyer à l'agent (circuit électronique) ou d'imprimer.</div>}
+                {f.esign && <div><strong>Validé</strong> + <span style={{ background: '#f3e8ff', color: '#6b21a8', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Chez l'agent</span> : l'agent doit relire et valider. Vous pouvez rappeler tant qu'il n'a pas validé.</div>}
+                {f.esign && <div><strong>Validé</strong> + <span style={{ background: '#ffedd5', color: '#9a3412', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>En signature</span> : le parapheur attend les signatures.</div>}
+                {f.esign && <div><strong>Validé</strong> + <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signature refusée / annulée</span> : reprendre en renvoyant, ou passer au papier.</div>}
+                <div><strong>Validé</strong> + <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: 6, padding: '0 6px', fontWeight: 800 }}>Signé (papier){f.esign ? ' / Signé' : ''}</span> : terminé.</div>
               </div>
             </Section>
 
             <Section icon={<CheckCircle2 size={15} color={COLORS.primary} />} title="Vos gestes, dans l'ordre">
               <div style={{ display: 'grid', gap: 3 }}>
-                <div>1. Ouvrir MagApp → « Entretiens professionnels » → « EP que je réalise ».</div>
-                <div>2. Vérifier mes agents (et repérer ceux sans e-mail).</div>
-                <div>3. « Planifier » chaque entretien.</div>
-                <div>4. Si l'agent n'a pas d'e-mail : le prévenir moi-même et lui remettre le CREP vierge imprimé.</div>
-                <div>5. Le jour J : mener l'entretien.</div>
-                <div>6. « Saisir l'EP » (ou importer mon papier), « Vérifier la cohérence ».</div>
-                <div>7. « Valider le compte rendu ».</div>
-                <div>8. « Envoyer à l'agent » (circuit électronique) <strong>ou</strong> « Imprimer » (circuit papier).</div>
-                <div>9. Signer dans le parapheur <strong>ou</strong> scanner les 4 pages signées et cliquer « CREP manuscrit ».</div>
-                <div>10. Vérifier que le bouton « CREP signé » / « PDF signé » apparaît : c'est terminé.</div>
+                {[
+                  <>Ouvrir MagApp → « Entretiens professionnels » → « EP que je réalise », et vérifier mes agents.</>,
+                  <>Prendre rendez-vous (avec l'assistant, ou « à l'ancienne »). Si l'agent n'a pas d'e-mail : le convoquer moi-même.</>,
+                  ...(f.prep ? [<>L'agent prépare son entretien dans « Mon entretien » (facultatif).</>] : []),
+                  <>Préparer le CREP : imprimer le CREP vierge si je veux le remplir à la main.</>,
+                  <>Mener l'entretien.</>,
+                  <>Si j'ai saisi dans l'outil : « Imprimer / PDF ».</>,
+                  <>Transmettre le CREP à l'agent : il remplit ses 2 cadres et signe à la main.</>,
+                  <>Contresigner.</>,
+                  <>Numériser et téléverser le CREP signé ; l'original part à la RH.</>,
+                  <>Vérifier tout, puis « Valider le compte rendu ».</>,
+                ].map((it, i) => <div key={i}>{i + 1}. {it}</div>)}
               </div>
             </Section>
 
             <Section icon={<AlertTriangle size={15} color={COLORS.primary} />} title="Si quelque chose ne va pas">
               <div style={{ display: 'grid', gap: 6 }}>
                 <div><strong>L'agent n'apparaît pas.</strong> Il n'est pas rattaché à vous : utilisez « Ajouter un agent » ou « Changer l'évaluateur » (étape 1). Si l'agent reste introuvable, prévenir l'administrateur.</div>
-                <div><strong>L'agent dit n'avoir rien reçu.</strong> Vérifier son adresse e-mail. Si elle est vide : cas C (voir étape 2). Vérifier aussi ses courriers indésirables.</div>
+                <div><strong>L'agent dit n'avoir rien reçu.</strong> Vérifier son adresse e-mail. Si elle est vide, vous devez le convoquer vous-même (étape 2). Vérifier aussi ses courriers indésirables.</div>
                 <div><strong>Je me suis trompé de date.</strong> « Modifier le RDV ». Ne pas recréer un EP.</div>
-                <div><strong>Je n'ai pas le bouton « Envoyer à l'agent ».</strong> L'agent ou vous n'avez pas d'e-mail, ou la signature électronique n'est pas ouverte pour lui, ou le compte rendu n'est pas encore validé. Utiliser le circuit papier.</div>
+                {f.esign && <div><strong>Je n'ai pas le bouton « Envoyer à l'agent ».</strong> L'agent ou vous n'avez pas d'e-mail, ou la signature électronique n'est pas ouverte pour lui, ou le compte rendu n'est pas encore validé. Utiliser le circuit papier.</div>}
                 <div><strong>« Valider le compte rendu » est refusé.</strong> Il manque des rubriques : la liste s'affiche en orange. Les remplir.</div>
-                <div><strong>J'ai envoyé à l'agent par erreur.</strong> « Rappeler le compte rendu », tant que l'agent n'a pas validé.</div>
-                <div><strong>J'ai validé trop vite.</strong> Ne rien modifier ailleurs. Demander à l'administrateur la remise à zéro (RAZ), puis ressaisir.</div>
-                <div><strong>Le CREP papier est perdu avant le scan.</strong> Réimprimer le CREP rempli depuis l'EP, refaire signer, puis scanner.</div>
+                {f.esign && <div><strong>J'ai envoyé à l'agent par erreur.</strong> « Rappeler le compte rendu », tant que l'agent n'a pas validé.</div>}
+                <div><strong>J'ai validé trop vite ou sur le mauvais agent.</strong> Ne rien modifier ailleurs et prévenir l'administrateur du module.</div>
+                <div><strong>Le CREP papier est perdu avant la numérisation.</strong> Réimprimer le CREP rempli depuis l'EP, refaire signer, puis numériser.</div>
+                <div><strong>La lecture du papier est mauvaise ou incomplète.</strong> Refaire les photos (une par page, à plat, bien éclairées) ou recopier les rubriques à la main dans l'outil. Vous restez maître du contenu validé.</div>
                 <div><strong>Je ne vois pas « Saisir l'EP ».</strong> Vérifier que vous êtes sur « EP que je réalise ». Si l'EP est déjà réalisé, le bouton devient « Ouvrir ».</div>
               </div>
             </Section>
@@ -592,9 +533,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             <Section icon={<Lock size={15} color={COLORS.primary} />} title="Ce que vous ne faites pas">
               <div style={{ display: 'grid', gap: 3 }}>
                 <div>Ne pas utiliser le compte d'un collègue.</div>
-                <div>Ne pas créer un agent vous-même : c'est le rôle de l'administrateur.</div>
-                <div>Ne pas supprimer un EP : la RAZ est réservée aux administrateurs.</div>
-                <div>Ne pas envoyer le CREP par un autre canal que l'outil (mail personnel, clé USB…).</div>
+                <div>Ne pas envoyer le CREP par un autre canal que l'outil et la RH (mail personnel, clé USB…).</div>
               </div>
             </Section>
 
@@ -604,26 +543,10 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div><strong>CREP</strong> : compte rendu d'entretien professionnel, le document officiel de 4 pages.</div>
                 <div><strong>Valideur / évaluateur</strong> : la personne qui conduit l'entretien (vous). Les deux mots désignent la même chose dans l'outil.</div>
                 <div><strong>MagApp</strong> : le « magasin d'applications » de la Ville, où se trouve la tuile « Entretiens professionnels ».</div>
-                <div><strong>Parapheur</strong> : l'outil de signature électronique. Chaque signataire reçoit un lien par e-mail.</div>
-                <div><strong>Circuit électronique / circuit papier</strong> : les deux manières de signer. Le document final est le même.</div>
+                {f.esign && <div><strong>Parapheur</strong> : l'outil de signature électronique. Chaque signataire reçoit un lien par e-mail.</div>}
                 <div><strong>AD</strong> : Active Directory, l'annuaire des comptes et des e-mails.</div>
-                <div><strong>RAZ</strong> : remise à zéro d'un EP par un administrateur.</div>
               </div>
             </Section>
-
-            {features?.prep && (
-              <Section icon={<FileSignature size={15} color={COLORS.primary} />} title="Préparation de l'agent">
-                L'agent peut préparer son entretien dans « Mon entretien » si l'administrateur a ouvert cet accès. Vous lisez sa préparation dans l'EP.
-                Vous pouvez aussi lui remettre le CREP vierge papier : le document final sera identique.
-              </Section>
-            )}
-            {(features?.aiDraft || features?.aiReview || features?.esign) && (
-              <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="Aide IA et signature électronique">
-                {features.aiDraft && <>Le bouton « Rédiger avec l'IA » est ouvert par l'administrateur à certains valideurs. Il propose un texte, que vous devez toujours relire. </>}
-                {features.aiReview && <>La relecture IA des compétences est ouverte à certains valideurs. Elle signale des formulations, elle ne décide pas à votre place. </>}
-                {features.esign && <>La signature électronique est ouverte agent par agent. Si elle n'est pas active pour un agent, passez par le circuit papier : le résultat est le même.</>}
-              </Section>
-            )}
           </>
         ) : (
           <>
@@ -669,11 +592,42 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               </Callout>
             </Section>
 
-            <Section icon={<Send size={15} color={COLORS.primary} />} title="Signature électronique : qui y a droit ?">
+            <Section icon={<Sparkles size={15} color={COLORS.primary} />} title={<>Fonctions activables<Activable /></>}>
+              <div style={{ marginBottom: 8 }}>
+                Ces fonctions sont <strong>désactivées par défaut</strong> : elles s'ouvrent dans <strong>Paramétrage</strong>, pour tous les agents ou valideurs, ou pour une sélection de personnes.
+                <strong> Tant qu'une fonction n'est pas activée, l'aide des valideurs n'en parle pas</strong> : elle apparaît dans leur aide dès qu'elle est activée pour eux.
+              </div>
+              <Cas code="Signature électronique" title={<>Signature par parapheur électronique<Activable /></>} color="#16a34a" icon={<Send size={14} color="#16a34a" />}>
+                <strong>Si la signature électronique est activée</strong> pour un agent (et qu'il a une adresse e-mail, comme son valideur) : le valideur dispose du bouton « Envoyer à l'agent » ; l'agent relit le CREP, remplit ses 2 cadres, valide, puis l'agent et le valideur signent par lien e-mail dans le parapheur ; le PDF signé est archivé automatiquement. Il n'y a ni impression, ni signature manuscrite, ni téléversement.
+                <br /><strong>Si elle n'est pas activée</strong> : le circuit est papier pour tous (impression, signature manuscrite, numérisation, téléversement). Les boutons et statuts du parapheur n'apparaissent pas.
+              </Cas>
+              <Cas code="Préparation de l'agent" title={<>Préparation de l'entretien par l'agent, dans « Mon entretien »<Activable /></>} color="#4f46e5" icon={<FileSignature size={14} color="#4f46e5" />}>
+                <strong>Si la préparation par l'agent est activée</strong> : l'agent (avec une adresse e-mail) voit l'onglet « Mon entretien », prépare sa fiche en ligne et la transmet ; son valideur la retrouve dans l'EP avant l'entretien (vue N+1) ; l'agent est relancé automatiquement s'il ne l'a pas transmise. Le mail de convocation contient alors un bouton vers MagApp.
+                <br /><strong>Sinon</strong> : l'agent prépare sur le CREP vierge papier, l'onglet « Mon entretien » n'existe pas et rien n'est relancé.
+              </Cas>
+              <Cas code="Aide à la rédaction" title={<>Aide à la rédaction par l'IA<Activable /></>} color="#7c3aed" icon={<Sparkles size={14} color="#7c3aed" />}>
+                <strong>Si l'aide à la rédaction est activée</strong> pour un valideur : le bouton « Rédiger avec l'IA » apparaît dans le compte rendu ; il propose un texte à partir des notes du valideur, qui doit le relire et le corriger.
+                <br /><strong>Sinon</strong> : le bouton n'existe pas, le valideur rédige seul.
+              </Cas>
+              <Cas code="Relecture de cohérence" title={<>Relecture de cohérence par l'IA<Activable /></>} color="#7c3aed" icon={<Sparkles size={14} color="#7c3aed" />}>
+                <strong>Si la relecture est activée</strong> pour un valideur : en plus des contrôles automatiques (rubriques oubliées), « Vérifier la cohérence » signale les incohérences entre rubriques (appréciation générale contredisant la grille, par exemple).
+                <br /><strong>Sinon</strong> : seuls les contrôles automatiques sont faits.
+              </Cas>
+              <Cas code="Mode simulation" title={<>Mode simulation<Activable /></>} color="#d97706" icon={<FlaskConical size={14} color="#d97706" />}>
+                <strong>Si le mode simulation est activé</strong> : on peut tester le parcours sans polluer les données réelles ; aucun mail ne part aux agents hors BETA et des demandes de formation fictives apparaissent. Les valideurs, « qui valide qui » et le lien Active Directory restent réels.
+                <br /><strong>Sinon</strong> : l'application fonctionne sur les données réelles, sans demandes fictives.
+              </Cas>
+              <Cas code="Publication" title={<>Publication de la fonctionnalité (mode BETA)<Activable /></>} color="#64748b" icon={<Mail size={14} color="#64748b" />}>
+                <strong>Tant qu'elle n'est pas publiée</strong> (réglage dans /admin/magapp), seuls les agents inscrits à la BETA reçoivent des mails.
+                <br /><strong>Une fois publiée</strong> : tous les agents concernés sont prévenus normalement.
+              </Cas>
+            </Section>
+
+            <Section icon={<Send size={15} color={COLORS.primary} />} title={<>Signature électronique : qui y a droit ?<Activable /></>}>
               <div style={{ display: 'grid', gap: 4 }}>
-                <div><strong>Désactivée</strong> : tous les agents passent par le circuit papier (impression, signature, scan).</div>
-                <div><strong>Activée pour tous</strong> (« Réactiver pour tous ») : tout agent <em>avec e-mail</em> peut signer en ligne.</div>
-                <div><strong>Activée pour une sélection</strong> : seuls les agents cochés. Pour les autres, le valideur voit « signature non activée pour cet agent » et suit le circuit papier.</div>
+                <div><strong>Si la signature électronique n'est pas activée</strong> (réglage par défaut) : tous les agents passent par le circuit papier (impression, signature manuscrite, numérisation, téléversement).</div>
+                <div><strong>Si elle est activée pour tous</strong> (« Réactiver pour tous ») : tout agent <em>avec e-mail</em> peut signer en ligne.</div>
+                <div><strong>Si elle est activée pour une sélection</strong> : seuls les agents cochés. Pour les autres, le valideur voit « signature non activée pour cet agent » et suit le circuit papier.</div>
                 <div>Dans tous les cas, <strong>un agent sans e-mail reste au circuit papier</strong>, même si la signature est ouverte.</div>
               </div>
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agents.</Callout>
@@ -694,9 +648,9 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
 
             <Section icon={<Users size={15} color={COLORS.primary} />} title="Droits : qui peut voir quoi ?">
               <div style={{ display: 'grid', gap: 4 }}>
-                <div><strong>Mon entretien</strong> : accès de l'agent à sa préparation et à son CREP.</div>
-                <div><strong>Signature électronique</strong> : ouverte agent par agent.</div>
-                <div><strong>IA</strong> : rédaction et relecture, ouvertes à certains valideurs.</div>
+                <div><strong>Mon entretien</strong><Activable /> : accès de l'agent à sa préparation et à son CREP, s'il est activé pour lui.</div>
+                <div><strong>Signature électronique</strong><Activable /> : ouverte agent par agent, si elle est activée.</div>
+                <div><strong>IA</strong><Activable /> : rédaction et relecture, ouvertes à certains valideurs, si elles sont activées.</div>
                 <div><strong>Réactiver pour tous</strong> ouvre à tout le monde ; <strong>Activer pour la sélection</strong> réserve aux personnes cochées.</div>
               </div>
             </Section>
@@ -712,11 +666,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Callout tone="info">Un regroupement par l'IA est une aide à la décision : relisez les thèmes (une demande peut être mal classée) avant de bâtir le plan de formation.</Callout>
             </Section>
 
-            <Section icon={<FlaskConical size={15} color={COLORS.primary} />} title="Mode simulation (Paramétrage)">
+            <Section icon={<FlaskConical size={15} color={COLORS.primary} />} title={<>Mode simulation (Paramétrage)<Activable /></>}>
               <div style={{ display: 'grid', gap: 4 }}>
                 <div>Dans <strong>Paramétrage → Mode simulation</strong>, un administrateur peut tester l'application sans polluer les données réelles. Les <strong>valideurs, « qui valide qui » et le lien Active Directory</strong> restent <strong>réels</strong> et ne sont jamais effacés ; les <strong>rendez-vous</strong> et les <strong>entretiens (avec leur contenu)</strong> sont <strong>provisoires</strong>.</div>
                 <div>Le bouton <strong>« Supprimer la base de simulation »</strong> remet à zéro tous les rendez-vous et entretiens (saisies, comptes rendus, scans). Il n'apparaît que lorsque la simulation est active.</div>
-                <div>Pendant la simulation, aucun mail ne part aux agents hors BETA et l'onglet « Demandes de formation » affiche des demandes <strong>fictives</strong> (la moitié des agents, selon leur métier), jamais enregistrées.</div>
+                <div><strong>Si la simulation est activée</strong>, aucun mail ne part aux agents hors BETA et l'onglet « Demandes de formation » affiche des demandes <strong>fictives</strong> (la moitié des agents, selon leur métier), jamais enregistrées.</div>
               </div>
             </Section>
 

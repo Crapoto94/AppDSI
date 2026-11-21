@@ -923,8 +923,8 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
           isAdmin={!!me?.isAdmin}
           features={{
             prep: !!dsi?.selfAccess?.enabled,
-            aiDraft: !!dsi?.aiAccess?.draft?.enabled,
-            aiReview: !!dsi?.aiAccess?.review?.enabled,
+            aiDraft: !!dsi?.aiAccess?.draft?.allowed,
+            aiReview: !!dsi?.aiAccess?.review?.allowed,
             esign: !!dsi?.esignAccess?.enabled,
           }}
         />
