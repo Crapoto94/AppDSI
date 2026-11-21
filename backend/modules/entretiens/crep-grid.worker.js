@@ -23,6 +23,6 @@ const { readCheckboxRows } = require('./crep-grid.service');
         if (!fallback && r && r.rows.length >= 12 && r.rows.length <= 26) fallback = { deg, rows: r.rows, note: r.note };
     }
     // Pas le bon nombre de lignes (ex. papier d'une autre catégorie que le modèle de l'agent) : on garde le sens de lecture, pas les cases
-    if (fallback) { parentPort.postMessage({ ok: true, deg: fallback.deg, rows: null, found: fallback.rows.length, note: fallback.note, mismatch: true }); return; }
+    if (fallback) { parentPort.postMessage({ ok: true, deg: fallback.deg, rows: fallback.rows, found: fallback.rows.length, note: fallback.note, mismatch: true }); return; }
     parentPort.postMessage({ ok: false });
 })().catch(e => parentPort.postMessage({ ok: false, error: e.message }));

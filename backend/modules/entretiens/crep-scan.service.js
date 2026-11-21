@@ -422,6 +422,16 @@ async function pool(tasks, n) {
 
 const PAGES_EN_PARALLELE = 4;
 
+const STOP = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'ou', 'a', 'au', 'aux', 'en', 'd', 'l', 'un', 'une', 'son', 'sa', 'ses', 'dans', 'pour', 'sur', 'par']);
+const stem = (w) => w.replace(/(ement|ations?|ation|ites?|ite|eurs?|eur|ions?|ion|ees?|ee|es|s|x)$/, '').slice(0, 7);
+const words = (t) => new Set(flat(t).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w => w.length > 1 && !STOP.has(w)).map(stem));
+/** Ressemblance de deux libellés de critères : part de mots (racines) communs, rapportée au plus court. */
+function labelSim(a, b) {
+    const A = words(a), B = words(b); if (!A.size || !B.size) return 0;
+    let c = 0; for (const w of A) if (B.has(w)) c++;
+    return c / Math.min(A.size, B.size);
+}
+
 async function scanDocuments(files, definition, opts = {}) {
     await prompts.refresh();
     const warnings = [];
@@ -457,7 +467,7 @@ async function scanDocuments(files, definition, opts = {}) {
         const g = await gridP;
         let printed = '';
         if (g && g.mismatch) {
-            deg = g.deg; res.gridMismatch = g.found;
+            deg = g.deg; res.gridMismatch = g.found; res.gridRowsOther = g.rows;
             log(`page ${i + 1} : tableau détecté (${g.found} lignes, ${items.length} attendues), rotation ${g.deg}°`);
         } else if (g) { res.grid = g.rows; deg = g.deg; log(`page ${i + 1} : grille lue, rotation ${g.deg}° (${g.note})`); }
         else {
@@ -489,9 +499,9 @@ async function scanDocuments(files, definition, opts = {}) {
     let crep = normalizeCrep({}, definition);
     const raws = [], doubts = [];
     let gridRows = null;
-    let gridMismatch = 0;
+    let gridMismatch = 0, gridRowsOther = null;
     for (const r of results) {
-        if (r.gridMismatch) gridMismatch = r.gridMismatch;
+        if (r.gridMismatch) { gridMismatch = r.gridMismatch; gridRowsOther = r.gridRowsOther; }
         crep = mergeCrep(crep, r.crep);
         if (r.raw) raws.push(r.raw);
         doubts.push(...r.doubts); warnings.push(...r.warns);
@@ -506,13 +516,28 @@ async function scanDocuments(files, definition, opts = {}) {
         grille = `grille lue par traitement d’image (${gridRows.filter(r => r.level).length}/${items.length} cases cochées reconnues)`;
         if (doubt.length) warnings.push(`Cases cochées à vérifier : ${doubt.join(' ; ')}.`);
     } else if (items.length && gridMismatch) {
-        let autres = '';
+        let autres = '', repris = 0;
         try {
             const tpls = await require('../ep-base/ep-base.service').listTemplates();
-            const match = tpls.filter(t => (t.definition?.criteria_groups || []).flatMap(g => g.items || []).length === gridMismatch).map(t => `« ${t.name} »`);
-            if (match.length) autres = ` Ce papier correspond au modèle ${match.join(' ou ')}.`;
+            const same = tpls.filter(t => (t.definition?.criteria_groups || []).flatMap(g => g.items || []).length === gridMismatch);
+            if (same.length) autres = ` Ce papier correspond au modèle ${same.map(t => `« ${t.name} »`).join(' ou ')}.`;
+            // Reprise par correspondance de libellés : chaque ligne du papier est rapprochée du critère le plus proche du modèle de l'agent
+            const paperItems = same.length ? flatCriteria(same[0].definition) : [];
+            if (paperItems.length === gridRowsOther?.length) {
+                // Appariement global : les couples les plus ressemblants d'abord, un critère du papier pour un seul critère du modèle
+                const pairs = [];
+                paperItems.forEach((pi, k) => { if (gridRowsOther[k]?.level) items.forEach((it, idx) => { const sc = labelSim(pi.label, it.label); if (sc >= 0.6) pairs.push({ k, idx, sc }); }); });
+                pairs.sort((a, b) => b.sc - a.sc);
+                const usedK = new Set(), usedI = new Set(), proche = [];
+                for (const q of pairs) {
+                    if (usedK.has(q.k) || usedI.has(q.idx)) continue;
+                    usedK.add(q.k); usedI.add(q.idx);
+                    crep.valeur[items[q.idx].key] = gridRowsOther[q.k].level; proche.push(items[q.idx].label); repris++;
+                }
+                if (repris) warnings.push(`Cases reprises par correspondance de libellés (${repris} sur ${items.length}) : le papier n’est pas le formulaire de cet agent, vérifiez chacune de ces cases : ${proche.join(' ; ')}.`);
+            }
         } catch { /* modèles indisponibles : message générique */ }
-        warnings.push(`Le tableau d’appréciation du papier comporte ${gridMismatch} lignes alors que le modèle de CREP de cet agent ${definition?.name ? `(« ${definition.name} ») ` : ''}en compte ${items.length}.${autres} Ce n’est pas le formulaire prévu pour cet agent : les cases cochées n’ont volontairement pas été reprises (risque de décalage). Cochez-les dans le formulaire, ou utilisez le CREP imprimé depuis l’outil pour cet agent.`);
+        if (!repris) warnings.push(`Le tableau d’appréciation du papier comporte ${gridMismatch} lignes alors que le modèle de CREP de cet agent ${definition?.name ? `(« ${definition.name} ») ` : ''}en compte ${items.length}.${autres} Ce n’est pas le formulaire prévu pour cet agent : les cases cochées n’ont volontairement pas été reprises (risque de décalage). Cochez-les dans le formulaire, ou utilisez le CREP imprimé depuis l’outil pour cet agent.`);
     } else if (items.length) {
         const aiGrid = {};
         await pool(results.filter(r => r.type === 'grille' || r.type === 'generique').map(r => async () => {
