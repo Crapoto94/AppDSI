@@ -486,6 +486,12 @@ async function scanDocuments(files, definition, opts = {}) {
             ]);
             const j = extractJson(a);
             const t = String(j.transcription || '').trim(); delete j.transcription;
+            if (res.type === 'perspectives') {
+                try {
+                    const sj = extractJson(await askVision(apm, model, prompts.get('crep.signatures'), jpeg(rotated(img, deg, 2000), 88), 300));
+                    res.signatures = { agent: sj.agent_signe === true, evaluateur: sj.evaluateur_signe === true };
+                } catch { /* détection facultative : le valideur vérifie de toute façon */ }
+            }
             if (j.agent_identite) { res.identite = String(j.agent_identite).replace(/\s+/g, ' ').trim(); }
             delete j.agent_identite;
             res.raw = `--- Page ${i + 1} (${res.type}) ---\n${t || JSON.stringify(j)}`;
@@ -584,6 +590,7 @@ async function scanDocuments(files, definition, opts = {}) {
     return {
         mode, corrections, incertains: doubts,
         identity: { lu, attendu, concordance }, formMismatch: !!gridMismatch,
+        signatures: (results.find(r => r.signatures) || {}).signatures || null,
         raw: raws.join('\n\n') || '(transcription non fournie par le modèle)',
         fields: crep,
         engine: { lecture: `${model} (API Ville, vision) · ${total} page(s)`, structuration: grille || 'sans grille' },

@@ -8,6 +8,7 @@ import type { Crep } from './crep';
 import { CRITERIA_GROUPS, LEVELS, NIVEAUX_REALISATION, initialCrep, missingFields, gridWarning } from './crep';
 import CrepAiAssist from './CrepAiAssist';
 import CrepScanImport from './CrepScanImport';
+import CrepParcours from './CrepParcours';
 import { COLORS, Field, btnGhost, btnPrimary, input, textarea, useConfirm } from './ui';
 
 function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -92,11 +93,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     && (crepStatut === 'non_envoye' || crepStatut === 'signe_papier' || (crepStatut === 'en_signature' && ['refuse', 'annule'].includes(entretien.crep_parapheur_status || '')));
   const agentCanValidate = isAgent && eSignEnabled && crepStatut === 'envoye_agent';
 
+  /** Ce qui empêche de valider : affiché dans une boîte de dialogue (et non en bas de page). */
+  const showMissing = async (items: string[]) => {
+    setMissing([]);
+    await confirm(`Le compte rendu est incomplet : il ne peut être validé qu’une fois tout renseigné.\n\n${items.map(i => `• ${i}`).join('\n')}`,
+      { title: 'Validation impossible', confirmLabel: 'Compris', hideCancel: true, danger: true });
+  };
+
   const save = async (submit: boolean) => {
     setMsg(null); setMissing([]);
     if (submit) {
       const m = missingFields(crep, entretien.crep_definition);
-      if (m.length) { setMissing(m); return; }
+      if (m.length) { await showMissing(m); return; }
       // Critères de la grille sans réponse : simple avertissement (cela arrive), l'évaluateur peut valider.
       const gw = gridWarning(crep, entretien.crep_definition);
       if (gw && !(await confirm(`${gw}.\n\nVoulez-vous valider quand même le compte rendu ?`, { title: 'Grille d’appréciation incomplète', confirmLabel: 'Valider quand même' }))) return;
@@ -119,7 +127,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       onSaved(r.data.entretien);
       setMsg({ ok: true, text: submit ? (crep.origine === 'manuscrit' ? 'Compte rendu validé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH : ce document numérique est non contractuel.' : 'Compte rendu validé. Vous pouvez maintenant l’envoyer à l’agent.') : 'Brouillon enregistré.' });
     } catch (e: any) {
-      if (Array.isArray(e.response?.data?.missing)) setMissing(e.response.data.missing);
+      if (Array.isArray(e.response?.data?.missing)) { await showMissing(e.response.data.missing); setBusy(null); return; }
       setMsg({ ok: false, text: e.response?.data?.message || e.message || 'Enregistrement impossible' });
     } finally { setBusy(null); }
   };
@@ -180,7 +188,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
     const obsMissing: string[] = [];
     if (!crep.obs_agent_conditions.trim()) obsMissing.push('Observations de l’agent sur les conditions de travail et le fonctionnement du service (« Néant » si rien à signaler)');
     if (!crep.obs_agent_entretien.trim()) obsMissing.push('Observations de l’agent sur l’entretien (« Néant » si rien à signaler)');
-    if (obsMissing.length) { setMissing(obsMissing); setMsg(null); return; }
+    if (obsMissing.length) { setMsg(null); await showMissing(obsMissing); return; }
     setMissing([]);
     if (!(await confirm('Validez-vous toutes ces informations ?\n\nSi vous validez, le compte rendu est envoyé au parapheur pour être cosigné par vous et par votre évaluateur (signature simple). Vous ne pourrez plus le modifier.', { title: 'Valider et envoyer pour signature', confirmLabel: 'Valider' }))) return;
     setBusy('agent'); setMsg(null);
@@ -250,6 +258,37 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
 
   const agent = `${entretien.agent_prenom || ''} ${entretien.agent_nom}`.trim();
 
+  // ─── Parcours guidé (mode manuscrit / outil) ───
+  const [formVisible, setFormVisible] = useState(true);
+  const signedVerified = (entretien.crep_scans || []).some(sc => sc.signatures_ok === true) || !!entretien.crep_signed_at;
+  useEffect(() => {
+    // En mode manuscrit, le contenu vient du document scanné : le formulaire est replié tant que rien n'a été lu
+    setFormVisible(!(entretien.crep_mode === 'manuscrit' && !signedVerified && crep.origine !== 'manuscrit'));
+  }, [entretien.id, entretien.crep_mode]);
+  const reloadEntretien = async () => {
+    try { const r = await axios.get(`/api/entretiens/${entretien.id}`, { headers }); onSaved(r.data); } catch { /* ignore */ }
+  };
+  /** Clôture : valide la partie évaluateur si ce n'est pas fait (mode manuscrit), puis clôture l'entretien. */
+  const closeEntretien = async () => {
+    setMsg(null);
+    if (entretien.evaluation_statut !== 'soumis') {
+      await save(true);
+      let fresh: Entretien | null = null;
+      try { fresh = (await axios.get(`/api/entretiens/${entretien.id}`, { headers })).data; } catch { /* ignore */ }
+      if (!fresh || fresh.evaluation_statut !== 'soumis') return;   // validation refusée ou annulée : on s'arrête là
+      onSaved(fresh);
+    }
+    if (!(await confirm('Clôturer l’entretien ?\n\nLe CREP signé est archivé et l’entretien est terminé. Vous ne pourrez plus le modifier.', { title: 'Clôturer l’entretien', confirmLabel: 'Clôturer' }))) return;
+    setBusy('submit');
+    try {
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/close`, {}, { headers });
+      onSaved(r.data.entretien);
+      setMsg({ ok: true, text: 'Entretien clôturé : le CREP signé est archivé. N’oubliez pas d’envoyer l’ORIGINAL papier signé à la RH.' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message || 'Clôture impossible.' });
+    } finally { setBusy(null); }
+  };
+
   // Éléments factuels transmis à l'IA locale pour chaque rubrique (saisie de l'agent dans sa préparation).
   const lines = (...p: Array<string | null | undefined | false>) => p.filter(x => x && String(x).trim()).join('\n');
   const generalCtx = lines(
@@ -287,6 +326,10 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
         <div><strong>Date de l’entretien :</strong> {entretien.date_entretien ? formatDateHeure(entretien.date_entretien) : '—'}</div>
       </div>
+      {!isAgent && (canEdit || entretien.statut === 'cloture') && (
+        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
+          onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible} />
+      )}
       {isAgent && (
         <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 9, fontSize: 12.5, color: '#3730a3', lineHeight: 1.5 }}>
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -304,7 +347,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       {!isAgent && (crep.origine === 'manuscrit' || (entretien.crep_scans || []).length > 0) && (
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, fontSize: 12.5, color: '#991b1b', lineHeight: 1.55 }}>
           <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
-          <div>L’IA a proposé ce contenu : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
+          <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
           {(entretien.crep_scans || []).length > 0 && (
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
               <b>Documents conservés :</b>
@@ -362,9 +405,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
       {canEdit && !isAgent && (
         <div style={{ marginTop: 12 }}>
           <CrepScanImport entretienId={entretien.id} headers={headers} disabled={busy !== null} definition={entretien.crep_definition as any}
-            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) }, valeur: { ...c.valeur, ...(f.valeur || {}) } }))} />
+            onApply={(f) => setCrep(c => ({ ...c, ...f, formations: { ...c.formations, ...(f.formations || {}) }, valeur: { ...c.valeur, ...(f.valeur || {}) } }))}
+            onApplied={() => { setFormVisible(true); reloadEntretien(); }} />
         </div>
       )}
+      <div style={{ display: formVisible ? 'block' : 'none' }}>
       <div style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', background: '#f8fafc', fontSize: 12.5, color: '#334155', lineHeight: 1.7 }}>
         <div style={{ fontWeight: 800, fontSize: 12, color: '#475569', marginBottom: 2 }}>
           COMPTE-RENDU D’ENTRETIEN PROFESSIONNEL · {(entretien.crep_definition as any)?.titre || ((entretien.crep_definition as any)?.categorie === 'C' ? 'CATEGORIE C' : 'CATEGORIE A ET B')}
@@ -530,6 +575,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
           {check.aiError && <div style={{ marginTop: 6, fontSize: 11.5, color: '#94a3b8' }}>Relecture par l’IA indisponible : {check.aiError}</div>}
         </div>
       )}
+
+      </div>
 
       {missing.length > 0 && (
         <div style={{ marginTop: 14, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#92400e' }}>

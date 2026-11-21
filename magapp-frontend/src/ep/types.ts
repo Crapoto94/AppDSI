@@ -139,7 +139,9 @@ export interface Entretien {
   crep_signed_at?: string | null;
   crep_signed_name?: string | null;
   /** Scans originaux (papier signé) conservés : lecture IA appliquée. */
-  crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string }>;
+  crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string; signatures_ok?: boolean }>;
+  /** Mode de saisie du CREP choisi par l'évaluateur : « manuscrit » (papier, scan signé) ou « outil » (saisie informatisée). */
+  crep_mode?: 'manuscrit' | 'outil' | null;
   objectifs?: Objectif[];
   formations?: Formation[];
   objectifs_total?: number;

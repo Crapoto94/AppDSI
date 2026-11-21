@@ -687,7 +687,8 @@ const entretiensController = {
             const job = await require('./crep-scan-jobs').start({
                 row, actor, definition: cdef, annee: campaign?.annee,
                 // CREP déjà saisi et validé dans l'outil (origine numérique) : le document signé à la main n'apporte que les 2 commentaires de l'agent
-                mode: row.evaluation_statut === 'soumis' ? 'agent' : 'complet',
+                // Mode « manuscrit » : tout le document est lu. Mode « outil » (ou CREP déjà validé) : seuls les 2 commentaires de l'agent.
+                mode: row.crep_mode === 'manuscrit' ? 'complet' : (row.evaluation_statut === 'soumis' ? 'agent' : 'complet'),
                 files: up.map(f => ({ buffer: f.buffer, mimetype: f.mimetype, name: f.originalname })),
                 contexte: { agent: svc.fullName(row.agent_prenom, row.agent_nom), poste: row.poste || '', service: row.service || '', direction: row.direction || '', grade: row.agent_grade || '' },
             });
@@ -698,6 +699,75 @@ const entretiensController = {
             console.error('[ENTRETIENS] crepScan:', err.message);
             fail(res, 500, `Lecture du document impossible : ${err.message}`);
         }
+    },
+
+    // GET /api/entretiens/:id/crep/scan/:jobId/file.pdf — le document téléversé (avant même d'avoir appliqué la lecture)
+    crepScanJobFile: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            const job = await pgDb.get('SELECT scan_path, scan_name FROM hub_entretiens.crep_scan_jobs WHERE id = ? AND entretien_id = ?', [Number(req.params.jobId), row.id]);
+            if (!job || !job.scan_path) return fail(res, 404, 'Document introuvable.');
+            const f = await storage.getFileForServe(job.scan_path);
+            if (!f) return fail(res, 404, 'Fichier introuvable.');
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${String(job.scan_name || 'scan.pdf').replace(/[^\w.\-]+/g, '_')}"`);
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            res.send(f.buffer);
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // PUT /api/entretiens/:id/crep/mode { mode: 'manuscrit' | 'outil' } — choix (modifiable à tout moment tant que l'EP n'est pas clôturé)
+    crepMode: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur (entretien non clôturé).');
+            const mode = req.body?.mode;
+            if (!['manuscrit', 'outil'].includes(mode)) return fail(res, 400, 'Mode inconnu.');
+            await pgDb.run('UPDATE hub_entretiens.entretiens SET crep_mode = ?, updated_at = NOW() WHERE id = ?', [mode, row.id]);
+            await svc.logAudit({ actor, action: 'crep_mode', entretien: row, details: { mode, avant: row.crep_mode || null } });
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ok: true, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/crep/close — clôture de l'entretien : CREP validé, document signé téléversé et vérifié (2 signatures)
+    crepClose: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur (entretien non clôturé).');
+            if (row.evaluation_statut !== 'soumis') return fail(res, 400, 'Le compte rendu doit d’abord être validé.');
+            const scans = typeof row.crep_scans === 'string' ? JSON.parse(row.crep_scans || '[]') : (row.crep_scans || []);
+            const last = [...(Array.isArray(scans) ? scans : [])].reverse().find(s => s && s.path && s.signatures_ok === true);
+            if (!last && !row.crep_signed_path) return fail(res, 400, 'Téléversez le CREP signé et vérifiez la présence des 2 signatures (agent et évaluateur) avant de clôturer.');
+            if (last && !row.crep_signed_path) {
+                // Le document signé vérifié devient le CREP signé archivé de l'entretien (copie indépendante du scan conservé)
+                const f = await storage.getFileForServe(last.path);
+                if (!f || !f.buffer) return fail(res, 500, 'Le document signé est introuvable dans le stockage.');
+                const saved = await storage.saveFile('entretiens', row.id, { buffer: f.buffer, originalname: 'CREP-signe.pdf' });
+                await pgDb.run(
+                    `UPDATE hub_entretiens.entretiens SET crep_signed_path = ?, crep_signed_name = 'CREP-signe.pdf', crep_signed_at = NOW(), crep_signed_by = ?, crep_statut = 'signe_papier' WHERE id = ?`,
+                    [saved.dbPath, actor.username || actor.email || '', row.id]);
+            }
+            await pgDb.run("UPDATE hub_entretiens.entretiens SET statut = 'cloture', updated_at = NOW() WHERE id = ?", [row.id]);
+            await svc.logAudit({ actor, action: 'crep_cloture', entretien: row, details: { mode: row.crep_mode || null } });
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ok: true, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) { console.error('[ENTRETIENS] crepClose:', err.message); fail(res, 500, err.message); }
     },
 
     // GET /api/entretiens/:id/crep/scan/latest — dernière analyse du CREP manuscrit de cet entretien (en cours, terminée, en échec)
@@ -743,7 +813,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur.');
-            await require('./crep-scan-jobs').ack(row.id, Number(req.params.jobId), req.body?.applied === true, actor.username || actor.email || '');
+            await require('./crep-scan-jobs').ack(row.id, Number(req.params.jobId), req.body?.applied === true, actor.username || actor.email || '', { signaturesOk: req.body?.signatures_ok === true });
             res.json({ ok: true });
         } catch (err) { fail(res, 500, err.message); }
     },

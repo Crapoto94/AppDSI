@@ -110,8 +110,14 @@ const DEFS = [
             + '{"evolution": "MANUSCRIT du cadre « 1. Évolution des missions et/ou de carrière » (un mot comme « retraite », « mobilité », « néant » est possible)",\n'
             + ' "mobilite": "MANUSCRIT du cadre « 2. Mobilité »",\n'
             + ' "obs_agent_conditions": "MANUSCRIT du cadre « Observations de l’agent sur les conditions de travail et le fonctionnement du service »",\n'
-            + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »",\n'
-            + ' "visa_autorite": "MANUSCRIT du cadre « Observations et visa de l’autorité territoriale » (souvent vide ; les signatures ne sont pas du texte)"}' + FIN,
+            + ' "obs_agent_entretien": "MANUSCRIT du cadre « Observations de l’agent sur l’entretien »"}\n' + 'Ne lis PAS le cadre « Observations et visa de l’autorité territoriale » (réservé à une étape ultérieure).' + FIN,
+    },
+    {
+        id: 'crep.signatures', group: 'Lecture des CREP manuscrits', label: 'Détection des signatures (dernière page)',
+        description: 'Vérifie la présence d’une signature manuscrite de l’agent et de l’évaluateur. ATTENTION : ne changez pas les noms de champs JSON.', vars: [],
+        text: 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé, puis signé à la main. Regarde les cadres de SIGNATURE en bas de page : celui de l’AGENT évalué et celui de l’ÉVALUATEUR (supérieur hiérarchique qui a conduit l’entretien). '
+            + 'Pour chacun, indique s’il contient une signature MANUSCRITE (un tracé à l’encre, même simple, rapide ou illisible). Un cadre vide, ou qui ne contient que du texte imprimé, n’est PAS signé. Ne confonds pas une signature avec l’écriture d’un commentaire. '
+            + 'Réponds UNIQUEMENT par un objet JSON : {"agent_signe": true ou false, "evaluateur_signe": true ou false}.',
     },
     {
         id: 'crep.agent', group: 'Lecture des CREP manuscrits', label: 'Mode « commentaires de l’agent » (document d’origine numérique)',

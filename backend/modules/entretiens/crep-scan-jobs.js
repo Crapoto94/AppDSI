@@ -43,6 +43,8 @@ function ensureTable() {
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_scan_jobs ADD COLUMN IF NOT EXISTS scan_name TEXT`);
             // Documents conservés sur l'entretien : scans originaux (papier signé) dont la lecture IA a été appliquée
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_scans JSONB DEFAULT '[]'::jsonb`);
+            // Mode de saisie choisi par l'évaluateur : 'manuscrit' (papier, scan signé) ou 'outil' (saisie dans l'outil, puis impression et scan)
+            await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_mode TEXT`);
             await pgDb.run(`CREATE INDEX IF NOT EXISTS idx_crep_scan_jobs_ent ON hub_entretiens.crep_scan_jobs (entretien_id, id DESC)`);
             // Analyses interrompues par un redémarrage du serveur : elles ne reprendront pas (les photos n'étaient qu'en mémoire).
             await pgDb.run(`UPDATE hub_entretiens.crep_scan_jobs SET status = 'echec', finished_at = NOW(),
@@ -87,7 +89,7 @@ async function latest(entretienId) {
 }
 
 /** Range la proposition. `applied` : la lecture a été appliquée → le scan original est CONSERVÉ sur l'entretien ; sinon il est supprimé. */
-async function ack(entretienId, jobId, applied, by) {
+async function ack(entretienId, jobId, applied, by, opts = {}) {
     await ensureTable();
     const job = await pgDb.get(`SELECT * FROM hub_entretiens.crep_scan_jobs WHERE id = ? AND entretien_id = ?`, [jobId, entretienId]);
     if (!job) return;
@@ -95,7 +97,9 @@ async function ack(entretienId, jobId, applied, by) {
     if (applied && job.scan_path && !job.applied_at) {
         const ent = await pgDb.get('SELECT crep_scans FROM hub_entretiens.entretiens WHERE id = ?', [entretienId]);
         const list = Array.isArray(ent?.crep_scans) ? ent.crep_scans : [];
-        list.push({ kind: job.mode || 'complet', path: job.scan_path, name: job.scan_name || 'scan.pdf', at: new Date().toISOString(), by: by || '', job: job.id });
+        list.push({ kind: job.mode || 'complet', path: job.scan_path, name: job.scan_name || 'scan.pdf', at: new Date().toISOString(), by: by || '', job: job.id,
+            // Le valideur a vérifié la présence des 2 signatures (agent et évaluateur) sur le document signé
+            signatures_ok: opts.signaturesOk === true, signatures_detectees: (job.result && job.result.signatures) || null });
         await pgDb.run(`UPDATE hub_entretiens.entretiens SET crep_scans = CAST(? AS jsonb) WHERE id = ?`, [JSON.stringify(list), entretienId]);
     } else if (!applied && job.scan_path && !job.applied_at) {
         try { await storage.deleteFile(job.scan_path); } catch (e) { /* fichier déjà absent */ }

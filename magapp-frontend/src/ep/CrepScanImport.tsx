@@ -12,6 +12,8 @@ interface Proposal {
   corrections?: Array<{ avant: string; apres: string; raison?: string }>;
   duration_ms?: number;
   mode?: 'complet' | 'agent';
+  /** Signatures manuscrites détectées sur la dernière page. */
+  signatures?: { agent: boolean; evaluateur: boolean } | null;
 }
 
 interface ScanJob {
@@ -44,14 +46,15 @@ const TEXT_FIELDS: Array<[string, string]> = [
   ['mobilite', 'Mobilité'],
   ['obs_agent_conditions', 'Observations de l’agent sur les conditions de travail'],
   ['obs_agent_entretien', 'Observations de l’agent sur l’entretien'],
-  ['visa_autorite', 'Observations et visa de l’autorité territoriale'],
 ];
 
 /**
  * Import d'un compte rendu papier : le document est numérisé et lu par l'IA interne (écriture manuscrite), qui PROPOSE un contenu.
  * L'évaluateur relit et corrige chaque rubrique, puis l'applique au formulaire (rien n'est enregistré avant son propre « Enregistrer »).
  */
-export default function CrepScanImport({ entretienId, headers, disabled, onApply, definition }: {
+export default function CrepScanImport({ entretienId, headers, disabled, onApply, onApplied, definition }: {
+  /** Appelé après l'application (le document signé est conservé) : permet de rafraîchir l'entretien. */
+  onApplied?: () => void;
   entretienId: number;
   definition?: { criteria_groups?: Array<{ key: string; title: string | null; items: Array<{ key: string; label: string; lead?: string }> }> } | null;
   headers: Record<string, string>;
@@ -66,6 +69,9 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
   const [job, setJob] = useState<ScanJob | null>(null);
   const [verified, setVerified] = useState(false);
   const [identConfirmed, setIdentConfirmed] = useState(true);
+  // Le valideur confirme avoir VU les 2 signatures (agent et évaluateur) sur le document signé
+  const [sigAgent, setSigAgent] = useState(false);
+  const [sigEval, setSigEval] = useState(false);
 
   // Analyse en tâche de fond : on retrouve l'état à l'ouverture (même après avoir fermé la page) et on suit l'avancement tant qu'elle tourne.
   const refresh = useCallback(async () => {
@@ -85,7 +91,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (!job?.result) return;
     setProp(job.result);
     setEdit({ ...(job.result.fields || {}) });
-    setVerified(false);
+    setVerified(false); setSigAgent(false); setSigEval(false);
     // Document d'un autre agent, ou formulaire d'une autre catégorie : confirmation explicite avant de relire
     const r: any = job.result;
     setIdentConfirmed(!(r?.identity?.concordance === 'different' || r?.formMismatch));
@@ -98,9 +104,20 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.id, prop]);
-  const dismiss = async (applied = false) => {
-    if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, { applied }, { headers }); } catch { /* ignore */ } }
+  // Voir le document téléversé (photos assemblées en PDF), avant comme après la lecture
+  const viewDoc = async () => {
+    if (!job) return;
+    try {
+      const r = await axios.get(`/api/entretiens/${entretienId}/crep/scan/${job.id}/file.pdf`, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch { setError('Document indisponible.'); }
+  };
+  const dismiss = async (applied = false, signaturesOk = false) => {
+    if (job) { try { await axios.post(`/api/entretiens/${entretienId}/crep/scan/${job.id}/ack`, { applied, signatures_ok: signaturesOk }, { headers }); } catch { /* ignore */ } }
     setJob(null); setProp(null);
+    if (applied && onApplied) onApplied();
   };
 
   const upload = async (list: File[]) => {
@@ -140,7 +157,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
     if (!agentOnly && edit.origine === 'manuscrit') out.origine = 'manuscrit';
     onApply(out);
     setProp(null);
-    dismiss(true);
+    dismiss(true, sigAgent && sigEval);
   };
 
   return (
@@ -153,6 +170,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div style={{ fontWeight: 800 }}>
               Lecture des textes en cours — {job.status === 'en_attente' ? 'en attente de son tour' : (job.progress_total ? `étape ${Math.min(job.progress + 1, job.progress_total)} / ${job.progress_total}` : 'démarrage')}
             </div>
+            <div style={{ margin: '4px 0' }}><button type="button" style={btnGhost} onClick={viewDoc}>Voir le document téléversé</button></div>
             {job.mode === 'agent' && <div><strong>Seuls les 2 commentaires de l’agent</strong> sont lus : le compte rendu déjà validé dans l’outil n’est pas modifié.</div>}
             <div>Durée estimée : environ <strong>{fmtDuree(job.estimate_ms)}</strong> pour {job.files_count} page{job.files_count > 1 ? 's' : ''}. <strong>Vous pouvez fermer cette fenêtre</strong> : vous recevrez un <strong>e-mail dès que la lecture sera terminée</strong>. Vous devrez alors <strong>relire et corriger la proposition</strong> avant de valider le compte rendu.</div>
           </div>
@@ -164,6 +182,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
             <div style={{ fontWeight: 800 }}>Lecture terminée — proposition prête à relire</div>
             <div>Réalisée en {fmtDuree(job.duration_ms)}. Un contenu est proposé : relisez-le, corrigez-le, puis appliquez-le au formulaire et validez le compte rendu.</div>
           </div>
+          <button type="button" style={btnGhost} onClick={viewDoc}>Voir le document téléversé</button>
           <button type="button" style={btnPrimary} onClick={openProposal}>Voir la proposition</button>
           <button type="button" style={btnGhost} onClick={() => dismiss(false)} title="Écarter cette proposition (le scan n’est pas conservé)">Écarter</button>
         </div>
@@ -193,6 +212,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                 <div style={{ fontWeight: 800, fontSize: 15 }}>Proposition issue du document numérisé</div>
                 <div style={{ fontSize: 12, color: COLORS.muted }}>Lecture : {prop.engine.lecture}{prop.engine.structuration ? ` · mise en forme : ${prop.engine.structuration}` : ''}</div>
               </div>
+              <button style={btnGhost} onClick={viewDoc} title="Ouvrir le document téléversé dans un nouvel onglet, pour comparer">Voir le document</button>
               <button style={btnGhost} onClick={() => setProp(null)} aria-label="Fermer"><X size={15} /></button>
             </div>
             <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -305,7 +325,6 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               {txt('mobilite')}
               {txt('obs_agent_conditions')}
               {txt('obs_agent_entretien')}
-              {txt('visa_autorite')}
 
               {(prop.corrections || []).length > 0 && (
                 <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, color: '#5b21b6' }}>
@@ -314,6 +333,19 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                   <div style={{ fontSize: 11.5, color: '#7c3aed', marginTop: 3 }}>Vérifiez ces corrections : elles sont déjà appliquées dans les rubriques ci-dessous.</div>
                 </div>
               )}
+
+              <div style={{ border: '2px solid #c7d2fe', background: '#f8faff', borderRadius: 10, padding: '10px 14px' }}>
+                <div style={{ fontWeight: 800, fontSize: 13, color: '#3730a3', marginBottom: 4 }}>Signatures du document</div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>
+                  Détection automatique : agent {prop.signatures ? (prop.signatures.agent ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'} · évaluateur {prop.signatures ? (prop.signatures.evaluateur ? '✔ signature repérée' : '✖ non repérée') : '— non déterminée'}. Cette détection est indicative : <strong>vérifiez vous-même le document</strong>.
+                </div>
+                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155' }}>
+                  <input type="checkbox" checked={sigAgent} onChange={e => setSigAgent(e.target.checked)} /> Je confirme que le document porte la <u>signature de l’agent</u>
+                </label>
+                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginTop: 3 }}>
+                  <input type="checkbox" checked={sigEval} onChange={e => setSigEval(e.target.checked)} /> Je confirme que le document porte la <u>signature de l’évaluateur</u> (la mienne)
+                </label>
+              </div>
 
               <details>
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#475569' }}>Texte brut lu sur le document</summary>
@@ -343,7 +375,7 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
               <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12.5, fontWeight: 700, color: '#334155', marginRight: 'auto' }}>
                 <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} /> J’ai vérifié chaque ligne par rapport au document papier
               </label>
-              <button style={{ ...btnPrimary, opacity: verified ? 1 : .5 }} disabled={!verified} onClick={apply}>Appliquer au formulaire</button>
+              <button style={{ ...btnPrimary, opacity: verified && sigAgent && sigEval ? 1 : .5 }} disabled={!(verified && sigAgent && sigEval)} onClick={apply}>Appliquer au formulaire</button>
             </div>
           </div>
         </div>

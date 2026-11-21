@@ -166,8 +166,8 @@ export function Td({ children, style }: { children?: React.ReactNode; style?: Re
  * et afficher {confirmDialog} dans le rendu du composant.
  */
 export function useConfirm() {
-  const [state, setState] = useState<{ message: string; title?: string; confirmLabel?: string; danger?: boolean; resolve: (v: boolean) => void } | null>(null);
-  const confirm = useCallback((message: string, opts?: { title?: string; confirmLabel?: string; danger?: boolean }) =>
+  const [state, setState] = useState<{ message: string; title?: string; confirmLabel?: string; danger?: boolean; hideCancel?: boolean; resolve: (v: boolean) => void } | null>(null);
+  const confirm = useCallback((message: string, opts?: { title?: string; confirmLabel?: string; danger?: boolean; hideCancel?: boolean }) =>
     new Promise<boolean>(resolve => setState({ message, ...opts, resolve })), []);
   const close = (v: boolean) => { if (state) state.resolve(v); setState(null); };
   const dialog = state ? (
@@ -178,7 +178,7 @@ export function useConfirm() {
         <div style={{ padding: '16px 20px 6px', fontWeight: 800, fontSize: 15, color: COLORS.text }}>{state.title || 'Confirmation'}</div>
         <div style={{ padding: '6px 20px 16px', fontSize: 13.5, color: '#334155', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{state.message}</div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: `1px solid ${COLORS.border}`, background: '#f8fafc', borderRadius: '0 0 12px 12px' }}>
-          <button type="button" style={btnGhost} onClick={() => close(false)}>Annuler</button>
+          {!state.hideCancel && <button type="button" style={btnGhost} onClick={() => close(false)}>Annuler</button>}
           <button type="button" autoFocus style={{ ...btnPrimary, background: state.danger ? COLORS.danger : COLORS.primary }} onClick={() => close(true)}>{state.confirmLabel || 'Confirmer'}</button>
         </div>
       </div>

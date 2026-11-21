@@ -44,6 +44,8 @@ router.get('/formations', authenticateJWT, ctrl.formationsGlobales);
 router.get('/prompts', authenticateJWT, ctrl.listPrompts);
 router.put('/prompts/:id', authenticateJWT, ctrl.savePrompt);
 router.put('/simulation', authenticateJWT, ctrl.setSimulation);
+router.put('/:id/crep/mode', authenticateJWT, ctrl.crepMode);
+router.post('/:id/crep/close', authenticateJWT, ctrl.crepClose);
 router.post('/simulation/reset', authenticateJWT, ctrl.resetSimulation);
 router.post('/formations/analyse', authenticateJWT, ctrl.formationsAnalyse);
 router.get('/export.xlsx', authenticateJWT, ctrl.exportXlsx);
@@ -73,6 +75,7 @@ router.post('/:id/crep/scan', authenticateJWT, uploadPdf.fields([{ name: 'file',
 router.get('/:id/crep/scan/latest', authenticateJWT, ctrl.crepScanLatest);
 router.post('/:id/crep/scan/:jobId/ack', authenticateJWT, ctrl.crepScanAck);
 router.get('/:id/crep/scans/:idx.pdf', authenticateJWT, ctrl.crepScanFile);
+router.get('/:id/crep/scan/:jobId/file.pdf', authenticateJWT, ctrl.crepScanJobFile);
 router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
 router.post('/:id/crep/manuscript', authenticateJWT, uploadPdf.array('files', 8), ctrl.crepManuscriptUpload);
 router.post('/:id/reset', authenticateJWT, ctrl.resetEntretien);
