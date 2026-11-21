@@ -5,6 +5,13 @@ const { normalizeCrep, missingFields, definitionFor, gridWarning } = require('./
 const epBase = require('../ep-base/ep-base.service');
 const { buildCrepPdf } = require('./crep-pdf.service');
 const storage = require('../../shared/storage');
+
+const CLOSED_MSG = 'La campagne est close : le CREP est consultable dans le dossier de l’agent.';
+/** Documents d'un entretien : consultables jusqu'à la clôture de la campagne (les administrateurs gardent l'accès). */
+async function documentsClosed(row, role) {
+    if (role && role.isAdmin) return false;
+    try { return (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.statut === 'close'; } catch (e) { return false; }
+}
 const DG_NOTE_DEFAULT = require('./dg-note.default');
 const { draftComment, reviewCrep } = require('./ai.service');
 const { summarizeCrep, coherenceIssues } = require('./crep.coherence');
@@ -354,6 +361,49 @@ const entretiensController = {
             );
             res.json(await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [id]));
         } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/campaigns/:id/close — CLORE LA CAMPAGNE (administrateurs) : les documents de la campagne ne sont plus consultables
+    // par les valideurs dans ce module ; les CREP clôturés sont alors consultés dans le dossier de l'agent.
+    closeCampaign: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const id = Number(req.params.id);
+            const c = await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [id]);
+            if (!c) return fail(res, 404, 'Campagne introuvable.');
+            if (c.statut === 'close') return fail(res, 409, 'Cette campagne est déjà close.');
+            const ouverts = await pgDb.get(
+                `SELECT COUNT(*)::int AS n FROM hub_entretiens.entretiens WHERE campaign_id = ? AND deleted_at IS NULL AND statut <> 'cloture'`, [id]);
+            await pgDb.run("UPDATE hub_entretiens.campaigns SET statut = 'close', date_cloture = COALESCE(date_cloture, ?), updated_at = NOW() WHERE id = ?", [new Date().toISOString().slice(0, 10), id]);
+            await svc.logAudit({ actor, action: 'campagne_close', entretien: null, details: { campagne: id, annee: c.annee, entretiens_non_clotures: Number(ouverts?.n || 0) } });
+            res.json({ ok: true, entretiens_non_clotures: Number(ouverts?.n || 0), campaign: await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [id]) });
+        } catch (err) { console.error('[ENTRETIENS] closeCampaign:', err.message); fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/crep/unvalidate { reason } — « dévalider » un CREP en cas d'erreur manifeste (administrateurs uniquement)
+    crepUnvalidate: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Seuls les administrateurs peuvent dévalider un compte rendu.');
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const reason = text(req.body?.reason).trim();
+            if (reason.length < 5) return fail(res, 400, 'Indiquez le motif de la dévalidation (erreur manifeste).');
+            if (row.evaluation_statut !== 'soumis') return fail(res, 400, 'Ce compte rendu n’est pas validé.');
+            if (['envoye_agent', 'en_signature'].includes(row.crep_statut)) return fail(res, 409, 'Un circuit de signature est en cours : annulez-le d’abord.');
+            const camp = await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            if (camp?.statut === 'close') return fail(res, 409, 'La campagne est close : le CREP est figé.');
+            if (row.crep_signed_path) { try { await storage.deleteFile(row.crep_signed_path); } catch (e) { /* déjà absent */ } }
+            await pgDb.run(
+                `UPDATE hub_entretiens.entretiens SET evaluation_statut = 'brouillon', evaluator_submitted_at = NULL,
+                        statut = CASE WHEN date_entretien IS NULL THEN 'a_planifier' ELSE 'planifie' END,
+                        crep_statut = 'non_envoye', crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
+                        updated_at = NOW()
+                 WHERE id = ?`, [row.id]);
+            await svc.logAudit({ actor, action: 'crep_devalide', entretien: row, details: { motif: reason, statut_avant: row.statut } });
+            res.json({ ok: true });
+        } catch (err) { console.error('[ENTRETIENS] crepUnvalidate:', err.message); fail(res, 500, err.message); }
     },
 
     // ─── Administration déléguée / paramètres ────────────────────────────
@@ -710,6 +760,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            if (await documentsClosed(row, role)) return fail(res, 403, CLOSED_MSG);
             const job = await pgDb.get('SELECT scan_path, scan_name FROM hub_entretiens.crep_scan_jobs WHERE id = ? AND entretien_id = ?', [Number(req.params.jobId), row.id]);
             if (!job || !job.scan_path) return fail(res, 404, 'Document introuvable.');
             const f = await storage.getFileForServe(job.scan_path);
@@ -792,6 +843,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur, à son valideur et aux administrateurs.');
+            if (await documentsClosed(row, role)) return fail(res, 403, CLOSED_MSG);
             const list = Array.isArray(row.crep_scans) ? row.crep_scans : [];
             const item = list[Number(req.params.idx)];
             if (!item) return fail(res, 404, 'Scan introuvable.');
@@ -1548,6 +1600,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
+            if (await documentsClosed(row, role)) return fail(res, 403, CLOSED_MSG);
             const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
             const base = `CREP-${campaign?.annee || ''}-${svc.fullName(row.agent_prenom, row.agent_nom)}`.replace(/[^\w\-]+/g, '_');
             let f = null;
@@ -1662,7 +1715,7 @@ const entretiensController = {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
 
             await svc.logAudit({

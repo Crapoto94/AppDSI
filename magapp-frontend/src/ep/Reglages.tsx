@@ -4,7 +4,7 @@ import IaPrompts from './IaPrompts';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
-  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download, RotateCcw,
+  Mail, CheckCircle2, AlertCircle, Info, CalendarPlus, Sparkles, Power, UserCheck, UserPlus, FileText, Download, RotateCcw, Lock,
 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign } from './types';
@@ -286,6 +286,23 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     const c = campaigns.find(x => x.id === selectedId);
     if (c) setCampForm(toForm(c));
   }, [selectedId, campaigns]);
+
+  // CLORE LA CAMPAGNE : les documents ne sont plus consultables par les valideurs ; les CREP se consultent dans le dossier de l'agent
+  const closeCampaign = async () => {
+    if (!campForm.id) return;
+    if (!window.confirm(`Clore la campagne « ${campForm.libelle || campForm.annee} » ?
+
+Les valideurs ne pourront plus consulter les documents des entretiens dans ce module : les CREP clôturés seront consultables dans le dossier de l’agent. Les administrateurs gardent l’accès.
+
+Cette action est définitive.`)) return;
+    setSavingCampaign(true); setCampMsg(null);
+    try {
+      const r = await axios.post(`/api/entretiens/campaigns/${campForm.id}/close`, {}, { headers });
+      const n = Number(r.data?.entretiens_non_clotures || 0);
+      setCampMsg({ ok: true, text: `Campagne close.${n ? ` Attention : ${n} entretien(s) n’étaient pas clôturés.` : ''}` });
+      await loadCampaigns();
+    } catch (e: any) { setCampMsg({ ok: false, text: e?.response?.data?.message || 'Clôture de la campagne impossible.' }); } finally { setSavingCampaign(false); }
+  };
 
   const saveCampaign = async () => {
     setCampMsg(null);
@@ -624,6 +641,11 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
           <button style={btnPrimary} disabled={savingCampaign} onClick={saveCampaign}>
             {savingCampaign ? <Loader2 size={15} /> : <Save size={15} />} {campForm.id ? 'Enregistrer la campagne' : 'Créer la campagne'}
           </button>
+          {campForm.id && campForm.statut !== 'close' && (
+            <button style={btnDanger} disabled={savingCampaign} onClick={closeCampaign} title="Clore la campagne : les CREP passent dans le dossier de l’agent">
+              <Lock size={15} /> Clore la campagne
+            </button>
+          )}
         </div>
       </div>
 

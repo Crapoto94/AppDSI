@@ -374,8 +374,11 @@ async function withRelations(entretien) {
         modele = await epBase.modeleOfEntretien(entretien);
         if (modele) crep_definition = require('./crep.definition').definitionFor(modele);
     } catch (e) { /* modèles indisponibles : grille par défaut */ }
+    let campaign_closed = false;
+    try { campaign_closed = (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]))?.statut === 'close'; } catch (e) { /* campagne inconnue */ }
     return {
         ...entretien,
+        campaign_closed,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],

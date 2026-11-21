@@ -142,6 +142,8 @@ export interface Entretien {
   crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string; signatures_ok?: boolean }>;
   /** Mode de saisie du CREP choisi par l'évaluateur : « manuscrit » (papier, scan signé) ou « outil » (saisie informatisée). */
   crep_mode?: 'manuscrit' | 'outil' | null;
+  /** La campagne de cet entretien est close : les documents ne sont plus consultables ici (dossier de l'agent). */
+  campaign_closed?: boolean;
   objectifs?: Objectif[];
   formations?: Formation[];
   objectifs_total?: number;

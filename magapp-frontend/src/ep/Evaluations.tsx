@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight, RotateCcw, Undo2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien, Stats } from './types';
 import { STATUTS, formatDateCourte, nomComplet, repairText } from './types';
@@ -182,6 +182,25 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
     } catch (e: any) {
       setError(e.response?.data?.message || 'Impression impossible.');
     } finally { setPrintBusy(null); }
+  };
+
+  // « Dévalider » un CREP (administrateurs, erreur manifeste) : l'évaluateur peut à nouveau le modifier
+  const unvalidateEp = async (e: Entretien) => {
+    const nom = nomComplet(e);
+    const reason = window.prompt(`Dévalider le CREP de ${nom} ?
+
+Il redeviendra modifiable par son évaluateur. À n'utiliser qu'en cas d'erreur manifeste.
+
+Motif (obligatoire) :`, '');
+    if (!reason || reason.trim().length < 5) return;
+    setRazBusy(e.id);
+    try {
+      await axios.post(`/api/entretiens/${e.id}/crep/unvalidate`, { reason }, { headers });
+      setNotice({ ok: true, text: `CREP de ${nom} dévalidé : son évaluateur peut le modifier.` });
+      load(); onChanged?.();
+    } catch (err: any) {
+      setNotice({ ok: false, text: err.response?.data?.message || 'Dévalidation impossible.' });
+    } finally { setRazBusy(null); }
   };
 
   const resetEp = async (e: Entretien) => {
@@ -574,6 +593,12 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
                         <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
                           <Printer size={13} />
                         </button>
+                        {canReset && e.evaluation_statut === 'soumis' && (
+                          <button style={btnGhost} disabled={razBusy === e.id} onClick={() => unvalidateEp(e)}
+                            title="Dévalider le CREP en cas d’erreur manifeste (administrateur)">
+                            <Undo2 size={13} /> Dévalider
+                          </button>
+                        )}
                         {canReset && (
                           <button style={btnDanger} disabled={razBusy === e.id} onClick={() => resetEp(e)}
                             title="Remettre cet EP à zéro (administrateur)">

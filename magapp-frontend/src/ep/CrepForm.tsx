@@ -83,7 +83,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
   useEffect(() => { setCrep(initialCrep(entretien)); }, [entretien.id]);
 
   const set = <K extends keyof Crep>(key: K, value: Crep[K]) => setCrep(c => ({ ...c, [key]: value }));
-  const dis = !canEdit || isAgent;
+  // Une fois le CREP validé (ou l'entretien clôturé) : tout est en lecture seule, plus de bouton de saisie
+  const locked = !isAgent && (entretien.evaluation_statut === 'soumis' || entretien.statut === 'cloture');
+  const dis = !canEdit || isAgent || locked;
   const crepStatut = entretien.crep_statut || 'non_envoye';
   // Agent ou évaluateur sans adresse e-mail : pas de circuit parapheur, on imprime, on fait signer puis on téléverse le PDF signé.
   const noMail = !(entretien.agent_email || '').trim() || !(entretien.evaluator_email || '').trim();
@@ -326,6 +328,18 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div><strong>Fonctions exercées :</strong> {entretien.poste || '—'}</div>
         <div><strong>Date de l’entretien :</strong> {entretien.date_entretien ? formatDateHeure(entretien.date_entretien) : '—'}</div>
       </div>
+      {!isAgent && locked && (
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, fontSize: 12.5, color: '#78350f', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 800, marginBottom: 2 }}>Compte rendu validé — lecture seule</div>
+          <div><strong>L’original signé doit être transmis à la RH.</strong> Le document numérique conservé dans l’outil est non contractuel : seul l’original signé fait foi.</div>
+          <div style={{ marginTop: 3 }}>
+            {entretien.campaign_closed
+              ? <>La campagne est close : le CREP est consultable dans le <strong>dossier de l’agent</strong>.</>
+              : <>Les documents (scan du CREP signé, PDF) restent consultables ici <strong>jusqu’à la clôture de la campagne</strong> ; ensuite, le CREP sera consultable dans le dossier de l’agent.</>}
+            {' '}Seul un administrateur peut dévalider un CREP, en cas d’erreur manifeste.
+          </div>
+        </div>
+      )}
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
         <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
           onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible} />
@@ -348,7 +362,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, fontSize: 12.5, color: '#991b1b', lineHeight: 1.55 }}>
           <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
           <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
-          {(entretien.crep_scans || []).length > 0 && (
+          {(entretien.crep_scans || []).length > 0 && (!entretien.campaign_closed || entretien.access?.isAdmin) && (
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
               <b>Documents conservés :</b>
               {(entretien.crep_scans || []).map((sc, i) => (
@@ -611,7 +625,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
               <ClipboardList size={13} /> Compte rendu en lecture seule.
             </span>
           )
-        ) : canEdit ? (
+        ) : canEdit && !locked ? (
           <>
             <button style={btnGhost} disabled={!!busy} onClick={() => save(false)}>
               {busy === 'save' ? <Loader2 size={14} /> : <Save size={14} />} Enregistrer le brouillon
@@ -631,8 +645,13 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
         ) : (
           <>
             <span style={{ fontSize: 12, color: COLORS.muted, display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-              <ClipboardList size={13} /> Compte rendu en lecture seule.
+              <ClipboardList size={13} /> Compte rendu {locked ? 'validé : lecture seule' : 'en lecture seule'}.
             </span>
+            {canSend && (
+              <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>
+                {busy === 'send' ? <Loader2 size={14} /> : <Send size={14} />} Envoyer à l’agent
+              </button>
+            )}
             {crepStatut === 'envoye_agent' && (
               <button style={btnGhost} disabled={!!busy} onClick={recall} title="Annuler l’envoi tant que l’agent n’a pas validé">
                 {busy === 'recall' ? <Loader2 size={14} /> : <Undo2 size={14} />} Rappeler le compte rendu
@@ -640,7 +659,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             )}
           </>
         )}
-        {canUploadSigned && (
+        {canUploadSigned && !entretien.crep_mode && (
           <>
             <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/jpeg,image/png" multiple style={{ display: 'none' }} onChange={e => uploadSigned(e.target.files)} />
             <button style={btnGhost} disabled={!!busy} onClick={() => fileRef.current?.click()} title="CREP imprimé, rempli et signé à la main : scannez les 4 pages (ou un PDF) et téléversez-les ici">
@@ -648,7 +667,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, mode = 'evaluate
             </button>
           </>
         )}
-        {hasSigned && (
+        {hasSigned && (!entretien.campaign_closed || entretien.access?.isAdmin) && (
           <button style={{ ...btnPrimary, background: COLORS.success }} disabled={!!busy} onClick={openSignedPdf}>
             {busy === 'signedpdf' ? <Loader2 size={14} /> : <FileDown size={14} />} PDF signé
           </button>

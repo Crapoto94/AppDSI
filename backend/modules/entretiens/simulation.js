@@ -75,7 +75,7 @@ async function resetAll(actor, req) {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
             n++;
         } catch (e) { warnings.push(`Entretien #${row.id} : ${e.message}`); }

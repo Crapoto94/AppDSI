@@ -52,6 +52,13 @@ Le dispositif couvre **tous les cas**, y compris les agents sans informatique.
 
 #### 3.2. L'entretien et le compte rendu
 
+Dès l'ouverture du CREP, l'outil demande au valideur s'il le tiendra **à la main** ou **dans l'outil**, et adapte le parcours (il peut changer à tout moment). Un **fil d'Ariane** indique où en est l'entretien :
+
+- **À la main** : impression, entretien, signatures de l'agent (qui renseigne ses 2 cadres) et du valideur, puis numérisation et téléversement du document signé ; l'outil lit le document, contrôle la présence des **2 signatures**, le valideur vérifie tout et **clôture** l'entretien.
+- **Dans l'outil** : saisie de la grille et des rubriques, validation de la partie évaluateur, impression, signatures, téléversement ; le valideur ne vérifie que les **2 cadres de l'agent et les signatures**, puis **clôture**.
+
+Une fois le CREP validé, **tout passe en lecture seule** et l'outil rappelle que **l'original signé doit être transmis à la RH**. Les documents restent consultables jusqu'à la **clôture de la campagne** (action réservée aux administrateurs) ; ensuite le CREP est consulté dans le **dossier de l'agent**. Seuls les administrateurs peuvent **dévalider** un CREP, en cas d'erreur manifeste (motif obligatoire, tracé au journal). Le processus complet est modélisé en BPMN dans le module de modélisation du DSI Hub.
+
 - L'agent peut **préparer sa fiche en ligne** ou sur papier (facultatif).
 - Le valideur **saisit directement** le compte rendu dans l'outil, ou **écrit à la main** sur le formulaire puis le reporte dans l'outil (avec lecture assistée du scan, relue et corrigée par lui).
 - Un contrôle de cohérence signale les rubriques oubliées avant validation.

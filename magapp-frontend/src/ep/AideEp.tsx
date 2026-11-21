@@ -423,6 +423,12 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <div style={{ marginTop: 6 }}><strong>Ce qui est conservé :</strong> la <strong>version scannée</strong> (vos photos assemblées en un PDF, consultable via « Scan original ») et la <strong>version numérique</strong> (« Imprimer / PDF »), qui porte le filigrane <strong>« DOCUMENT NON CONTRACTUEL »</strong> et la mention <strong>« Document original manuscrit signé »</strong> à la place des signatures.</div>
               <div style={{ marginTop: 6 }}><strong>Si le papier n'est pas le formulaire de cet agent</strong> (par exemple un CREP d'une autre catégorie), l'outil le signale : les cases ne sont reprises que lorsqu'elles correspondent clairement à un critère du modèle de l'agent, et chacune est à vérifier.</div>
 
+              <Callout tone="ok" title="Après la clôture : lecture seule, original à la RH, consultation">
+                Dès que le CREP est <strong>validé</strong>, tous les champs passent en <strong>lecture seule</strong> et les boutons de saisie disparaissent. L'outil rappelle que <strong>l'original signé doit être transmis à la RH</strong>.
+                Vous pouvez <strong>consulter les documents</strong> (scan du CREP signé, PDF) <strong>jusqu'à la clôture de la campagne</strong> ; une fois la campagne close, le CREP est consultable dans le <strong>dossier de l'agent</strong>.
+                Seul un administrateur peut dévalider un CREP, en cas d'erreur manifeste : prévenez-le dans ce cas.
+              </Callout>
+
               <Callout tone="warn" title="Valider : une étape obligatoire">
                 Cliquez sur <strong>« Valider le compte rendu »</strong> après avoir tout vérifié (toutes les rubriques obligatoires doivent être remplies). L'EP passe à « Réalisé ». Tant que le compte rendu n'est pas validé, l'EP n'est pas « Réalisé » et il apparaît « en retard » dans les statistiques de la Direction.
               </Callout>
@@ -631,6 +637,14 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div>Dans tous les cas, <strong>un agent sans e-mail reste au circuit papier</strong>, même si la signature est ouverte.</div>
               </div>
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agents.</Callout>
+            </Section>
+
+            <Section icon={<Lock size={15} color={COLORS.primary} />} title="Clore la campagne et dévalider un CREP">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div><strong>Clore la campagne</strong> (Paramétrage → Campagnes, bouton « Clore la campagne », action définitive) : les valideurs ne consultent plus les documents des entretiens dans ce module ; les CREP clôturés sont consultés dans le <strong>dossier de l'agent</strong>. Les administrateurs gardent l'accès. L'outil indique combien d'entretiens n'étaient pas encore clôturés.</div>
+                <div><strong>Dévalider un CREP</strong> (Pilotage, bouton « Dévalider », <strong>réservé aux administrateurs</strong>) : à n'utiliser qu'en cas d'<strong>erreur manifeste</strong>, avec un motif obligatoire tracé au Journal. Le CREP redevient modifiable par son valideur et repart au choix du mode de saisie. Impossible pendant un circuit de signature en cours ou une fois la campagne close.</div>
+                <div>Une <strong>remise à zéro (RAZ)</strong> ramène l'entretien à l'étape zéro, <strong>y compris le choix du mode de saisie</strong>, et supprime aussi les scans conservés.</div>
+              </div>
             </Section>
 
             <Section icon={<RotateCcw size={15} color={COLORS.primary} />} title="RAZ : remettre un EP à zéro">

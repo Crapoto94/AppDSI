@@ -25,6 +25,8 @@ router.get('/audit-logs', authenticateJWT, ctrl.auditLogs);
 router.get('/campaigns', authenticateJWT, ctrl.listCampaigns);
 router.post('/campaigns', authenticateJWT, ctrl.createCampaign);
 router.put('/campaigns/:id', authenticateJWT, ctrl.updateCampaign);
+router.post('/campaigns/:id/close', authenticateJWT, ctrl.closeCampaign);
+router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
 
 // Administrateurs délégués & paramètres
 router.get('/admins', authenticateJWT, ctrl.listAdmins);
