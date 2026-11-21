@@ -57,15 +57,9 @@ function Cas({ code, title, color = '#4f46e5', icon, children }: { code: string;
 }
 
 /** Vraie capture d'écran de l'outil (données fictives), cliquable pour l'agrandir. */
-function Shot({ src, caption }: { src: string; caption: string }) {
-  return (
-    <figure style={{ margin: '8px 0 10px', padding: 0 }}>
-      <a href={src} target="_blank" rel="noopener noreferrer" title="Cliquer pour agrandir">
-        <img src={src} alt={caption} loading="lazy" style={{ display: 'block', width: '100%', maxWidth: 760, borderRadius: 9, border: `1px solid ${COLORS.border}`, boxShadow: '0 2px 8px rgba(15,23,42,.08)' }} />
-      </a>
-      <figcaption style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>📷 {caption} <span style={{ color: '#94a3b8' }}>(exemple avec des données fictives)</span></figcaption>
-    </figure>
-  );
+// Les captures d'écran ont été retirées de l'aide (les textes décrivent chaque geste).
+function Shot(_: { src: string; caption: string }) {
+  return null;
 }
 
 /** Liste de gestes numérotés. */
@@ -106,6 +100,7 @@ function ProcessSchema() {
       <Step n={6} title="Signature : électronique ou papier" who="Agent + Valideur">
         Si l'agent et vous avez un e-mail et que la signature électronique est ouverte : « Envoyer à l'agent », il valide, vous signez tous les deux dans le parapheur.
         Sinon : vous imprimez, l'agent et vous signez, vous scannez les 4 pages.
+        <strong> Si le CREP est manuscrit, il faut le téléverser (scan ou photos) pour pouvoir le valider.</strong>
       </Step>
       <Step n={7} title="Le CREP signé est archivé" who="Automatique / Valideur">
         Le PDF signé reste consultable dans l'EP (bouton « CREP signé »). Rien à classer dans un classeur.
@@ -436,7 +431,11 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               </Cas>
 
               <Cas code="Méthode 2" title="Je préfère écrire à la main sur le CREP papier" color="#d97706" icon={<PenLine size={14} color="#d97706" />}>
-                C'est autorisé : le papier reste un document officiel. <strong>Mais l'outil doit quand même savoir que l'entretien est réalisé.</strong> Déroulé :
+                C'est autorisé : le papier reste un document officiel. <strong>Mais l'outil doit quand même savoir que l'entretien est réalisé.</strong>
+                <div style={{ margin: '6px 0', background: '#fffbeb', border: '1px solid #fde68a', color: '#78350f', borderRadius: 8, padding: '8px 11px' }}>
+                  <strong>Un CREP manuscrit doit être téléversé dans l'outil</strong> (scan ou photos des pages, bouton « Importer un compte rendu papier ») <strong>pour pouvoir être validé.</strong> Sans ce téléversement, ne validez pas le compte rendu : le document papier n'est pas rattaché à l'EP.
+                </div>
+                Déroulé :
                 <Gestes items={[
                   <>Avant l'entretien : <strong>imprimer le CREP vierge</strong> (icône imprimante). L'agent en a aussi reçu un par e-mail s'il a une adresse.</>,
                   <>Pendant l'entretien : écrire à la main, comme avant.</>,
@@ -455,7 +454,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                       <li><strong>Option sûre :</strong> recopier vous-même les rubriques dans l'outil.</li>
                     </ul>
                   </>,
-                  <>Cliquer sur <strong>« Valider le compte rendu »</strong> (toutes les rubriques obligatoires doivent être remplies).</>,
+                  <>Une fois le papier <strong>téléversé</strong> (scan ou photos), cliquer sur <strong>« Valider le compte rendu »</strong> (toutes les rubriques obligatoires doivent être remplies).</>,
                   <>Passer à l'étape 5, <strong>circuit papier</strong> : le scan de votre CREP signé sera archivé comme document officiel.</>,
                 ]} />
               </Cas>
@@ -466,6 +465,9 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
 
             <Section icon={<Send size={15} color={COLORS.primary} />} title="Étape 5 — Signature : électronique ou papier">
               <div style={{ marginBottom: 8 }}>L'outil ne vous propose le circuit électronique <strong>que si</strong> l'agent et vous avez une adresse e-mail <strong>et</strong> que la signature électronique est ouverte pour cet agent. Sinon, seul le circuit papier est proposé.</div>
+              <Callout tone="warn" title="CREP manuscrit : téléversement obligatoire avant validation">
+                Si le compte rendu est <strong>manuscrit</strong>, il faut le <strong>téléverser dans l'outil</strong> (scan ou photos des pages) <strong>pour pouvoir le valider</strong>. L'original papier signé part, lui, à la RH.
+              </Callout>
 
               <Cas code="Circuit électronique" title="Cas A — tout le monde a un e-mail et la signature électronique est ouverte" color="#16a34a" icon={<Send size={14} color="#16a34a" />}>
                 <Gestes items={[
