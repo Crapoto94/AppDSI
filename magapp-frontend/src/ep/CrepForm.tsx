@@ -440,8 +440,13 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       )}
       {!isAgent && (crep.origine === 'manuscrit' || (entretien.crep_scans || []).length > 0) && (
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, fontSize: 12.5, color: '#991b1b', lineHeight: 1.55 }}>
-          <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
-          <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
+          {scanOn ? (<>
+            <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu repris d’un document manuscrit — NON CONTRACTUEL</div>
+            <div>Ce contenu a été lu sur le document papier : <b>vérifiez chaque ligne</b> par rapport au papier avant de valider. Le PDF produit porte le filigrane « document non contractuel » et la mention « Document original manuscrit signé » à la place des signatures. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH</b>, puis validez ce pendant numérique.</div>
+          </>) : (<>
+            <div style={{ fontWeight: 800, marginBottom: 2 }}>📄 Compte rendu manuscrit — le document papier signé fait foi</div>
+            <div>Le CREP a été réalisé sur papier : le <b>document téléversé</b> (scan ou photo) est l’original à contrôler. Vérifiez qu’il est lisible, complet et qu’il porte les <b>2 signatures</b> avant de le valider. <b>Dans tous les cas, envoyez l’ORIGINAL papier signé à la RH.</b></div>
+          </>)}
           {(entretien.crep_scans || []).length > 0 && (!entretien.campaign_closed || entretien.access?.isAdmin) && (
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', color: '#334155' }}>
               <b>Document conservé :</b>
@@ -455,7 +460,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
                   </button>
                 );
               })()}
-              <span style={{ fontSize: 11.5, color: '#64748b' }}>+ la version numérique via « Imprimer / PDF »</span>
+              {scanOn && <span style={{ fontSize: 11.5, color: '#64748b' }}>+ la version numérique via « Imprimer / PDF »</span>}
             </div>
           )}
         </div>
