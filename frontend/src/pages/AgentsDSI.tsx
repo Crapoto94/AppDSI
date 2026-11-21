@@ -689,7 +689,7 @@ export default function AgentsDSI() {
             <div className="modal-body">
               <h2>🔗 Lier le matricule RH</h2>
               <p style={{ fontSize: '0.82rem', color: '#888', margin: '0 0 14px' }}>
-                Recherchez l'agent dans la table Oracle RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
+                Recherchez l'agent dans l'API SEDIT RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
               </p>
 
               {/* Mode switcher */}

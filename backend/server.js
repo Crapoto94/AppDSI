@@ -2301,7 +2301,7 @@ app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
     const { type } = req.body;
 
-    if (!type || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(type)) {
+    if (!type || !['FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(type)) {
         return res.status(400).json({ error: 'Invalid sync type' });
     }
 
@@ -3311,6 +3311,12 @@ setupDb().then(async database => {
     const tSetupPg = Date.now();
     await setupPgDb();
     console.log(`[STARTUP] PostgreSQL prêt en ${Date.now() - tSetupPg} ms`);
+    try {
+        const rhSync = await require('./shared/rh-api-sync').syncRhFromApi();
+        console.log(`[STARTUP] Miroir RH synchronisé depuis l'API SEDIT RH : ${rhSync.agents} agents, ${rhSync.organisations} structures.`);
+    } catch (e) {
+        console.warn('[STARTUP] Synchronisation RH API impossible, miroir existant conservé :', e.message);
+    }
     try { await require('./modules/ep-base/ep-base.service').loadTemplateCache(); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
     // Initialiser Mail Collector
@@ -6539,6 +6545,16 @@ cron.schedule('0 6 * * *', async () => {
 // ─── RH : recalage quotidien de la direction/service (magapp.users + hub.users) sur le
 // référentiel RH (oracle.rh_v_extract_dsi) à 05h30 — évite qu'un agent reste affiché avec
 // une ancienne direction/service tant qu'il ne se reconnecte pas (voir shared/rh-service-sync.js).
+cron.schedule('15 5 * * *', async () => {
+    console.log("[CRON] Synchronisation miroir RH depuis l'API SEDIT RH (05h15)...");
+    try {
+        const r = await require('./shared/rh-api-sync').syncRhFromApi();
+        console.log(`[CRON rh-api-sync] ${r.agents} agents, ${r.organisations} structures.`);
+    } catch (e) {
+        console.error('[CRON rh-api-sync]', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+
 cron.schedule('30 5 * * *', async () => {
     console.log('[CRON] Recalage direction/service RH (05h30)...');
     try {

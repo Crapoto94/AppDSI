@@ -223,6 +223,19 @@ async function candidatsValideurs() {
         .sort((x, y) => (x.nom + x.prenom).localeCompare(y.nom + y.prenom));
 }
 
+/** Organigramme SEDIT RH (directions > services > secteurs > équipes), avec effectifs. */
+let orgCache = { at: 0, data: null, inflight: null };
+async function organisation(force = false) {
+    if (!force && orgCache.data && Date.now() - orgCache.at < TTL) return orgCache.data;
+    if (orgCache.inflight) return orgCache.inflight;
+    orgCache.inflight = (async () => {
+        const data = await get('/api/v1/organisation', undefined, 60000);
+        orgCache = { at: Date.now(), data: data.data || [], inflight: null };
+        return orgCache.data;
+    })().catch((e) => { orgCache.inflight = null; throw e; });
+    return orgCache.inflight;
+}
+
 /** Directions de la Ville : [{code, libelle}] déduites des agents en poste (évite d'exiger le droit organisation:read). */
 async function directions() {
     const map = new Map();
@@ -233,4 +246,4 @@ async function directions() {
     return [...map.entries()].map(([c, l]) => ({ code: c, libelle: l })).sort((x, y) => x.libelle.localeCompare(y.libelle));
 }
 
-module.exports = { SeditError, configured, searchAgents, searchAgentsFull, agentsByMatricule, agentsByName, nameKey, getAgent, agentsOfDirections, agentsOfUnits, candidatsValideurs, directions, summary };
+module.exports = { SeditError, configured, allAgents, searchAgents, searchAgentsFull, agentsByMatricule, agentsByName, nameKey, getAgent, agentsOfDirections, agentsOfUnits, candidatsValideurs, directions, organisation, summary };
