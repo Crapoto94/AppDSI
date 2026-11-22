@@ -285,6 +285,7 @@ const entretiensController = {
                 selfAccess,
                 esignAccess: await svc.esignAllowedFor(actor),
                 scan_reading: await svc.scanReadingOn(),
+                offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
@@ -609,6 +610,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
@@ -634,6 +636,9 @@ const entretiensController = {
             }
             if (b.fullscreen !== undefined) {
                 updates.fullscreen = [true, 1, '1', 'true', 'on'].includes(typeof b.fullscreen === 'string' ? b.fullscreen.trim().toLowerCase() : b.fullscreen) ? '1' : '0';
+            }
+            if (b.offline_form !== undefined) {
+                updates.offline_form = [true, 1, '1', 'true', 'on'].includes(typeof b.offline_form === 'string' ? b.offline_form.trim().toLowerCase() : b.offline_form) ? '1' : '0';
             }
             if (b.scan_reading !== undefined) {
                 updates.scan_reading = [true, 1, '1', 'true', 'on'].includes(typeof b.scan_reading === 'string' ? b.scan_reading.trim().toLowerCase() : b.scan_reading) ? '1' : '0';
@@ -773,6 +778,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
@@ -928,7 +934,7 @@ const entretiensController = {
         } catch (err) { fail(res, 500, err.message); }
     },
 
-    // PUT /api/entretiens/:id/crep/mode { mode: 'manuscrit' | 'outil' } — choix (modifiable à tout moment tant que l'EP n'est pas clôturé)
+    // PUT /api/entretiens/:id/crep/mode { mode: 'manuscrit' | 'outil' | 'pdf' } — choix (modifiable à tout moment tant que l'EP n'est pas clôturé)
     crepMode: async (req, res) => {
         try {
             const actor = await svc.getActor(req);
@@ -938,7 +944,8 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Réservé à l’évaluateur (entretien non clôturé).');
             const mode = req.body?.mode;
-            if (!['manuscrit', 'outil'].includes(mode)) return fail(res, 400, 'Mode inconnu.');
+            if (!['manuscrit', 'outil', 'pdf'].includes(mode)) return fail(res, 400, 'Mode inconnu.');
+            if (mode === 'pdf' && row.crep_mode !== 'pdf' && !(await svc.offlineFormOn())) return fail(res, 403, 'Le mode « PDF formulaire hors ligne » n’est pas activé.');
             await pgDb.run('UPDATE hub_entretiens.entretiens SET crep_mode = ?, updated_at = NOW() WHERE id = ?', [mode, row.id]);
             await svc.logAudit({ actor, action: 'crep_mode', entretien: row, details: { mode, avant: row.crep_mode || null } });
             const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
@@ -1805,6 +1812,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur.');
+            if (!(await svc.offlineFormOn())) return fail(res, 403, 'Le PDF formulaire hors ligne n’est pas activé.');
             if (!access.canEditEvaluation) return fail(res, 403, 'Le compte rendu n’est plus modifiable.');
             const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
             const pdf = await buildCrepPdf(row, campaign?.annee, { form: true });
@@ -1829,6 +1837,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur.');
             if (!access.canEditEvaluation) return fail(res, 403, 'Le compte rendu n’est plus modifiable.');
+            if (!(await svc.offlineFormOn())) return fail(res, 403, 'Le PDF formulaire hors ligne n’est pas activé.');
             const f = req.file;
             if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));

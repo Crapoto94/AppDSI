@@ -3,6 +3,7 @@ import SimulationPanel from './SimulationPanel';
 import IaPrompts from './IaPrompts';
 import MailTemplates from './MailTemplates';
 import ScanReadingPanel from './ScanReadingPanel';
+import OfflineFormPanel from './OfflineFormPanel';
 import DisplayPanel from './DisplayPanel';
 import axios from 'axios';
 import {
@@ -573,6 +574,8 @@ Cette action est définitive.`)) return;
       <DisplayPanel />
 
       <ScanReadingPanel />
+
+      <OfflineFormPanel />
 
       <SimulationPanel />
 

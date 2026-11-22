@@ -141,12 +141,14 @@ export interface Entretien {
   /** Scans originaux (papier signé) conservés : lecture IA appliquée. */
   crep_scans?: Array<{ kind: 'complet' | 'agent'; name: string; at: string; by?: string; signatures_ok?: boolean }>;
   /** Mode de saisie du CREP choisi par l'évaluateur : « manuscrit » (papier, scan signé) ou « outil » (saisie informatisée). */
-  crep_mode?: 'manuscrit' | 'outil' | null;
+  crep_mode?: 'manuscrit' | 'outil' | 'pdf' | null;
   /** CREP signé reçu par la DRH (déclaré par un administrateur au Pilotage). */
   drh_received_at?: string | null;
   drh_received_by?: string | null;
   /** « Lecture des entretiens numérisés » activée ? (sinon le valideur consulte et valide le document sans lecture visible). */
   scan_reading?: boolean;
+  /** Option « PDF formulaire hors ligne » activée. */
+  offline_form?: boolean;
   /** Affichage du module en plein écran (sinon « dans MagApp »). */
   fullscreen?: boolean;
   /** Version numérique lue en arrière-plan (visible des seuls administrateurs). */
@@ -178,6 +180,8 @@ export interface MeData {
   esignAccess?: EsignAccess;
   /** « Lecture des entretiens numérisés » activée. */
   scan_reading?: boolean;
+  /** Option « PDF formulaire hors ligne » activée. */
+  offline_form?: boolean;
   /** Affichage du module en plein écran (sinon « dans MagApp »). */
   fullscreen?: boolean;
   aiAccess?: AiAccessMap;

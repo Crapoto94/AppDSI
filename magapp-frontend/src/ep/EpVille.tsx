@@ -974,7 +974,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
         </div>
       </div>
       </div>
-      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} />}
+      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
       {showAide && (
         <AideEp
@@ -987,6 +987,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
             aiReview: !!dsi?.aiAccess?.review?.allowed,
             esign: !!dsi?.esignAccess?.enabled,
             scanReading: !!dsi?.scan_reading,
+            offlineForm: !!dsi?.offline_form,
           }}
         />
       )}

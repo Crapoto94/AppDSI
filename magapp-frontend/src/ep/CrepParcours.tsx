@@ -4,12 +4,14 @@ import { PenLine, Monitor, Printer, CheckCircle2, ChevronRight, Loader2, Lock, R
 import { COLORS, btnGhost, btnPrimary } from './ui';
 import type { Entretien } from './types';
 
-type Mode = 'manuscrit' | 'outil';
+type Mode = 'manuscrit' | 'outil' | 'pdf';
 
 /** Étapes du parcours (fil d'Ariane) selon le mode de saisie. */
 const STEPS: Record<Mode, string[]> = {
   manuscrit: ['Mode de saisie', 'Imprimer le CREP', 'Entretien et signatures', 'Téléverser le CREP signé', 'Vérifier', 'Clôturer'],
   outil: ['Mode de saisie', 'Saisir le CREP', 'Valider la partie évaluateur', 'Imprimer', 'Signatures', 'Téléverser et vérifier', 'Clôturer'],
+  // Deux téléversements : le formulaire rempli après l'entretien (étape 1-2), puis le CREP imprimé, commenté et signé (étape 5)
+  pdf: ['Mode de saisie', 'Formulaire PDF hors ligne (1er téléversement)', 'Valider la partie évaluateur', 'Imprimer', 'Commentaires de l’agent·e et signatures', 'Téléverser le CREP signé (2e téléversement)', 'Clôturer'],
 };
 
 const stageKey = (id: number) => `ep_parcours_stage_${id}`;
@@ -18,7 +20,9 @@ const stageKey = (id: number) => `ep_parcours_stage_${id}`;
  * Parcours guidé du CREP : choix du mode de saisie (manuscrit ou dans l'outil), fil d'Ariane, et action à faire à l'étape en cours.
  * Le mode peut être changé à tout moment (tant que l'entretien n'est pas clôturé).
  */
-export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep, scanReading, isAdminUser, uploadSlot, onViewOriginal, onViewDigital, onOfflineDownload, onOfflineImport }: {
+export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep, scanReading, isAdminUser, uploadSlot, onViewOriginal, onViewDigital, onOfflineDownload, onOfflineImport, offlineForm }: {
+  /** Option « PDF formulaire hors ligne » activée dans le Paramétrage. */
+  offlineForm?: boolean;
   /** PDF formulaire à remplir hors ligne (télécharger / réimporter). */
   onOfflineDownload?: () => void;
   onOfflineImport?: (f: File) => void;
@@ -93,7 +97,7 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
       const r = await axios.put(`/api/entretiens/${entretien.id}/crep/mode`, { mode: m }, { headers });
       onChanged(r.data.entretien);
       advance(0);
-      setFormVisible(m === 'outil');
+      setFormVisible(m !== 'manuscrit');
     } catch (e: any) { setErr(e?.response?.data?.message || 'Changement de mode impossible.'); } finally { setSaving(false); }
   };
 
@@ -106,7 +110,8 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
   // Étape en cours (index dans STEPS[mode])
   let current = 0;
   if (mode === 'manuscrit') current = closed ? 6 : redo ? 3 : recheck ? 4 : verified ? ((hadIncomplete && !proceed) ? 4 : 5) : Math.min(3, 1 + stage);
-  if (mode === 'outil') current = closed ? 7 : redo ? 5 : verified ? 6 : validated ? Math.min(5, 3 + stage) : 1;
+  const om = mode === 'outil' || mode === 'pdf';   // même déroulé que la saisie dans l’outil
+  if (om) current = closed ? 7 : redo ? 5 : verified ? 6 : validated ? Math.min(5, 3 + stage) : 1;
   const steps = mode ? STEPS[mode] : [];
   useEffect(() => { onStep(mode ? current : 0); }, [mode, current]);
 
@@ -128,6 +133,7 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
         <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 10 }}>Vous pourrez changer d’avis à tout moment, sans rien perdre.</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {big('manuscrit', <PenLine size={17} color="#d97706" />, 'À la main (manuscrit)', 'Vous imprimez le CREP, vous le remplissez avec l’agent·e et vous le faites signer. Vous le téléversez ensuite (scan ou photos) : l’outil lit le document et vérifie les 2 signatures. Vous vérifiez, puis vous clôturez.')}
+          {offlineForm && big('pdf', <Download size={17} color="#7c3aed" />, 'PDF formulaire hors ligne', 'Vous téléchargez un PDF à remplir sans connexion (PC ou tablette) pendant l’entretien, puis vous l’importez (1er téléversement). Vous validez, imprimez ; l’agent·e écrit ses 2 cadres à la main et signe, vous signez, puis vous téléversez le CREP signé (2e téléversement).')}
           {big('outil', <Monitor size={17} color="#16a34a" />, 'Dans l’outil (saisie informatisée)', 'Vous saisissez les rubriques et la grille dans l’outil, vous validez votre partie, puis vous imprimez. L’agent·e complète ses 2 cadres et signe, vous signez, puis vous téléversez le CREP signé. Vous vérifiez et vous clôturez.')}
         </div>
         {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 8 }}>{err}</div>}
@@ -154,13 +160,13 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
           );
         })}
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#64748b' }}>
-          Mode : <strong>{mode === 'manuscrit' ? 'à la main' : 'dans l’outil'}</strong>
-          {!closed && (
-            <button type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} disabled={saving || busy} onClick={() => chooseMode(mode === 'manuscrit' ? 'outil' : 'manuscrit')}
-              title="Passer à l’autre mode de saisie, sans rien perdre">
-              <RefreshCw size={11} /> Passer en mode {mode === 'manuscrit' ? 'outil' : 'manuscrit'}
+          Mode : <strong>{mode === 'manuscrit' ? 'à la main' : mode === 'pdf' ? 'PDF hors ligne' : 'dans l’outil'}</strong>
+          {!closed && (['manuscrit', 'outil', ...(offlineForm || mode === 'pdf' ? ['pdf'] : [])] as Mode[]).filter(m => m !== mode).map(m => (
+            <button key={m} type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} disabled={saving || busy} onClick={() => chooseMode(m)}
+              title="Passer à un autre mode de saisie, sans rien perdre">
+              <RefreshCw size={11} /> Passer en mode {m === 'manuscrit' ? 'manuscrit' : m === 'pdf' ? 'PDF hors ligne' : 'outil'}
             </button>
-          )}
+          ))}
         </span>
       </div>
 
@@ -236,40 +242,39 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             </div>
           </>}
 
+          {mode === 'pdf' && current === 1 && <>
+            <div><strong>Avant ou pendant l’entretien, sans connexion :</strong> téléchargez le <strong>PDF formulaire</strong> (au modèle de l’agent·e), ouvrez-le avec Adobe Acrobat Reader (ou une application PDF de tablette), renseignez-le et enregistrez-le. De retour en ligne, <strong>importez-le</strong> : c’est le <strong>1er téléversement</strong>. Les 2 cadres de l’agent·e restent vides : il les écrira à la main sur le papier.</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button style={btnPrimary} disabled={busy || !onOfflineDownload} onClick={onOfflineDownload}><Download size={14} /> Télécharger le PDF formulaire</button>
+              <button style={btnPrimary} disabled={busy || !onOfflineImport} onClick={() => offlineRef.current?.click()}><Upload size={14} /> Importer le PDF rempli</button>
+              <input ref={offlineRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f && onOfflineImport) onOfflineImport(f); }} />
+            </div>
+            <div style={{ marginTop: 8 }}>Vérifiez ensuite le contenu repris dans le formulaire ci-dessous, puis validez votre partie. Vous pouvez aussi saisir directement en ligne.</div>
+            <div style={{ marginTop: 8 }}><button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onValidate}><CheckCircle2 size={14} /> Valider la partie évaluateur</button></div>
+          </>}
           {mode === 'outil' && current === 1 && <>
             <div>Saisissez les rubriques et <strong>la grille d’appréciation</strong>, puis cliquez sur <strong>Valider la partie évaluateur</strong>. Rien n’est envoyé à l’agent·e.</div>
             <div style={{ marginTop: 8 }}><button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onValidate}><CheckCircle2 size={14} /> Valider la partie évaluateur</button></div>
-            {onOfflineDownload && onOfflineImport && (
-              <div style={{ marginTop: 10, padding: '8px 10px', border: '1px dashed #a5b4fc', borderRadius: 9, background: '#fff' }}>
-                <div style={{ fontWeight: 700, fontSize: 12.5, color: COLORS.text }}>Pas de connexion pendant l’entretien ?</div>
-                <div style={{ fontSize: 12.5, color: '#475569', marginTop: 2 }}>Téléchargez le <strong>PDF formulaire</strong> (au modèle de l’agent·e), renseignez-le hors ligne sur PC ou tablette, puis <strong>réimportez-le</strong> ici : la saisie est reprise, vous la vérifiez et validez. Vous imprimez ensuite pour les signatures, comme d’habitude.</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                  <button style={btnGhost} disabled={busy} onClick={onOfflineDownload}><Download size={14} /> Télécharger le PDF formulaire</button>
-                  <button style={btnGhost} disabled={busy} onClick={() => offlineRef.current?.click()}><Upload size={14} /> Importer le PDF rempli</button>
-                  <input ref={offlineRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
-                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onOfflineImport(f); }} />
-                </div>
-              </div>
-            )}
           </>}
-          {mode === 'outil' && current === 3 && <>
+          {om && current === 3 && <>
             <div>Imprimez le CREP : l’agent·e y renseignera ses 2 cadres et le signera, puis vous le signerez.</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button style={btnPrimary} disabled={busy} onClick={onPrint}><Printer size={14} /> Imprimer le CREP</button>
               <button style={btnGhost} onClick={() => advance(1)}>Imprimé, passer aux signatures <ArrowRight size={13} /></button>
             </div>
           </>}
-          {mode === 'outil' && current === 4 && <>
-            <div>L’<strong>agent·e renseigne ses 2 cadres</strong> (observations sur les conditions de travail et sur l’entretien) <strong>et signe à la main</strong> ; <strong>vous contresignez</strong>.</div>
+          {om && current === 4 && <>
+            <div>L’<strong>agent·e renseigne ses 2 cadres</strong> (observations sur les conditions de travail et sur l’entretien) <strong>et signe à la main</strong> ; <strong>vous contresignez</strong>.{mode === 'pdf' && <> Ces 2 cadres sont imprimés vides : l’agent·e les <strong>écrit à la main</strong>, c’est ce que le 2e téléversement récupère.</>}</div>
             <div style={{ marginTop: 8 }}><button style={btnPrimary} onClick={() => advance(2)}>Le CREP est signé par les deux, passer au téléversement <ArrowRight size={13} /></button></div>
           </>}
-          {mode === 'outil' && current === 5 && <>
+          {om && current === 5 && <>
 {scanReading
               ? <div><strong>Téléversez le CREP signé</strong> (scan ou photos) avec le grand bouton ci-dessous. L’outil lit <strong>les 2 cadres de l’agent·e</strong> et contrôle les <strong>2 signatures</strong> ; vous vérifiez ces éléments.</div>
               : <div><strong>Téléversez le CREP signé</strong> (scan ou photos) avec le grand bouton ci-dessous. Vous pourrez ensuite le consulter, le valider, puis clore l’entretien.</div>}
           </>}
-          {mode === 'outil' && current === 5 && uploadSlot && <div style={{ marginTop: 10 }}>{uploadSlot}</div>}
-          {mode === 'outil' && current === 6 && <>
+          {om && current === 5 && uploadSlot && <div style={{ marginTop: 10 }}>{uploadSlot}</div>}
+          {om && current === 6 && <>
             <div>Les 2 cadres de l’agent·e et les 2 signatures ont été vérifiés. Cliquez sur <strong>Clôturer l’entretien</strong> : le CREP signé est archivé.</div>
             <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onClose}><Lock size={14} /> Clôturer l’entretien</button>
@@ -277,12 +282,12 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
             </div>
           </>}
 
-          {((mode === 'manuscrit' && current >= 4 && scanReading) || (mode === 'outil' && current >= 6)) && (
+          {((mode === 'manuscrit' && current >= 4 && scanReading) || (om && current >= 6)) && (
             <div style={{ marginTop: 8, fontSize: 12 }}>
               <button type="button" style={{ ...btnGhost, padding: '2px 8px', fontSize: 11.5 }} onClick={() => setFormVisible(!formVisible)}>
                 {formVisible ? 'Masquer le CREP saisi' : 'Visualiser le CREP saisi'}
               </button>
-              <span style={{ color: '#64748b', marginLeft: 8 }}>{current >= (mode === 'outil' ? 6 : 5) ? 'En lecture seule à cette étape.' : 'Le formulaire sert à vérifier et corriger.'}</span>
+              <span style={{ color: '#64748b', marginLeft: 8 }}>{current >= (om ? 6 : 5) ? 'En lecture seule à cette étape.' : 'Le formulaire sert à vérifier et corriger.'}</span>
             </div>
           )}
         </div>

@@ -116,9 +116,24 @@ const AMPOULE: Step = { emoji: '💡', quest: 'Bonus', title: 'Une question, une
   body: <>En haut à droite, l'<B>ampoule</B> vous permet de déposer en quelques lignes <B>« J'ai une question »</B>, <B>« Je propose une amélioration »</B> ou <B>« Il y a un bug »</B>, avec une <B>pièce jointe</B> si besoin.
     Vous suivez vos demandes dans <B>« Mes demandes »</B>, vous lisez et <B>commentez</B> celles des autres dans <B>« Celles des autres »</B>, et vous êtes <B>prévenu·e par e-mail</B> de la suite donnée.</> };
 
+/** Option « PDF formulaire hors ligne » (si activée dans le Paramétrage) : le parcours à 2 téléversements. */
+const OFFLINE_STEP: Step = { emoji: '📴', quest: 'Option', title: 'Sans connexion : le PDF formulaire (2 téléversements)', xp: 100,
+  body: <>À l'ouverture du CREP, choisissez le mode <B>« PDF formulaire hors ligne »</B>. <B>Téléchargez</B> le PDF, ouvrez-le avec <B>Adobe Acrobat Reader</B> (ou une application PDF de tablette), remplissez-le pendant l'entretien et enregistrez-le.
+    <div style={{ marginTop: 8 }}><B>1er téléversement</B> : de retour en ligne, <B>« Importer le PDF rempli »</B> reprend votre saisie dans l'outil. Relisez, puis <B>« Valider la partie évaluateur »</B>.</div>
+    <div style={{ marginTop: 8 }}>Vous <B>imprimez</B> ; l'agent·e <B>écrit à la main ses 2 cadres</B> (laissés vides) et <B>signe</B>, vous contresignez.</div>
+    <div style={{ marginTop: 8 }}><B>2ᵉ téléversement</B> : vous <B>numérisez</B> le CREP signé et vous le téléversez ; l'outil récupère les 2 cadres de l'agent·e et contrôle les 2 signatures, comme pour une saisie dans l'outil.</div></>,
+  quiz: { question: 'Combien de téléversements dans ce mode ?', options: [
+    { label: 'Un seul : le CREP signé', ok: false, why: 'Non : il y en a deux, car la saisie hors ligne doit d’abord être reprise dans l’outil.' },
+    { label: 'Deux : le PDF rempli après l’entretien, puis le CREP imprimé et signé', ok: true, why: 'Exact. Le 1er reprend votre saisie, le 2ᵉ récupère les 2 cadres de l’agent·e et les signatures.' },
+  ] } };
+
 /** Lecture des entretiens numérisés désactivée : pas d'étape de vérification de la lecture, l’évaluateur·rice consulte le document et confirme les signatures. */
-function adaptSteps(role: TutoRole, scanReading: boolean): Step[] {
-  const base = [...STEPS[role], AMPOULE];
+function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false): Step[] {
+  let base = [...STEPS[role], AMPOULE];
+  if (offlineForm && role === 'valideur') {
+    const k = base.findIndex(st => st.quest === 'Étape 3');
+    base = [...base.slice(0, k + 1), OFFLINE_STEP, ...base.slice(k + 1)];
+  }
   if (scanReading || role !== 'valideur') return base;
   return base.map(st => st.quest === 'Étape 4'
     ? { emoji: '📸', quest: 'Étape 4', title: 'Téléverser le CREP signé', xp: 150, shot: '/aide-ep/07-crep.jpg',
@@ -132,8 +147,8 @@ function adaptSteps(role: TutoRole, scanReading: boolean): Step[] {
     : st);
 }
 
-export default function TutoEp({ role, onClose, onOpenAide, scanReading = false }: { role: TutoRole; onClose: () => void; onOpenAide: () => void; scanReading?: boolean }) {
-  const steps = adaptSteps(role, scanReading);
+export default function TutoEp({ role, onClose, onOpenAide, scanReading = false, offlineForm = false }: { role: TutoRole; onClose: () => void; onOpenAide: () => void; scanReading?: boolean; offlineForm?: boolean }) {
+  const steps = adaptSteps(role, scanReading, offlineForm);
   const [i, setI] = useState(0);
   const [answered, setAnswered] = useState<Record<number, number>>({});
   const [earned, setEarned] = useState<Record<number, boolean>>({});

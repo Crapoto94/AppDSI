@@ -380,6 +380,7 @@ async function withRelations(entretien) {
         if (modele) crep_definition = require('./crep.definition').definitionFor(modele);
     } catch (e) { /* modèles indisponibles : grille par défaut */ }
     const scan_reading = await scanReadingOn();
+    const offline_form = await offlineFormOn();
     let digital_silent = false;
     try { digital_silent = !!(await pgDb.get("SELECT 1 AS x FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ? AND silent AND status = 'termine' AND result IS NOT NULL LIMIT 1", [entretien.id])); } catch (e) { /* table absente */ }
     let reopen_request = null;
@@ -388,7 +389,7 @@ async function withRelations(entretien) {
     try { campaign_closed = (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]))?.statut === 'close'; } catch (e) { /* campagne inconnue */ }
     return {
         ...entretien,
-        campaign_closed, reopen_request, scan_reading, digital_silent,
+        campaign_closed, reopen_request, scan_reading, offline_form, digital_silent,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],
@@ -504,6 +505,11 @@ async function getSetting(key) {
 }
 
 /** Lecture des entretiens numérisés (désactivée par défaut) : si elle est désactivée, le valideur consulte et valide le document signé sans qu'on lui parle de lecture ; le document est quand même lu en arrière-plan (administrateurs seuls). */
+/** Option « PDF formulaire hors ligne » (désactivée par défaut) : 3e mode de saisie du CREP, en 2 téléversements. */
+async function offlineFormOn() {
+    return ['1', 'true'].includes(String(await getSetting('offline_form')).trim().toLowerCase());
+}
+
 async function scanReadingOn() {
     return ['1', 'true'].includes(String(await getSetting('scan_reading')).trim().toLowerCase());
 }
@@ -973,6 +979,7 @@ module.exports = {
     getSetting,
     setSetting,
     scanReadingOn,
+    offlineFormOn,
     fullscreenOn,
     getAiEvaluators,
     getAiSettings,

@@ -90,7 +90,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   // Une fois le CREP validé (ou l'entretien clôturé) : tout est en lecture seule, plus de bouton de saisie
   const locked = !isAgent && (entretien.evaluation_statut === 'soumis' || entretien.statut === 'cloture');
   const [step, setStep] = useState(0);
-  const finalStepFlag = !isAgent && ((entretien.crep_mode === 'manuscrit' && step >= 5 && step < 6) || (entretien.crep_mode === 'outil' && step >= 6 && step < 7) || entretien.statut === 'cloture');
+  const finalStepFlag = !isAgent && ((entretien.crep_mode === 'manuscrit' && step >= 5 && step < 6) || ((entretien.crep_mode === 'outil' || entretien.crep_mode === 'pdf') && step >= 6 && step < 7) || entretien.statut === 'cloture');
   const dis = !canEdit || isAgent || locked || finalStepFlag;
   const crepStatut = entretien.crep_statut || 'non_envoye';
   // Agent ou évaluateur sans adresse e-mail : pas de circuit parapheur, on imprime, on fait signer puis on téléverse le PDF signé.
@@ -335,7 +335,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     if (snap === lastSaved.current) return;
     axios.put(`/api/entretiens/${entretien.id}/crep`, { crep: crepRef.current, submit: false, keep_status: true }, { headers }).catch(() => {});
   }, []);
-  const gMode = entretien.crep_mode || null;
+  const gMode = entretien.crep_mode === 'pdf' ? 'outil' : (entretien.crep_mode || null);   // le mode « PDF hors ligne » suit les mêmes étapes que l'outil
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
   const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
   const showBottom = isAgent || !guided || (gMode === 'outil' && step <= 2);
@@ -472,7 +472,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         </div>
       )}
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
-        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf} onOfflineDownload={downloadOfflineForm} onOfflineImport={importOfflineForm}
+        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf} offlineForm={entretien.offline_form === true} onOfflineDownload={downloadOfflineForm} onOfflineImport={importOfflineForm}
           onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible}
           uploadSlot={canEdit && showImport && guided ? importEl : null} incomplete={incompleteAfterImport} onStep={setStep} scanReading={scanOn} isAdminUser={isAdminUser}
           onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />
