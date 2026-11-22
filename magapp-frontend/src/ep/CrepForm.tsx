@@ -277,9 +277,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   };
   /** Réimport du PDF formulaire renseigné : le contenu lu remplace la saisie, l'évaluateur le contrôle avant de poursuivre. */
   const importOfflineForm = async (file: File) => {
-    if (!(await confirm(`Importer « ${file.name} » ?
-
-Le contenu du formulaire remplacera la saisie actuelle du compte rendu.`, { title: 'Importer le formulaire PDF', confirmLabel: 'Importer' }))) return;
+    if (!(await confirm(`Importer « ${file.name} » ?\n\nLe contenu du formulaire remplacera la saisie actuelle du compte rendu.`, { title: 'Importer le formulaire PDF', confirmLabel: 'Importer' }))) return;
     setBusy('upload'); setMsg(null);
     try {
       const fd = new FormData();
@@ -288,9 +286,7 @@ Le contenu du formulaire remplacera la saisie actuelle du compte rendu.`, { titl
       setCrep({ ...crep, ...r.data.crep } as Crep);
       setFormVisible(true);
       const w: string[] = r.data.warnings || [];
-      setMsg({ ok: w.length === 0, text: `Formulaire importé (${r.data.filled} champ(s) renseigné(s)). Vérifiez le contenu ci-dessous puis validez votre partie.${w.length ? '
-' + w.join('
-') : ''}` });
+      setMsg({ ok: w.length === 0, text: `Formulaire importé (${r.data.filled} champ(s) renseigné(s)). Vérifiez le contenu ci-dessous puis validez votre partie.${w.length ? '\n' + w.join('\n') : ''}` });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message || 'Import du formulaire impossible.' });
     } finally { setBusy(null); }
