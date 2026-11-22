@@ -22,7 +22,7 @@ export default function OfflineFormPanel() {
     <div style={{ ...card, padding: 18, marginBottom: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
-          <FileDown size={17} color={COLORS.primary} /> Lecture des entretiens numérisés
+          <FileDown size={17} color={COLORS.primary} /> PDF formulaire hors ligne (3ᵉ mode de saisie)
           <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '2px 9px', background: on ? '#dcfce7' : '#f1f5f9', color: on ? '#166534' : '#64748b' }}>{on ? 'Activée' : 'Désactivée'}</span>
           <span style={{ fontSize: 10.5, fontWeight: 800, background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 8px' }}>activable</span>
         </div>

@@ -898,6 +898,25 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
 
   // Adresse dédiée (/ep) : le module s'ouvre seul, toujours en plein écran
   const fullscreen = dedicated || (prefFull ?? !!dsi?.fullscreen);
+  // Plein écran : la page ne défile plus (une seule barre de défilement, celle du module)
+  useEffect(() => {
+    if (!fullscreen) return;
+    const h = document.documentElement, b = document.body;
+    const ph = h.style.overflow, pb = b.style.overflow;
+    h.style.overflow = 'hidden'; b.style.overflow = 'hidden';
+    return () => { h.style.overflow = ph; b.style.overflow = pb; };
+  }, [fullscreen]);
+  // Plein écran demandé depuis MagApp : on ouvre l'adresse dédiée (https://magapp.ivry.local/ep), sur l'onglet en cours
+  const redirected = useRef(false);
+  useEffect(() => {
+    if (!fullscreen || dedicated || !me || redirected.current) return;
+    redirected.current = true;
+    (async () => {
+      let base = 'https://magapp.ivry.local';
+      try { const r = await axios.get('/api/entretiens/magapp-url', { headers: api() }); if (r.data?.url) base = String(r.data.url).replace(/\/+$/, ''); } catch { /* adresse par défaut */ }
+      window.location.assign(`${base}/ep${tab ? '/' + tab : ''}`);
+    })();
+  }, [fullscreen, dedicated, me, tab]);
   const dark = prefDark ?? (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark');
   useEffect(() => {
     const el = headerRef.current; if (!el) return;

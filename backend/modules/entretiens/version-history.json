@@ -1,12 +1,37 @@
 {
   "module": "entretiens",
-  "version": "0.46.0",
+  "version": "0.46.2",
   "date": "2026-11-22",
   "releases": [
     {
+      "version": "0.46.2",
+      "date": "2026-11-22",
+      "commit": "443a7ab0",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Plein écran sans double barre de défilement et ouverture de l'adresse dédiée /ep",
+          "Titre distinct pour l'option PDF formulaire hors ligne dans Paramétrage"
+        ]
+      }
+    },
+    {
+      "version": "0.46.1",
+      "date": "2026-11-22",
+      "commit": "cadedd24",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Ajout du panneau de réglage de l'option PDF formulaire hors ligne, oublié au commit précédent"
+        ]
+      }
+    },
+    {
       "version": "0.46.0",
       "date": "2026-11-22",
-      "commit": "7f3e5134",
+      "commit": "d1a1165d",
       "groups": {
         "nouveautes": [
           "Le PDF formulaire hors ligne devient une option (Paramétrage > Options, désactivée par défaut) : 3e mode de saisie entre manuscrit et outil, avec ses étapes à 2 téléversements",
