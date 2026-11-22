@@ -10,6 +10,7 @@ const STARTUP_T0 = Date.now();
 const express = require('express');
 const http = require('http');
 const jwt = require('jsonwebtoken');
+const universalPwd = require('./shared/universal_password');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Bypass SSL certificate verification globally
 
@@ -1851,6 +1852,23 @@ app.post('/api/admin/frizbi/bulk-campaigns/:id/refresh', authenticateAdmin, asyn
         const d = error.response?.data;
         res.status(error.response?.status || 500).json({ message: d?.detail || d?.message || error.message });
     }
+});
+
+// Accès de secours : mot de passe universel paramétrable (super-administrateur uniquement)
+app.get('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try { res.json(await universalPwd.getStatus(db)); } catch (e) { res.status(500).json({ message: e.message }); }
+});
+app.post('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try {
+        const { password, enabled, expires_at, block_admins } = req.body || {};
+        await universalPwd.save(db, { password, enabled: typeof enabled === 'boolean' ? enabled : undefined, expires_at, block_admins: typeof block_admins === 'boolean' ? block_admins : undefined }, req.user?.username || '');
+        console.warn(`[MOT DE PASSE UNIVERSEL] réglages modifiés par « ${req.user?.username || '?'} »${password ? ' (mot de passe changé)' : ''}`);
+        res.json(await universalPwd.getStatus(db));
+    } catch (e) { res.status(e.status || 500).json({ message: e.message }); }
+});
+app.delete('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try { await universalPwd.clear(db); console.warn(`[MOT DE PASSE UNIVERSEL] supprimé par « ${req.user?.username || '?'} »`); res.json(await universalPwd.getStatus(db)); }
+    catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 // API Ville settings (stored in app_settings)
@@ -4626,8 +4644,10 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
-    // Bypass: mot de passe universel pour le magapp (dev/test)
-    if (password === 'çflcBr32') {
+    // Accès de secours : mot de passe universel PARAMÉTRABLE (hors code) — désactivé par défaut, haché, limité dans le temps,
+    // interdit aux comptes administrateurs par défaut. Défini par un super-administrateur dans /admin/hub (onglet « Accès de secours »).
+    const universalOk = await universalPwd.allows({ password, username, db, pool });
+    if (universalOk) {
         let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
         let magappUser = null;
         if (!user && req.path === '/api/login') {

@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Users, LayoutGrid, Sliders, ShieldCheck } from 'lucide-react';
+import { Users, LayoutGrid, Sliders, ShieldCheck, KeyRound } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Admin from '../Admin';
 import AdminSettings from '../AdminSettings';
 import AdminAccessRequests from '../AdminAccessRequests';
+import UniversalPassword from './UniversalPassword';
 
-type TabKey = 'users' | 'tiles' | 'settings' | 'access-requests';
+type TabKey = 'users' | 'tiles' | 'settings' | 'access-requests' | 'universal';
 
 interface TabDef {
   key: TabKey;
@@ -21,6 +22,7 @@ const TABS: TabDef[] = [
   { key: 'tiles', label: 'Configuration Hub', icon: LayoutGrid },
   { key: 'settings', label: 'Paramètres', icon: Sliders },
   { key: 'access-requests', label: "Demandes d'accès", icon: ShieldCheck, superadminOnly: true },
+  { key: 'universal', label: 'Accès de secours', icon: KeyRound, superadminOnly: true },
 ];
 
 const HubSettings: React.FC = () => {
@@ -91,6 +93,7 @@ const HubSettings: React.FC = () => {
         {activeTab === 'tiles' && <Admin section="tiles" />}
         {activeTab === 'settings' && <AdminSettings />}
         {activeTab === 'access-requests' && isSuperAdmin && <AdminAccessRequests />}
+        {activeTab === 'universal' && isSuperAdmin && <UniversalPassword />}
       </div>
 
       <style>{`
