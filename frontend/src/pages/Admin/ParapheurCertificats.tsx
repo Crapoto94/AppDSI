@@ -312,6 +312,14 @@ export default function ParapheurCertificats() {
             de date technique ; pour une valeur juridique renforcée (horodatage qualifié eIDAS), utilisez un prestataire qualifié de la liste de confiance nationale
             (ANSSI) et saisissez son adresse et ses identifiants.
           </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Préréglages gratuits (non qualifiés) :</span>
+            {([['FreeTSA', 'https://freetsa.org/tsr'], ['DigiCert', 'http://timestamp.digicert.com']] as const).map(([n, u]) => (
+              <button key={n} type="button" onClick={() => setTsa({ ...tsa, enabled: true, url: u, login: '', policy_oid: '' })}
+                style={{ padding: '5px 12px', background: tsa.url === u ? '#eef2ff' : '#fff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 999, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{n}</button>
+            ))}
+            <span style={{ fontSize: 12, color: '#64748b' }}>puis « Enregistrer les paramètres ».</span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
             <input value={tsa.url} onChange={e => setTsa({ ...tsa, url: e.target.value })} placeholder="Adresse de l'autorité (https://…)" style={{ gridColumn: '1 / -1', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
             <input value={tsa.login} onChange={e => setTsa({ ...tsa, login: e.target.value })} placeholder="Identifiant (facultatif)" autoComplete="off" style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
