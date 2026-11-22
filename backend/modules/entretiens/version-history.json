@@ -1,12 +1,25 @@
 {
   "module": "entretiens",
-  "version": "0.48.0",
+  "version": "0.49.0",
   "date": "2026-11-22",
   "releases": [
     {
+      "version": "0.49.0",
+      "date": "2026-11-22",
+      "commit": "3325bbb8",
+      "groups": {
+        "nouveautes": [
+          "Rôle pilotage paramétrable dans Paramétrage > Administrateurs",
+          "Avancement du Pilotage : seules les directions sont affichées par défaut, services et secteurs repliés"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.48.0",
       "date": "2026-11-22",
-      "commit": "5e56028e",
+      "commit": "1c172f09",
       "groups": {
         "nouveautes": [
           "Rôle « pilotage » (agents qui voient le menu Pilotage en lecture seule, sans accès aux CREP ni aux actions), badge ADMIN sur les menus réservés aux administrateurs, avancement par direction déroulé par défaut"

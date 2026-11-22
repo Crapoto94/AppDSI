@@ -603,40 +603,6 @@ Cette action est définitive.`)) return;
         </div>
       </div>
 
-      {/* Rôle pilotage */}
-      <div style={{ ...card, padding: 18, marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>
-          <UserCog size={17} color={COLORS.primary} /> Rôle pilotage
-        </div>
-        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
-          Ces agent·e·s voient le menu <strong>Pilotage</strong> (avancement par direction, liste des entretiens) <strong>en lecture seule</strong> :
-          ils n’ont accès ni aux CREP, ni aux actions sur les agent·e·s (impression, ouverture, remise à zéro…), réservées aux administrateurs.
-        </p>
-        <div style={{ marginBottom: 10, maxWidth: 520 }}>
-          <AdminAgentSearch key={pilotKey} onSelect={addPilot} />
-        </div>
-        {pilotMsg && (
-          <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: pilotMsg.ok ? COLORS.success : COLORS.danger }}>
-            {pilotMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {pilotMsg.text}
-          </div>
-        )}
-        {pilots.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: '#94a3b8' }}>Aucun agent·e avec le rôle pilotage pour l’instant.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {pilots.map(a => (
-              <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: '8px 11px' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{a.display_name || a.username}</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.username}{a.email ? ` · ${a.email}` : ''}</div>
-                </div>
-                <button style={btnDanger} onClick={() => removePilot(a)}><Trash2 size={13} /> Retirer</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       </>)}
 
       {sub === 'options' && (<>
@@ -749,6 +715,40 @@ Cette action est définitive.`)) return;
       </>)}
 
       {sub === 'admins' && (<>
+      {/* Rôle pilotage */}
+      <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>
+          <UserCog size={17} color={COLORS.primary} /> Rôle pilotage
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
+          Ces agent·e·s voient le menu <strong>Pilotage</strong> (avancement par direction, liste des entretiens) <strong>en lecture seule</strong> :
+          ils n’ont accès ni aux CREP, ni aux actions sur les agent·e·s (impression, ouverture, remise à zéro…), réservées aux administrateurs.
+        </p>
+        <div style={{ marginBottom: 10, maxWidth: 520 }}>
+          <AdminAgentSearch key={pilotKey} onSelect={addPilot} />
+        </div>
+        {pilotMsg && (
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: pilotMsg.ok ? COLORS.success : COLORS.danger }}>
+            {pilotMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {pilotMsg.text}
+          </div>
+        )}
+        {pilots.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: '#94a3b8' }}>Aucun agent·e avec le rôle pilotage pour l’instant.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {pilots.map(a => (
+              <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: '8px 11px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{a.display_name || a.username}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.username}{a.email ? ` · ${a.email}` : ''}</div>
+                </div>
+                <button style={btnDanger} onClick={() => removePilot(a)}><Trash2 size={13} /> Retirer</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Administrateurs */}
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>

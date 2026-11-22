@@ -64,15 +64,12 @@ function buildTree(rows: Entretien[]): PNode {
 function ProgressTree({ rows }: { rows: Entretien[] }) {
   const root = useMemo(() => buildTree(rows), [rows]);
   const [open, setOpen] = useState<Set<string>>(new Set());
-  // Déroulé par défaut : dès que les données arrivent, tous les niveaux (directions, services, secteurs) sont ouverts ; l'utilisateur replie ensuite à sa guise
+  // Par défaut : seules les directions sont affichées (déroulées depuis la racine) ; services et secteurs restent repliés, l'utilisateur les déplie à sa guise
   const autoOpened = useRef(false);
   useEffect(() => {
     if (autoOpened.current || root.total === 0) return;
     autoOpened.current = true;
-    const all = new Set<string>(['']);
-    const walk = (n: PNode) => { for (const c of n.children.values()) { if (c.children.size) all.add(c.key); walk(c); } };
-    walk(root);
-    setOpen(all);
+    setOpen(new Set<string>(['']));
   }, [root]);
   const toggle = (k: string) => setOpen(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const render = (n: PNode, depth: number): React.ReactNode => {
