@@ -153,6 +153,14 @@ module.exports = {
                 'INSERT INTO hub_entretiens.backlog_commentaires (demande_id, auteur, auteur_nom, est_admin, texte) VALUES (?, ?, ?, ?, ?) RETURNING *',
                 [id, actor.username || '', actor.displayName || actor.username || '', !!(await svc.isEpAdmin(actor)), texte || '(pièce jointe)']);
             await enregistrer(id, row.id, liste);
+            // Prévient le demandeur quand quelqu'un d'autre commente sa demande (ne bloque jamais le commentaire)
+            try {
+                if (d.demandeur_email && String(d.demandeur || '').toLowerCase() !== String(actor.username || '').toLowerCase()) {
+                    const emailTpl = require('./entretiens-email');
+                    const { sendParapheurEmail } = require('../parapheur/parapheur.service');
+                    await sendParapheurEmail(d.demandeur_email, emailTpl.backlogCommentaire({ demandeur: d.demandeur_nom || d.demandeur, id, titre: d.titre, auteur: actor.displayName || actor.username, texte: texte || '(pièce jointe)', link: await emailTpl.entretiensUrl('moi') }));
+                }
+            } catch (e) { console.warn('[ENTRETIENS] mail commentaire backlog:', e.message); }
             res.status(201).json({ ok: true, commentaire: shapeComment(row) });
         } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] backlog comment:', err.message); fail(res, 500, err.message); }
     },

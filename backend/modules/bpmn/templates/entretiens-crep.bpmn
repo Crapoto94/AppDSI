@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:collaboration id="Collaboration_1">
-    <bpmn:participant id="Participant_1" name="Entretiens professionnels — Parcours complet d'un CREP (saisie à la main ou dans l'outil, signatures, clôture)" processRef="Process_1" />
+    <bpmn:participant id="Participant_1" name="Entretiens professionnels — Parcours complet d'un CREP (saisie à la main ou dans l'outil, signatures, clôture, réception DRH)" processRef="Process_1" />
   </bpmn:collaboration>
   <bpmn:process id="Process_1" isExecutable="false">
     <bpmn:documentation id="Doc_Process">Parcours complet d'un compte rendu d'entretien professionnel (CREP) dans MagApp. Le valideur choisit dès le début si le CREP est tenu à la main (impression, signatures, téléversement du document signé, lecture automatique, vérification, clôture) ou dans l'outil (saisie, validation de la partie évaluateur, impression, signatures, téléversement, vérification des 2 cadres de l'agent et des signatures, clôture). Il peut changer de mode à tout moment. Après validation, tout est en lecture seule ; l'original signé est transmis à la RH ; seuls les administrateurs peuvent dévalider un CREP (erreur manifeste) ; une fois la campagne close (action « Clore la campagne »), le CREP est consulté dans le dossier de l'agent. Fonctions activables (désactivées par défaut) : préparation de l'agent dans « Mon entretien », signature électronique par parapheur, aides IA à la rédaction et à la relecture.</bpmn:documentation>
@@ -10,9 +10,10 @@
         <bpmn:flowNodeRef>S1</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_Desig</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_Devalider</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Recu</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_Clore</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_1" name="Valideur (évaluateur)">
+      <bpmn:lane id="Lane_1" name="Évaluateur·rice (évaluateur)">
         <bpmn:flowNodeRef>T_Agents</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_RDV</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>G_Mail</bpmn:flowNodeRef>
@@ -35,7 +36,7 @@
         <bpmn:flowNodeRef>G_Err</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_RH</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_2" name="Agent évalué">
+      <bpmn:lane id="Lane_2" name="Agent·e évalué">
         <bpmn:flowNodeRef>T_Prep</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_SignAM</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>T_SignAO</bpmn:flowNodeRef>
@@ -48,7 +49,7 @@
         <bpmn:flowNodeRef>T_Dossier</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
       </bpmn:lane>
-      <bpmn:lane id="Lane_4" name="Ressources humaines (RH)">
+      <bpmn:lane id="Lane_4" name="Ressources humaines (DRH)">
         <bpmn:flowNodeRef>T_RHrec</bpmn:flowNodeRef>
       </bpmn:lane>
     </bpmn:laneSet>
@@ -56,33 +57,33 @@
       <bpmn:documentation id="Doc_S1">La campagne d'entretiens professionnels est ouverte (réglage Paramétrage → Campagnes). Le module est en BETA ou publié.</bpmn:documentation>
       <bpmn:outgoing>Flow_1</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:userTask id="T_Desig" name="Désigner les valideurs et rattacher les agents">
-      <bpmn:documentation id="Doc_T_Desig">L'administrateur désigne les valideurs (directeurs, DGA, DG, sous-valideurs) et la base des agents. Un agent = un seul valideur. Le lien avec l'annuaire (AD) fournit les adresses e-mail.</bpmn:documentation>
+    <bpmn:userTask id="T_Desig" name="Désigner les évaluateur·rice·s et rattacher les agent·e·e·s">
+      <bpmn:documentation id="Doc_T_Desig">L'administrateur désigne les évaluateur·rice·s (directeurs, DGA, DG, sous-évaluateur·rice·s) et la base des agent·e·e·s. Un agent·e = un seul évaluateur·rice. Le lien avec l'annuaire (AD) fournit les adresses e-mail.</bpmn:documentation>
       <bpmn:incoming>Flow_1</bpmn:incoming>
       <bpmn:outgoing>Flow_2</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:userTask id="T_Agents" name="Vérifier ses agents (ajouter, changer de valideur, lier l'AD)">
-      <bpmn:documentation id="Doc_T_Agents">Le valideur retrouve ses agents dans « EP que je réalise ». Il peut ajouter un agent, changer le valideur d'un agent, ou relier un agent sans e-mail à son compte AD (orthographes différentes entre la base RH et l'annuaire).</bpmn:documentation>
+    <bpmn:userTask id="T_Agents" name="Vérifier ses agent·e·e·s (ajouter, changer de évaluateur·rice, lier l'AD)">
+      <bpmn:documentation id="Doc_T_Agents">L’évaluateur·rice retrouve ses agent·e·e·s dans « EP que je réalise ». Il peut ajouter un·e agent·e·e, changer l’évaluateur·rice d'un·e agent·e·e, ou relier un·e agent·e·e sans e-mail à son compte AD (orthographes différentes entre la base RH et l'annuaire).</bpmn:documentation>
       <bpmn:incoming>Flow_2</bpmn:incoming>
       <bpmn:outgoing>Flow_3</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_RDV" name="Prendre rendez-vous (facultatif)">
-      <bpmn:documentation id="Doc_T_RDV">Étape facultative : le valideur peut fixer la date « à l'ancienne ». L'assistant de planification n'est qu'une aide (recherche de créneaux communs, convocation par e-mail).</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_RDV">Étape facultative : l’évaluateur·rice peut fixer la date « à l'ancienne ». L'assistant de planification n'est qu'une aide (recherche de créneaux communs, convocation par e-mail).</bpmn:documentation>
       <bpmn:incoming>Flow_3</bpmn:incoming>
       <bpmn:outgoing>Flow_4</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:exclusiveGateway id="G_Mail" name="L'agent a-t-il une adresse e-mail ?">
+    <bpmn:exclusiveGateway id="G_Mail" name="L'agent·e a-t-il une adresse e-mail ?">
       <bpmn:incoming>Flow_4</bpmn:incoming>
       <bpmn:outgoing>Flow_5</bpmn:outgoing>
       <bpmn:outgoing>Flow_6</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="T_Mail" name="Envoyer l'invitation Outlook et le CREP vierge par e-mail">
-      <bpmn:documentation id="Doc_T_Mail">Si l'assistant de planification est utilisé : invitation Outlook, e-mail avec le CREP vierge en PDF. Aucun mail aux agents hors BETA tant que la fonctionnalité n'est pas publiée.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_Mail">Si l'assistant de planification est utilisé : invitation Outlook, e-mail avec le CREP vierge en PDF. Aucun mail aux agent·e·e·s hors BETA tant que la fonctionnalité n'est pas publiée.</bpmn:documentation>
       <bpmn:incoming>Flow_5</bpmn:incoming>
       <bpmn:outgoing>Flow_7</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="T_Convoc" name="Convoquer l'agent par un autre moyen (vive voix, téléphone, courrier)">
-      <bpmn:documentation id="Doc_T_Convoc">Sans adresse e-mail, aucune convocation ne peut partir : le valideur doit de toute façon convoquer l'agent et lui remettre le CREP vierge imprimé.</bpmn:documentation>
+    <bpmn:userTask id="T_Convoc" name="Convoquer l'agent·e par un autre moyen (vive voix, téléphone, courrier)">
+      <bpmn:documentation id="Doc_T_Convoc">Sans adresse e-mail, aucune convocation ne peut partir : l’évaluateur·rice doit de toute façon convoquer l'agent·e et lui remettre le CREP vierge imprimé.</bpmn:documentation>
       <bpmn:incoming>Flow_6</bpmn:incoming>
       <bpmn:outgoing>Flow_8</bpmn:outgoing>
     </bpmn:userTask>
@@ -92,7 +93,7 @@
       <bpmn:outgoing>Flow_9</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:userTask id="T_Prep" name="Préparer son entretien dans « Mon entretien » (fonction activable)">
-      <bpmn:documentation id="Doc_T_Prep">Fonction activable (désactivée par défaut) : l'agent prépare sa fiche en ligne ; son valideur la retrouve avant l'entretien. Sinon, préparation sur le CREP vierge papier.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_Prep">Fonction activable (désactivée par défaut) : l'agent·e prépare sa fiche en ligne ; son évaluateur·rice la retrouve avant l'entretien. Sinon, préparation sur le CREP vierge papier.</bpmn:documentation>
       <bpmn:incoming>Flow_9</bpmn:incoming>
       <bpmn:outgoing>Flow_10</bpmn:outgoing>
     </bpmn:userTask>
@@ -104,7 +105,7 @@
       <bpmn:outgoing>Flow_12</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:userTask id="T_ImpM" name="Imprimer le CREP vierge">
-      <bpmn:documentation id="Doc_T_ImpM">Mode manuscrit : le valideur imprime le CREP.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_ImpM">Mode manuscrit : l’évaluateur·rice imprime le CREP.</bpmn:documentation>
       <bpmn:incoming>Flow_11</bpmn:incoming>
       <bpmn:outgoing>Flow_13</bpmn:outgoing>
     </bpmn:userTask>
@@ -114,27 +115,27 @@
       <bpmn:outgoing>Flow_14</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_SignAM" name="Renseigner ses 2 cadres et signer à la main">
-      <bpmn:documentation id="Doc_T_SignAM">L'agent renseigne les 2 cadres qui le concernent (conditions de travail, entretien) et signe.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_SignAM">L'agent·e renseigne les 2 cadres qui le concernent (conditions de travail, entretien) et signe.</bpmn:documentation>
       <bpmn:incoming>Flow_14</bpmn:incoming>
       <bpmn:outgoing>Flow_15</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_ContreM" name="Contresigner">
-      <bpmn:documentation id="Doc_T_ContreM">Le valideur contresigne le CREP.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_ContreM">L’évaluateur·rice contresigne le CREP.</bpmn:documentation>
       <bpmn:incoming>Flow_15</bpmn:incoming>
       <bpmn:outgoing>Flow_16</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_UpM" name="Numériser et téléverser le CREP signé (scan ou photos)">
-      <bpmn:documentation id="Doc_T_UpM">Le valideur numérise les pages (scan ou photos) et les téléverse via « Importer un compte rendu papier ». Possible tant que l'EP n'est pas validé ; le document téléversé reste consultable.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_UpM">L’évaluateur·rice numérise les pages (scan ou photos) et les téléverse via « Importer un compte rendu papier ». Possible tant que l'EP n'est pas validé ; le document téléversé reste consultable.</bpmn:documentation>
       <bpmn:incoming>Flow_16</bpmn:incoming>
       <bpmn:outgoing>Flow_17</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:serviceTask id="T_LectM" name="Lire le document : textes, cases cochées, identité et 2 signatures">
-      <bpmn:documentation id="Doc_T_LectM">Lecture en tâche de fond (plusieurs minutes, e-mail à la fin avec lien direct vers la proposition). Lecture des textes et des cases cochées de la grille, relevé de l'identité de l'agent, détection des 2 signatures. Si le document est celui d'un autre agent ou d'un autre formulaire : confirmation explicite demandée.</bpmn:documentation>
+    <bpmn:serviceTask id="T_LectM" name="Lire le document : textes, cases cochées, identité et 2 signatures (réglage « Lecture » activé ; sinon lecture invisible, en arrière-plan)">
+      <bpmn:documentation id="Doc_T_LectM">Lecture en tâche de fond (plusieurs minutes, e-mail à la fin avec lien direct vers la proposition). Lecture des textes et des cases cochées de la grille, relevé de l'identité de l'agent·e, détection des 2 signatures. Si le document est celui d'un autre agent·e ou d'un autre formulaire : confirmation explicite demandée.</bpmn:documentation>
       <bpmn:incoming>Flow_17</bpmn:incoming>
       <bpmn:outgoing>Flow_18</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="T_VerifM" name="Vérifier toutes les rubriques (dans l'ordre du CREP) et confirmer les 2 signatures">
-      <bpmn:documentation id="Doc_T_VerifM">Le valideur relit et corrige toutes les rubriques, page par page, avec la grille présentée comme sur le CREP ; il coche « J'ai vérifié chaque ligne » et confirme la présence des signatures de l'agent et de l'évaluateur.</bpmn:documentation>
+    <bpmn:userTask id="T_VerifM" name="Lecture activée : vérifier toutes les rubriques (ordre du CREP) et confirmer les 2 signatures. Lecture désactivée : consulter le document et confirmer les 2 signatures">
+      <bpmn:documentation id="Doc_T_VerifM">L’évaluateur·rice relit et corrige toutes les rubriques, page par page, avec la grille présentée comme sur le CREP ; il coche « J'ai vérifié chaque ligne » et confirme la présence des signatures de l'agent·e et de l'évaluateur.</bpmn:documentation>
       <bpmn:incoming>Flow_18</bpmn:incoming>
       <bpmn:outgoing>Flow_19</bpmn:outgoing>
     </bpmn:userTask>
@@ -154,12 +155,12 @@
       <bpmn:outgoing>Flow_22</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_SignAO" name="Renseigner ses 2 cadres et signer à la main">
-      <bpmn:documentation id="Doc_T_SignAO">L'agent saisit ses 2 cadres à la main et signe.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_SignAO">L'agent·e saisit ses 2 cadres à la main et signe.</bpmn:documentation>
       <bpmn:incoming>Flow_22</bpmn:incoming>
       <bpmn:outgoing>Flow_23</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_ContreO" name="Contresigner">
-      <bpmn:documentation id="Doc_T_ContreO">Le valideur contresigne.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_ContreO">L’évaluateur·rice contresigne.</bpmn:documentation>
       <bpmn:incoming>Flow_23</bpmn:incoming>
       <bpmn:outgoing>Flow_24</bpmn:outgoing>
     </bpmn:userTask>
@@ -168,13 +169,13 @@
       <bpmn:incoming>Flow_24</bpmn:incoming>
       <bpmn:outgoing>Flow_25</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:serviceTask id="T_LectO" name="Lire les 2 cadres de l'agent et détecter les 2 signatures">
-      <bpmn:documentation id="Doc_T_LectO">Seuls les 2 commentaires manuscrits de l'agent (dernière page) sont lus ; le reste du CREP, déjà validé, n'est pas modifié.</bpmn:documentation>
+    <bpmn:serviceTask id="T_LectO" name="Lire les 2 cadres de l'agent·e et détecter les 2 signatures (réglage « Lecture » activé ; sinon en arrière-plan)">
+      <bpmn:documentation id="Doc_T_LectO">Seuls les 2 commentaires manuscrits de l'agent·e (dernière page) sont lus ; le reste du CREP, déjà validé, n'est pas modifié.</bpmn:documentation>
       <bpmn:incoming>Flow_25</bpmn:incoming>
       <bpmn:outgoing>Flow_26</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="T_VerifO" name="Vérifier les 2 cadres de l'agent et confirmer les 2 signatures">
-      <bpmn:documentation id="Doc_T_VerifO">Le valideur vérifie les 2 cadres de l'agent et confirme la présence des 2 signatures.</bpmn:documentation>
+    <bpmn:userTask id="T_VerifO" name="Lecture activée : vérifier les 2 cadres de l'agent·e et confirmer les 2 signatures. Lecture désactivée : consulter le document et confirmer les 2 signatures">
+      <bpmn:documentation id="Doc_T_VerifO">L’évaluateur·rice vérifie les 2 cadres de l'agent·e et confirme la présence des 2 signatures.</bpmn:documentation>
       <bpmn:incoming>Flow_26</bpmn:incoming>
       <bpmn:outgoing>Flow_27</bpmn:outgoing>
     </bpmn:userTask>
@@ -188,8 +189,8 @@
       <bpmn:incoming>Flow_28</bpmn:incoming>
       <bpmn:outgoing>Flow_29</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:serviceTask id="T_Lock" name="Lecture seule ; rappel : original signé à transmettre à la RH">
-      <bpmn:documentation id="Doc_T_Lock">Une fois le CREP validé, tout est en lecture seule. L'outil rappelle que l'original signé doit être transmis à la RH. Les documents restent consultables jusqu'à la clôture de la campagne.</bpmn:documentation>
+    <bpmn:serviceTask id="T_Lock" name="Lecture seule ; rappel : original signé à transmettre à la DRH">
+      <bpmn:documentation id="Doc_T_Lock">Une fois le CREP validé, tout est en lecture seule. L'outil rappelle que l'original signé doit être transmis à la DRH. Les documents restent consultables jusqu'à la clôture de la campagne.</bpmn:documentation>
       <bpmn:incoming>Flow_29</bpmn:incoming>
       <bpmn:outgoing>Flow_30</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -198,8 +199,8 @@
       <bpmn:outgoing>Flow_31</bpmn:outgoing>
       <bpmn:outgoing>Flow_32</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:userTask id="T_RH" name="Transmettre l'original signé à la RH">
-      <bpmn:documentation id="Doc_T_RH">Dans tous les cas, l'ORIGINAL papier signé est envoyé à la RH ; le document numérique est non contractuel.</bpmn:documentation>
+    <bpmn:userTask id="T_RH" name="Transmettre l'original signé à la DRH">
+      <bpmn:documentation id="Doc_T_RH">Dans tous les cas, l'ORIGINAL papier signé est envoyé à la DRH ; le document numérique est non contractuel.</bpmn:documentation>
       <bpmn:incoming>Flow_31</bpmn:incoming>
       <bpmn:outgoing>Flow_34</bpmn:outgoing>
     </bpmn:userTask>
@@ -209,22 +210,27 @@
       <bpmn:outgoing>Flow_33</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:userTask id="T_RHrec" name="Recevoir et classer l'original signé">
-      <bpmn:documentation id="Doc_T_RHrec">La RH reçoit et classe l'original signé.</bpmn:documentation>
+      <bpmn:documentation id="Doc_T_RHrec">La DRH reçoit et classe l'original signé.</bpmn:documentation>
       <bpmn:incoming>Flow_34</bpmn:incoming>
       <bpmn:outgoing>Flow_35</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:userTask id="T_Clore" name="Clore la campagne (administrateur)">
-      <bpmn:documentation id="Doc_T_Clore">Action « Clore la campagne » (Paramétrage). Les valideurs ne consultent plus les documents dans ce module.</bpmn:documentation>
+    <bpmn:userTask id="T_Recu" name="Déclarer « reçu par la DRH » au Pilotage (compteurs À transmettre / Reçus)">
+      <bpmn:documentation id="Doc_T_Recu">Au Pilotage, un administrateur déclare (un par un ou par lot) que l'original signé est parvenu à la DRH. Les compteurs « À transmettre à la DRH » (clôturés, non reçus) et « Reçus par la DRH » se mettent à jour, pour le Pilotage comme pour chaque évaluateur·rice. La réception est effacée par une RAZ, une dévalidation ou une réouverture acceptée.</bpmn:documentation>
       <bpmn:incoming>Flow_35</bpmn:incoming>
       <bpmn:outgoing>Flow_36</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:serviceTask id="T_Dossier" name="CREP consultable dans le dossier de l'agent">
-      <bpmn:documentation id="Doc_T_Dossier">Une fois la campagne close, le CREP est consulté dans le dossier de l'agent.</bpmn:documentation>
+    <bpmn:userTask id="T_Clore" name="Clore la campagne (administrateur)">
+      <bpmn:documentation id="Doc_T_Clore">Action « Clore la campagne » (Paramétrage). Les évaluateur·rice·s ne consultent plus les documents dans ce module.</bpmn:documentation>
       <bpmn:incoming>Flow_36</bpmn:incoming>
       <bpmn:outgoing>Flow_37</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Dossier" name="CREP consultable dans le dossier de l'agent·e">
+      <bpmn:documentation id="Doc_T_Dossier">Une fois la campagne close, le CREP est consulté dans le dossier de l'agent·e.</bpmn:documentation>
+      <bpmn:incoming>Flow_37</bpmn:incoming>
+      <bpmn:outgoing>Flow_38</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:endEvent id="E_End" name="Entretien archivé">
-      <bpmn:incoming>Flow_37</bpmn:incoming>
+      <bpmn:incoming>Flow_38</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="Flow_1" sourceRef="S1" targetRef="T_Desig" />
     <bpmn:sequenceFlow id="Flow_2" sourceRef="T_Desig" targetRef="T_Agents" />
@@ -260,18 +266,19 @@
     <bpmn:sequenceFlow id="Flow_32" sourceRef="G_Err" targetRef="T_Devalider" name="oui" />
     <bpmn:sequenceFlow id="Flow_33" sourceRef="T_Devalider" targetRef="G_Mode" name="retour au choix du mode" />
     <bpmn:sequenceFlow id="Flow_34" sourceRef="T_RH" targetRef="T_RHrec" />
-    <bpmn:sequenceFlow id="Flow_35" sourceRef="T_RHrec" targetRef="T_Clore" />
-    <bpmn:sequenceFlow id="Flow_36" sourceRef="T_Clore" targetRef="T_Dossier" />
-    <bpmn:sequenceFlow id="Flow_37" sourceRef="T_Dossier" targetRef="E_End" />
+    <bpmn:sequenceFlow id="Flow_35" sourceRef="T_RHrec" targetRef="T_Recu" />
+    <bpmn:sequenceFlow id="Flow_36" sourceRef="T_Recu" targetRef="T_Clore" />
+    <bpmn:sequenceFlow id="Flow_37" sourceRef="T_Clore" targetRef="T_Dossier" />
+    <bpmn:sequenceFlow id="Flow_38" sourceRef="T_Dossier" targetRef="E_End" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
-      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="5716" height="950" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="5686" height="190" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="270" width="5686" height="190" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="460" width="5686" height="190" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="650" width="5686" height="190" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="840" width="5686" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="5884" height="950" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="5854" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="270" width="5854" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="460" width="5854" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="650" width="5854" height="190" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="840" width="5854" height="190" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="282" y="157" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="242" y="197" width="116" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="T_Desig_di" bpmnElement="T_Desig"><dc:Bounds x="393" y="137" width="150" height="76" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="T_Agents_di" bpmnElement="T_Agents"><dc:Bounds x="561" y="327" width="150" height="76" /></bpmndi:BPMNShape>
@@ -304,9 +311,10 @@
       <bpmndi:BPMNShape id="T_RH_di" bpmnElement="T_RH"><dc:Bounds x="4929" y="327" width="150" height="76" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="T_Devalider_di" bpmnElement="T_Devalider"><dc:Bounds x="4929" y="137" width="150" height="76" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="T_RHrec_di" bpmnElement="T_RHrec"><dc:Bounds x="5097" y="897" width="150" height="76" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T_Clore_di" bpmnElement="T_Clore"><dc:Bounds x="5265" y="137" width="150" height="76" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="T_Dossier_di" bpmnElement="T_Dossier"><dc:Bounds x="5433" y="707" width="150" height="76" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="5658" y="727" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="5618" y="767" width="116" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Recu_di" bpmnElement="T_Recu"><dc:Bounds x="5265" y="137" width="150" height="76" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Clore_di" bpmnElement="T_Clore"><dc:Bounds x="5433" y="137" width="150" height="76" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Dossier_di" bpmnElement="T_Dossier"><dc:Bounds x="5601" y="707" width="150" height="76" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="5826" y="727" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="5786" y="767" width="116" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1"><di:waypoint x="318" y="175" /><di:waypoint x="393" y="175" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2"><di:waypoint x="543" y="175" /><di:waypoint x="552" y="175" /><di:waypoint x="552" y="365" /><di:waypoint x="561" y="365" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3"><di:waypoint x="711" y="365" /><di:waypoint x="729" y="365" /></bpmndi:BPMNEdge>
@@ -342,8 +350,9 @@
       <bpmndi:BPMNEdge id="Flow_33_di" bpmnElement="Flow_33"><di:waypoint x="4929" y="175" /><di:waypoint x="4905" y="175" /><di:waypoint x="4905" y="94" /><di:waypoint x="1644" y="94" /><di:waypoint x="1644" y="340" /><bpmndi:BPMNLabel><dc:Bounds x="4909" y="157" width="138" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_34_di" bpmnElement="Flow_34"><di:waypoint x="5079" y="365" /><di:waypoint x="5088" y="365" /><di:waypoint x="5088" y="935" /><di:waypoint x="5097" y="935" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_35_di" bpmnElement="Flow_35"><di:waypoint x="5247" y="935" /><di:waypoint x="5256" y="935" /><di:waypoint x="5256" y="175" /><di:waypoint x="5265" y="175" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_36_di" bpmnElement="Flow_36"><di:waypoint x="5415" y="175" /><di:waypoint x="5424" y="175" /><di:waypoint x="5424" y="745" /><di:waypoint x="5433" y="745" /></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_37_di" bpmnElement="Flow_37"><di:waypoint x="5583" y="745" /><di:waypoint x="5658" y="745" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_36_di" bpmnElement="Flow_36"><di:waypoint x="5415" y="175" /><di:waypoint x="5433" y="175" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_37_di" bpmnElement="Flow_37"><di:waypoint x="5583" y="175" /><di:waypoint x="5592" y="175" /><di:waypoint x="5592" y="745" /><di:waypoint x="5601" y="745" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_38_di" bpmnElement="Flow_38"><di:waypoint x="5751" y="745" /><di:waypoint x="5826" y="745" /></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>

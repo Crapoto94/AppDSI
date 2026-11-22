@@ -111,9 +111,14 @@ const STEPS: Record<TutoRole, Step[]> = {
   ],
 };
 
+/** Dernière étape, commune à tous les profils : l'ampoule (questions, idées, bugs). */
+const AMPOULE: Step = { emoji: '💡', quest: 'Bonus', title: 'Une question, une idée, un bug ? L’ampoule', xp: 50,
+  body: <>En haut à droite, l'<B>ampoule</B> vous permet de déposer en quelques lignes <B>« J'ai une question »</B>, <B>« Je propose une amélioration »</B> ou <B>« Il y a un bug »</B>, avec une <B>pièce jointe</B> si besoin.
+    Vous suivez vos demandes dans <B>« Mes demandes »</B>, vous lisez et <B>commentez</B> celles des autres dans <B>« Celles des autres »</B>, et vous êtes <B>prévenu·e par e-mail</B> de la suite donnée.</> };
+
 /** Lecture des entretiens numérisés désactivée : pas d'étape de vérification de la lecture, l’évaluateur·rice consulte le document et confirme les signatures. */
 function adaptSteps(role: TutoRole, scanReading: boolean): Step[] {
-  const base = STEPS[role];
+  const base = [...STEPS[role], AMPOULE];
   if (scanReading || role !== 'valideur') return base;
   return base.map(st => st.quest === 'Étape 4'
     ? { emoji: '📸', quest: 'Étape 4', title: 'Téléverser le CREP signé', xp: 150, shot: '/aide-ep/07-crep.jpg',

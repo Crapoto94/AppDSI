@@ -111,6 +111,14 @@ function backlogNouvelle({ type, titre, description, demandeur, link }) {
     return { subject: `💡 Backlog Entretiens — ${type} : ${titre}`, ...render('#4f46e5', '💡 Nouvelle demande', intro, bodyHtml, FOOTER) };
 }
 
+/** Au demandeur : quelqu'un a commenté sa demande. */
+function backlogCommentaire({ demandeur, id, titre, auteur, texte, link }) {
+    const intro = `Bonjour <strong>${esc(demandeur)}</strong>,<br><br><strong>${esc(auteur)}</strong> a commenté votre demande n° ${esc(id)} « ${esc(titre)} ».`;
+    const bodyHtml = `${infoBlock('Commentaire', [['Message', texte]])}
+      ${button(link, 'Ouvrir MagApp', '#4f46e5')}`;
+    return { subject: `💬 Backlog Entretiens n° ${id} — nouveau commentaire`, ...render('#4f46e5', '💬 Nouveau commentaire', intro, bodyHtml, FOOTER) };
+}
+
 /** Au demandeur : suite donnée à sa demande. */
 function backlogDecision({ demandeur, id, type, titre, statut, motif, par, link }) {
     const LIB = { acceptee: 'acceptée : elle est inscrite au backlog', refusee: 'refusée', realisee: 'réalisée : elle est disponible', repondue: 'traitée : une réponse vous est apportée' };
@@ -183,7 +191,7 @@ const wrap = (fn) => (p = {}) => fn({ ...p, ...(p.agent ? { agent: nice(p.agent)
 module.exports = {
     analyseCrep: wrap(analyseCrep), entretiensUrl, nice,
     preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
-    backlogNouvelle: wrap(backlogNouvelle), backlogDecision: wrap(backlogDecision),
+    backlogCommentaire: wrap(backlogCommentaire), backlogNouvelle: wrap(backlogNouvelle), backlogDecision: wrap(backlogDecision),
     reouvertureDemande: wrap(reouvertureDemande), reouvertureDecision: wrap(reouvertureDecision),
     relancePreparation: wrap(relancePreparation), relanceValidation: wrap(relanceValidation), relanceEvaluateur: wrap(relanceEvaluateur), compteRenduRappele: wrap(compteRenduRappele),
 };

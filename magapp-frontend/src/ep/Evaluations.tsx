@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Search, Users, ClipboardCheck, CalendarClock, TrendingUp, Eye, AlertTriangle, FileDown, Printer, UserPlus, UserCog, Loader2, X, Mail, Link2, CheckCircle2, ChevronDown, ChevronRight, RotateCcw, Undo2, MoreHorizontal, ScanLine, Inbox } from 'lucide-react';
 import { useAuth } from './useAuth';
@@ -355,8 +355,11 @@ Motif (obligatoire) :`, '');
   // « EP de mon équipe » / pilotage : arborescence récursive évaluateur → agents,
   // un agent qui évalue lui-même des agents étant dépliable à son tour.
   type EvalTreeNode = { key: string; name: string; items: Entretien[]; agent: Entretien | null; children: EvalTreeNode[]; info?: EvalInfo };
-  const identityKey = (e: Entretien) => (e.agent_matricule || e.agent_email || e.agent_username || e.agent_nom || '').toLowerCase();
+  const lc = (v?: string | null) => String(v || '').trim().toLowerCase();
+  /** Toutes les façons de reconnaître une même personne : matricule, compte, e-mail. */
+  const agentKeys = (e: Entretien) => [lc(e.agent_matricule), lc(e.agent_username), lc(e.agent_email)].filter(Boolean);
   const evaluatorKey = (e: Entretien) => (e.evaluator_username || e.evaluator_email || e.evaluator_nom || '').toLowerCase();
+  const nodeIndexRef = useRef<Map<string, EvalTreeNode>>(new Map());
   const evalTree = useMemo(() => {
     const byEvaluator = new Map<string, Entretien[]>();
     const agentByKey = new Map<string, Entretien>();
@@ -368,19 +371,18 @@ Motif (obligatoire) :`, '');
       }
     }
     // L'EP de l'évaluateur lui-même (en tant qu'évalué) vient de la liste complète : il reste visible et réinitialisable même si la recherche ne le cible pas
-    for (const e of items) {
-      const ak = identityKey(e);
-      if (ak && !agentByKey.has(ak)) agentByKey.set(ak, e);
-    }
+    for (const e of items) for (const ak of agentKeys(e)) if (!agentByKey.has(ak)) agentByKey.set(ak, e);
     const nodes = new Map<string, EvalTreeNode>();
     for (const [k, list] of byEvaluator) {
       const first = list[0];
+      const info = evalInfo[k];
+      const ids = [k, lc(first.evaluator_username), lc(first.evaluator_email), lc(info?.matricule)].filter(Boolean);
       nodes.set(k, {
         key: k,
-        name: personneNom(evalInfo[k]?.nom || first.evaluator_nom) || repairText(first.evaluator_email || first.evaluator_username || k),
-        info: evalInfo[k],
+        name: personneNom(info?.nom || first.evaluator_nom) || repairText(first.evaluator_email || first.evaluator_username || k),
+        info,
         items: list,
-        agent: agentByKey.get(k) || null,
+        agent: ids.map(x => agentByKey.get(x)).find(Boolean) || null,
         children: [],
       });
     }
@@ -388,9 +390,20 @@ Motif (obligatoire) :`, '');
     // Hiérarchie : par l'EP de l'évaluateur·rice (qui l'évalue) ou, à défaut, par son chef dans la base des agent·e·s
     const byMatricule = new Map<string, EvalTreeNode>();
     for (const nd of nodes.values()) if (nd.info?.matricule) byMatricule.set(nd.info.matricule, nd);
+    // Index « n'importe quelle clé » -> nœud évaluateur
+    const nodeByAny = new Map<string, EvalTreeNode>();
+    for (const nd of nodes.values()) {
+      const f = nd.items[0];
+      for (const x of [nd.key, lc(f?.evaluator_username), lc(f?.evaluator_email), lc(nd.info?.matricule)]) if (x && !nodeByAny.has(x)) nodeByAny.set(x, nd);
+    }
+    nodeIndexRef.current = nodeByAny;
     const parentOf = (nd: EvalTreeNode): EvalTreeNode | null => {
       const pk = nd.agent ? evaluatorKey(nd.agent) : '';
       if (pk && pk !== nd.key && nodes.has(pk)) return nodes.get(pk)!;
+      if (nd.agent) {
+        const ek = [lc(nd.agent.evaluator_username), lc(nd.agent.evaluator_email)].filter(Boolean).map(x => nodeByAny.get(x)).find(Boolean);
+        if (ek && ek !== nd) return ek;
+      }
       const vm = nd.info?.valideur_matricule;
       const p = vm ? byMatricule.get(vm) : undefined;
       return p && p !== nd ? p : null;
@@ -419,18 +432,35 @@ Motif (obligatoire) :`, '');
   useEffect(() => { setOpenEvaluators(new Set()); }, [q, statut, valideur, campaign?.id]);
   // Pendant une recherche, les listes (valideurs) qui contiennent un résultat sont dépliées d'office
   useEffect(() => { if (q.trim()) setOpenEvaluators(new Set(allNodeKeys)); }, [q, allNodeKeys]);
-  const displayItems: Array<{ kind: 'evaluator'; key: string; node: EvalTreeNode; depth: number } | { kind: 'ep'; key: string; e: Entretien; depth: number }> = [];
+  type DisplayItem = { kind: 'evaluator'; key: string; node: EvalTreeNode; depth: number } | { kind: 'ep'; key: string; e: Entretien; depth: number; child?: EvalTreeNode };
+  const displayItems: DisplayItem[] = [];
+  // Nombre d'évaluations d'un nœud : directes, et au total dans toute sa branche
+  const totalOf = (n: EvalTreeNode, seen = new Set<string>()): number => { if (seen.has(n.key)) return 0; seen.add(n.key); return n.items.length + n.children.reduce((a, c) => a + totalOf(c, seen), 0); };
+  const childOfEp = (node: EvalTreeNode, e: Entretien): EvalTreeNode | undefined => {
+    for (const k of agentKeys(e)) { const n = nodeIndexRef.current.get(k); if (n && n !== node && node.children.includes(n)) return n; }
+    return undefined;
+  };
   if (readOnly) {
+    // Un·e évalué·e qui évalue lui·elle-même des agent·e·s apparaît comme une ligne d'EP dépliable, avec ses propres évalué·e·s dessous (autant de niveaux que nécessaire)
+    const pushItems = (node: EvalTreeNode, depth: number, trail: Set<string>) => {
+      const shown = new Set<string>();
+      for (const e of node.items) {
+        const child = childOfEp(node, e);
+        displayItems.push({ kind: 'ep', key: 'e:' + e.id, e, depth: depth + 1, child });
+        if (child && !trail.has(child.key)) {
+          shown.add(child.key);
+          if (openEvaluators.has(child.key)) { const nx = new Set(trail); nx.add(child.key); pushItems(child, depth + 1, nx); }
+        }
+      }
+      // Sous-évaluateur·rice·s rattaché·e·s à ce niveau sans EP dans la liste
+      for (const c of node.children) if (!shown.has(c.key) && !trail.has(c.key)) pushNode(c, depth + 1, trail);
+    };
     const pushNode = (node: EvalTreeNode, depth: number, trail: Set<string>) => {
       if (trail.has(node.key)) return;
       displayItems.push({ kind: 'evaluator', key: node.key, node, depth });
       if (!openEvaluators.has(node.key)) return;
       const next = new Set(trail); next.add(node.key);
-      for (const e of node.items) {
-        const child = node.children.find(c => c.key === identityKey(e));
-        if (child) pushNode(child, depth + 1, next);
-        else displayItems.push({ kind: 'ep', key: 'e:' + e.id, e, depth: depth + 1 });
-      }
+      pushItems(node, depth, next);
     };
     evalTree.forEach(root => pushNode(root, 0, new Set()));
   } else {
@@ -585,7 +615,7 @@ Motif (obligatoire) :`, '');
                               <Avatar name={agent ? nomComplet(agent) : node.name} size={36} />
                               <span>{agent ? nomComplet(agent) : node.name}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
-                                {node.items.length} agent{node.items.length > 1 ? 's' : ''} évalué{node.items.length > 1 ? 's' : ''}
+                                {node.items.length} évalué·e{node.items.length > 1 ? '·s' : ''}{totalOf(node) > node.items.length ? ` · ${totalOf(node)} au total dans l’équipe` : ''}
                               </span>
                               {!pilotage && node.items.length > 0 && node.items.every(sansMailValideur) && (
                                 <span title="Cet·te évaluateur·rice n’a pas d’adresse e-mail : il n’utilise pas l’outil. C’est à vous de planifier, saisir ou importer les comptes rendus et de téléverser les CREP signés." style={{ fontSize: 11, fontWeight: 800, color: '#92400e', background: '#fef3c7', borderRadius: 999, padding: '1px 8px' }}>
@@ -616,6 +646,7 @@ Motif (obligatoire) :`, '');
                           </div>
                           {agent && !canReset && (
                             <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
+                              <button style={btnGhost} onClick={() => printCrep('filled', [agent.id])} disabled={printBusy !== null} title="Imprimer le CREP"><Printer size={13} /></button>
                               <button style={btnGhost} onClick={() => setOpenId(agent.id)}><Eye size={13} /> Ouvrir</button>
                             </div>
                           )}
@@ -629,6 +660,7 @@ Motif (obligatoire) :`, '');
                               <button style={btnDanger} disabled={razBusy === agent.id} onClick={() => resetEp(agent)} title="Remettre à zéro l’EP de cette personne (administrateur)">
                                 {razBusy === agent.id ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />} RAZ
                               </button>
+                              <button style={btnGhost} onClick={() => printCrep('filled', [agent.id])} disabled={printBusy !== null} title="Imprimer le CREP"><Printer size={13} /></button>
                               <button style={btnGhost} onClick={() => setOpenId(agent.id)}><Eye size={13} /> Ouvrir</button>
                             </div>
                           )}
@@ -644,9 +676,20 @@ Motif (obligatoire) :`, '');
                     <Td><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} /></Td>
                     <Td style={{ minWidth: 260, paddingLeft: 10 + item.depth * 22 }}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
+                        {item.child && (
+                          <button type="button" aria-label="Déplier ses évalué·e·s" title="Cette personne évalue elle-même des agent·e·s : cliquer pour déplier"
+                            onClick={() => setOpenEvaluators(prev => { const n = new Set(prev); if (n.has(item.child!.key)) n.delete(item.child!.key); else n.add(item.child!.key); return n; })}
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, marginLeft: -6, display: 'inline-flex', color: '#475569' }}>
+                            {openEvaluators.has(item.child.key) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          </button>
+                        )}
                         <Avatar name={nomComplet(e)} size={36} />
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 800, fontSize: 13.5, color: COLORS.text, lineHeight: 1.25 }}>{nomComplet(e)}</div>
+                          <div style={{ fontWeight: 800, fontSize: 13.5, color: COLORS.text, lineHeight: 1.25, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{nomComplet(e)}
+                            {item.child && <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 8px' }}>
+                              évalue {item.child.items.length} agent·e{item.child.items.length > 1 ? '·s' : ''}{totalOf(item.child) > item.child.items.length ? ` · ${totalOf(item.child)} au total` : ''}
+                            </span>}
+                          </div>
                           {e.poste && <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.35 }}>{repairText(e.poste)}</div>}
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                             {e.agent_grade && <Pill bg="#eef2ff" color="#4338ca">{repairText(e.agent_grade)}</Pill>}
