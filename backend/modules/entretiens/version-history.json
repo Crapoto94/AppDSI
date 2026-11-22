@@ -1,12 +1,24 @@
 {
   "module": "entretiens",
-  "version": "0.46.2",
+  "version": "0.47.0",
   "date": "2026-11-22",
   "releases": [
     {
+      "version": "0.47.0",
+      "date": "2026-11-22",
+      "commit": "96c90da6",
+      "groups": {
+        "nouveautes": [
+          "Le PDF formulaire hors ligne indique que les cadres de l'agent·e, les signatures et le visa ne sont pas remplissables, avec une page d'information en fin de document (ne pas imprimer)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.46.2",
       "date": "2026-11-22",
-      "commit": "443a7ab0",
+      "commit": "b96eef24",
       "groups": {
         "nouveautes": [],
         "ameliorations": [],

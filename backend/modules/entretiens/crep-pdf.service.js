@@ -17,6 +17,7 @@ const BLACK = rgb(0, 0, 0);
 const GREY_LINE = rgb(0.6, 0.6, 0.6);
 const GREY_FILL = rgb(0.85, 0.85, 0.85);
 const BEIGE = rgb(0.83, 0.82, 0.78);
+const GREY_TXT = rgb(0.4, 0.4, 0.4);
 
 const pad2 = (n) => String(n).padStart(2, '0');
 function fmtDate(v) {
@@ -362,6 +363,12 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
         box(page, value, MX + labelW, rt, CW - labelW, frh, { size: 9.5, field });
     });
 
+    // Mode formulaire : mention dans les cadres que le PDF ne permet pas de remplir (renvoi à la page d'information)
+    const lockedNote = (pg, x, top) => {
+        draw(pg, 'Cadre non remplissable dans ce PDF : à écrire à la main par l’agent·e, sur la version imprimée.', x, top + 4, { font: F.i, size: 8, align: 'center', maxW: CW, color: GREY_TXT });
+        draw(pg, '(voir la page d’information en fin de document)', x, top + 15, { font: F.i, size: 7.5, align: 'center', maxW: CW, color: GREY_TXT });
+    };
+
     // ════════════════════ PAGE 4 ════════════════════
     page = pdf.addPage([W, H]);
     bar(page, 'Perspectives d’évolution en termes de missions, de carrière et de mobilité', 40);
@@ -374,13 +381,15 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
     draw(page, t5, MX, 242, { font: F.b, size: 10.5, align: 'center', maxW: CW });
     underline(page, t5, MX, 242, F.b, 10.5, 'center', CW);
     draw(page, '(A remplir par l’agent)', MX, 257, { font: F.i, size: 8.5, align: 'center', maxW: CW });
-    box(page, crep.obs_agent_conditions, MX, 270, CW, 118, { size: 9.5, field: N.obs_agent_conditions });
+    box(page, formMode ? '' : crep.obs_agent_conditions, MX, 270, CW, 118, { size: 9.5 });
+    if (formMode) lockedNote(page, MX, 270);
 
     const t6 = 'Observations de l’agent sur l’entretien';
     draw(page, t6, MX, 400, { font: F.b, size: 10.5, align: 'center', maxW: CW });
     underline(page, t6, MX, 400, F.b, 10.5, 'center', CW);
     draw(page, '(A remplir par l’agent)', MX, 415, { font: F.i, size: 8.5, align: 'center', maxW: CW });
-    box(page, crep.obs_agent_entretien, MX, 428, CW, 118, { size: 9.5, field: N.obs_agent_entretien });
+    box(page, formMode ? '' : crep.obs_agent_entretien, MX, 428, CW, 118, { size: 9.5 });
+    if (formMode) lockedNote(page, MX, 428);
 
     // Signatures
     const sigTop = 556, sigH = 80, sw = CW / 2;
@@ -388,6 +397,7 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
     rect(page, MX + sw, sigTop, sw, sigH, { stroke: BLACK, lw: 1.2 });
     draw(page, 'DATE ET SIGNATURE DE L’AGENT :', MX + 8, sigTop + 6, { font: F.b, size: 7.5 });
     draw(page, '(Dans les 15 jours suivant la notification par le N+1)', MX + 8, sigTop + 17, { font: F.i, size: 8.5 });
+    if (formMode) for (const x0 of [MX, MX + sw]) draw(page, 'Signature manuscrite, après impression (non remplissable)', x0, sigTop + 64, { font: F.i, size: 7.5, align: 'center', maxW: sw, color: GREY_TXT });
     draw(page, 'DATE ET SIGNATURE DE L’ÉVALUATEUR', MX + sw + 8, sigTop + 6, { font: F.b, size: 7.5 });
     draw(page, '(le N+1) :', MX + sw + 8 + widthOf(F.b, 7.5, 'DATE ET SIGNATURE DE L’ÉVALUATEUR') + 8, sigTop + 6, { font: F.i, size: 8.5 });
     // Dates de signature = date de validation par l'agent (les signatures sont apposées par le parapheur)
@@ -406,6 +416,7 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
     }
 
     draw(page, 'Observations et Visa de l’Autorité Territoriale :', MX + 4, 646, { font: F.b, size: 10 });
+    if (formMode) draw(page, 'Réservé à l’autorité territoriale (non remplissable)', MX, 646, { font: F.i, size: 7.5, align: 'right', maxW: CW - 4, color: GREY_TXT });
     rect(page, MX, 660, CW, 70, { stroke: null, fill: BEIGE });
     fitText(page, crep.visa_autorite, MX, 660, CW, 70, { size: 9.5 });
 
@@ -468,6 +479,27 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
         for (const [, rg] of groups) {
             const sel = formFields.find(f => f.kind === 'radio' && groups.get(f.name) === rg && f.selected === f.option);
             if (sel) rg.select(sel.option);
+        }
+        // Page d'information (à ne pas imprimer) : pourquoi les commentaires et signatures ne sont pas remplissables
+        {
+            const ip = pdf.addPage([W, H]);
+            draw(ip, 'PAGE D’INFORMATION — NE PAS IMPRIMER', MX, 50, { font: F.b, size: 14, align: 'center', maxW: CW });
+            hline(ip, 74);
+            draw(ip, 'Pourquoi les 2 cadres de l’agent·e et les signatures ne sont-ils pas remplissables dans ce PDF ?', MX, 92, { font: F.b, size: 10.5 });
+            const pts = [
+                'Ce PDF sert à renseigner la partie de l’évaluateur·rice (N+1) sans connexion. Les cadres « Observations de l’agent·e » (page 4), les signatures et le visa de l’autorité territoriale ne sont donc volontairement pas modifiables ici.',
+                '1. Il faut d’abord téléverser dans l’application ce CREP PDF renseigné (1er téléversement) : l’application reprend la saisie, puis la partie évaluateur est validée.',
+                '2. Le CREP est ensuite imprimé (pages 1 à 4 seulement) et remis à l’agent·e.',
+                '3. Les commentaires de l’agent·e (conditions de travail, entretien) doivent être écrits par l’agent·e lui-même, à la main, sur la version imprimée.',
+                '4. Les signatures de l’agent·e et de l’évaluateur·rice doivent être faites « à la main » sur la version imprimée.',
+                '5. Le CREP signé devra ensuite être numérisé, puis téléversé dans l’application (2e téléversement) : l’outil y récupère les 2 cadres de l’agent·e et contrôle les signatures.',
+            ];
+            let ty = 112;
+            for (const [k, t] of pts.entries()) {
+                const lines = wrap(F.r, 10, t, CW - 8);
+                lines.forEach((ln, j) => draw(ip, ln, MX + 4, ty + j * 13, { size: 10, font: k === 0 ? F.i : F.r }));
+                ty += lines.length * 13 + 9;
+            }
         }
         // Marqueur d'identification : rattache le PDF à CET entretien (contrôlé à la réimportation)
         const meta = form.createTextField(N.meta);

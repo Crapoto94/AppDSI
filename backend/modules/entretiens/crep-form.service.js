@@ -72,8 +72,6 @@ async function readCrepForm(buffer, entretien, cdef) {
         formations: { obligatoires: t(N.formObligatoires), metiers: t(N.formMetiers), parcours: t(N.formParcours) },
         evolution: t(N.evolution),
         mobilite: t(N.mobilite),
-        obs_agent_conditions: t(N.obs_agent_conditions),
-        obs_agent_entretien: t(N.obs_agent_entretien),
     };
     for (let i = 0; i < NB_OBJECTIFS; i++) {
         let niveau = '';

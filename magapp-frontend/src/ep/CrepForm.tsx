@@ -283,7 +283,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       const fd = new FormData();
       fd.append('file', file);
       const r = await axios.post(`/api/entretiens/${entretien.id}/crep/form-import`, fd, { headers });
-      setCrep({ ...crep, ...r.data.crep } as Crep);
+      // Les cadres de l'agent·e et le visa ne sont pas dans le PDF : on garde ceux de l'outil
+      setCrep({ ...crep, ...r.data.crep, obs_agent_conditions: crep.obs_agent_conditions, obs_agent_entretien: crep.obs_agent_entretien, visa_autorite: crep.visa_autorite } as Crep);
       setFormVisible(true);
       const w: string[] = r.data.warnings || [];
       setMsg({ ok: w.length === 0, text: `Formulaire importé (${r.data.filled} champ(s) renseigné(s)). Vérifiez le contenu ci-dessous puis validez votre partie.${w.length ? '\n' + w.join('\n') : ''}` });
