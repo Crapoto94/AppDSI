@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SimulationPanel from './SimulationPanel';
 import IaPrompts from './IaPrompts';
+import MailTemplates from './MailTemplates';
 import ScanReadingPanel from './ScanReadingPanel';
 import axios from 'axios';
 import {
@@ -229,7 +230,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [esignCandidates, setEsignCandidates] = useState<AiEvaluatorRef[]>([]);
 
   // Note à l'attention de la Direction générale : éditable par les administrateurs du module.
-  const [sub, setSub] = useState<'general' | 'agents' | 'admins' | 'options' | 'ia'>('general');
+  const [sub, setSub] = useState<'general' | 'agents' | 'admins' | 'options' | 'mails' | 'ia'>('general');
   const [dgNote, setDgNote] = useState('');
   const [dgNoteDefault, setDgNoteDefault] = useState('');
   const [showDgNote, setShowDgNote] = useState(false);
@@ -541,12 +542,13 @@ Cette action est définitive.`)) return;
         <Settings size={17} color={COLORS.primary} /> Paramétrage du module
       </div>
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
-        {([['general', 'Général'], ['agents', 'Agent·e·s à évaluer'], ['admins', 'Administrateurs'], ['options', 'Options'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
+        {([['general', 'Général'], ['agents', 'Agent·e·s à évaluer'], ['admins', 'Administrateurs'], ['options', 'Options'], ['mails', 'Modèles d’e-mails'], ['ia', 'IA (prompts)']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setSub(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', fontSize: 13.5, fontWeight: 700, color: sub === k ? COLORS.primary : '#64748b', borderBottom: `2px solid ${sub === k ? COLORS.primary : 'transparent'}`, marginBottom: -1 }}>{l}</button>
         ))}
       </div>
       {sub === 'ia' && <IaPrompts />}
-      <div style={{ display: sub === 'ia' ? 'none' : 'block' }}>
+      {sub === 'mails' && <MailTemplates />}
+      <div style={{ display: sub === 'ia' || sub === 'mails' ? 'none' : 'block' }}>
 
       {sub === 'general' && (<>
       <div style={{ ...card, padding: 18, marginBottom: 16 }}>

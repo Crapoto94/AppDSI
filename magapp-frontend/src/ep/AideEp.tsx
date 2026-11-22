@@ -680,6 +680,15 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agent·e·s.</Callout>
             </Section>
 
+            <Section icon={<Mail size={15} color={COLORS.primary} />} title="Modèles d'e-mails (Paramétrage → Modèles d'e-mails)">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Cet onglet liste <strong>tous les e-mails envoyés par l'application</strong> (convocation, compte rendu à valider, relances, demandes de réouverture, lecture du CREP, backlog…), classés par <strong>destinataire</strong>. Un point orange signale un modèle personnalisé.</div>
+                <div>Chaque modèle a cinq éléments modifiables : <strong>objet</strong>, <strong>titre</strong>, <strong>introduction</strong> et <strong>corps</strong> (dans un <strong>éditeur visuel</strong> : gras, italique, listes, liens) et <strong>libellé du bouton</strong>. La liste des <strong>variables</strong> disponibles est affichée sous l'éditeur : un clic insère la variable à l'endroit du curseur (par exemple <code>{'{{agent}}'}</code>, <code>{'{{evaluateur}}'}</code>, <code>{'{{quand}}'}</code>). Les variables « bloc » (en violet) sont générées par l'application et s'insèrent telles quelles.</div>
+                <div><strong>Aperçu</strong> montre l'e-mail avec des valeurs d'exemple avant enregistrement ; <strong>Enregistrer</strong> s'applique dès le prochain envoi ; <strong>Rétablir l'original</strong> revient au texte d'origine.</div>
+                <div>Les e-mails <strong>s'adaptent à la situation</strong> : par exemple, si l'agent·e n'a pas accès à « Mon entretien » (option non activée pour lui·elle), la convocation l'invite à préparer l'entretien sur papier (CREP vierge joint), sans bouton ni lien vers l'application, la relance de préparation n'est pas envoyée, et l'évaluateur·rice n'est pas informé·e d'une préparation en ligne.</div>
+              </div>
+            </Section>
+
             <Section icon={<Lightbulb size={15} color="#d97706" />} title="Backlog de traitement (onglet « Backlog »)">
               <div style={{ display: 'grid', gap: 4 }}>
                 <div>L'onglet <strong>« Backlog »</strong> (compteur des demandes en attente) rassemble toutes les demandes déposées avec l'<strong>ampoule</strong> : questions, améliorations et bugs, avec leurs pièces jointes et leurs commentaires. Filtres par <strong>état</strong> et par <strong>type</strong>.</div>

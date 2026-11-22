@@ -147,7 +147,10 @@ async function sendPreparationMail(entretien, campaign) {
         if (!(await epBeta.allowedForEntretien(entretien, entretien.agent_email, 'mail de préparation'))) return { ok: false, skipped: true, beta: true };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
+        // L'agent·e a-t-il·elle accès à « Mon entretien » (option activée pour lui·elle) ? Sinon : préparation sur papier, pas de bouton.
+        const avecAcces = !!(await selfAccessFor({ username: entretien.agent_username, email: entretien.agent_email }).catch(() => ({ allowed: false }))).allowed;
         const tpl = email.preparation({
+            avecAcces,
             agent: fullName(entretien.agent_prenom, entretien.agent_nom) || 'Madame, Monsieur',
             annee: campaign?.annee,
             quand: formatDateTimeFr(entretien.date_entretien),
@@ -187,7 +190,9 @@ async function sendEvaluatorMail(entretien, campaign) {
         if (!(await epBeta.allowedForEntretien(entretien, entretien.evaluator_email, 'mail évaluateur'))) return { ok: false, skipped: true, beta: true };
         const { sendParapheurEmail } = require('../parapheur/parapheur.service');
         const email = require('./entretiens-email');
+        const agentAcces = !!(await selfAccessFor({ username: entretien.agent_username, email: entretien.agent_email }).catch(() => ({ allowed: false }))).allowed;
         const base = {
+            agentAcces,
             evaluateur: entretien.evaluator_nom || entretien.evaluator_email,
             agent: fullName(entretien.agent_prenom, entretien.agent_nom) || entretien.agent_email || 'un agent',
             annee: campaign?.annee,

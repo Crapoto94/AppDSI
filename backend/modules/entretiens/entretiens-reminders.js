@@ -65,6 +65,8 @@ async function runReminders({ dryRun = false } = {}) {
         if (['realise', 'cloture'].includes(r.statut) || r.preparation_statut === 'soumis' || !r.agent_email) continue;
         const t = toMs(r.date_entretien);
         if (!t || t < now || t - now > 7 * DAY) continue;
+        // Pas de relance de préparation si l'agent·e n'a pas accès à « Mon entretien » (option non activée pour lui·elle)
+        if (!(await svc.selfAccessFor({ username: r.agent_username, email: r.agent_email }).catch(() => ({ allowed: false }))).allowed) continue;
         const ls = await lastSent(r.id, 'prep_agent');
         if (now - ls.last < 3 * DAY) continue;
         if (await send(r.agent_email, email.relancePreparation({ agent: nameOf(r), annee: campaign.annee, quand: svc.formatDateTimeFr(r.date_entretien), link: linkAgent }), `Préparation ${nameOf(r)}`, r)) {

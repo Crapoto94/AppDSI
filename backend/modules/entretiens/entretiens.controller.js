@@ -1528,6 +1528,37 @@ const entretiensController = {
         } catch (err) { fail(res, err.status || 500, err.message); }
     },
 
+    // GET /api/entretiens/mail-templates — tous les e-mails envoyés par l'application (administrateurs)
+    listMailTemplates: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const M = require('./mail-templates');
+            await M.refresh(true);
+            res.json({ templates: M.list() });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+    // PUT /api/entretiens/mail-templates/:id { subject, title, intro, body, button } — enregistre (champs identiques à l'original : rétablis)
+    saveMailTemplate: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const M = require('./mail-templates');
+            await M.save(String(req.params.id), req.body || {});
+            await svc.logAudit({ actor, action: 'modele_mail', entretien: null, details: { id: req.params.id } });
+            res.json({ ok: true, templates: M.list() });
+        } catch (err) { fail(res, err.status || 500, err.message); }
+    },
+    // POST /api/entretiens/mail-templates/:id/preview { ...champs } — aperçu avec des valeurs d'exemple
+    previewMailTemplate: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const m = require('./mail-templates').preview(String(req.params.id), req.body || {});
+            res.json({ subject: m.subject, html: m.html });
+        } catch (err) { fail(res, err.status || 500, err.message); }
+    },
+
     // PUT /api/entretiens/simulation { on } — active / désactive le mode simulation (administrateurs du module)
     setSimulation: async (req, res) => {
         try {

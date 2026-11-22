@@ -100,6 +100,10 @@ Chaque demande est **visible de tous les utilisateur·rice·s** du module, qui p
 
 Au Pilotage, les administrateur·rice·s déclarent **« reçu par la DRH »** chaque CREP signé dont l'original est parvenu à la DRH (un par un ou par lot). Deux indicateurs apparaissent, pour le Pilotage comme pour chaque évaluateur·rice : **« À transmettre à la DRH »** (entretiens clôturés dont l'original n'est pas encore reçu) et **« Reçus par la DRH »**. Les indicateurs sont **cliquables** et filtrent la liste.
 
+#### 3.7. Des e-mails adaptés et modifiables
+
+Tous les e-mails envoyés par l'application (convocation, compte rendu à valider, relances, décisions, backlog…) sont **adaptés à la situation de chaque agent·e** (par exemple, pas de lien vers « Mon entretien » pour une personne qui n'y a pas accès) et **modifiables par les administrateur·rice·s** dans un éditeur visuel, avec la liste des variables disponibles et un aperçu avant enregistrement.
+
 ---
 
 ### 4. Les avantages
