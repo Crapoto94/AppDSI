@@ -21,13 +21,13 @@ export default function DisplayPanel() {
   return (
     <div style={{ ...card, padding: 18, marginBottom: 16 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text }}>
-        <Maximize2 size={17} color={COLORS.primary} /> Affichage du module
+        <Maximize2 size={17} color={COLORS.primary} /> Affichage du module (réglage par défaut)
         {busy && <Loader2 size={14} className="spin" />}
       </div>
       <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 10, fontSize: 13, color: '#334155', cursor: 'pointer' }}>
         <input type="checkbox" checked={!!on} disabled={on === null || busy} onChange={e => change(e.target.checked)} style={{ marginTop: 3 }} />
-        <span><strong>Afficher le module en plein écran</strong><br />
-          <span style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 1.6 }}>Coché : le module occupe tout l’écran. Décoché (par défaut) : il reste « dans MagApp », en fenêtre au-dessus du magasin d’applications.</span>
+        <span><strong>Plein écran par défaut</strong><br />
+          <span style={{ color: COLORS.muted, fontSize: 12.5, lineHeight: 1.6 }}>Coché : le module occupe tout l’écran. Décoché (par défaut) : il reste « dans MagApp », en fenêtre au-dessus du magasin d’applications. C’est le réglage de départ : chaque utilisateur·rice peut ensuite choisir son affichage (bouton plein écran en haut du module) ; le module est aussi accessible en plein écran à l’adresse dédiée /ep.</span>
         </span>
       </label>
       {msg && <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 8, fontSize: 12.5, fontWeight: 600, color: msg.ok ? COLORS.success : COLORS.danger }}>{msg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {msg.text}</div>}

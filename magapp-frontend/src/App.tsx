@@ -192,8 +192,12 @@ function App() {
   const [showEp, setShowEp] = useState(false);
   const [epAllowed, setEpAllowed] = useState(false);
   // Lien d'un mail des entretiens professionnels : /?ep=moi | evaluations | auto (mémorisé : le login recharge la page)
+  // Adresse dédiée : /ep ou /ep/<vue> (moi | evaluations | equipe | pilotage | backlog…) ouvre directement le module, en plein écran.
+  const epDedicated = /^\/ep(\/|$)/i.test(window.location.pathname);
   const [epPending, setEpPending] = useState<string | null>(() => {
     try {
+      const m = window.location.pathname.match(/^\/ep(?:\/([\w-]+))?\/?$/i);
+      if (m) { const v = m[1] || 'auto'; sessionStorage.setItem('magapp_pending_ep', v); return v; }
       const fromUrl = new URLSearchParams(window.location.search).get('ep');
       if (fromUrl !== null) { sessionStorage.setItem('magapp_pending_ep', fromUrl || 'auto'); return fromUrl || 'auto'; }
       return sessionStorage.getItem('magapp_pending_ep');
@@ -1938,7 +1942,13 @@ function App() {
       {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
-      {showEp && <EpVille initialTab={epPending} onClose={() => { setShowEp(false); setEpPending(null); try { sessionStorage.removeItem('magapp_pending_ep'); window.history.replaceState(null, '', window.location.pathname); } catch { /* ignore */ } }} />}
+      {showEp && <EpVille initialTab={epPending} dedicated={epDedicated} onClose={() => {
+        setShowEp(false); setEpPending(null);
+        try { sessionStorage.removeItem('magapp_pending_ep'); } catch { /* ignore */ }
+        // Ouvert par l'adresse dédiée : on revient au portail ; sinon on garde la page en cours
+        if (epDedicated) { window.location.assign('/'); return; }
+        try { window.history.replaceState(null, '', window.location.pathname); } catch { /* ignore */ }
+      }} />}
       {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 

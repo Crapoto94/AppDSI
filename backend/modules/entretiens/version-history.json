@@ -1,12 +1,24 @@
 {
   "module": "entretiens",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "date": "2026-11-22",
   "releases": [
     {
+      "version": "0.44.0",
+      "date": "2026-11-22",
+      "commit": "7c1dfc1f",
+      "groups": {
+        "nouveautes": [
+          "Plein écran et mode sombre au choix de chaque utilisateur, en-tête et onglets fixes en plein écran, adresse dédiée /ep (liens des e-mails compris)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.43.0",
       "date": "2026-11-22",
-      "commit": "c9c69803",
+      "commit": "6be56a9f",
       "groups": {
         "nouveautes": [
           "Versions plus granulaires : chaque commit est une version 0.x.y (nouveauté = 0.x.0, correction ou amélioration = 0.x.y)",

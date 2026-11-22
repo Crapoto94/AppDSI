@@ -19,7 +19,7 @@ async function entretiensUrl(vue) {
     let base = '';
     try { base = await getMagappBaseUrl(); } catch (e) { /* ignore */ }
     if (!base || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(base)) base = DEFAULT_MAGAPP_URL;
-    return `${String(base).replace(/\/+$/, '')}/?ep=${encodeURIComponent(vue || 'auto')}`;
+    return `${String(base).replace(/\/+$/, '')}/ep/${encodeURIComponent(vue || 'auto')}`;
 }
 
 function infoBlock(title, rows) {

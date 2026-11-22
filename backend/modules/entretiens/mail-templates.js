@@ -310,7 +310,7 @@ function preview(id, fields) {
     const f = {};
     const cur = fieldsOf(id);
     for (const k of FIELDS) f[k] = typeof fields?.[k] === 'string' ? (k === 'intro' || k === 'body' ? clean(fields[k]) : fields[k]) : cur[k];
-    return build(id, vars, html, { link: 'https://magapp.ivry.local/?ep=auto', fields: f });
+    return build(id, vars, html, { link: 'https://magapp.ivry.local//ep/auto', fields: f });
 }
 
 refresh(true).catch(() => {});

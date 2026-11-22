@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
-  GraduationCap, Unlock, Lightbulb,
+  GraduationCap, Unlock, Lightbulb, Maximize2, Minimize2, Moon, Sun,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
@@ -814,7 +814,7 @@ function MesAgents({ campaignLabel }: { campaignLabel: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Fenêtre principale
 // ─────────────────────────────────────────────────────────────────────────────
-export default function EpVille({ onClose, initialTab }: { onClose: () => void; initialTab?: string | null }) {
+export default function EpVille({ onClose, initialTab, dedicated = false }: { onClose: () => void; initialTab?: string | null; dedicated?: boolean }) {
   const [me, setMe] = useState<Me | null>(null);
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
@@ -825,6 +825,14 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   const [showBacklog, setShowBacklog] = useState(false);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
+  // Préférences d'affichage PAR UTILISATEUR (mémorisées sur ce poste) : plein écran et mode sombre.
+  // Sans choix de sa part : plein écran = réglage d'administration ; mode sombre = thème de MagApp.
+  const readPref = (k: string): boolean | null => { try { const v = localStorage.getItem(k); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } };
+  const [prefFull, setPrefFull] = useState<boolean | null>(() => readPref('ep_fullscreen'));
+  const [prefDark, setPrefDark] = useState<boolean | null>(() => readPref('ep_dark'));
+  const savePref = (k: string, v: boolean, set: (b: boolean) => void) => { set(v); try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* ignore */ } };
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerH, setHeaderH] = useState(64);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
   const [base, setBase] = useState<{ isValideur: boolean; agents: number } | null>(null);
 
@@ -888,12 +896,25 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
   ].filter(t => t.visible);
 
-  const fullscreen = !!dsi?.fullscreen;
+  // Adresse dédiée (/ep) : le module s'ouvre seul, toujours en plein écran
+  const fullscreen = dedicated || (prefFull ?? !!dsi?.fullscreen);
+  const dark = prefDark ?? (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark');
+  useEffect(() => {
+    const el = headerRef.current; if (!el) return;
+    const measure = () => setHeaderH(el.offsetHeight);
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [fullscreen, me]);
   return (
     // Plein écran (réglage d'administration) : le module occupe toute la fenêtre ; sinon il reste « dans MagApp » (fenêtre au-dessus du magasin)
-    <div style={{ position: 'fixed', inset: 0, background: fullscreen ? '#f8fafc' : 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: fullscreen ? 0 : '20px 12px', overflowY: 'auto' }}>
+    <div className={dark ? 'ep-dark' : undefined} style={{ position: 'fixed', inset: 0, background: fullscreen ? '#f8fafc' : 'rgba(15,23,42,.55)', zIndex: 1900, filter: dark ? 'invert(.9) hue-rotate(180deg)' : undefined }}>
+      {dark && <style>{`.ep-dark img, .ep-dark iframe, .ep-dark video, .ep-dark canvas { filter: invert(1) hue-rotate(180deg); }`}</style>}
+      <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: fullscreen ? 0 : '20px 12px' }}>
       <div style={{ ...card, width: '100%', maxWidth: fullscreen ? 'none' : 1560, minHeight: fullscreen ? '100%' : undefined, background: '#f8fafc', ...(fullscreen ? { borderRadius: 0, border: 'none', boxShadow: 'none' } : {}) }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: fullscreen ? 0 : '12px 12px 0 0' }}>
+        <div ref={headerRef} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: fullscreen ? 0 : '12px 12px 0 0',
+          ...(fullscreen ? { position: 'sticky', top: 0, zIndex: 40 } : {}) }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <img src={logoVille} alt="Ville d’Ivry-sur-Seine" style={{ height: 42, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
           <div>
@@ -902,6 +923,16 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
           </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => savePref('ep_dark', !dark, setPrefDark)} title={dark ? 'Mode clair' : 'Mode sombre'} aria-label={dark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+              style={{ border: 'none', background: '#f1f5f9', color: '#475569', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              {dark ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            {!dedicated && (
+              <button onClick={() => savePref('ep_fullscreen', !fullscreen, setPrefFull)} title={fullscreen ? 'Quitter le plein écran (revenir dans MagApp)' : 'Afficher en plein écran'} aria-label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+                style={{ border: 'none', background: '#f1f5f9', color: '#475569', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            )}
             <button onClick={() => setShowBacklog(true)} title="J’ai une question, une idée ou un bug" aria-label="Question, amélioration ou bug" style={{ border: 'none', background: '#fef3c7', color: '#b45309', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
               <Lightbulb size={17} />
             </button>
@@ -916,7 +947,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
             <>
               {!me.sedit_configured && (me.isAdmin || me.isValideur) && <Notice ok={false}>L’API SEDIT RH n’est pas configurée sur le serveur (SEDITRH_API_URL et SEDITRH_API_KEY) : la recherche d’agent·e·s est indisponible.</Notice>}
               {tabs.length > 1 && (
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #e2e8f0', marginBottom: 18 }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #e2e8f0', marginBottom: 18, ...(fullscreen ? { position: 'sticky', top: headerH, zIndex: 30, background: '#f8fafc', paddingTop: 6 } : {}) }}>
                   {tabs.map(t => (
                     <button key={t.key} onClick={() => setTab(t.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer', marginBottom: -2,
                       borderBottom: `2px solid ${tab === t.key ? COLORS.primary : 'transparent'}`, color: tab === t.key ? COLORS.primary : '#64748b', fontSize: 14, fontWeight: 600 }}>
@@ -941,6 +972,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
             </>
           )}
         </div>
+      </div>
       </div>
       {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
