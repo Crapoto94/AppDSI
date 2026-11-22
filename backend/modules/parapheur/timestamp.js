@@ -119,4 +119,48 @@ async function testTsa(cfg) {
     return { ok: true, genTime, ms: Date.now() - t0 };
 }
 
-module.exports = { TimestampingSigner, addTimestampToCms, testTsa, TsaError };
+/**
+ * Test complet : signe un PDF de test (certificat jetable) avec horodatage OBLIGATOIRE, puis relit la signature pour contrôler
+ * la présence du jeton. Aucun document réel n'est utilisé ; seule l'empreinte de la signature de test part chez l'autorité.
+ * @returns {{ ok, genTime, ms, signature_bytes, placeholder_bytes, pdf (Buffer) }}
+ */
+async function testSignedPdf(cfg) {
+    const { PDFDocument, StandardFonts } = require('pdf-lib');
+    const { SignPdf } = require('@signpdf/signpdf');
+    const { P12Signer } = require('@signpdf/signer-p12');
+    const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
+    const t0 = Date.now();
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = keys.publicKey; cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(8));
+    cert.validity.notBefore = new Date(Date.now() - 60000); cert.validity.notAfter = new Date(Date.now() + 86400000);
+    const attrs = [{ name: 'commonName', value: 'Test horodatage parapheur' }];
+    cert.setSubject(attrs); cert.setIssuer(attrs); cert.sign(keys.privateKey, forge.md.sha256.create());
+    const p12 = Buffer.from(asn1.toDer(forge.pkcs12.toPkcs12Asn1(keys.privateKey, [cert], 'test')).getBytes(), 'binary');
+
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([420, 200]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText('Document de test - horodatage des signatures', { x: 20, y: 150, size: 13, font });
+    page.drawText('Genere par le parapheur DSI Hub. Aucune donnee reelle.', { x: 20, y: 130, size: 10, font });
+    const placeholderLen = 32768;
+    pdflibAddPlaceholder({ pdfDoc: pdf, pdfPage: page, reason: 'Test horodatage', contactInfo: '', name: 'Test', location: '', signatureLength: placeholderLen, widgetRect: [20, 20, 220, 80], appName: 'DSI Hub - Parapheur electronique' });
+    const withPh = Buffer.from(await pdf.save({ useObjectStreams: false }));
+    let result = null;
+    const signer = new TimestampingSigner(new P12Signer(p12, { passphrase: 'test' }), { ...cfg, required: true }, (r) => { result = r; });
+    const signed = Buffer.from(await new SignPdf().sign(withPh, signer));
+
+    // Relecture : le jeton doit figurer dans les attributs non signés de la signature
+    const m = signed.toString('latin1').match(/\/Contents\s*<([0-9A-Fa-f]+)>/);
+    if (!m) throw new TsaError('Signature de test introuvable dans le PDF.');
+    const cms = Buffer.from(m[1].replace(/(00)+$/, ''), 'hex');
+    const root = parseDer(cms);
+    const signerInfo = root.value[1].value[0].value.slice(-1)[0].value[0];
+    const last = signerInfo.value[signerInfo.value.length - 1];
+    const hasToken = last.tagClass === asn1.Class.CONTEXT_SPECIFIC && last.type === 1
+        && last.value.some(a => asn1.derToOid(a.value[0].value) === OID_TS_TOKEN_ATTR);
+    if (!hasToken) throw new TsaError('La signature de test ne contient pas de jeton d’horodatage.');
+    return { ok: true, genTime: result && result.genTime, ms: Date.now() - t0, signature_bytes: cms.length, placeholder_bytes: placeholderLen, pdf: signed };
+}
+
+module.exports = { TimestampingSigner, addTimestampToCms, testTsa, testSignedPdf, TsaError };

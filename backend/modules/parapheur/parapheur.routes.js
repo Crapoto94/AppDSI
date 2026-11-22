@@ -63,6 +63,7 @@ router.delete('/certificates/:id', authenticateJWT, controller.deleteCertificate
 router.get('/admin/settings', authenticateJWT, controller.getSettings);
 router.put('/admin/settings', authenticateJWT, controller.saveSettings);
 router.post('/admin/tsa-test', authenticateJWT, controller.testTsa);
+router.post('/admin/tsa-test-signature', authenticateJWT, controller.testTsaSignature);
 router.post('/admin/rgs-test/start', authenticateJWT, controller.rgsTestStart);
 router.get('/admin/rgs-test/:jobId', authenticateJWT, controller.rgsTestPoll);
 router.post('/admin/rgs-test/:jobId/answer', authenticateJWT, controller.rgsTestAnswer);

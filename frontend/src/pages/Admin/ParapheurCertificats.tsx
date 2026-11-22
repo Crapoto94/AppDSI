@@ -88,6 +88,8 @@ export default function ParapheurCertificats() {
   const [tsaPwd, setTsaPwd] = useState('');
   const [tsaMsg, setTsaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [tsaBusy, setTsaBusy] = useState(false);
+  const [tsaFullBusy, setTsaFullBusy] = useState(false);
+  const [tsaReport, setTsaReport] = useState<{ ok: boolean; text: string; pdfUrl?: string } | null>(null);
   const [ca, setCa] = useState<{ exists: boolean; subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null>(null);
   const [caMsg, setCaMsg] = useState<string | null>(null);
   const [caBusy, setCaBusy] = useState(false);
@@ -140,6 +142,25 @@ export default function ParapheurCertificats() {
       setTsaMsg({ ok: true, text: `Autorité joignable : jeton reçu (${when}, ${d.ms} ms). Seule une empreinte factice a été envoyée.` });
     } catch (e: unknown) { setTsaMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur' }); }
     finally { setTsaBusy(false); }
+  };
+
+  /** Test complet : signe un PDF de test avec horodatage, contrôle le jeton, et propose le PDF à ouvrir dans Acrobat. */
+  const testTsaFull = async () => {
+    setTsaFullBusy(true); setTsaReport(null);
+    try {
+      const r = await fetch('/api/parapheur/admin/tsa-test-signature', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ tsa: { url: tsa.url, login: tsa.login, policy_oid: tsa.policy_oid, ...(tsaPwd ? { password: tsaPwd } : {}) } }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      const g = String(d.genTime || '');
+      const when = /^\d{14}Z$/.test(g) ? `${g.slice(6, 8)}/${g.slice(4, 6)}/${g.slice(0, 4)} ${g.slice(8, 10)}:${g.slice(10, 12)}:${g.slice(12, 14)} UTC` : g;
+      const bin = atob(d.pdf_base64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const pdfUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      setTsaReport({ ok: true, pdfUrl, text: `Signature de test horodatée avec succès : jeton de l'autorité à ${when} (${d.ms} ms). Signature de ${d.signature_bytes} octets pour ${d.placeholder_bytes} réservés.` });
+    } catch (e: unknown) { setTsaReport({ ok: false, text: e instanceof Error ? e.message : 'Erreur' }); }
+    finally { setTsaFullBusy(false); }
   };
 
   const saveSettings = async () => {
@@ -305,9 +326,20 @@ export default function ParapheurCertificats() {
             <button onClick={testTsa} disabled={tsaBusy || !tsa.url.trim()} style={{ padding: '8px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
               {tsaBusy ? 'Test…' : "Tester l'autorité"}
             </button>
+            <button onClick={testTsaFull} disabled={tsaFullBusy || !tsa.url.trim()} style={{ padding: '8px 14px', background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 9, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}
+              title="Signe un PDF de test (certificat jetable) avec horodatage obligatoire et contrôle le jeton">
+              {tsaFullBusy ? 'Signature de test…' : 'Tester une signature horodatée'}
+            </button>
             <span style={{ fontSize: 12, color: '#64748b' }}>Les réglages s'enregistrent avec le bouton d'enregistrement des paramètres.</span>
           </div>
           {tsaMsg && <p style={{ fontSize: 12, margin: '6px 0 0', color: tsaMsg.ok ? '#166534' : '#b91c1c' }}>{tsaMsg.text}</p>}
+          {tsaReport && (
+            <p style={{ fontSize: 12, margin: '6px 0 0', color: tsaReport.ok ? '#166534' : '#b91c1c' }}>
+              {tsaReport.text}{' '}
+              {tsaReport.pdfUrl && <a href={tsaReport.pdfUrl} download="test-horodatage.pdf" style={{ fontWeight: 700 }}>Télécharger le PDF de test</a>}
+              {tsaReport.pdfUrl && <span style={{ color: '#64748b' }}> (à ouvrir dans Adobe Acrobat : panneau Signatures, « Horodatage »).</span>}
+            </p>
+          )}
         </div>
 
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>

@@ -325,6 +325,17 @@ async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMenti
     return getParapheurSettings();
 }
 
+/** Test complet : signature d'un PDF de test horodatée (renvoie le rapport et le PDF en base64). */
+async function testTsaSignature(override) {
+    let cfg = await getTsaConfig();
+    if (override && override.url) cfg = { ...(cfg || {}), url: String(override.url).trim(), login: override.login ?? cfg?.login ?? '', password: override.password || cfg?.password || '', policy_oid: override.policy_oid ?? cfg?.policy_oid ?? '', timeout_s: 15 };
+    if (!cfg) throw { status: 400, message: 'Renseignez l’adresse de l’autorité d’horodatage.' };
+    try {
+        const r = await require('./timestamp').testSignedPdf(cfg);
+        return { ok: true, genTime: r.genTime, ms: r.ms, signature_bytes: r.signature_bytes, placeholder_bytes: r.placeholder_bytes, pdf_base64: r.pdf.toString('base64') };
+    } catch (e) { throw { status: 502, message: e.message }; }
+}
+
 /** Teste une autorité d'horodatage (celle enregistrée, ou celle du formulaire si fournie) avec une empreinte factice. */
 async function testTsa(override) {
     let cfg = await getTsaConfig();
@@ -3675,6 +3686,7 @@ module.exports = {
     getParapheurSettings,
     saveParapheurSettings,
     testTsa,
+    testTsaSignature,
     getEvidenceArchive,
     getEvidenceArchiveByToken,
     getPlatformCa,
