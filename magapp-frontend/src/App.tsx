@@ -289,7 +289,7 @@ function App() {
     const headers = { Authorization: `Bearer ${token}` };
     // Administrateur / valideur (Ville), ou agent / évaluateur d'un entretien existant (module DSI : mêmes tables)
     Promise.all([
-      axios.get('/api/ep-ville/me', { headers }).then(r => !!(r.data?.isAdmin || r.data?.isValideur)).catch(() => false),
+      axios.get('/api/ep-ville/me', { headers }).then(r => !!(r.data?.isAdmin || r.data?.isPilotage || r.data?.isValideur)).catch(() => false),
       axios.get('/api/entretiens/me', { headers }).then(r => !!(r.data?.entretien || r.data?.isEvaluator)).catch(() => false),
       // Valideur d'agents dans la base des agents à évaluer (classeur RH) : il a des entretiens à conduire
       axios.get('/api/ep-base/me', { headers }).then(r => !!r.data?.isValideur).catch(() => false),

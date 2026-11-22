@@ -600,6 +600,40 @@ const entretiensController = {
         } catch (err) { fail(res, 500, err.message); }
     },
 
+    // ─── Rôle « pilotage » (agents qui voient l'onglet Pilotage, sans accès aux CREP) ───
+    listPilotage: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            res.json((await pgDb.all('SELECT * FROM hub_entretiens.pilotage_users ORDER BY display_name, username')) || []);
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    addPilotage: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            let username = text(req.body?.username).trim();
+            let email = text(req.body?.email).trim();
+            let displayName = text(req.body?.display_name || req.body?.displayName).trim();
+            if (!username) return fail(res, 400, 'Identifiant utilisateur requis.');
+            const u = await pgDb.get('SELECT username, displayName AS "displayName", email FROM hub.users WHERE LOWER(username) = LOWER(?)', [username]);
+            if (u) { username = u.username; email = email || u.email || ''; displayName = displayName || u.displayName || ''; }
+            if (await pgDb.get('SELECT id FROM hub_entretiens.pilotage_users WHERE LOWER(username) = LOWER(?)', [username])) return fail(res, 409, 'Cet utilisateur a déjà le rôle pilotage.');
+            const r = await pgDb.run('INSERT INTO hub_entretiens.pilotage_users (username, email, display_name, created_by) VALUES (?, ?, ?, ?)', [username, email || null, displayName || null, actor.username || null]);
+            res.status(201).json(await pgDb.get('SELECT * FROM hub_entretiens.pilotage_users WHERE id = ?', [r.lastID]));
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    removePilotage: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            await pgDb.run('DELETE FROM hub_entretiens.pilotage_users WHERE id = ?', [Number(req.params.id)]);
+            res.json({ message: 'Rôle pilotage retiré.' });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
     getSettings: async (req, res) => {
         try {
             const actor = await svc.getActor(req);

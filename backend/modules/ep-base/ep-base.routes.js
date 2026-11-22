@@ -16,6 +16,15 @@ async function requireAdmin(req, res, next) {
         next();
     } catch (e) { next(e); }
 }
+/** Pilotage : administrateurs, ou agents du rôle « pilotage » (lecture seule, jamais les CREP). */
+async function requireAdminOrPilotage(req, res, next) {
+    try {
+        const actor = await ent.getActor(req);
+        if (!(await ent.isEpAdmin(actor)) && !(await ent.isEpPilotage(actor))) return res.status(403).json({ message: 'Réservé aux administrateurs et au rôle pilotage.' });
+        req.actor = actor;
+        next();
+    } catch (e) { next(e); }
+}
 const wrap = (fn) => async (req, res) => {
     try { await fn(req, res); }
     catch (e) {
@@ -27,7 +36,7 @@ const wrap = (fn) => async (req, res) => {
 // Tout agent connecté : suis-je valideur d'agents de la base ? (affichage de la tuile « Entretiens pro » dans MagApp)
 router.get('/me', authenticateJWT, wrap(async (req, res) => res.json(await svc.meValideur(await ent.getActor(req)))));
 router.get('/equipe', authenticateJWT, wrap(async (req, res) => res.json(await svc.equipeEntretiens(await ent.getActor(req)))));
-router.get('/pilotage', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.pilotageEntretiens())));
+router.get('/pilotage', authenticateJWT, requireAdminOrPilotage, wrap(async (req, res) => res.json(await svc.pilotageEntretiens())));
 router.get('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.listDelegations())));
 router.post('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => { await svc.addDelegation(String(req.body?.secretaire_matricule || ''), String(req.body?.directeur_matricule || ''), req.actor); res.json({ ok: true }); }));
 router.delete('/delegations/:id', authenticateJWT, requireAdmin, wrap(async (req, res) => { await svc.removeDelegation(req.params.id); res.json({ ok: true }); }));

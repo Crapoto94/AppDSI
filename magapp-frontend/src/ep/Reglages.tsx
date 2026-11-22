@@ -213,6 +213,10 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [adminKey, setAdminKey] = useState(0);
   const [adminMsg, setAdminMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Rôle « pilotage » : voit l'onglet Pilotage (lecture seule, sans accès aux CREP)
+  const [pilots, setPilots] = useState<AdminRow[]>([]);
+  const [pilotKey, setPilotKey] = useState(0);
+  const [pilotMsg, setPilotMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [organizer, setOrganizer] = useState('');
   const [organizerMsg, setOrganizerMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -256,6 +260,13 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     } catch { /* ignore */ }
   }, [token]);
 
+  const loadPilots = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/entretiens/pilotage-users', { headers });
+      setPilots(Array.isArray(r.data) ? r.data : []);
+    } catch { /* ignore */ }
+  }, [token]);
+
   const loadSettings = useCallback(async () => {
     try {
       const r = await axios.get('/api/entretiens/settings', { headers });
@@ -290,7 +301,7 @@ export default function Reglages({ onChanged }: { onChanged?: () => void }) {
     } catch { /* ignore */ }
   }, [token]);
 
-  useEffect(() => { loadCampaigns(); loadAdmins(); loadSettings(); }, [loadCampaigns, loadAdmins, loadSettings]);
+  useEffect(() => { loadCampaigns(); loadAdmins(); loadPilots(); loadSettings(); }, [loadCampaigns, loadAdmins, loadPilots, loadSettings]);
 
   useEffect(() => {
     if (selectedId === 'new') { setCampForm(emptyCampaign); return; }
@@ -351,6 +362,30 @@ Cette action est définitive.`)) return;
       loadAdmins();
     } catch (e: any) {
       setAdminMsg({ ok: false, text: e.response?.data?.message || 'Ajout impossible' });
+    }
+  };
+
+  const addPilot = async (hit: AgentOption) => {
+    const payload = { username: hit.username, email: hit.email, display_name: hit.displayName };
+    if (!payload.username) return;
+    setPilotMsg(null);
+    try {
+      await axios.post('/api/entretiens/pilotage-users', payload, { headers });
+      setPilotKey(k => k + 1);
+      setPilotMsg({ ok: true, text: 'Rôle pilotage ajouté.' });
+      loadPilots();
+    } catch (e: any) {
+      setPilotMsg({ ok: false, text: e.response?.data?.message || 'Ajout impossible' });
+    }
+  };
+
+  const removePilot = async (a: AdminRow) => {
+    if (!window.confirm(`Retirer le rôle pilotage à ${a.display_name || a.username} ?`)) return;
+    try {
+      await axios.delete(`/api/entretiens/pilotage-users/${a.id}`, { headers });
+      loadPilots();
+    } catch (e: any) {
+      setPilotMsg({ ok: false, text: e.response?.data?.message || 'Suppression impossible' });
     }
   };
 
@@ -566,6 +601,40 @@ Cette action est définitive.`)) return;
           Note de cadrage sur le fonctionnement des entretiens professionnels, les évaluateur·rice·s, le papier et le dématérialisé, les bénéfices et la DPD.
           Le texte est éditable et conservé pour les prochains administrateurs.
         </div>
+      </div>
+
+      {/* Rôle pilotage */}
+      <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800, color: COLORS.text, marginBottom: 6 }}>
+          <UserCog size={17} color={COLORS.primary} /> Rôle pilotage
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: COLORS.muted, lineHeight: 1.5 }}>
+          Ces agent·e·s voient le menu <strong>Pilotage</strong> (avancement par direction, liste des entretiens) <strong>en lecture seule</strong> :
+          ils n’ont accès ni aux CREP, ni aux actions sur les agent·e·s (impression, ouverture, remise à zéro…), réservées aux administrateurs.
+        </p>
+        <div style={{ marginBottom: 10, maxWidth: 520 }}>
+          <AdminAgentSearch key={pilotKey} onSelect={addPilot} />
+        </div>
+        {pilotMsg && (
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: pilotMsg.ok ? COLORS.success : COLORS.danger }}>
+            {pilotMsg.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />} {pilotMsg.text}
+          </div>
+        )}
+        {pilots.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: '#94a3b8' }}>Aucun agent·e avec le rôle pilotage pour l’instant.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {pilots.map(a => (
+              <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${COLORS.border}`, borderRadius: 9, padding: '8px 11px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>{a.display_name || a.username}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.username}{a.email ? ` · ${a.email}` : ''}</div>
+                </div>
+                <button style={btnDanger} onClick={() => removePilot(a)}><Trash2 size={13} /> Retirer</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       </>)}

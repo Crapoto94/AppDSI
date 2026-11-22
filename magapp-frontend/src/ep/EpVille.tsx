@@ -40,7 +40,7 @@ interface Valideur {
   parent_nom?: string | null;
   direction_code: string; direction_libelle: string; directions: string[]; nb_agents?: number;
 }
-interface Me { isAdmin: boolean; isValideur: boolean; hasSubValideurs?: boolean; valideur: Valideur | null; campaign: { annee: number; libelle?: string } | null; sedit_configured: boolean }
+interface Me { isAdmin: boolean; isPilotage?: boolean; isValideur: boolean; hasSubValideurs?: boolean; valideur: Valideur | null; campaign: { annee: number; libelle?: string } | null; sedit_configured: boolean }
 interface MonAgent {
   id: number; username: string; ad: boolean; matricule: string; nom: string; prenom: string; grade: string; email: string; direction: string; service: string; poste: string;
   saisi_a_la_volee: boolean;
@@ -868,7 +868,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
         : tabArg === 'reouvertures' ? (v.data.isAdmin ? 'reouvertures' : null)
         : tabArg === 'backlog' ? (v.data.isAdmin ? 'backlog' : null)
         : tabArg === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
-      setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
+      setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : (v.data.isAdmin || v.data.isPilotage) ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
   }, []);
 
@@ -888,12 +888,12 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     { key: 'evaluations' as const, label: 'EP que je réalise', icon: <ClipboardCheck size={15} />, visible: !!dsi?.isEvaluator || !!me?.isValideur || !!base?.isValideur, badge: dsi?.evaluatorCount || 0 },
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
-    { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
-    { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, badge: reopenPending },
-    { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, badge: backlogPending },
-    { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin },
-    { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
-    { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
+    { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!(me?.isAdmin || me?.isPilotage) },
+    { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: reopenPending },
+    { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: backlogPending },
+    { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin, adminOnly: true },
+    { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin, adminOnly: true },
+    { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin, adminOnly: true },
   ].filter(t => t.visible);
 
   // Adresse dédiée (/ep) : le module s'ouvre seul, toujours en plein écran
@@ -971,6 +971,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
                     <button key={t.key} onClick={() => setTab(t.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer', marginBottom: -2,
                       borderBottom: `2px solid ${tab === t.key ? COLORS.primary : 'transparent'}`, color: tab === t.key ? COLORS.primary : '#64748b', fontSize: 14, fontWeight: 600 }}>
                       {t.icon}{t.label}
+                      {'adminOnly' in t && t.adminOnly && <span title="Menu réservé aux administrateurs" style={{ background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 7px', fontSize: 9.5, fontWeight: 800, letterSpacing: .3 }}>ADMIN</span>}
                       {'badge' in t && !!t.badge && <span style={{ background: tab === t.key ? COLORS.primary : '#e2e8f0', color: tab === t.key ? '#fff' : '#475569', borderRadius: 999, padding: '1px 7px', fontSize: 10.5, fontWeight: 800 }}>{t.badge}</span>}
                     </button>
                   ))}
@@ -979,7 +980,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
               {tab === 'moi' && dsi && <MonEntretien data={dsi} onChanged={loadDsi} />}
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} canReset={!!me.isAdmin} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
-              {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} />}
+              {tab === 'pilotage' && (me.isAdmin || me.isPilotage) && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} noActions={!me.isAdmin} />}
               {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'reouvertures' && me.isAdmin && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}

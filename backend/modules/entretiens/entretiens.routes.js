@@ -47,6 +47,9 @@ router.post('/drh-reception', authenticateJWT, ctrl.drhReception);
 router.get('/admins', authenticateJWT, ctrl.listAdmins);
 router.post('/admins', authenticateJWT, ctrl.addAdmin);
 router.delete('/admins/:id', authenticateJWT, ctrl.removeAdmin);
+router.get('/pilotage-users', authenticateJWT, ctrl.listPilotage);
+router.post('/pilotage-users', authenticateJWT, ctrl.addPilotage);
+router.delete('/pilotage-users/:id', authenticateJWT, ctrl.removePilotage);
 router.get('/settings', authenticateJWT, ctrl.getSettings);
 router.put('/settings', authenticateJWT, ctrl.updateSettings);
 

@@ -100,6 +100,18 @@ async function isEpAdmin(actor) {
     }
 }
 
+/** Rôle « pilotage » : accès à l'onglet Pilotage en lecture seule (jamais aux CREP). */
+async function isEpPilotage(actor) {
+    const clauses = [];
+    const params = [];
+    if (actor.username) { clauses.push('LOWER(username) = LOWER(?)'); params.push(actor.username); }
+    if (actor.email) { clauses.push('LOWER(email) = LOWER(?)'); params.push(actor.email); }
+    if (!clauses.length) return false;
+    try {
+        return !!(await pgDb.get(`SELECT 1 FROM hub_entretiens.pilotage_users WHERE (${clauses.join(' OR ')}) LIMIT 1`, params));
+    } catch (e) { return false; }
+}
+
 /**
  * Identités sous lesquelles l'utilisateur peut être désigné évaluateur :
  * son compte, plus l'éventuel agent du calendrier DSI correspondant (identifiant ou e-mail).
@@ -969,6 +981,7 @@ module.exports = {
     fullName,
     getActor,
     isEpAdmin,
+    isEpPilotage,
     resolveRole,
     buildAccess,
     getCurrentCampaign,

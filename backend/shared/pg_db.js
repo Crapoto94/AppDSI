@@ -7888,6 +7888,18 @@ async function setupPgDbFull() {
         )
       `);
 
+      // Rôle « pilotage » : voit l'onglet Pilotage (avancement, liste) sans accès aux CREP ni aux actions
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.pilotage_users (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT,
+          display_name TEXT,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_entretiens.settings (
           id SERIAL PRIMARY KEY,

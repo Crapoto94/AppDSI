@@ -64,6 +64,16 @@ function buildTree(rows: Entretien[]): PNode {
 function ProgressTree({ rows }: { rows: Entretien[] }) {
   const root = useMemo(() => buildTree(rows), [rows]);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Déroulé par défaut : dès que les données arrivent, tous les niveaux (directions, services, secteurs) sont ouverts ; l'utilisateur replie ensuite à sa guise
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || root.total === 0) return;
+    autoOpened.current = true;
+    const all = new Set<string>(['']);
+    const walk = (n: PNode) => { for (const c of n.children.values()) { if (c.children.size) all.add(c.key); walk(c); } };
+    walk(root);
+    setOpen(all);
+  }, [root]);
   const toggle = (k: string) => setOpen(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const render = (n: PNode, depth: number): React.ReactNode => {
     const pct = n.total ? Math.round((n.done / n.total) * 100) : 0;
@@ -112,7 +122,7 @@ function crepEtat(e: Entretien): { label: string; hint?: string; color: string; 
     : { label: 'À envoyer', hint: 'Cliquer sur « Envoyer à l’agent·e » (ou passer au papier)', color: '#1e40af', bg: '#dbeafe' };
 }
 
-export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false, canReset = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean; canReset?: boolean }) {
+export default function Evaluations({ onChanged, endpoint = '/api/entretiens/evaluateur', readOnly = false, pilotage = false, canReset = false, noActions = false }: { onChanged?: () => void; endpoint?: string; readOnly?: boolean; pilotage?: boolean; canReset?: boolean; noActions?: boolean }) {
   const { token } = useAuth();
   const [confirm, confirmDialog] = useConfirm();
   const [openViewer, viewerElement, openViews] = useDocViewer();
@@ -542,21 +552,21 @@ Motif (obligatoire) :`, '');
             <UserPlus size={14} /> Ajouter un·e agent·e
           </button>
         )}
-        <button style={btnGhost} onClick={() => allFilteredSelected ? setSelected(new Set()) : selectAll(filtered.map(e => e.id))} disabled={!filtered.length}>
+        {!noActions && <button style={btnGhost} onClick={() => allFilteredSelected ? setSelected(new Set()) : selectAll(filtered.map(e => e.id))} disabled={!filtered.length}>
           {allFilteredSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
-        </button>
-        <span style={{ fontSize: 12, color: COLORS.muted, marginRight: 4 }}>{selected.size} sélectionné(s)</span>
-        <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('blank')}>
+        </button>}
+        {!noActions && <span style={{ fontSize: 12, color: COLORS.muted, marginRight: 4 }}>{selected.size} sélectionné(s)</span>}
+        {!noActions && <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('blank')}>
           {printBusy === 'blank' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP vierges
-        </button>
+        </button>}
         {pilotage && canReset && (
           <button style={{ ...btnGhost, color: '#0f766e', borderColor: '#99f6e4' }} disabled={!selected.size} onClick={() => declareDrh([...selected], true)} title="Déclarer reçus par la DRH les CREP validés de la sélection">
             <Inbox size={14} /> Reçus par la DRH
           </button>
         )}
-        <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('filled')}>
+        {!noActions && <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('filled')}>
           {printBusy === 'filled' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP renseignés
-        </button>
+        </button>}
         {readOnly && (
           <>
             <button style={btnGhost} onClick={() => setOpenEvaluators(new Set(allNodeKeys))}>Tout déplier</button>
@@ -586,7 +596,7 @@ Motif (obligatoire) :`, '');
             <thead>
               <tr>
                 <Th style={{ width: 34 }}>
-                  <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />
+                  {!noActions && <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />}
                 </Th>
                 <Th>Agent·e</Th>
                 <Th>E-mail</Th>
@@ -644,7 +654,7 @@ Motif (obligatoire) :`, '');
                               );
                             })()}
                           </div>
-                          {agent && !canReset && (
+                          {agent && !canReset && !noActions && (
                             <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
                               <button style={btnGhost} onClick={() => printCrep('filled', [agent.id])} disabled={printBusy !== null} title="Imprimer le CREP"><Printer size={13} /></button>
                               <button style={btnGhost} onClick={() => setOpenId(agent.id)}><Eye size={13} /> Ouvrir</button>
@@ -673,7 +683,7 @@ Motif (obligatoire) :`, '');
                 const st = STATUTS[e.statut] || STATUTS.a_planifier;
                 return (
                   <tr key={e.id} style={{ background: e.statut === 'realise' || e.statut === 'cloture' ? '#fafdfb' : '#fff' }}>
-                    <Td><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} /></Td>
+                    <Td>{!noActions && <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} />}</Td>
                     <Td style={{ minWidth: 260, paddingLeft: 10 + item.depth * 22 }}>
                       <div style={{ display: 'flex', gap: 11, alignItems: 'center' }}>
                         {item.child && (
@@ -743,9 +753,9 @@ Motif (obligatoire) :`, '');
                             <CalendarClock size={13} /> {e.date_entretien ? 'Modifier le RDV' : 'Planifier'}
                           </button>
                         )}
-                        <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
+                        {!noActions && <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
                           <Printer size={13} />
-                        </button>
+                        </button>}
                         {canReset && (e.crep_signed_at || (e.crep_scans || []).length > 0 || e.evaluation_statut === 'soumis') && (
                           <button style={{ ...btnGhost, color: '#5b21b6', borderColor: '#ddd6fe', background: '#faf5ff' }} onClick={() => openApercu(e)} title="Aperçu : CREP numérisé ou CREP reconstruit">
                             <Eye size={13} /> Aperçu CREP
@@ -761,14 +771,14 @@ Motif (obligatoire) :`, '');
                             <UserCog size={13} />
                           </button>
                         )}
-                        {(e.crep_statut === 'signe_papier' || (e.crep_statut === 'en_signature' && e.crep_parapheur_status === 'termine')) && (
+                        {!noActions && (e.crep_statut === 'signe_papier' || (e.crep_statut === 'en_signature' && e.crep_parapheur_status === 'termine')) && (
                           <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(e.id)} title="Compte rendu signé">
                             <FileDown size={13} /> CREP signé
                           </button>
                         )}
-                        <button style={btnGhost} onClick={() => setOpenId(e.id)}>
+                        {!noActions && <button style={btnGhost} onClick={() => setOpenId(e.id)}>
                           <Eye size={13} /> {(readOnly && !(!pilotage && sansMailValideur(e))) || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
-                        </button>
+                        </button>}
                       </div>
                     </Td>
                   </tr>

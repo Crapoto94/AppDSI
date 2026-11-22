@@ -390,10 +390,10 @@ const controller = {
     me: async (req, res) => {
         try {
             const actor = await svc.getActor(req);
-            const [isAdmin, valideur, campaign] = await Promise.all([svc.isEpAdmin(actor), getValideur(actor), svc.getCurrentCampaign()]);
+            const [isAdmin, valideur, campaign, isPilotage] = await Promise.all([svc.isEpAdmin(actor), getValideur(actor), svc.getCurrentCampaign(), svc.isEpPilotage(actor)]);
             // « EP de mon équipe » n'a de sens que si au moins un de mes agents est lui-même valideur
             const hasSubs = valideur ? Number((await pgDb.get('SELECT COUNT(*)::int AS n FROM hub_entretiens.valideurs WHERE parent_valideur_id = ?', [valideur.id]))?.n) > 0 : false;
-            res.json({ isAdmin, isValideur: !!valideur, hasSubValideurs: hasSubs, valideur, campaign, sedit_configured: sedit.configured() });
+            res.json({ isAdmin, isPilotage: isAdmin || isPilotage, isValideur: !!valideur, hasSubValideurs: hasSubs, valideur, campaign, sedit_configured: sedit.configured() });
         } catch (e) { handle(res, 'me', e); }
     },
 
