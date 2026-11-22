@@ -1796,6 +1796,52 @@ const entretiensController = {
         }
     },
 
+    // GET /api/entretiens/:id/crep/form.pdf — PDF FORMULAIRE (champs saisissables hors ligne), au modèle de l'agent, prérempli avec la saisie en cours
+    crepFormPdf: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur.');
+            if (!access.canEditEvaluation) return fail(res, 403, 'Le compte rendu n’est plus modifiable.');
+            const campaign = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            const pdf = await buildCrepPdf(row, campaign?.annee, { form: true });
+            const name = `CREP-formulaire-${campaign?.annee || ''}-${svc.fullName(row.agent_prenom, row.agent_nom)}`.replace(/[^\w\-]+/g, '_');
+            await svc.logAudit({ actor, action: 'crep_formulaire_telecharge', entretien: row, details: {} });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${name}.pdf"`);
+            res.send(pdf);
+        } catch (err) {
+            console.error('[ENTRETIENS] crepFormPdf:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
+    // POST /api/entretiens/:id/crep/form-import — relit le PDF formulaire renseigné hors ligne. N'enregistre rien : renvoie le contenu lu, que l'évaluateur contrôle.
+    crepFormImport: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur.');
+            if (!access.canEditEvaluation) return fail(res, 403, 'Le compte rendu n’est plus modifiable.');
+            const f = req.file;
+            if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
+            const cdef = definitionFor(await epBase.modeleOfEntretien(row));
+            const out = await require('./crep-form.service').readCrepForm(f.buffer, row, cdef);
+            await svc.logAudit({ actor, action: 'crep_formulaire_importe', entretien: row, details: { champs_renseignes: out.filled, avertissements: out.warnings.length } });
+            res.json({ ok: true, crep: out.crep, warnings: out.warnings, filled: out.filled });
+        } catch (err) {
+            if (err && err.status === 400) return fail(res, 400, err.message);
+            console.error('[ENTRETIENS] crepFormImport:', err.message);
+            fail(res, 500, err.message);
+        }
+    },
+
     // GET /api/entretiens/:id/crep-signe.pdf — PDF signé : version téléversée (signée sur papier) sinon PDF co-signé du parapheur
     crepSignedPdf: async (req, res) => {
         try {

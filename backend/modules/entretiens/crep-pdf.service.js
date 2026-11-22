@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('../../shared/lazy').lazy('pdf-lib');
 const { LEVELS, normalizeCrep, definitionFor, groupsOf } = require('./crep.definition');
+const { N } = require('./crep-form.names');
 
 const W = 595.28;
 const H = 841.89;
@@ -29,7 +30,13 @@ function fmtDate(v) {
     return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
-async function buildCrepPdf(entretien, annee) {
+/**
+ * @param opts.form  true : PDF « formulaire » (champs AcroForm saisissables hors ligne, prérempli avec le CREP en cours) au lieu du PDF à plat.
+ *                   La mise en page est identique : les champs se superposent aux cadres du document imprimé.
+ */
+async function buildCrepPdf(entretien, annee, opts = {}) {
+    const formMode = opts.form === true;
+    const formFields = [];   // champs à créer une fois les pages dessinées
     let cdef = null;
     try { cdef = definitionFor(await require('../ep-base/ep-base.service').modeleOfEntretien(entretien)); } catch (e) { /* grille par défaut */ }
     const crep = normalizeCrep(entretien.crep, cdef);
@@ -127,6 +134,12 @@ async function buildCrepPdf(entretien, annee) {
 
     const box = (page, text, x, top, w, h, opts = {}) => {
         rect(page, x, top, w, h, { fill: opts.fill });
+        if (formMode && opts.field) {
+            // Mode formulaire : le cadre reste dessiné, le texte devient un champ saisissable (multiligne sauf indication contraire)
+            const inset = opts.fieldInset || 0;
+            formFields.push({ kind: 'text', page, name: opts.field, value: String(text ?? ''), x: x + inset, top, w: w - inset, h, multiline: opts.single ? false : true, size: opts.maxSize || 9 });
+            return;
+        }
         fitText(page, text, x, top, w, h, opts);
     };
 
@@ -165,25 +178,30 @@ async function buildCrepPdf(entretien, annee) {
     ident.forEach(([label, value], i) => {
         const top = 136 + i * 15;
         draw(page, label, MX, top, { font: F.b, size: 10, align: 'right', maxW: 110 });
+        if (formMode && i === 3) {
+            // Grade actuel : seul champ d'identité saisissable (les autres viennent de la base RH)
+            formFields.push({ kind: 'text', page, name: N.grade, value: String(value || ''), x: MX + 116, top: top - 2, w: CW - 120, h: 15, multiline: false, size: 10 });
+            return;
+        }
         draw(page, value, MX + 116, top, { size: 10 });
     });
 
     // Dates
     const dateCols = [
-        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(crep.date_convocation || entretien.created_at) },
-        { x: MX + 190, w: 130, label: 'Date de l\'entretien :', value: fmtDate(crep.date_entretien || entretien.date_entretien) },
-        { x: MX + 340, w: 195, label: 'Date de notification agent :', value: fmtDate(crep.date_notification || entretien.crep_sent_at) },
+        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(crep.date_convocation || entretien.created_at), field: N.date_convocation },
+        { x: MX + 190, w: 130, label: 'Date de l\'entretien :', value: fmtDate(crep.date_entretien || entretien.date_entretien), field: N.date_entretien },
+        { x: MX + 340, w: 195, label: 'Date de notification agent :', value: fmtDate(crep.date_notification || entretien.crep_sent_at), field: N.date_notification },
     ];
     dateCols.forEach(c => {
         draw(page, c.label, c.x, 206, { font: F.b, size: 9.5 });
-        box(page, c.value, c.x, 222, c.w, 24, { size: 10 });
+        box(page, c.value, c.x, 222, c.w, 24, { size: 10, field: c.field, single: true });
     });
     hline(page, 256, MX, W - MX, 0.6);
     draw(page, 'Nom de l’évaluateur (N+1)', MX + 6, 266, { font: F.b, size: 10 });
-    box(page, crep.evaluateur_nom || entretien.evaluator_nom || '', MX + 150, 260, CW - 150, 24, { size: 10 });
+    box(page, crep.evaluateur_nom || entretien.evaluator_nom || '', MX + 150, 260, CW - 150, 24, { size: 10, field: N.evaluateur_nom, single: true });
     hline(page, 292, MX, W - MX, 0.6);
     draw(page, 'Rappel des missions de l\'agent :', MX + 6, 298, { font: F.b, size: 10 });
-    box(page, crep.missions, MX + 6, 312, CW - 12, 74, { size: 9 });
+    box(page, crep.missions, MX + 6, 312, CW - 12, 74, { size: 9, field: N.missions });
     hline(page, 396);
 
     draw(page, 'VOLET 1 – BILAN DE L’ANNEE ECOULEE', MX, 404, { font: F.b, size: 13, align: 'center', maxW: CW });
@@ -204,6 +222,15 @@ async function buildCrepPdf(entretien, annee) {
     const rowH = 58;
     crep.objectifs_ecoules.forEach((o, i) => {
         const top = headTop + 24 + i * rowH;
+        if (formMode) {
+            box(page, '', cx[0], top, cols[0], rowH, {});
+            draw(page, `${i + 1}.`, cx[0] + 3, top + 4, { size: 9 });
+            formFields.push({ kind: 'text', page, name: N.oeObjectif(i), value: o.objectif, x: cx[0] + 14, top: top + 1, w: cols[0] - 15, h: rowH - 2, multiline: true, size: 9 });
+            box(page, o.observations, cx[1], top, cols[1], rowH, { field: N.oeObservations(i) });
+            rect(page, cx[2], top, cols[2], rowH);
+            formFields.push({ kind: 'dropdown', page, name: N.oeNiveau(i), value: o.niveau, options: ['', 'A', 'PA', 'NA'], x: cx[2] + 12, top: top + rowH / 2 - 10, w: cols[2] - 24, h: 20, size: 11 });
+            return;
+        }
         box(page, `${i + 1}. ${o.objectif}`.replace(/^\d\. $/, `${i + 1}.`), cx[0], top, cols[0], rowH, { size: 9 });
         box(page, o.observations, cx[1], top, cols[1], rowH, { size: 9 });
         rect(page, cx[2], top, cols[2], rowH);
@@ -211,7 +238,7 @@ async function buildCrepPdf(entretien, annee) {
     });
     const obsTop = headTop + 24 + 4 * rowH + 6;
     bar(page, 'Observations complémentaires (contexte, faits marquants, acquis professionnels)', obsTop);
-    box(page, crep.observations_complementaires, MX, obsTop + 18, CW, 810 - (obsTop + 18), { size: 9 });
+    box(page, crep.observations_complementaires, MX, obsTop + 18, CW, 810 - (obsTop + 18), { size: 9, field: N.observations_complementaires });
     draw(page, '* Atteint (A), Partiellement atteint (PA), Non atteint (NA)', MX, 818, { size: 8.5 });
 
     // ════════════════════ PAGE 2 ════════════════════
@@ -237,6 +264,11 @@ async function buildCrepPdf(entretien, annee) {
         for (let k = 0; k < 3; k++) {
             rect(page, lx(k), rowTop, lvW, rowHeight, { stroke: BLACK, lw: 0.7 });
             const bx = lx(k) + lvW / 2 - 4, by = rowTop + rowHeight / 2 - 4;
+            if (formMode) {
+                // Bouton radio à la place de la case : un seul niveau possible par critère
+                formFields.push({ kind: 'radio', page, name: N.valeur(item.key), option: LEVELS[k].key, selected: crep.valeur[item.key], x: bx - 1, top: by - 1, w: 10, h: 10 });
+                continue;
+            }
             page.drawRectangle({ x: bx, y: H - by - 8, width: 8, height: 8, borderColor: BLACK, borderWidth: 0.8 });
             if (crep.valeur[item.key] === LEVELS[k].key) {
                 page.drawLine({ start: { x: bx + 1, y: H - by - 7 }, end: { x: bx + 7, y: H - by - 1 }, thickness: 1.4, color: BLACK });
@@ -282,7 +314,7 @@ async function buildCrepPdf(entretien, annee) {
     draw(page, t3, MX, top, { font: F.b, size: 12, align: 'center', maxW: CW });
     underline(page, t3, MX, top, F.b, 12, 'center', CW);
     top += 20;
-    box(page, crep.appreciation_generale, MX, top, CW, 806 - top, { size: 9.5 });
+    box(page, crep.appreciation_generale, MX, top, CW, 806 - top, { size: 9.5, field: N.appreciation_generale });
     draw(page, 'L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne', MX, 814, { font: F.bi, size: 8.5, align: 'center', maxW: CW });
 
     // ════════════════════ PAGE 3 ════════════════════
@@ -292,7 +324,7 @@ async function buildCrepPdf(entretien, annee) {
     underline(page, t4, MX, 40, F.b, 13, 'center', CW);
     if (!cdef || !cdef.flags || cdef.flags.objectifs_service !== false) {
         draw(page, 'Rappel des objectifs du service/de la direction :', MX + 6, 66, { font: F.b, size: 10 });
-        box(page, crep.objectifs_service, MX, 80, CW, 150, { size: 9.5 });
+        box(page, crep.objectifs_service, MX, 80, CW, 150, { size: 9.5, field: N.objectifs_service });
     }
 
     bar(page, 'Objectifs individuels de travail de l’année à venir', 242);
@@ -304,6 +336,13 @@ async function buildCrepPdf(entretien, annee) {
     const rh3 = 78;
     crep.objectifs_futurs.forEach((o, i) => {
         const rt = 280 + i * rh3;
+        if (formMode) {
+            box(page, '', MX, rt, half, rh3, {});
+            draw(page, `${i + 1}.`, MX + 3, rt + 4, { size: 9.5 });
+            formFields.push({ kind: 'text', page, name: N.ofDescriptif(i), value: o.descriptif, x: MX + 14, top: rt + 1, w: half - 15, h: rh3 - 2, multiline: true, size: 9.5 });
+            box(page, o.moyens, MX + half, rt, half, rh3, { size: 9.5, field: N.ofMoyens(i) });
+            return;
+        }
         box(page, `${i + 1}. ${o.descriptif}`.replace(/^\d\. $/, `${i + 1}.`), MX, rt, half, rh3, { size: 9.5 });
         box(page, o.moyens, MX + half, rt, half, rh3, { size: 9.5 });
     });
@@ -312,36 +351,36 @@ async function buildCrepPdf(entretien, annee) {
     const labelW = 150;
     const frh = 60;
     [
-        ['Formations obligatoires (statutaires et réglementaires)', crep.formations.obligatoires],
-        ['Autres formations métiers', crep.formations.metiers],
-        ['Formations liées à l’accompagnement des parcours et ou à un projet professionnel', crep.formations.parcours],
-    ].forEach(([label, value], i) => {
+        ['Formations obligatoires (statutaires et réglementaires)', crep.formations.obligatoires, N.formObligatoires],
+        ['Autres formations métiers', crep.formations.metiers, N.formMetiers],
+        ['Formations liées à l’accompagnement des parcours et ou à un projet professionnel', crep.formations.parcours, N.formParcours],
+    ].forEach(([label, value, field], i) => {
         const rt = ft + 18 + i * frh;
         rect(page, MX, rt, labelW, frh, { stroke: BLACK, lw: 0.8 });
         const lines = wrap(F.b, 9, label, labelW - 12);
         lines.forEach((ln, j) => draw(page, ln, MX, rt + frh / 2 - (lines.length * 10.5) / 2 + j * 10.5, { font: F.b, size: 9, align: 'center', maxW: labelW }));
-        box(page, value, MX + labelW, rt, CW - labelW, frh, { size: 9.5 });
+        box(page, value, MX + labelW, rt, CW - labelW, frh, { size: 9.5, field });
     });
 
     // ════════════════════ PAGE 4 ════════════════════
     page = pdf.addPage([W, H]);
     bar(page, 'Perspectives d’évolution en termes de missions, de carrière et de mobilité', 40);
     draw(page, '1. Evolution des missions et/ou de carrière :', MX + 6, 68, { font: F.b, size: 10 });
-    box(page, crep.evolution, MX, 82, CW, 62, { size: 9.5 });
+    box(page, crep.evolution, MX, 82, CW, 62, { size: 9.5, field: N.evolution });
     draw(page, '2. Mobilité :', MX + 6, 154, { font: F.b, size: 10 });
-    box(page, crep.mobilite, MX, 168, CW, 62, { size: 9.5 });
+    box(page, crep.mobilite, MX, 168, CW, 62, { size: 9.5, field: N.mobilite });
 
     const t5 = 'Observations de l’agent sur les conditions de travail et le fonctionnement du service';
     draw(page, t5, MX, 242, { font: F.b, size: 10.5, align: 'center', maxW: CW });
     underline(page, t5, MX, 242, F.b, 10.5, 'center', CW);
     draw(page, '(A remplir par l’agent)', MX, 257, { font: F.i, size: 8.5, align: 'center', maxW: CW });
-    box(page, crep.obs_agent_conditions, MX, 270, CW, 118, { size: 9.5 });
+    box(page, crep.obs_agent_conditions, MX, 270, CW, 118, { size: 9.5, field: N.obs_agent_conditions });
 
     const t6 = 'Observations de l’agent sur l’entretien';
     draw(page, t6, MX, 400, { font: F.b, size: 10.5, align: 'center', maxW: CW });
     underline(page, t6, MX, 400, F.b, 10.5, 'center', CW);
     draw(page, '(A remplir par l’agent)', MX, 415, { font: F.i, size: 8.5, align: 'center', maxW: CW });
-    box(page, crep.obs_agent_entretien, MX, 428, CW, 118, { size: 9.5 });
+    box(page, crep.obs_agent_entretien, MX, 428, CW, 118, { size: 9.5, field: N.obs_agent_entretien });
 
     // Signatures
     const sigTop = 556, sigH = 80, sw = CW / 2;
@@ -403,7 +442,51 @@ async function buildCrepPdf(entretien, annee) {
         }
     }
 
+    if (formMode) {
+        const form = pdf.getForm();
+        const groups = new Map();
+        const yOf = (f) => H - f.top - f.h;
+        for (const f of formFields) {
+            if (f.kind === 'text') {
+                const tf = form.createTextField(f.name);
+                if (f.multiline) tf.enableMultiline();
+                tf.setText(safe(F.r, f.value) || undefined);
+                tf.addToPage(f.page, { x: f.x + 1, y: yOf(f) + 1, width: f.w - 2, height: f.h - 2, font: F.r, textColor: BLACK, borderWidth: 0 });
+                tf.setFontSize(f.size || 9);
+            } else if (f.kind === 'dropdown') {
+                const dd = form.createDropdown(f.name);
+                dd.addOptions(f.options);
+                if (f.value) dd.select(f.value);
+                dd.addToPage(f.page, { x: f.x, y: yOf(f), width: f.w, height: f.h, font: F.b, textColor: BLACK, borderColor: GREY_LINE, borderWidth: 0.6 });
+                dd.setFontSize(f.size || 11);
+            } else if (f.kind === 'radio') {
+                let rg = groups.get(f.name);
+                if (!rg) { rg = form.createRadioGroup(f.name); groups.set(f.name, rg); }
+                rg.addOptionToPage(f.option, f.page, { x: f.x, y: yOf(f), width: f.w, height: f.h, borderColor: BLACK, borderWidth: 0.8, textColor: BLACK });
+            }
+        }
+        for (const [, rg] of groups) {
+            const sel = formFields.find(f => f.kind === 'radio' && groups.get(f.name) === rg && f.selected === f.option);
+            if (sel) rg.select(sel.option);
+        }
+        // Marqueur d'identification : rattache le PDF à CET entretien (contrôlé à la réimportation)
+        const meta = form.createTextField(N.meta);
+        meta.setText(formToken(entretien.id));
+        meta.addToPage(pdf.getPage(0), { x: 0, y: 0, width: 1, height: 1, hidden: true, borderWidth: 0 });
+        pdf.setSubject(`CREP-FORM ${formToken(entretien.id)}`);
+        // Pied de page de la 1re page : mode d'emploi (discret, il s'imprime avec le document)
+        const note = 'Formulaire DSI Hub : à renseigner dans Adobe Acrobat Reader puis à réimporter dans l’application, ou à imprimer.';
+        pdf.getPage(0).drawText(safe(F.i, note), { x: MX, y: 8, size: 6.5, font: F.i, color: rgb(0.45, 0.45, 0.45) });
+        form.updateFieldAppearances(F.r);
+    }
+
     return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildCrepPdf };
+/** Jeton d'identification du PDF formulaire : « EP<id>.<signature courte> » (HMAC du numéro d'entretien). */
+function formToken(id) {
+    const sig = require('crypto').createHmac('sha256', require('../../shared/config').SECRET_KEY).update(`ep-crep-form:${id}`).digest('hex').slice(0, 12);
+    return `EP${id}.${sig}`;
+}
+
+module.exports = { buildCrepPdf, formToken };

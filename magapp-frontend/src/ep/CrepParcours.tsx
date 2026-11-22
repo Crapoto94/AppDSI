@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { PenLine, Monitor, Printer, CheckCircle2, ChevronRight, Loader2, Lock, RefreshCw, ArrowRight, Eye, FileText, Unlock } from 'lucide-react';
+import { PenLine, Monitor, Printer, CheckCircle2, ChevronRight, Loader2, Lock, RefreshCw, ArrowRight, Eye, FileText, Unlock, Download, Upload } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary } from './ui';
 import type { Entretien } from './types';
 
@@ -18,7 +18,10 @@ const stageKey = (id: number) => `ep_parcours_stage_${id}`;
  * Parcours guidé du CREP : choix du mode de saisie (manuscrit ou dans l'outil), fil d'Ariane, et action à faire à l'étape en cours.
  * Le mode peut être changé à tout moment (tant que l'entretien n'est pas clôturé).
  */
-export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep, scanReading, isAdminUser, uploadSlot, onViewOriginal, onViewDigital }: {
+export default function CrepParcours({ entretien, headers, busy, onChanged, onPrint, onValidate, onClose, formVisible, setFormVisible, incomplete, onStep, scanReading, isAdminUser, uploadSlot, onViewOriginal, onViewDigital, onOfflineDownload, onOfflineImport }: {
+  /** PDF formulaire à remplir hors ligne (télécharger / réimporter). */
+  onOfflineDownload?: () => void;
+  onOfflineImport?: (f: File) => void;
   /** « Lecture des entretiens numérisés » activée : sinon on n'en parle jamais au valideur. */
   scanReading: boolean;
   isAdminUser: boolean;
@@ -82,6 +85,7 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
   const proceed = proceedAt !== null && scanSig === proceedAt;
   const doProceed = () => { setRecheck(false); setProceedAt(scanSig); try { localStorage.setItem(proceedKey, scanSig); } catch { /* ignore */ } };
 
+  const offlineRef = useRef<HTMLInputElement>(null);
   const chooseMode = async (m: Mode) => {
     if (m === mode) return;
     setSaving(true); setErr('');
@@ -235,6 +239,18 @@ export default function CrepParcours({ entretien, headers, busy, onChanged, onPr
           {mode === 'outil' && current === 1 && <>
             <div>Saisissez les rubriques et <strong>la grille d’appréciation</strong>, puis cliquez sur <strong>Valider la partie évaluateur</strong>. Rien n’est envoyé à l’agent·e.</div>
             <div style={{ marginTop: 8 }}><button style={{ ...btnPrimary, background: COLORS.success }} disabled={busy} onClick={onValidate}><CheckCircle2 size={14} /> Valider la partie évaluateur</button></div>
+            {onOfflineDownload && onOfflineImport && (
+              <div style={{ marginTop: 10, padding: '8px 10px', border: '1px dashed #a5b4fc', borderRadius: 9, background: '#fff' }}>
+                <div style={{ fontWeight: 700, fontSize: 12.5, color: COLORS.text }}>Pas de connexion pendant l’entretien ?</div>
+                <div style={{ fontSize: 12.5, color: '#475569', marginTop: 2 }}>Téléchargez le <strong>PDF formulaire</strong> (au modèle de l’agent·e), renseignez-le hors ligne sur PC ou tablette, puis <strong>réimportez-le</strong> ici : la saisie est reprise, vous la vérifiez et validez. Vous imprimez ensuite pour les signatures, comme d’habitude.</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                  <button style={btnGhost} disabled={busy} onClick={onOfflineDownload}><Download size={14} /> Télécharger le PDF formulaire</button>
+                  <button style={btnGhost} disabled={busy} onClick={() => offlineRef.current?.click()}><Upload size={14} /> Importer le PDF rempli</button>
+                  <input ref={offlineRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onOfflineImport(f); }} />
+                </div>
+              </div>
+            )}
           </>}
           {mode === 'outil' && current === 3 && <>
             <div>Imprimez le CREP : l’agent·e y renseignera ses 2 cadres et le signera, puis vous le signerez.</div>

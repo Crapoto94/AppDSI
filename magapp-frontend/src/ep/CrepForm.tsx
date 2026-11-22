@@ -257,6 +257,45 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     } finally { setBusy(null); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  /** PDF formulaire : à remplir hors ligne (Acrobat Reader, tablette…), au modèle de l'agent. */
+  const downloadOfflineForm = async () => {
+    setBusy('pdf'); setMsg(null);
+    try {
+      if (canEdit && !locked) await axios.put(`/api/entretiens/${entretien.id}/crep`, { crep, submit: false, keep_status: true }, { headers }).then(r => onSaved(r.data.entretien));
+      const r = await axios.get(`/api/entretiens/${entretien.id}/crep/form.pdf`, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(r.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `CREP-formulaire-${entretien.agent_nom || entretien.id}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setMsg({ ok: true, text: 'Formulaire téléchargé. Ouvrez-le avec Adobe Acrobat Reader (ou une application PDF de tablette), renseignez-le, enregistrez-le, puis réimportez-le ici.' });
+    } catch (e: any) {
+      let t = 'Génération du formulaire impossible.';
+      try { const j = JSON.parse(await (e.response?.data as Blob).text()); if (j.message) t = j.message; } catch { /* message par défaut */ }
+      setMsg({ ok: false, text: t });
+    } finally { setBusy(null); }
+  };
+  /** Réimport du PDF formulaire renseigné : le contenu lu remplace la saisie, l'évaluateur le contrôle avant de poursuivre. */
+  const importOfflineForm = async (file: File) => {
+    if (!(await confirm(`Importer « ${file.name} » ?
+
+Le contenu du formulaire remplacera la saisie actuelle du compte rendu.`, { title: 'Importer le formulaire PDF', confirmLabel: 'Importer' }))) return;
+    setBusy('upload'); setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/form-import`, fd, { headers });
+      setCrep({ ...crep, ...r.data.crep } as Crep);
+      setFormVisible(true);
+      const w: string[] = r.data.warnings || [];
+      setMsg({ ok: w.length === 0, text: `Formulaire importé (${r.data.filled} champ(s) renseigné(s)). Vérifiez le contenu ci-dessous puis validez votre partie.${w.length ? '
+' + w.join('
+') : ''}` });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message || 'Import du formulaire impossible.' });
+    } finally { setBusy(null); }
+  };
+
   const agent = `${entretien.agent_prenom || ''} ${entretien.agent_nom}`.trim();
   /** Version numérique : s'ouvre sur le CREP reconstruit, avec le choix du CREP numérisé quand il existe. */
   const openDigital = () => {
@@ -437,7 +476,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         </div>
       )}
       {!isAgent && (canEdit || entretien.statut === 'cloture') && (
-        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf}
+        <CrepParcours entretien={entretien} headers={headers} busy={busy !== null} onChanged={onSaved} onPrint={openPdf} onOfflineDownload={downloadOfflineForm} onOfflineImport={importOfflineForm}
           onValidate={() => save(true)} onClose={closeEntretien} formVisible={formVisible} setFormVisible={setFormVisible}
           uploadSlot={canEdit && showImport && guided ? importEl : null} incomplete={incompleteAfterImport} onStep={setStep} scanReading={scanOn} isAdminUser={isAdminUser}
           onViewOriginal={() => { if (hasSigned) openSignedPdf(); else openScan(Math.max(0, (entretien.crep_scans || []).length - 1)); }} onViewDigital={openDigital} />

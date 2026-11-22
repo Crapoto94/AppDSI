@@ -1,12 +1,24 @@
 {
   "module": "entretiens",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "date": "2026-11-22",
   "releases": [
     {
+      "version": "0.45.0",
+      "date": "2026-11-22",
+      "commit": "46ae6327",
+      "groups": {
+        "nouveautes": [
+          "PDF formulaire à remplir hors ligne (au modèle de l'agent) et réimport de la saisie par l'évaluateur, avant validation, impression et signatures"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.44.0",
       "date": "2026-11-22",
-      "commit": "7c1dfc1f",
+      "commit": "2da4c866",
       "groups": {
         "nouveautes": [
           "Plein écran et mode sombre au choix de chaque utilisateur, en-tête et onglets fixes en plein écran, adresse dédiée /ep (liens des e-mails compris)"
