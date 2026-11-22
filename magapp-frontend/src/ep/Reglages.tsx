@@ -3,6 +3,7 @@ import SimulationPanel from './SimulationPanel';
 import IaPrompts from './IaPrompts';
 import MailTemplates from './MailTemplates';
 import ScanReadingPanel from './ScanReadingPanel';
+import DisplayPanel from './DisplayPanel';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
@@ -569,6 +570,8 @@ Cette action est définitive.`)) return;
       </>)}
 
       {sub === 'options' && (<>
+      <DisplayPanel />
+
       <ScanReadingPanel />
 
       <SimulationPanel />

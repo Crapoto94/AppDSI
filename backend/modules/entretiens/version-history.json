@@ -1,0 +1,155 @@
+{
+  "module": "entretiens",
+  "version": "1.4.0",
+  "date": "2026-11-22",
+  "releases": [
+    {
+      "version": "1.4.0",
+      "date": "2026-11-22",
+      "groups": {
+        "nouveautes": [
+          "Réception DRH + KPI, compteurs-filtres, aperçu CREP numérisé/reconstruit, grille en cases, vue équipe hiérarchique, aide/tuto selon la lecture, écriture inclusive, logo, perfs des listes",
+          "Backlog (ampoule : questions, améliorations, bugs ; commentaires, pièces jointes, suppression, traitement admin), logo embarqué, en-têtes inclusifs, aide et note DG",
+          "Vue équipe hiérarchique à tous niveaux (nombre d'évalué·e·s par personne et total), backlog (e-mail de commentaire, tuto), BPMN (réception DRH, lecture activée ou non)",
+          "Modèles d'e-mails modifiables (Paramétrage), e-mails adaptés à l'accès « Mon entretien », libellé « EP que je réalise »",
+          "Numéro de version du module et nouveautés pour les administrateurs (historique généré depuis les commits git)",
+          "Réglage d'affichage plein écran ou dans MagApp"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-11-21",
+      "groups": {
+        "nouveautes": [
+          "RAZ, refus motivé, aide détaillée et note DG",
+          "Aide complète tous cas (RDV, EP, papier/électronique), note DG stratégique et éditeur WYSIWYG Markdown",
+          "Tutoriel interactif de première connexion, captures dans l'aide, notifications après changement d'évaluateur / lien AD",
+          "N+1 agit pour un valideur sans e-mail, statut de signature dans la liste, scans jusqu'à 30 Mo",
+          "Import de CREP manuscrit multi-photos avec lecture des cases cochées (traitement d'image) et grille proposée",
+          "Analyse IA du CREP manuscrit en tâche de fond (e-mail de fin), lecture ciblée par page, double lecture, cohérence, pages en parallèle",
+          "CREP manuscrit — page 4 complète, filigrane non contractuel, scan et version IA conservés, vérification ligne par ligne, mode commentaires agent, demandes de formation avec analyse IA",
+          "Mode simulation admin (RAZ rendez-vous/entretiens, valideurs et lien AD conservés, demandes de formation fictives)",
+          "Demandes de formation fictives réalistes (formulations libres, fautes, CNFPT)",
+          "Échantillon régulier pour l'analyse IA",
+          "Analyse des formations par catégories en parallèle avec progression et bouton résultat",
+          "Onglet IA (prompts modifiables)",
+          "Note DG : évolutions possibles",
+          "Icônes de chargement animées partout",
+          "Lecture des textes (sans mention d'IA) pour le CREP manuscrit",
+          "Confirmation explicite quand le scan est celui d'un autre agent ou d'une autre catégorie de CREP",
+          "Grille de relecture présentée comme le CREP (cases S / AS / I)",
+          "Parcours guidé du CREP (mode manuscrit ou outil, fil d'Ariane, vérification des 2 signatures, clôture)",
+          "Voir le document téléversé",
+          "Rubriques manquantes en boîte de dialogue",
+          "Visa de l'autorité jamais proposé",
+          "Lecture seule après validation, rappel original à la RH, clore la campagne, dévalider (admin), RAZ à l'étape zéro",
+          "Modèle BPMN du parcours complet d'un CREP",
+          "Aide et note DG à jour",
+          "Chaque étape du parcours n'affiche que ce qui lui sert (téléversement en grand à l'étape dédiée, clôture seule en fin, retour à l'étape précédente)",
+          "Contrôle de complétude après l'import",
+          "Visionneuse intégrée pour tous les documents, parcours manuscrit affiné (retour à la vérification, validation tolérée avec rubriques non renseignées, CREP saisi déroulable en lecture seule à la clôture), détection des signatures renforcée, panneau du parcours toujours visible",
+          "Enregistrement automatique du CREP",
+          "Pilotage (évaluateurs présentés comme les évalués, RAZ/dévalider pour tous, recherche qui déplie)",
+          "Plus de fermeture des modales au clic à côté (DSI Hub et MagApp)",
+          "« Visualiser le CREP saisi », seul le dernier document est proposé, « CREP original » avec icône d'aperçu",
+          "Réglage « Lecture des entretiens numérisés » (lecture silencieuse, version numérique réservée aux administrateurs, pastille et filtre au Pilotage)",
+          "Entretien clôturé = 3 actions seulement, demandes de réouverture justifiées (mail + menu administrateur)",
+          "Listes de bénéficiaires repliées par défaut",
+          "Paramétrage en sous-menus (Général, Agents à évaluer, Administrateurs, Options, IA)",
+          "Options regroupées dont la lecture des entretiens numérisés"
+        ],
+        "ameliorations": [
+          "Aide — modes opératoires d'ajout d'agent et de changement de valideur par le valideur",
+          "Aide — principe du rapprochement RH/AD pour les agents sans e-mail",
+          "Retire des fichiers parasites ajoutés par erreur au commit précédent (restent en local, non versionnés)",
+          "Analyse formations plus rapide (regroupement plafonné, 6 catégories en parallèle)",
+          "Démarrage accéléré (schéma PG sauté si inchangé, migration documents en 1 requête, recalcul/copie users en lot, écoute précoce, libs lourdes paresseuses, cron GLPI désactivée)",
+          "Fix(ep): page blanche en fin de tutoriel, ton administratif (étapes), RDV facultatif",
+          "Aide sans captures d'écran",
+          "CREP manuscrit à téléverser (scan/photos) pour être validé",
+          "Workflow en 10 étapes dans l'aide",
+          "Avertissement précis quand le papier ne correspond pas au modèle de CREP de l'agent",
+          "Aide valideur entièrement conditionnée aux fonctions activées, parcours en 10 étapes, pastilles « activable » côté admin",
+          "Fix(ep): la RAZ supprime aussi les scans originaux et analyses"
+        ],
+        "corrections": [
+          "Classement des formations par lignes numéro:clé (fiable), lots de 30 en parallèle, réparation du JSON tronqué",
+          "Relecture du CREP manuscrit dans l'ordre des pages",
+          "Tableau détecté même si le nombre de lignes diffère du modèle (sens de lecture conservé), grille IA uniforme écartée",
+          "Cases cochées reprises par correspondance de libellés quand le papier n'est pas le formulaire de l'agent",
+          "E-mails avec « Prénom Nom » (plus d'identifiant)",
+          "Lien « Relire la proposition » ouvre directement l'entretien et la proposition",
+          "Suppression de la boîte « Vérification ligne par ligne »",
+          "Corrige l'aide (fragment JSX) et le calcul de scanOn pour le build Docker",
+          "Bandeau du CREP manuscrit adapté quand la lecture des entretiens numérisés est désactivée",
+          "Clôture : rappel de transmettre le CREP signé à la DRH",
+          "Rechargement de l'entretien après clôture"
+        ]
+      }
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-11-20",
+      "groups": {
+        "nouveautes": [
+          "IA désactivable et réservée à des évaluateurs choisis (rédaction et évaluation des compétences)",
+          "Accès « Mon entretien » fermé par défaut et ouvert à des agents choisis",
+          "Signature électronique du CREP désactivée par défaut et ouverte à des agents choisis",
+          "Réactivation pour tous et administrateurs choisis dans l'annuaire agent",
+          "Base des agents à évaluer, modèles CREP et rattachement des valideurs",
+          "Base agents MagApp, pilotage/équipe via ep-base et préparation conditionnelle",
+          "Impression CREP en masse, ajout/changement d'évaluateur, journal d'audit et aide",
+          "KPI planifiés, journal filtrable/paginé, pagination du pilotage et aide enrichie",
+          "Éditeur WYSIWYG, arborescence équipe, liste d'évaluateurs et rattachement AD",
+          "Arborescence multi-niveaux, tout déplier et fonction des agents sans valideur"
+        ],
+        "ameliorations": [],
+        "corrections": [
+          "Nettoyage du point final de l'URL publique",
+          "Suppression en cascade d'un agent valideur et de ses agents evalues (+ suppression d'un agent evalue)",
+          "Conserver le valideur choisi manuellement lors d'un réimport",
+          "Retrait des attitudes du tableau de bord et de « Sans préparateur » hors mode préparation",
+          "Ajoute l'import de compte rendu scanné dans MagApp",
+          "PlannerIdentities en production, paramétrage complet dans MagApp et aide conditionnelle",
+          "Ajout d'agents par direction, changement d'évaluateur élargi et rattachement AD",
+          "Rapprochement AD prioritaire par nom (évite les homonymes/matricules erronés)",
+          "Colonne Valideur fixée à droite (dernières lignes accessibles)"
+        ]
+      }
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-11-19",
+      "groups": {
+        "nouveautes": [
+          "Entretiens professionnels pour toute la Ville (valideurs designes par les admins, agents issus de SEDIT RH avec grade, saisie a la volee, un seul valideur par agent)",
+          "Entretiens professionnels - arbre des valideurs, rattachement AD, CREP signe (parapheur ou papier), liens MagApp",
+          "Creation de tickets/taches/reunions par le MCP",
+          "Boites de dialogue dans l'application",
+          "Mail de relecture du CREP detaille"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-11-18",
+      "groups": {
+        "nouveautes": [
+          "Module Entretiens professionnels, CREP dématérialisé et circuit de signature",
+          "Reprise des EP de l'année précédente (missions, objectifs du service, objectifs)",
+          "Vérification de cohérence du CREP, appréciation générale IA sur l'ensemble, objectifs repris visibles côté évaluateur",
+          "IA via l'API Ville (mistral RGPD++), relances automatiques, export Excel, brouillon agent, rappel du compte rendu"
+        ],
+        "ameliorations": [],
+        "corrections": [
+          "Vérification de cohérence visible, appréciation générale IA fidèle à la grille"
+        ]
+      }
+    }
+  ]
+}

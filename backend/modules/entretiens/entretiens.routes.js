@@ -58,6 +58,7 @@ router.get('/directory', authenticateJWT, ctrl.directory);
 router.post('/free-slots', authenticateJWT, ctrl.freeSlots);
 
 router.get('/formations', authenticateJWT, ctrl.formationsGlobales);
+router.get('/version', authenticateJWT, ctrl.moduleVersion);
 router.get('/mail-templates', authenticateJWT, ctrl.listMailTemplates);
 router.put('/mail-templates/:id', authenticateJWT, ctrl.saveMailTemplate);
 router.post('/mail-templates/:id/preview', authenticateJWT, ctrl.previewMailTemplate);

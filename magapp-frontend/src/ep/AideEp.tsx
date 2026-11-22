@@ -680,6 +680,13 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agent·e·s.</Callout>
             </Section>
 
+            <Section icon={<Sparkles size={15} color={COLORS.primary} />} title="Version du module et nouveautés ; affichage plein écran">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Le <strong>numéro de version</strong> du module (par exemple <strong>v1.4.0</strong>) s'affiche à côté du titre « Entretiens professionnels ». Pour les administrateur·rice·s, un <strong>clic dessus</strong> ouvre les <strong>nouveautés</strong> : l'historique des versions, avec pour chacune les nouveautés, les améliorations et les corrections. Cet historique est <strong>généré automatiquement à partir des descriptions des modifications</strong> apportées au module.</div>
+                <div><strong>Paramétrage → Options → Affichage du module</strong> : « Afficher le module en plein écran ». <strong>Coché</strong> : le module occupe tout l'écran. <strong>Décoché (par défaut)</strong> : il reste « dans MagApp », en fenêtre au-dessus du magasin d'applications. Le réglage s'applique à la prochaine ouverture du module.</div>
+              </div>
+            </Section>
+
             <Section icon={<Mail size={15} color={COLORS.primary} />} title="Modèles d'e-mails (Paramétrage → Modèles d'e-mails)">
               <div style={{ display: 'grid', gap: 4 }}>
                 <div>Cet onglet liste <strong>tous les e-mails envoyés par l'application</strong> (convocation, compte rendu à valider, relances, demandes de réouverture, lecture du CREP, backlog…), classés par <strong>destinataire</strong>. Un point orange signale un modèle personnalisé.</div>

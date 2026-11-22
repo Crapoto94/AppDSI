@@ -285,6 +285,7 @@ const entretiensController = {
                 selfAccess,
                 esignAccess: await svc.esignAllowedFor(actor),
                 scan_reading: await svc.scanReadingOn(),
+                fullscreen: await svc.fullscreenOn(),
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
                     review: await svc.aiAccessFor(actor, 'review'),
@@ -608,6 +609,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -629,6 +631,9 @@ const entretiensController = {
 
             if (b.dg_note !== undefined) {
                 updates.dg_note = text(b.dg_note);
+            }
+            if (b.fullscreen !== undefined) {
+                updates.fullscreen = [true, 1, '1', 'true', 'on'].includes(typeof b.fullscreen === 'string' ? b.fullscreen.trim().toLowerCase() : b.fullscreen) ? '1' : '0';
             }
             if (b.scan_reading !== undefined) {
                 updates.scan_reading = [true, 1, '1', 'true', 'on'].includes(typeof b.scan_reading === 'string' ? b.scan_reading.trim().toLowerCase() : b.scan_reading) ? '1' : '0';
@@ -768,6 +773,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
                 dg_note_default: DG_NOTE_DEFAULT,
@@ -1526,6 +1532,17 @@ const entretiensController = {
             await svc.logAudit({ actor, action: 'prompt_ia', entretien: null, details: { id: req.params.id, rétabli: !String(req.body?.text || '').trim() } });
             res.json({ ok: true, prompts: require('./prompts').list() });
         } catch (err) { fail(res, err.status || 500, err.message); }
+    },
+
+    // GET /api/entretiens/version — numéro de version du module ; l'historique des nouveautés est réservé aux administrateurs
+    moduleVersion: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            let h = { version: '1.0.0', date: '', releases: [] };
+            try { h = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'version-history.json'), 'utf8')); } catch (e) { /* pas d'historique généré */ }
+            const admin = await svc.isEpAdmin(actor);
+            res.json({ version: h.version, date: h.date, admin, releases: admin ? h.releases : [] });
+        } catch (err) { fail(res, 500, err.message); }
     },
 
     // GET /api/entretiens/mail-templates — tous les e-mails envoyés par l'application (administrateurs)

@@ -147,6 +147,8 @@ export interface Entretien {
   drh_received_by?: string | null;
   /** « Lecture des entretiens numérisés » activée ? (sinon le valideur consulte et valide le document sans lecture visible). */
   scan_reading?: boolean;
+  /** Affichage du module en plein écran (sinon « dans MagApp »). */
+  fullscreen?: boolean;
   /** Version numérique lue en arrière-plan (visible des seuls administrateurs). */
   digital_silent?: boolean;
   lecture_arriere_plan?: boolean;
@@ -176,6 +178,8 @@ export interface MeData {
   esignAccess?: EsignAccess;
   /** « Lecture des entretiens numérisés » activée. */
   scan_reading?: boolean;
+  /** Affichage du module en plein écran (sinon « dans MagApp »). */
+  fullscreen?: boolean;
   aiAccess?: AiAccessMap;
   now: string;
 }

@@ -21,6 +21,7 @@ import { useDocViewer } from './DocViewerModal';
 import Reouvertures from './Reouvertures';
 import { BacklogDialog, BacklogAdmin } from './Backlog';
 import logoVille from '../assets/logo-ville.jpg';
+import ModuleVersion from './ModuleVersion';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -887,14 +888,16 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
   ].filter(t => t.visible);
 
+  const fullscreen = !!dsi?.fullscreen;
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 12px', overflowY: 'auto' }}>
-      <div style={{ ...card, width: '100%', maxWidth: 1560, background: '#f8fafc' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: '12px 12px 0 0' }}>
+    // Plein écran (réglage d'administration) : le module occupe toute la fenêtre ; sinon il reste « dans MagApp » (fenêtre au-dessus du magasin)
+    <div style={{ position: 'fixed', inset: 0, background: fullscreen ? '#f8fafc' : 'rgba(15,23,42,.55)', zIndex: 1900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: fullscreen ? 0 : '20px 12px', overflowY: 'auto' }}>
+      <div style={{ ...card, width: '100%', maxWidth: fullscreen ? 'none' : 1560, minHeight: fullscreen ? '100%' : undefined, background: '#f8fafc', ...(fullscreen ? { borderRadius: 0, border: 'none', boxShadow: 'none' } : {}) }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: fullscreen ? 0 : '12px 12px 0 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <img src={logoVille} alt="Ville d’Ivry-sur-Seine" style={{ height: 42, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>Entretiens professionnels</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>Entretiens professionnels<ModuleVersion /></div>
             <div style={{ fontSize: 12, color: COLORS.muted }}>{me?.campaign ? me.campaign.libelle || `Campagne ${me.campaign.annee}` : 'Campagne annuelle'} · tous les services de la Ville</div>
           </div>
           </div>

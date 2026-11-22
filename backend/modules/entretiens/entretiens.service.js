@@ -508,6 +508,11 @@ async function scanReadingOn() {
     return ['1', 'true'].includes(String(await getSetting('scan_reading')).trim().toLowerCase());
 }
 
+/** Affichage du module : plein écran (true) ou « dans MagApp » comme à l'origine (défaut). */
+async function fullscreenOn() {
+    return ['1', 'true'].includes(String(await getSetting('fullscreen')).trim().toLowerCase());
+}
+
 async function setSetting(key, value) {
     await pgDb.run(
         `INSERT INTO hub_entretiens.settings (key, value, updated_at)
@@ -968,6 +973,7 @@ module.exports = {
     getSetting,
     setSetting,
     scanReadingOn,
+    fullscreenOn,
     getAiEvaluators,
     getAiSettings,
     aiAccessFor,
