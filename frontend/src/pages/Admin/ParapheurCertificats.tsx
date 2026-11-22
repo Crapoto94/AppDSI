@@ -83,6 +83,11 @@ export default function ParapheurCertificats() {
   const [sealEnabled, setSealEnabled] = useState(true);
   const [bulkSignMention, setBulkSignMention] = useState('');
   const [notifyInterval, setNotifyInterval] = useState(2);
+  // Horodatage RFC 3161 des signatures (autorité d'horodatage paramétrable)
+  const [tsa, setTsa] = useState({ enabled: false, url: '', login: '', has_password: false, policy_oid: '', required: false });
+  const [tsaPwd, setTsaPwd] = useState('');
+  const [tsaMsg, setTsaMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tsaBusy, setTsaBusy] = useState(false);
   const [ca, setCa] = useState<{ exists: boolean; subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null>(null);
   const [caMsg, setCaMsg] = useState<string | null>(null);
   const [caBusy, setCaBusy] = useState(false);
@@ -107,6 +112,7 @@ export default function ParapheurCertificats() {
         setSealEnabled(cfg.seal_enabled !== false);
         setBulkSignMention(cfg.bulk_sign_mention || '');
         setNotifyInterval(Number(cfg.notify_interval_minutes) || 2);
+        if (cfg.tsa) setTsa(cfg.tsa);
       }
       if (caInfo && typeof caInfo === 'object') setCa(caInfo);
       if (c.message || l.message || s.message) throw new Error(c.message || l.message || s.message);
@@ -120,13 +126,29 @@ export default function ParapheurCertificats() {
 
   useEffect(() => { load(); }, [load]);
 
+  const testTsa = async () => {
+    setTsaBusy(true); setTsaMsg(null);
+    try {
+      const r = await fetch('/api/parapheur/admin/tsa-test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ tsa: { url: tsa.url, login: tsa.login, policy_oid: tsa.policy_oid, ...(tsaPwd ? { password: tsaPwd } : {}) } }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      const g = String(d.genTime || '');
+      const when = /^\d{14}Z$/.test(g) ? `${g.slice(6, 8)}/${g.slice(4, 6)}/${g.slice(0, 4)} ${g.slice(8, 10)}:${g.slice(10, 12)}:${g.slice(12, 14)} UTC` : g;
+      setTsaMsg({ ok: true, text: `Autorité joignable : jeton reçu (${when}, ${d.ms} ms). Seule une empreinte factice a été envoyée.` });
+    } catch (e: unknown) { setTsaMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur' }); }
+    finally { setTsaBusy(false); }
+  };
+
   const saveSettings = async () => {
     setSavingSettings(true); setSettingsMsg(null);
     try {
       const r = await fetch('/api/parapheur/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ public_base_url: settingsInput, seal_enabled: sealEnabled, bulk_sign_mention: bulkSignMention, notify_interval_minutes: notifyInterval }),
+        body: JSON.stringify({ public_base_url: settingsInput, seal_enabled: sealEnabled, bulk_sign_mention: bulkSignMention, notify_interval_minutes: notifyInterval, tsa: { enabled: tsa.enabled, url: tsa.url, login: tsa.login, policy_oid: tsa.policy_oid, required: tsa.required, ...(tsaPwd ? { password: tsaPwd } : {}) } }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Erreur');
@@ -135,6 +157,8 @@ export default function ParapheurCertificats() {
       setSealEnabled(d.seal_enabled !== false);
       setBulkSignMention(d.bulk_sign_mention || '');
       setNotifyInterval(Number(d.notify_interval_minutes) || 2);
+      if (d.tsa) setTsa(d.tsa);
+      setTsaPwd('');
       setSettingsMsg('Paramètres enregistrés.');
     } catch (e: unknown) { setSettingsMsg(e instanceof Error ? e.message : 'Erreur'); }
     finally { setSavingSettings(false); }
@@ -253,6 +277,38 @@ export default function ParapheurCertificats() {
           <input type="checkbox" checked={sealEnabled} onChange={e => setSealEnabled(e.target.checked)} />
           Apposer un <b>sceau PAdES de fin de circuit</b> (signature cryptographique de la plateforme) sur les documents signés.
         </label>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+            Horodatage des signatures (RFC 3161)
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', cursor: 'pointer' }}>
+            <input type="checkbox" checked={tsa.enabled} onChange={e => setTsa({ ...tsa, enabled: e.target.checked })} />
+            Faire <b>horodater</b> chaque signature par une autorité d'horodatage (preuve de date vérifiable dans tout lecteur PDF).
+          </label>
+          <p style={{ fontSize: 12, color: '#64748b', margin: '6px 0 8px' }}>
+            Seule l'empreinte de la signature est envoyée à l'autorité, jamais le document. Un service gratuit (ex. https://freetsa.org/tsr) donne une preuve
+            de date technique ; pour une valeur juridique renforcée (horodatage qualifié eIDAS), utilisez un prestataire qualifié de la liste de confiance nationale
+            (ANSSI) et saisissez son adresse et ses identifiants.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
+            <input value={tsa.url} onChange={e => setTsa({ ...tsa, url: e.target.value })} placeholder="Adresse de l'autorité (https://…)" style={{ gridColumn: '1 / -1', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+            <input value={tsa.login} onChange={e => setTsa({ ...tsa, login: e.target.value })} placeholder="Identifiant (facultatif)" autoComplete="off" style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+            <input type="password" value={tsaPwd} onChange={e => setTsaPwd(e.target.value)} placeholder={tsa.has_password ? 'Mot de passe enregistré (laisser vide pour le garder)' : 'Mot de passe (facultatif)'} autoComplete="new-password" style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+            <input value={tsa.policy_oid} onChange={e => setTsa({ ...tsa, policy_oid: e.target.value })} placeholder="OID de politique (facultatif)" style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', marginTop: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={tsa.required} onChange={e => setTsa({ ...tsa, required: e.target.checked })} />
+            Horodatage <b>obligatoire</b> : si l'autorité est injoignable, la signature est refusée (sinon elle se fait sans horodatage).
+          </label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+            <button onClick={testTsa} disabled={tsaBusy || !tsa.url.trim()} style={{ padding: '8px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+              {tsaBusy ? 'Test…' : "Tester l'autorité"}
+            </button>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Les réglages s'enregistrent avec le bouton d'enregistrement des paramètres.</span>
+          </div>
+          {tsaMsg && <p style={{ fontSize: 12, margin: '6px 0 0', color: tsaMsg.ok ? '#166534' : '#b91c1c' }}>{tsaMsg.text}</p>}
+        </div>
 
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>

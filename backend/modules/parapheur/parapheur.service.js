@@ -22,6 +22,7 @@ const archiver = require('archiver');
 const { SignPdf } = require('@signpdf/signpdf');
 const { P12Signer } = require('@signpdf/signer-p12');
 const rgs = require('./rgs-signing');
+const { TimestampingSigner } = require('./timestamp');
 const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
 const emailTemplates = require('./parapheur-email');
 const apmMail = require('../../shared/apm_mail');
@@ -200,6 +201,8 @@ const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
 const BULK_SIGN_MENTION_KEY = 'parapheur.bulk_sign_mention';
 const NOTIFY_INTERVAL_KEY = 'parapheur.notify_interval_minutes';
 const VERIFY_PATH = '/parapheur/verification';
+// Horodatage RFC 3161 des signatures (autorité d'horodatage paramétrable)
+const TSA_KEYS = { enabled: 'parapheur.tsa_enabled', url: 'parapheur.tsa_url', login: 'parapheur.tsa_login', password: 'parapheur.tsa_password', policy: 'parapheur.tsa_policy_oid', required: 'parapheur.tsa_required' };
 
 /**
  * Formule juridique affichée avant une signature « en masse » (sans lecture
@@ -225,6 +228,7 @@ async function getParapheurSettings() {
     let sealEnabled = true;
     let bulkSignMention = '';
     let notifyIntervalMinutes = 2;
+    let tsa = { enabled: false, url: '', login: '', has_password: false, policy_oid: '', required: false };
     try {
         const db = getSqlite();
         if (db) {
@@ -237,6 +241,11 @@ async function getParapheurSettings() {
             const notifyRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [NOTIFY_INTERVAL_KEY]);
             const notifyVal = notifyRow && notifyRow.setting_value != null ? Number(notifyRow.setting_value) : NaN;
             if (Number.isFinite(notifyVal) && notifyVal > 0) notifyIntervalMinutes = Math.min(240, Math.round(notifyVal));
+            const tv = async (k) => { const r = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]); return r && r.setting_value != null ? String(r.setting_value) : ''; };
+            tsa = {
+                enabled: (await tv(TSA_KEYS.enabled)) === 'true', url: await tv(TSA_KEYS.url), login: await tv(TSA_KEYS.login),
+                has_password: !!(await tv(TSA_KEYS.password)), policy_oid: await tv(TSA_KEYS.policy), required: (await tv(TSA_KEYS.required)) === 'true',
+            };
         }
     } catch { /* configuration non initialisée */ }
     // Repli par variable d'environnement : un déploiement ou une base restaurée sans réglage
@@ -252,10 +261,25 @@ async function getParapheurSettings() {
         seal_enabled: sealEnabled,
         bulk_sign_mention: bulkSignMention || DEFAULT_BULK_SIGN_MENTION,
         notify_interval_minutes: notifyIntervalMinutes,
+        tsa,
     };
 }
 
-async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMention, notifyIntervalMinutes } = {}) {
+/** Configuration d'horodatage utilisable (mot de passe déchiffré), ou null si l'horodatage est désactivé / sans URL. */
+async function getTsaConfig() {
+    const db = getSqlite();
+    if (!db) return null;
+    const tv = async (k) => { const r = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]); return r && r.setting_value != null ? String(r.setting_value) : ''; };
+    if ((await tv(TSA_KEYS.enabled)) !== 'true') return null;
+    const url = (await tv(TSA_KEYS.url)).trim();
+    if (!url) return null;
+    let password = '';
+    const enc = await tv(TSA_KEYS.password);
+    if (enc) { try { password = decryptBuffer(Buffer.from(enc, 'base64')).toString('utf8'); } catch { password = ''; } }
+    return { url, login: await tv(TSA_KEYS.login), password, policy_oid: (await tv(TSA_KEYS.policy)).trim(), required: (await tv(TSA_KEYS.required)) === 'true', timeout_s: 15 };
+}
+
+async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMention, notifyIntervalMinutes, tsa } = {}) {
     const db = getSqlite();
     if (!db) throw { status: 503, message: 'Configuration indisponible (base non initialisée).' };
     const upsert = `INSERT INTO app_settings (setting_key, setting_value, description)
@@ -280,7 +304,34 @@ async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMenti
         const value = Number.isFinite(n) && n > 0 ? String(Math.min(240, Math.round(n))) : '2';
         await db.run(upsert, [NOTIFY_INTERVAL_KEY, value, "Intervalle d'envoi des e-mails de signature (minutes)"]);
     }
+    if (tsa && typeof tsa === 'object') {
+        const put = (k, v, d) => db.run(upsert, [k, v, d]);
+        if (tsa.url !== undefined) {
+            const url = String(tsa.url || '').trim();
+            if (url && !/^https?:\/\//i.test(url)) throw { status: 400, message: 'L’adresse de l’autorité d’horodatage doit commencer par http:// ou https://.' };
+            await put(TSA_KEYS.url, url, 'Autorité d’horodatage RFC 3161 : URL');
+        }
+        if (tsa.enabled !== undefined) await put(TSA_KEYS.enabled, tsa.enabled === true ? 'true' : 'false', 'Horodatage des signatures activé');
+        if (tsa.required !== undefined) await put(TSA_KEYS.required, tsa.required === true ? 'true' : 'false', 'Horodatage obligatoire (sinon la signature se fait sans horodatage si la TSA est indisponible)');
+        if (tsa.login !== undefined) await put(TSA_KEYS.login, String(tsa.login || '').trim().slice(0, 200), 'Autorité d’horodatage : identifiant');
+        if (tsa.policy_oid !== undefined) {
+            const p = String(tsa.policy_oid || '').trim();
+            if (p && !/^\d+(\.\d+)+$/.test(p)) throw { status: 400, message: 'L’OID de politique doit être de la forme 1.2.3.4.' };
+            await put(TSA_KEYS.policy, p, 'Autorité d’horodatage : OID de politique (facultatif)');
+        }
+        if (tsa.clear_password === true) await put(TSA_KEYS.password, '', 'Autorité d’horodatage : mot de passe (chiffré)');
+        else if (tsa.password) await put(TSA_KEYS.password, encryptBuffer(Buffer.from(String(tsa.password), 'utf8')).toString('base64'), 'Autorité d’horodatage : mot de passe (chiffré)');
+    }
     return getParapheurSettings();
+}
+
+/** Teste une autorité d'horodatage (celle enregistrée, ou celle du formulaire si fournie) avec une empreinte factice. */
+async function testTsa(override) {
+    let cfg = await getTsaConfig();
+    if (override && override.url) cfg = { ...(cfg || {}), url: String(override.url).trim(), login: override.login ?? cfg?.login ?? '', password: override.password || cfg?.password || '', policy_oid: override.policy_oid ?? cfg?.policy_oid ?? '', timeout_s: 15 };
+    if (!cfg) throw { status: 400, message: 'Renseignez l’adresse de l’autorité d’horodatage.' };
+    try { return await require('./timestamp').testTsa(cfg); }
+    catch (e) { throw { status: 502, message: e.message }; }
 }
 
 async function getVerifyBaseUrl() {
@@ -874,6 +925,8 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
     const y1 = height - cyTop - h / 2;
     const widgetRect = [x1, y1, x1 + w, y1 + h];
 
+    let tsaCfg = null, tsaResult = null;
+    try { tsaCfg = await getTsaConfig(); } catch { tsaCfg = null; }
     pdflibAddPlaceholder({
         pdfDoc,
         pdfPage,
@@ -881,13 +934,15 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
         contactInfo: '',
         name: name || '',
         location: '',
-        signatureLength: 16384,
+        signatureLength: tsaCfg ? 32768 : 16384,   // le jeton d'horodatage (avec la chaîne de la TSA) alourdit la signature
         widgetRect,
         appName: 'DSI Hub - Parapheur électronique',
     });
     const withPlaceholder = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
     // customSigner : signature par une clé matérielle située sur le poste du signataire (voir rgs-signing.js)
-    const signer = customSigner || new P12Signer(p12Buffer, { passphrase: password });
+    let signer = customSigner || new P12Signer(p12Buffer, { passphrase: password });
+    // Horodatage RFC 3161 (PAdES-T) si une autorité d'horodatage est activée
+    if (tsaCfg) signer = new TimestampingSigner(signer, tsaCfg, (r) => { tsaResult = r; });
     const signed = Buffer.from(await new SignPdf().sign(withPlaceholder, signer));
 
     // Vérifie que la signature a bien été inscrite.
@@ -3619,6 +3674,7 @@ module.exports = {
     getAgentTitre,
     getParapheurSettings,
     saveParapheurSettings,
+    testTsa,
     getEvidenceArchive,
     getEvidenceArchiveByToken,
     getPlatformCa,
