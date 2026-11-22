@@ -4,7 +4,7 @@ import { Sparkles, Wrench, Bug, X, Loader2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { COLORS, btnGhost } from './ui';
 
-interface Release { version: string; date: string; groups: { nouveautes: string[]; ameliorations: string[]; corrections: string[] } }
+interface Release { version: string; date: string; commit?: string; groups: { nouveautes: string[]; ameliorations: string[]; corrections: string[] } }
 interface VersionInfo { version: string; date: string; admin: boolean; releases: Release[] }
 
 const fmt = (d?: string) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
@@ -18,6 +18,7 @@ export default function ModuleVersion() {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [open, setOpen] = useState(false);
+  const [all, setAll] = useState(false);
 
   useEffect(() => { axios.get('/api/entretiens/version', { headers }).then(r => setInfo(r.data)).catch(() => setInfo(null)); }, [headers]);
   useEffect(() => {
@@ -46,12 +47,12 @@ export default function ModuleVersion() {
             </div>
             <div style={{ overflowY: 'auto', padding: '6px 18px 18px' }}>
               {!info.releases.length && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}><Loader2 size={18} /> Aucun historique disponible.</div>}
-              {info.releases.map((r, i) => (
+              {(all ? info.releases : info.releases.slice(0, 12)).map((r, i) => (
                 <div key={r.version} style={{ marginTop: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontWeight: 900, fontSize: 15, color: i === 0 ? COLORS.primary : COLORS.text }}>v{r.version}</span>
                     {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 800, color: '#166534', background: '#dcfce7', borderRadius: 999, padding: '1px 8px' }}>Version actuelle</span>}
-                    <span style={{ fontSize: 12, color: '#94a3b8' }}>{fmt(r.date)}</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>{fmt(r.date)}{r.commit ? ` · ${r.commit}` : ''}</span>
                   </div>
                   {([['nouveautes', 'Nouveautés', <Sparkles key="s" size={13} />, '#7c3aed'], ['ameliorations', 'Améliorations', <Wrench key="w" size={13} />, '#0f766e'], ['corrections', 'Corrections', <Bug key="b" size={13} />, '#b45309']] as const).map(([k, label, icon, color]) =>
                     r.groups[k].length ? (
@@ -64,6 +65,9 @@ export default function ModuleVersion() {
                     ) : null)}
                 </div>
               ))}
+              {!all && info.releases.length > 12 && (
+                <div style={{ textAlign: 'center', marginTop: 16 }}><button type="button" style={btnGhost} onClick={() => setAll(true)}>Voir les {info.releases.length - 12} versions précédentes</button></div>
+              )}
             </div>
           </div>
         </div>

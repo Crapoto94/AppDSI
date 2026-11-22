@@ -11,14 +11,14 @@
  * Exemple : node backend/scripts/gen-module-changelog.js entretiens backend/modules/entretiens backend/modules/ep-base backend/modules/ep-ville magapp-frontend/src/ep
  * Sortie : backend/modules/<module>/version-history.json  { module, version, date, releases: [{version, date, groups: {nouveautes, ameliorations, corrections}}] }
  *
- * Numérotation : une version par jour de livraison ; 1.0.0 pour le premier jour ; ensuite +1 mineur si le jour comporte
- * une « feat », sinon +1 correctif.
+ * Numérotation (module pas encore stabilisé : 0.x.y) : CHAQUE commit est une version. Le premier est 0.1.0 ; ensuite une « feat » fait +1 mineur
+ * (0.x.0) et tout autre commit (fix, perf, refactor, docs…) fait +1 correctif (0.x.y). Le passage en 1.0.0 se décide à la main (option --majeur=1).
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const [mod, ...paths] = process.argv.slice(2);
+const [mod, ...paths] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (!mod || !paths.length) { console.error('Usage : node gen-module-changelog.js <module> <chemin> [<chemin> ...]'); process.exit(1); }
 
 const root = path.resolve(__dirname, '..', '..');
@@ -43,23 +43,23 @@ const bullets = (text) => {
     return parts.map(sentence).filter(Boolean);
 };
 
-const days = new Map();
-for (const rec of raw.split('\x1e').slice(1)) {
-    const [date, hash, subject] = rec.split('\x1f');
+const commits = [];
+for (const rec of raw.split('').slice(1)) {
+    const [date, hash, subject] = rec.split('');
     if (!subject || SKIP.test(subject.trim())) continue;
     const { type, text } = parse(subject.trim());
     const group = type === 'feat' ? 'nouveautes' : type === 'fix' ? 'corrections' : 'ameliorations';
-    if (!days.has(date)) days.set(date, { date, hasFeat: false, nouveautes: [], ameliorations: [], corrections: [] });
-    const d = days.get(date);
-    if (type === 'feat') d.hasFeat = true;
-    for (const b of bullets(text)) if (!d[group].includes(b)) d[group].push(b);
+    commits.push({ date, hash, type, group, bullets: bullets(text) });
 }
 
-let major = 1, minor = 0, patch = 0;
-const releases = [];
-[...days.values()].sort((a, b) => a.date.localeCompare(b.date)).forEach((d, i) => {
-    if (i > 0) { if (d.hasFeat) { minor += 1; patch = 0; } else patch += 1; }
-    releases.push({ version: `${major}.${minor}.${patch}`, date: d.date, groups: { nouveautes: d.nouveautes, ameliorations: d.ameliorations, corrections: d.corrections } });
+// Un commit = une version. 0.1.0 pour le premier ; « feat » : +1 mineur ; sinon : +1 correctif.
+const majeurArg = (process.argv.find(a => a.startsWith('--majeur=')) || '').split('=')[1];
+let major = majeurArg ? Number(majeurArg) : 0, minor = 0, patch = 0;
+const releases = commits.map((c, i) => {
+    if (i === 0) { minor = 1; patch = 0; } else if (c.type === 'feat') { minor += 1; patch = 0; } else patch += 1;
+    const groups = { nouveautes: [], ameliorations: [], corrections: [] };
+    groups[c.group] = c.bullets;
+    return { version: `${major}.${minor}.${patch}`, date: c.date, commit: c.hash, groups };
 });
 
 const last = releases[releases.length - 1] || { version: '1.0.0', date: '' };
