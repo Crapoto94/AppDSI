@@ -58,6 +58,60 @@ interface SecRow {
 
 type Tab = 'certificats' | 'logs' | 'securite' | 'cle';
 
+interface CertSummary { subject: string; issuer: string; not_before: string; not_after: string; self_signed: boolean; fingerprint_sha256: string }
+interface Trust { trusted: boolean; root: string; root_fingerprint_sha256?: string; reason?: string }
+interface Verification {
+  signed: boolean; integrity_ok?: boolean; signature_ok?: boolean; signer?: CertSummary; signer_trust?: Trust;
+  timestamp?: { present: boolean; gen_time?: string; imprint_matches_signature?: boolean; token_integrity_ok?: boolean; token_signature_ok?: boolean; tsa?: CertSummary; tsa_trust?: Trust; error?: string };
+}
+
+/** Visualiseur interne : le document signé et, à côté, la vérification de la signature, de son certificat et du jeton d'horodatage. */
+function SignatureViewer({ url, v, onClose }: { url: string; v?: Verification; onClose: () => void }) {
+  const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '—');
+  const row = (ok: boolean | undefined, label: string, detail?: React.ReactNode) => (
+    <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 12.5 }}>
+      <span style={{ fontWeight: 800, color: ok ? '#15803d' : '#b91c1c', minWidth: 18 }}>{ok ? '✔' : '✘'}</span>
+      <div><div style={{ fontWeight: 700, color: '#0f172a' }}>{label}</div>{detail && <div style={{ color: '#64748b', marginTop: 2, wordBreak: 'break-word' }}>{detail}</div>}</div>
+    </div>
+  );
+  const cert = (c?: CertSummary) => c && <>{c.subject}<br />Émis par : {c.issuer}<br />Valide du {fmt(c.not_before)} au {fmt(c.not_after)}<br />SHA-256 : <code style={{ fontSize: 10.5 }}>{c.fingerprint_sha256}</code></>;
+  const trust = (t?: Trust) => t && (t.trusted
+    ? <>Chaîne reconnue : {t.root}</>
+    : <>{t.reason}<br />Racine : {t.root}{t.root_fingerprint_sha256 && <><br />Empreinte SHA-256 de la racine : <code style={{ fontSize: 10.5 }}>{t.root_fingerprint_sha256}</code></>}</>);
+  const ts = v?.timestamp;
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: 'min(1200px, 100%)', height: 'min(88vh, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Document de test signé et horodaté</div>
+          <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', borderRadius: 8, padding: '6px 12px', fontWeight: 700, cursor: 'pointer' }}>Fermer</button>
+        </div>
+        <div style={{ flex: 1, display: 'flex', minHeight: 0, flexWrap: 'wrap' }}>
+          <iframe title="Document signé" src={url} style={{ flex: '1 1 380px', minHeight: 300, border: 'none', borderRight: '1px solid #e2e8f0' }} />
+          <div style={{ flex: '1 1 380px', overflowY: 'auto', padding: '10px 16px' }}>
+            {!v || !v.signed ? <p style={{ color: '#b91c1c', fontSize: 13 }}>Aucune signature à vérifier.</p> : <>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', margin: '4px 0' }}>Signature</div>
+              {row(v.integrity_ok, 'Document non modifié depuis la signature', 'L’empreinte des octets signés correspond à celle portée par la signature.')}
+              {row(v.signature_ok, 'Signature cryptographique valide', cert(v.signer))}
+              {row(v.signer_trust?.trusted, 'Identité du signataire reconnue', trust(v.signer_trust))}
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', margin: '14px 0 4px' }}>Jeton d’horodatage (RFC 3161)</div>
+              {!ts?.present ? row(false, 'Aucun jeton d’horodatage dans la signature') : ts.error ? row(false, 'Jeton illisible', ts.error) : <>
+                {row(ts.imprint_matches_signature, 'Le jeton porte bien sur cette signature', `Date attestée par l’autorité : ${fmt(ts.gen_time)}`)}
+                {row(ts.token_integrity_ok && ts.token_signature_ok, 'Jeton authentique (signé par l’autorité d’horodatage)', cert(ts.tsa))}
+                {row(ts.tsa_trust?.trusted, 'Autorité d’horodatage reconnue', trust(ts.tsa_trust))}
+              </>}
+              <p style={{ fontSize: 11.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
+                Une signature valide mais « non reconnue » est normale pour ce test (certificat jetable) et pour une autorité gratuite comme FreeTSA :
+                le contrôle cryptographique est bon, seule la liste des autorités de confiance du serveur ne la connaît pas.
+              </p>
+            </>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const VALIDITY: Record<string, { label: string; style: React.CSSProperties }> = {
   valid: { label: 'Valide', style: { color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0' } },
   expired: { label: 'Expiré', style: { color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca' } },
@@ -89,7 +143,8 @@ export default function ParapheurCertificats() {
   const [tsaMsg, setTsaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [tsaBusy, setTsaBusy] = useState(false);
   const [tsaFullBusy, setTsaFullBusy] = useState(false);
-  const [tsaReport, setTsaReport] = useState<{ ok: boolean; text: string; pdfUrl?: string } | null>(null);
+  const [tsaReport, setTsaReport] = useState<{ ok: boolean; text: string; pdfUrl?: string; verification?: Verification } | null>(null);
+  const [tsaViewer, setTsaViewer] = useState(false);
   const [ca, setCa] = useState<{ exists: boolean; subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null>(null);
   const [caMsg, setCaMsg] = useState<string | null>(null);
   const [caBusy, setCaBusy] = useState(false);
@@ -100,10 +155,10 @@ export default function ParapheurCertificats() {
     if (!token) return;
     setLoading(true); setError(null);
     try {
-      const [c, l, s, cfg, caInfo] = await Promise.all([
+      // La sécurité (recalcul d'empreinte de tous les fichiers stockés) est lente : elle ne se charge qu'à l'ouverture de son onglet
+      const [c, l, cfg, caInfo] = await Promise.all([
         fetch('/api/parapheur/certificates', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/signature-logs', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-        fetch('/api/parapheur/security', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/admin/settings', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).catch(() => null),
         fetch('/api/parapheur/admin/ca', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).catch(() => null),
       ]);
@@ -117,10 +172,9 @@ export default function ParapheurCertificats() {
         if (cfg.tsa) setTsa(cfg.tsa);
       }
       if (caInfo && typeof caInfo === 'object') setCa(caInfo);
-      if (c.message || l.message || s.message) throw new Error(c.message || l.message || s.message);
+      if (c.message || l.message) throw new Error(c.message || l.message);
       setCerts(Array.isArray(c) ? c : []);
       setLogs(Array.isArray(l) ? l : []);
-      setSecurity(Array.isArray(s) ? s : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erreur de chargement');
     } finally { setLoading(false); }
@@ -158,7 +212,7 @@ export default function ParapheurCertificats() {
       const when = /^\d{14}Z$/.test(g) ? `${g.slice(6, 8)}/${g.slice(4, 6)}/${g.slice(0, 4)} ${g.slice(8, 10)}:${g.slice(10, 12)}:${g.slice(12, 14)} UTC` : g;
       const bin = atob(d.pdf_base64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const pdfUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-      setTsaReport({ ok: true, pdfUrl, text: `Signature de test horodatée avec succès : jeton de l'autorité à ${when} (${d.ms} ms). Signature de ${d.signature_bytes} octets pour ${d.placeholder_bytes} réservés.` });
+      setTsaReport({ ok: true, pdfUrl, verification: d.verification, text: `Signature de test horodatée avec succès : jeton de l'autorité à ${when} (${d.ms} ms). Signature de ${d.signature_bytes} octets pour ${d.placeholder_bytes} réservés.` });
     } catch (e: unknown) { setTsaReport({ ok: false, text: e instanceof Error ? e.message : 'Erreur' }); }
     finally { setTsaFullBusy(false); }
   };
@@ -225,13 +279,23 @@ export default function ParapheurCertificats() {
     } finally { setBusyId(null); }
   };
 
+  // Onglet « Sécurité » : chargé à la première ouverture seulement
+  const [secState, setSecState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  useEffect(() => {
+    if (tab !== 'securite' || secState !== 'idle' || !token) return;
+    setSecState('loading');
+    fetch('/api/parapheur/security', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(s => { setSecurity(Array.isArray(s) ? s : []); setSecState('done'); })
+      .catch(() => setSecState('error'));
+  }, [tab, secState, token]);
+
   const readyCount = certs.filter(r => r.ready_to_sign).length;
   const signedDocs = security.filter(d => d.has_crypto_signature).length;
 
   const tabs: [Tab, string, number][] = [
     ['certificats', 'Certificats P12', certs.length],
     ['logs', 'Journal de signature', logs.length],
-    ['securite', 'Sécurité & non-falsification', signedDocs],
+    ['securite', 'Sécurité & non-falsification', secState === 'done' ? signedDocs : 0],
     ['cle', 'Tester ma clé RGS**', 0],
   ];
 
@@ -318,7 +382,7 @@ export default function ParapheurCertificats() {
               <button key={n} type="button" onClick={() => setTsa({ ...tsa, enabled: true, url: u, login: '', policy_oid: '' })}
                 style={{ padding: '5px 12px', background: tsa.url === u ? '#eef2ff' : '#fff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 999, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{n}</button>
             ))}
-            <span style={{ fontSize: 12, color: '#64748b' }}>puis « Enregistrer les paramètres ».</span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>puis « Enregistrer l’horodatage ».</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
             <input value={tsa.url} onChange={e => setTsa({ ...tsa, url: e.target.value })} placeholder="Adresse de l'autorité (https://…)" style={{ gridColumn: '1 / -1', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
@@ -338,14 +402,17 @@ export default function ParapheurCertificats() {
               title="Signe un PDF de test (certificat jetable) avec horodatage obligatoire et contrôle le jeton">
               {tsaFullBusy ? 'Signature de test…' : 'Tester une signature horodatée'}
             </button>
-            <span style={{ fontSize: 12, color: '#64748b' }}>Les réglages s'enregistrent avec le bouton d'enregistrement des paramètres.</span>
+            <button onClick={saveSettings} disabled={savingSettings} style={{ padding: '8px 16px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+              {savingSettings ? 'Enregistrement…' : 'Enregistrer l’horodatage'}
+            </button>
+            {settingsMsg && <span style={{ fontSize: 12, color: '#475569' }}>{settingsMsg}</span>}
           </div>
           {tsaMsg && <p style={{ fontSize: 12, margin: '6px 0 0', color: tsaMsg.ok ? '#166534' : '#b91c1c' }}>{tsaMsg.text}</p>}
           {tsaReport && (
             <p style={{ fontSize: 12, margin: '6px 0 0', color: tsaReport.ok ? '#166534' : '#b91c1c' }}>
               {tsaReport.text}{' '}
-              {tsaReport.pdfUrl && <a href={tsaReport.pdfUrl} download="test-horodatage.pdf" style={{ fontWeight: 700 }}>Télécharger le PDF de test</a>}
-              {tsaReport.pdfUrl && <span style={{ color: '#64748b' }}> (à ouvrir dans Adobe Acrobat : panneau Signatures, « Horodatage »).</span>}
+              {tsaReport.pdfUrl && <button type="button" onClick={() => setTsaViewer(true)} style={{ background: 'none', border: 'none', padding: 0, color: '#4338ca', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', fontSize: 12 }}>Afficher le document et la vérification</button>}
+              {tsaReport.pdfUrl && <> · <a href={tsaReport.pdfUrl} download="test-horodatage.pdf" style={{ color: '#64748b' }}>télécharger</a></>}
             </p>
           )}
         </div>
@@ -405,6 +472,8 @@ export default function ParapheurCertificats() {
         {settingsMsg && <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>{settingsMsg}</p>}
       </div>
 
+      {tsaViewer && tsaReport?.pdfUrl && <SignatureViewer url={tsaReport.pdfUrl} v={tsaReport.verification} onClose={() => setTsaViewer(false)} />}
+
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {tabs.map(([k, label, n]) => (
           <button key={k} onClick={() => setTab(k)} style={tabBtn(tab === k)}>
@@ -425,7 +494,7 @@ export default function ParapheurCertificats() {
       ) : tab === 'logs' ? (
         <Logs logs={logs} />
       ) : (
-        <Security rows={security} />
+        secState === 'done' ? <Security rows={security} /> : <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>{secState === 'error' ? 'Chargement impossible.' : 'Contrôle d’intégrité des documents en cours (peut prendre un moment)…'}</div>
       )}
     </div>
   );

@@ -332,7 +332,7 @@ async function testTsaSignature(override) {
     if (!cfg) throw { status: 400, message: 'Renseignez l’adresse de l’autorité d’horodatage.' };
     try {
         const r = await require('./timestamp').testSignedPdf(cfg);
-        return { ok: true, genTime: r.genTime, ms: r.ms, signature_bytes: r.signature_bytes, placeholder_bytes: r.placeholder_bytes, pdf_base64: r.pdf.toString('base64') };
+        return { ok: true, genTime: r.genTime, ms: r.ms, signature_bytes: r.signature_bytes, placeholder_bytes: r.placeholder_bytes, pdf_base64: r.pdf.toString('base64'), verification: r.verification };
     } catch (e) { throw { status: 502, message: e.message }; }
 }
 
@@ -841,10 +841,13 @@ async function listSecurity() {
 async function listCertificates() {
     const rows = await pgDb.all(`SELECT * FROM hub_parapheur.agent_certificates ORDER BY updated_at DESC`);
     const now = Date.now();
+    // Lectures du stockage (partage réseau) en parallèle : la liste était lente avec beaucoup de certificats
+    const decryptables = await Promise.all(rows.map(async (r) => {
+        try { const enc = await readStorageFile(r.p12_path); decryptBuffer(enc); return true; } catch (e) { return false; }
+    }));
     const out = [];
-    for (const r of rows) {
-        let decryptable = false;
-        try { const enc = await readStorageFile(r.p12_path); decryptBuffer(enc); decryptable = true; } catch (e) { decryptable = false; }
+    for (const [i, r] of rows.entries()) {
+        const decryptable = decryptables[i];
 
         let validity = 'unknown';
         if (r.valid_to) {

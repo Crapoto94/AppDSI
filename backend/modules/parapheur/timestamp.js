@@ -160,7 +160,7 @@ async function testSignedPdf(cfg) {
     const hasToken = last.tagClass === asn1.Class.CONTEXT_SPECIFIC && last.type === 1
         && last.value.some(a => asn1.derToOid(a.value[0].value) === OID_TS_TOKEN_ATTR);
     if (!hasToken) throw new TsaError('La signature de test ne contient pas de jeton d’horodatage.');
-    return { ok: true, genTime: result && result.genTime, ms: Date.now() - t0, signature_bytes: cms.length, placeholder_bytes: placeholderLen, pdf: signed };
+    return { ok: true, genTime: result && result.genTime, ms: Date.now() - t0, signature_bytes: cms.length, placeholder_bytes: placeholderLen, pdf: signed, verification: require('./pdf-verify').verifyPdfSignature(signed) };
 }
 
 module.exports = { TimestampingSigner, addTimestampToCms, testTsa, testSignedPdf, TsaError };
