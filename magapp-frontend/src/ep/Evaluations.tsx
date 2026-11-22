@@ -558,9 +558,9 @@ Motif (obligatoire) :`, '');
                 <Th style={{ width: 34 }}>
                   <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />
                 </Th>
-                <Th>Agent</Th>
+                <Th>Agent·e</Th>
                 <Th>E-mail</Th>
-                {readOnly && <Th>Valideur</Th>}
+                {readOnly && <Th>Évaluateur·rice</Th>}
                 <Th>Date de l’entretien</Th>
                 <Th>Statut</Th>
                 {(pilotage || readOnly) && <Th>Modèle</Th>}

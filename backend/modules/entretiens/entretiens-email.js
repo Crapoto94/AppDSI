@@ -103,6 +103,25 @@ function reouvertureDecision({ demandeur, agent, annee, accepte, note, link }) {
     return { subject: `${accepte ? '✅' : '⛔'} Demande de réouverture ${accepte ? 'acceptée' : 'refusée'} — ${agent}`, ...render(accepte ? '#16a34a' : '#64748b', accepte ? 'Réouverture acceptée' : 'Réouverture refusée', intro, bodyHtml, FOOTER) };
 }
 
+/** Aux administrateurs : nouvelle demande au backlog (question, amélioration, bug). */
+function backlogNouvelle({ type, titre, description, demandeur, link }) {
+    const intro = `Bonjour,<br><br><strong>${esc(demandeur)}</strong> a déposé une demande au backlog du module Entretiens professionnels.`;
+    const bodyHtml = `${infoBlock('Demande', [['Type', type], ['Titre', titre], ['Description', description]])}
+      ${button(link, 'Ouvrir le backlog', '#4f46e5')}`;
+    return { subject: `💡 Backlog Entretiens — ${type} : ${titre}`, ...render('#4f46e5', '💡 Nouvelle demande', intro, bodyHtml, FOOTER) };
+}
+
+/** Au demandeur : suite donnée à sa demande. */
+function backlogDecision({ demandeur, id, type, titre, statut, motif, par, link }) {
+    const LIB = { acceptee: 'acceptée : elle est inscrite au backlog', refusee: 'refusée', realisee: 'réalisée : elle est disponible', repondue: 'traitée : une réponse vous est apportée' };
+    const ok = statut !== 'refusee';
+    const intro = `Bonjour <strong>${esc(demandeur)}</strong>,<br><br>votre demande n° ${esc(id)} (${esc(String(type).toLowerCase())}) « ${esc(titre)} » a été <strong>${LIB[statut] || esc(statut)}</strong>.`;
+    const bodyHtml = `${motif ? infoBlock(statut === 'refusee' ? 'Motif' : 'Réponse', [['Message', motif]]) : ''}
+      <p style="font-size:14px;color:#334155;">Traitée par ${esc(par)}.</p>
+      ${button(link, 'Ouvrir MagApp', ok ? '#16a34a' : '#64748b')}`;
+    return { subject: `${ok ? '✅' : '⛔'} Backlog Entretiens n° ${id} — ${LIB[statut] ? LIB[statut].split(' :')[0] : statut}`, ...render(ok ? '#16a34a' : '#64748b', 'Suite donnée à votre demande', intro, bodyHtml, FOOTER) };
+}
+
 /** Relance à l'agent : préparation non transmise alors que l'entretien approche. */
 function relancePreparation({ agent, annee, quand, link }) {
     const intro = `Bonjour <strong>${esc(agent)}</strong>,<br><br>votre entretien professionnel${annee ? ` ${esc(annee)}` : ''} approche${quand ? ` (<strong>${esc(quand)}</strong>)` : ''} et votre fiche de préparation n’a pas encore été transmise à votre évaluateur.`;
@@ -164,6 +183,7 @@ const wrap = (fn) => (p = {}) => fn({ ...p, ...(p.agent ? { agent: nice(p.agent)
 module.exports = {
     analyseCrep: wrap(analyseCrep), entretiensUrl, nice,
     preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
+    backlogNouvelle: wrap(backlogNouvelle), backlogDecision: wrap(backlogDecision),
     reouvertureDemande: wrap(reouvertureDemande), reouvertureDecision: wrap(reouvertureDecision),
     relancePreparation: wrap(relancePreparation), relanceValidation: wrap(relanceValidation), relanceEvaluateur: wrap(relanceEvaluateur), compteRenduRappele: wrap(compteRenduRappele),
 };

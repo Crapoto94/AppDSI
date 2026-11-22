@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   X, BookOpen, UserCheck, ShieldCheck, Sparkles, Users, CalendarClock,
   FileSignature, History, MousePointerClick, CheckCircle2, AlertTriangle,
-  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route, GraduationCap, ScanLine, FlaskConical, Inbox,
+  Send, Lock, Database, RotateCcw, HelpCircle, Printer, Mail, MailX, PenLine, Route, GraduationCap, ScanLine, FlaskConical, Inbox, Lightbulb,
 } from 'lucide-react';
 import { COLORS, card, btnGhost, btnPrimary } from './ui';
 
@@ -550,6 +550,14 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               </div>
             </Section>
 
+            <Section icon={<Lightbulb size={15} color="#d97706" />} title="L'ampoule : une question, une idée, un bug">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>Le bouton <strong>ampoule</strong> (en haut à droite, à côté de « Aide ») permet de déposer une demande en quelques lignes : <strong>« J'ai une question »</strong>, <strong>« Je propose une amélioration »</strong> ou <strong>« Il y a un bug »</strong>. Donnez un titre, décrivez la situation (pour un bug : l'agent·e concerné·e et ce que vous avez fait) et, si besoin, <strong>joignez un fichier</strong> (capture d'écran, PDF, Word, Excel… : 5 fichiers au plus, 10 Mo chacun).</div>
+                <div><strong>« Mes demandes »</strong> montre l'état de chacune (en attente, acceptée, refusée, réalisée, répondue) et la réponse des administrateur·rice·s. Vous êtes <strong>prévenu·e par e-mail</strong> à chaque étape.</div>
+                <div><strong>« Celles des autres »</strong> liste les demandes de tous les utilisateur·rice·s du module : vous pouvez les lire, les <strong>commenter</strong> et joindre un fichier à votre commentaire. Une question déjà posée a peut-être déjà sa réponse.</div>
+              </div>
+            </Section>
+
             <Section icon={<AlertTriangle size={15} color={COLORS.primary} />} title="Si quelque chose ne va pas">
               <div style={{ display: 'grid', gap: 6 }}>
                 <div><strong>L'agent·e n'apparaît pas.</strong> Il n'est pas rattaché à vous : utilisez « Ajouter un·e agent·e » ou « Changer l'évaluateur » (étape 1). Si l'agent·e reste introuvable, prévenir l'administrateur.</div>
@@ -670,6 +678,14 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div>Dans tous les cas, <strong>un·e agent·e sans e-mail reste au circuit papier</strong>, même si la signature est ouverte.</div>
               </div>
               <Callout tone="info">Le document final est identique dans les deux circuits : ce choix ne crée aucune différence de traitement entre agent·e·s.</Callout>
+            </Section>
+
+            <Section icon={<Lightbulb size={15} color="#d97706" />} title="Backlog de traitement (onglet « Backlog »)">
+              <div style={{ display: 'grid', gap: 4 }}>
+                <div>L'onglet <strong>« Backlog »</strong> (compteur des demandes en attente) rassemble toutes les demandes déposées avec l'<strong>ampoule</strong> : questions, améliorations et bugs, avec leurs pièces jointes et leurs commentaires. Filtres par <strong>état</strong> et par <strong>type</strong>.</div>
+                <div><strong>Question</strong> : « Répondre » (la réponse est obligatoire). <strong>Amélioration ou bug</strong> : « Accepter », « Marquer réalisée » ou « Refuser » (<strong>motif obligatoire</strong>) ; « Remettre en attente » annule une décision.</div>
+                <div>À chaque nouvelle demande, les administrateur·rice·s reçoivent un <strong>e-mail</strong> ; à chaque décision, le demandeur est <strong>prévenu par e-mail</strong> (avec le motif ou la réponse). Chacun·e peut commenter les demandes, y compris les administrateur·rice·s (leurs commentaires sont signalés).</div>
+              </div>
             </Section>
 
             <Section icon={<Inbox size={15} color={COLORS.primary} />} title="Pilotage : filtrer, aperçu du CREP et réception par la DRH">

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
-  GraduationCap, Unlock,
+  GraduationCap, Unlock, Lightbulb,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
@@ -19,6 +19,8 @@ import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input, useConfirm } from './ui';
 import { useDocViewer } from './DocViewerModal';
 import Reouvertures from './Reouvertures';
+import { BacklogDialog, BacklogAdmin } from './Backlog';
+import logoVille from '../assets/logo-ville.jpg';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -816,8 +818,10 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'reouvertures' | 'parametrage' | 'journal' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
   const [reopenPending, setReopenPending] = useState(0);
+  const [backlogPending, setBacklogPending] = useState(0);
+  const [showBacklog, setShowBacklog] = useState(false);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
   // Valideur d'agents dans la base des agents à évaluer (classeur RH) : voit les EP de toute son équipe.
@@ -853,6 +857,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
       const wanted = tabArg === 'moi' ? (ent ? 'moi' : null)
         : tabArg === 'evaluations' ? (asEvaluator ? 'evaluations' : null)
         : tabArg === 'reouvertures' ? (v.data.isAdmin ? 'reouvertures' : null)
+        : tabArg === 'backlog' ? (v.data.isAdmin ? 'backlog' : null)
         : tabArg === 'auto' ? (needsMe && ent?.statut !== 'cloture' ? 'moi' : null) : null;
       setTab(wanted || (asEvaluator ? 'evaluations' : ent ? 'moi' : v.data.isAdmin ? 'pilotage' : null));
     }).catch(e => setError(errMsg(e, 'Impossible de charger les entretiens professionnels.')));
@@ -876,6 +881,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!me?.isAdmin },
     { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, badge: reopenPending },
+    { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, badge: backlogPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin },
     { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin },
     { key: 'journal' as const, label: 'Journal', icon: <History size={15} />, visible: !!me?.isAdmin },
@@ -886,13 +892,16 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
       <div style={{ ...card, width: '100%', maxWidth: 1560, background: '#f8fafc' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${COLORS.border}`, background: '#fff', borderRadius: '12px 12px 0 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <img src="/img/logo.jpg" alt="Ville d’Ivry-sur-Seine" style={{ height: 42, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+            <img src={logoVille} alt="Ville d’Ivry-sur-Seine" style={{ height: 42, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>Entretiens professionnels</div>
             <div style={{ fontSize: 12, color: COLORS.muted }}>{me?.campaign ? me.campaign.libelle || `Campagne ${me.campaign.annee}` : 'Campagne annuelle'} · tous les services de la Ville</div>
           </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => setShowBacklog(true)} title="J’ai une question, une idée ou un bug" aria-label="Question, amélioration ou bug" style={{ border: 'none', background: '#fef3c7', color: '#b45309', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Lightbulb size={17} />
+            </button>
             <button onClick={() => setShowAide(true)} title="Aide" style={{ border: 'none', background: '#eef2ff', color: COLORS.primary, height: 34, borderRadius: 8, cursor: 'pointer', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5 }}>
               <BookOpen size={16} /> Aide
             </button>
@@ -920,6 +929,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
               {tab === 'pilotage' && me.isAdmin && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} />}
               {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'reouvertures' && me.isAdmin && <Reouvertures onChanged={setReopenPending} />}
+              {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}
               {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
@@ -930,6 +940,7 @@ export default function EpVille({ onClose, initialTab }: { onClose: () => void; 
         </div>
       </div>
       {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} />}
+      {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
       {showAide && (
         <AideEp
           onClose={() => setShowAide(false)}
