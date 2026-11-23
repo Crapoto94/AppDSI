@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch, FilePen } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,7 +12,6 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
-import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
 import VirementCredits from './components/VirementCredits';
 import MesFactures from './components/MesFactures';
@@ -183,7 +182,6 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPdfTools, setShowPdfTools] = useState(false);
-  const [showPdfCraft, setShowPdfCraft] = useState(false);
   const [showAgentSearch, setShowAgentSearch] = useState(false);
   // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
   const [showVirement, setShowVirement] = useState(false);
@@ -1843,18 +1841,6 @@ function App() {
                 />
               )}
 
-              {(settings.show_pdf_tools || settings.is_beta_user) && (
-                <ToolCard
-                  icon={<FilePen size={22} color="#1d4ed8" />}
-                  bg="#dbeafe"
-                  title="Modifier un PDF"
-                  description="Éditeur PDF complet (PdfCraft)"
-                  wide
-                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
-                  onClick={() => { setShowTools(false); setShowPdfCraft(true); }}
-                />
-              )}
-
               {windowLogin && mesFacturesAllowed && (settings.show_mes_factures || settings.is_beta_user) && (
                 <ToolCard
                   icon={<Receipt size={22} color="#0f766e" />}
@@ -1939,7 +1925,6 @@ function App() {
         </div>
       )}
 
-      {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
       {showEp && <EpVille initialTab={epPending} dedicated={epDedicated} onClose={() => {
