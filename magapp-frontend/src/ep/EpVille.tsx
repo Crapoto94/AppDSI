@@ -902,7 +902,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!(me?.isAdmin || me?.isPilotage) },
     { key: 'retours' as const, label: 'Suivi des retours', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true },
-    { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: reopenPending },
+    { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin && !simpleMode, adminOnly: true, badge: reopenPending },
     { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: backlogPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin, adminOnly: true },
     { key: 'parametrage' as const, label: 'Paramétrage', icon: <ShieldCheck size={15} />, visible: !!me?.isAdmin, adminOnly: true },
@@ -996,7 +996,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
               {tab === 'pilotage' && (me.isAdmin || me.isPilotage) && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} noActions={!me.isAdmin} />}
               {tab === 'retours' && me.isAdmin && <Retours />}
               {tab === 'formations' && me.isAdmin && <Formations />}
-              {tab === 'reouvertures' && me.isAdmin && <Reouvertures onChanged={setReopenPending} />}
+              {tab === 'reouvertures' && me.isAdmin && !simpleMode && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}
               {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
               {tab === 'journal' && me.isAdmin && <Journal />}

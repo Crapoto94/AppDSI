@@ -1,12 +1,38 @@
 {
   "module": "entretiens",
-  "version": "0.52.0",
+  "version": "0.54.0",
   "date": "2026-11-23",
   "releases": [
     {
+      "version": "0.54.0",
+      "date": "2026-11-23",
+      "commit": "c28f49c2",
+      "groups": {
+        "nouveautes": [
+          "Analyse de cohérence, QR code et mode simple déplacés dans Paramétrage → Options (bloc « Options de la campagne », enregistrement immédiat)",
+          "En mode simple, le menu « Demandes de réouverture » n'est plus affiché"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.53.0",
+      "date": "2026-11-23",
+      "commit": "adc7cf22",
+      "groups": {
+        "nouveautes": [
+          "Import de la base des agents sans perte (copie de sécurité avant remplacement, fichier vide refusé, matricules comparés sans zéros de tête, agents absents du classeur conservés avec leurs rapprochements AD, évaluateur choisi à la main sur un entretien jamais écrasé ni retiré)",
+          "Évaluateur proposé d'abord dans l'unité d'affectation de l'agent (équipes dont le chemin s'arrête au niveau direction : 279 agents sans évaluateur en obtiennent un)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.52.0",
       "date": "2026-11-23",
-      "commit": "f555fecc",
+      "commit": "492792f0",
       "groups": {
         "nouveautes": [
           "QR code des CREP imprimés en option de campagne (décoché : aucun QR code)",

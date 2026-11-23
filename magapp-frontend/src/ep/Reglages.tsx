@@ -4,6 +4,7 @@ import IaPrompts from './IaPrompts';
 import MailTemplates from './MailTemplates';
 import ScanReadingPanel from './ScanReadingPanel';
 import OfflineFormPanel from './OfflineFormPanel';
+import CampaignOptionsPanel from './CampaignOptionsPanel';
 import DisplayPanel from './DisplayPanel';
 import axios from 'axios';
 import {
@@ -183,9 +184,6 @@ const emptyCampaign = {
   date_limite_ep: '',
   statut: 'ouverte',
   instructions: '',
-  analyse_coherence: false,
-  mode_simple: false,
-  qr_code: true,
 };
 
 type CampaignForm = typeof emptyCampaign;
@@ -200,9 +198,6 @@ function toForm(c: Campaign): CampaignForm {
     date_limite_ep: c.date_limite_ep || '',
     statut: c.statut || 'ouverte',
     instructions: c.instructions || '',
-    analyse_coherence: !!c.analyse_coherence,
-    mode_simple: !!c.mode_simple,
-    qr_code: c.qr_code !== false,
   };
 }
 
@@ -344,9 +339,6 @@ Cette action est définitive.`)) return;
         date_limite_ep: campForm.date_limite_ep || null,
         statut: campForm.statut,
         instructions: campForm.instructions,
-        analyse_coherence: campForm.analyse_coherence,
-        mode_simple: campForm.mode_simple,
-        qr_code: campForm.qr_code,
       };
       const r = campForm.id
         ? await axios.put(`/api/entretiens/campaigns/${campForm.id}`, payload, { headers })
@@ -615,6 +607,8 @@ Cette action est définitive.`)) return;
       </>)}
 
       {sub === 'options' && (<>
+      <CampaignOptionsPanel />
+
       <DisplayPanel />
 
       <ScanReadingPanel />
@@ -695,20 +689,6 @@ Cette action est définitive.`)) return;
             <input style={input} type="date" value={campForm.date_cloture}
               onChange={e => setCampForm(f => ({ ...f, date_cloture: e.target.value }))} />
           </Field>
-        </div>
-        <div style={{ marginTop: 11, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input type="checkbox" checked={campForm.analyse_coherence} onChange={e => setCampForm(f => ({ ...f, analyse_coherence: e.target.checked }))} style={{ marginTop: 2 }} />
-            <span><strong>Analyse de cohérence</strong> : vérifie le fond du compte rendu (adéquation entre commentaires et évaluations, relecture automatique). Décochée, l’outil se limite à une analyse de complétude (rubriques obligatoires bloquantes, facultatives en alerte).</span>
-          </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input type="checkbox" checked={campForm.qr_code} onChange={e => setCampForm(f => ({ ...f, qr_code: e.target.checked }))} style={{ marginTop: 2 }} />
-            <span><strong>QR code sur les CREP imprimés</strong> : imprime un QR code en haut à gauche de chaque page pour rattacher automatiquement les pages numérisées à l’agent. Décoché, aucun QR code n’est imprimé ; à la numérisation, l’outil lit le nom de l’agent sur la page, propose l’agent avec un taux de certitude et remet les pages dans l’ordre quand il le peut.</span>
-          </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input type="checkbox" checked={campForm.mode_simple} onChange={e => setCampForm(f => ({ ...f, mode_simple: e.target.checked }))} style={{ marginTop: 2 }} />
-            <span><strong>Mode simple</strong> : les évaluateurs ne téléversent pas le CREP signé ; ils le réalisent (outil, papier ou PDF) puis signalent l’avoir envoyé à la DRH. Le CREP signé est numérisé par les administrateurs (Suivi des retours).</span>
-          </label>
         </div>
         <div style={{ marginTop: 11 }}>
           <Field label="Consignes affichées aux agent·e·s" hint="Visible par tous les agent·e·s sur leur page de préparation.">

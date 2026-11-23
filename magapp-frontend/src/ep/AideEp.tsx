@@ -766,7 +766,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             </Section>
 
             <Section icon={<ShieldCheck size={15} color={COLORS.primary} />} title={<>Options de campagne : analyse de cohérence, mode simple et QR code<Activable /></>}>
-              <div style={{ marginBottom: 8 }}>Dans <strong>Paramétrage → Campagnes</strong>, trois cases propres à chaque campagne (la cohérence et le mode simple sont décochés par défaut, le QR code est coché par défaut) :</div>
+              <div style={{ marginBottom: 8 }}>Dans <strong>Paramétrage → Options</strong>, le bloc <strong>« Options de la campagne »</strong> propose trois options propres à chaque campagne (boutons Activer / Désactiver, enregistrement immédiat ; la cohérence et le mode simple sont désactivés par défaut, le QR code est activé par défaut) :</div>
               <Cas code="Cohérence" title="Analyse de cohérence" color="#0f766e">
                 <strong>Cochée</strong> : le bouton de l'évaluateur s'appelle « Vérifier la cohérence » ; il contrôle le fond (adéquation entre les commentaires et la grille d'appréciation, relecture automatique si elle est ouverte à l'évaluateur).
                 <br /><strong>Décochée</strong> : le bouton devient « Vérifier la <strong>complétude</strong> » ; il contrôle seulement que les rubriques <strong>obligatoires</strong> sont renseignées (elles bloquent la validation) et <strong>alerte</strong> sur les rubriques facultatives vides, sans appel à l'IA.
