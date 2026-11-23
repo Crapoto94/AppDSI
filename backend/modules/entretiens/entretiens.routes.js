@@ -52,6 +52,7 @@ router.delete('/returns/batches/:id', authenticateJWT, ctrl.returnsDelete);
 router.get('/returns/batches/:id/pages/:idx', authenticateJWT, ctrl.returnsPage);
 router.put('/returns/batches/:id/pages/:idx', authenticateJWT, ctrl.returnsAssign);
 router.post('/returns/batches/:id/confirm', authenticateJWT, ctrl.returnsConfirm);
+router.post('/returns/batches/:id/reanalyse', authenticateJWT, ctrl.returnsReanalyse);
 router.delete('/returns/entretien/:id', authenticateJWT, ctrl.returnsDeleteReturn);
 router.get('/returns/reading/:entretienId', authenticateJWT, ctrl.returnsReading);
 

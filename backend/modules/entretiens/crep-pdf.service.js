@@ -531,12 +531,17 @@ function pageCode(id, page) {
     return `EPC.${id}.${page}.${sig}`;
 }
 
-/** Lit un code de page ; renvoie { id, page } ou null s'il est invalide / non signé par cette instance. */
-function parsePageCode(text) {
+/**
+ * Lit un code de page ; renvoie { id, page } ou null si le format est invalide.
+ * Par défaut la signature doit être celle de cette instance ; en mode tolérant (numérisation en lot), un code bien formé mais signé par une autre
+ * instance (autre clé secrète : CREP imprimé depuis un autre serveur) est accepté avec `unverified: true` — l'administrateur vérifie de toute façon le regroupement.
+ */
+function parsePageCode(text, lenient = false) {
     const m = String(text || '').trim().match(/^EPC\.(\d+)\.(\d+)\.([0-9a-f]{6})$/);
     if (!m) return null;
     const id = Number(m[1]), page = Number(m[2]);
-    return pageCode(id, page) === m[0] ? { id, page } : null;
+    if (pageCode(id, page) === m[0]) return { id, page };
+    return lenient ? { id, page, unverified: true } : null;
 }
 
 /** Dessine le QR code (vectoriel, net à l'impression) dans le coin supérieur gauche, hors de la zone non imprimable des imprimantes. */

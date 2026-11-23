@@ -56,6 +56,12 @@ function isAlfrescoRef(ref) {
  * Lu dans hub_docs.module_storage_config ; mis en cache 30 s.
  */
 const _moduleBackendCache = new Map();
+/**
+ * Modules dont les fichiers doivent être déposés dans la GED par défaut (tant qu'aucun choix explicite n'existe dans hub_docs.module_storage_config) :
+ * les lots de CREP numérisés ou reçus par mail sont créés par n'importe quelle instance (poste de dev, serveur Docker) et relus par une autre ;
+ * un stockage local à une instance les rendrait illisibles ailleurs.
+ */
+const GED_BY_DEFAULT = new Set(['entretiens-retours']);
 async function getModuleBackend(moduleName) {
     const key = String(moduleName || '').trim();
     if (!key) return 'filesystem';
@@ -67,6 +73,10 @@ async function getModuleBackend(moduleName) {
         const row = await pgDb.get('SELECT backend FROM hub_docs.module_storage_config WHERE module = $1', [key]);
         const v = String((row && row.backend) || '').toLowerCase();
         if (v === 'alfresco' || v === 'both') backend = v;
+        else if (!row && GED_BY_DEFAULT.has(key)) {
+            // Pas de choix explicite : GED si elle est configurée, sinon stockage habituel
+            try { const alf = require('./alfresco'); alf.assertConfigured(await alf.getConfig()); backend = 'alfresco'; } catch { /* GED non configurée */ }
+        }
     } catch { /* table absente / PG indisponible : défaut filesystem */ }
     _moduleBackendCache.set(key, { backend, expires: Date.now() + 30000 });
     return backend;

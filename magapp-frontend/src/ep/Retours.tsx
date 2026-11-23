@@ -21,7 +21,7 @@ interface Group {
 }
 interface Batch {
   id: number; status: 'analyse' | 'a_verifier' | 'termine' | 'echec' | 'sans_crep'; channel?: string; source_meta?: SourceMeta | null; file_name: string; error?: string | null; pages_total: number; progress: number;
-  expected_pages: number; groups: Group[]; orphans: { idx: number }[]; ignored: number[];
+  expected_pages: number; groups: Group[]; orphans: { idx: number; foreign?: string | null }[]; ignored: number[];
 }
 interface SourceMeta { from?: string; from_name?: string; subject?: string; received_at?: string | null; mailbox?: string }
 interface BatchLine { id: number; file_name: string; status: string; pages_total: number; progress: number; created_at: string; created_by: string; channel?: string; source_meta?: SourceMeta | null }
@@ -49,17 +49,19 @@ function CanalChip({ canal, detail }: { canal?: string | null; detail?: string |
 /** Miniature d'une page du lot (chargée avec le jeton d'authentification). */
 function Thumb({ batchId, idx, rot, width = 180, headers }: { batchId: number; idx: number; rot: number; width?: number; headers: any }) {
   const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let url = '';
     let alive = true;
+    setFailed(false);
     axios.get(`/api/entretiens/returns/batches/${batchId}/pages/${idx}?w=${width * 2}&r=${rot}`, { headers, responseType: 'blob' })
       .then(r => { if (!alive) return; url = URL.createObjectURL(r.data); setSrc(url); })
-      .catch(() => { if (alive) setSrc(null); });
+      .catch(() => { if (alive) { setSrc(null); setFailed(true); } });
     return () => { alive = false; if (url) URL.revokeObjectURL(url); };
   }, [batchId, idx, rot, width, headers]);
   return src
     ? <img src={src} alt={`page ${idx}`} style={{ width, border: `1px solid ${COLORS.border}`, borderRadius: 4, background: '#fff', display: 'block' }} />
-    : <div style={{ width, height: width * 1.41, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px dashed ${COLORS.border}`, borderRadius: 4, color: '#94a3b8' }}><Loader2 size={18} className="spin" /></div>;
+    : <div style={{ width, height: width * 1.41, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 8, boxSizing: 'border-box', border: `1px dashed ${failed ? '#fca5a5' : COLORS.border}`, borderRadius: 4, color: failed ? '#b91c1c' : '#94a3b8', fontSize: 11 }}>{failed ? 'Page illisible : le fichier du lot est introuvable sur ce serveur (stockage non partagé). Ouvrez le lot depuis le serveur qui l’a reçu.' : <Loader2 size={18} className="spin" />}</div>;
 }
 
 /** Fenêtre de lecture IA (réservée aux administrateurs). */
@@ -255,9 +257,9 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
             <Loader2 size={22} className="spin" /><div style={{ marginTop: 8 }}>Reconnaissance des pages en cours… {batch.progress}/{batch.pages_total || '?'}</div>
           </div>
         )}
-        {batch?.status === 'sans_crep' && <div style={{ color: COLORS.muted, padding: 12 }}>Aucun QR code de CREP n’a été reconnu dans ce document reçu par mail : il n’est pas proposé à la validation. Vous pouvez le supprimer.</div>}
+        {batch?.status === 'sans_crep' && <div style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px', marginBottom: 10, fontSize: 12.5 }}>Aucun QR code de CREP n’a été reconnu automatiquement dans ce document reçu par mail. Vous pouvez <strong>relancer l’analyse</strong>, classer les pages à la main ci-dessous (agent et numéro de page), ou supprimer le lot. <button style={{ ...btnGhost, marginLeft: 8, padding: '2px 9px', fontSize: 12 }} onClick={async () => { try { await axios.post(`/api/entretiens/returns/batches/${batch.id}/reanalyse`, {}, { headers }); await load(); } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Relance impossible.' }); } }}><RotateCw size={12} /> Relancer l’analyse</button></div>}
         {batch?.status === 'echec' && <div style={{ color: COLORS.danger, padding: 12 }}>Analyse impossible : {batch.error}</div>}
-        {batch && (batch.status === 'a_verifier' || batch.status === 'termine') && (
+        {batch && (batch.status === 'a_verifier' || batch.status === 'termine' || batch.status === 'sans_crep') && (
           <>
             <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 10, lineHeight: 1.5 }}>
               Les pages ont été reconnues grâce au QR code imprimé en haut à gauche de chaque page. Contrôlez chaque CREP reconstitué ({batch.expected_pages} pages attendues) :
@@ -271,7 +273,7 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {batch.orphans.map(o => (
                     <div key={o.idx} style={{ width: 190 }}>
-                      <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 3 }}>Page {o.idx} du fichier</div>
+                      <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 3 }}>Page {o.idx} du fichier{o.foreign ? ` · QR lu : « ${o.foreign} »` : ''}</div>
                       <Thumb batchId={batch.id} idx={o.idx} rot={0} headers={headers} width={190} />
                       <PageControls p={{ idx: o.idx, page: 1, rot: 0, manual: false }} />
                     </div>

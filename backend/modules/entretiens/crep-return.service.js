@@ -91,11 +91,29 @@ function rotated(canvas, deg) {
     return out;
 }
 
+let strictInversion = true;
 function decodeRegion(canvas, x, y, w, h) {
     const jsQR = require('jsqr');
     const img = canvas.getContext('2d').getImageData(x, y, w, h);
-    const r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    const r = jsQR(img.data, img.width, img.height, { inversionAttempts: strictInversion ? 'dontInvert' : 'attemptBoth' });
+    if (r && r.data && !parsePageCode(r.data, true)) lastForeign = String(r.data).slice(0, 60);
     return r && r.data ? { text: r.data, loc: r.location } : null;
+}
+
+let lastForeign = '';
+
+/** Lecture robuste d'une page : plusieurs résolutions de rendu, puis lecture avec inversion de contraste (scans de qualité variable). */
+async function findDashcodeRobust(doc, n) {
+    lastForeign = '';
+    for (const inverse of [false, true]) {
+        strictInversion = !inverse;
+        for (const w of [QR_WIDTH_PX, 3000, 1400, 1000]) {
+            const r = findDashcode(await renderPage(doc, n, w));
+            if (r.code) { strictInversion = true; return r; }
+        }
+    }
+    strictInversion = true;
+    return { code: null, rot: 0, ...(lastForeign ? { foreign: lastForeign } : {}) };
 }
 
 /**
@@ -107,11 +125,11 @@ function findDashcode(canvas) {
     for (const deg of [0, 180, 90, 270]) {
         const c = rotated(canvas, deg);
         const r = decodeRegion(c, 0, 0, Math.round(c.width * 0.42), Math.round(c.height * 0.26));
-        const p = r && parsePageCode(r.text);
+        const p = r && parsePageCode(r.text, true);
         if (p) return { code: p, rot: deg };
     }
     const r = decodeRegion(canvas, 0, 0, canvas.width, canvas.height);
-    const p = r && parsePageCode(r.text);
+    const p = r && parsePageCode(r.text, true);
     if (!p) return { code: null, rot: 0 };
     const pts = [r.loc.topLeftCorner, r.loc.topRightCorner, r.loc.bottomLeftCorner, r.loc.bottomRightCorner];
     const cx = pts.reduce((n, q) => n + q.x, 0) / 4 / canvas.width, cy = pts.reduce((n, q) => n + q.y, 0) / 4 / canvas.height;
@@ -129,7 +147,7 @@ async function analyse(batchId, buffer) {
         const pages = [];
         for (let i = 1; i <= total; i++) {
             let entry = { idx: i, code: null, rot: 0 };
-            try { entry = { idx: i, ...findDashcode(await renderPage(doc, i, QR_WIDTH_PX)) }; }
+            try { entry = { idx: i, ...(await findDashcodeRobust(doc, i)) }; }
             catch (e) { console.warn(`[ENTRETIENS] retours : page ${i} illisible :`, e.message); }
             pages.push(entry);
             if (i % 3 === 0 || i === total) {
@@ -197,7 +215,7 @@ async function describe(batch) {
     for (const p of pages) {
         const e = effective(p);
         if (p.ignore) { ignored.push(p.idx); continue; }
-        if (!e) { orphans.push({ idx: p.idx }); continue; }
+        if (!e) { orphans.push({ idx: p.idx, foreign: p.foreign || null }); continue; }
         if (!byEnt.has(e.id)) byEnt.set(e.id, []);
         byEnt.get(e.id).push({ idx: p.idx, page: e.page, rot: p.rot || 0, manual: e.manual, signatures: p.signatures || null });
     }
@@ -266,7 +284,7 @@ async function assignPage(batchId, idx, body) {
         p.manual = { id: ent.id, page };
     }
     if (body && Number.isInteger(Number(body.rot)) && [0, 90, 180, 270].includes(Number(body.rot))) p.rot = Number(body.rot);
-    await pgDb.run('UPDATE hub_entretiens.crep_return_batches SET pages = CAST(? AS jsonb) WHERE id = ?', [JSON.stringify(pages), batchId]);
+    await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET pages = CAST(? AS jsonb), status = CASE WHEN status = 'sans_crep' AND ? THEN 'a_verifier' ELSE status END WHERE id = ?", [JSON.stringify(pages), !!(p.manual && p.manual.id), batchId]);
     // Page rattachée à la main comme dernière page : contrôle des signatures
     if (p.manual && p.manual.page === EXPECTED_PAGES && !p.signatures) detectSignatureOnPage(batchId, idx).catch(() => {});
 }
@@ -305,7 +323,7 @@ async function confirmGroups(batchId, { entretienIds, replace, actor }) {
     const svc = require('./entretiens.service');
     const batch = await getBatch(batchId);
     if (!batch) { const e = new Error('Lot introuvable.'); e.status = 404; throw e; }
-    if (batch.status !== 'a_verifier') { const e = new Error('Ce lot n’est pas (ou plus) en attente de vérification.'); e.status = 409; throw e; }
+    if (!['a_verifier', 'sans_crep'].includes(batch.status)) { const e = new Error('Ce lot n’est pas (ou plus) en attente de vérification.'); e.status = 409; throw e; }
     const view = await describe(batch);
     const srcBuffer = await readStored(batch.file_path);
     const confirmed = batch.confirmed || {};
@@ -383,6 +401,16 @@ async function confirmGroups(batchId, { entretienIds, replace, actor }) {
         await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET status = 'termine' WHERE id = ?", [batchId]);
     }
     return results;
+}
+
+/** Relance la lecture des QR codes d'un lot déjà enregistré (analyse améliorée, fichier mal lu…). */
+async function reanalyse(batchId) {
+    const batch = await getBatch(batchId);
+    if (!batch) { const e = new Error('Lot introuvable.'); e.status = 404; throw e; }
+    if (batch.status === 'analyse') { const e = new Error('Analyse déjà en cours.'); e.status = 409; throw e; }
+    const buffer = await readStored(batch.file_path);
+    await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET status = 'analyse', progress = 0, pages = '[]'::jsonb, confirmed = '{}'::jsonb, error = NULL WHERE id = ?", [batchId]);
+    analyse(batchId, buffer);
 }
 
 async function deleteBatch(batchId) {
@@ -476,4 +504,4 @@ async function reading(entretienId) {
     return job || null;
 }
 
-module.exports = { _internal: { openPdf, renderPage, findDashcode, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, summary, reading };
+module.exports = { _internal: { openPdf, renderPage, findDashcode, findDashcodeRobust, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, reanalyse, summary, reading };

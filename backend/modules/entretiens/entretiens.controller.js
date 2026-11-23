@@ -640,6 +640,16 @@ const entretiensController = {
         } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsDeleteReturn:', err.message); fail(res, 500, err.message); }
     },
 
+    // POST /api/entretiens/returns/batches/:id/reanalyse — relance la lecture des QR codes du lot
+    returnsReanalyse: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            await require('./crep-return.service').reanalyse(Number(req.params.id));
+            res.json({ ok: true });
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsReanalyse:', err.message); fail(res, 500, err.message); }
+    },
+
     returnsDelete: async (req, res) => {
         try {
             const actor = await svc.getActor(req);

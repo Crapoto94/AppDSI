@@ -1,12 +1,24 @@
 {
   "module": "entretiens",
-  "version": "0.51.0",
+  "version": "0.51.1",
   "date": "2026-11-23",
   "releases": [
     {
+      "version": "0.51.1",
+      "date": "2026-11-23",
+      "commit": "a7bc1bc9",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Correction bug : lots de CREP reçus par mail ou numérisés : le QR code est reconnu même s'il est signé par une autre instance, lecture plus robuste (plusieurs résolutions, contraste inversé), lot sans CREP reconnu consultable avec classement manuel des pages et relance de l'analyse, vignettes expliquant un fichier introuvable, fichiers des lots déposés dans la GED (lisibles depuis tous les serveurs)"
+        ],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.51.0",
       "date": "2026-11-23",
-      "commit": "78f723e0",
+      "commit": "8b2b4f47",
       "groups": {
         "nouveautes": [
           "Mode simple sans PDF formulaire hors ligne pour les évaluateurs (option masquée, import réservé aux administrateurs)",
