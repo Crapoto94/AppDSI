@@ -60,6 +60,7 @@ function ensureSchema() {
             )`);
             // pgDb.run ajoute « RETURNING id » à tout INSERT : ces tables doivent donc porter une colonne id.
             await pgDb.run('ALTER TABLE hub_entretiens.crep_templates ADD COLUMN IF NOT EXISTS id SERIAL');
+            await pgDb.run('ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS evaluator_manuel BOOLEAN NOT NULL DEFAULT FALSE').catch(() => {});
             await pgDb.run('ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS id SERIAL');
             await pgDb.run('ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS email_deduit BOOLEAN NOT NULL DEFAULT FALSE');
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT ''");
@@ -307,13 +308,25 @@ function computeCandidates(agents) {
         byUnit.get(a.poste_affectation_code).push(a);
     }
     for (const a of agents) {
-        // Code de l'unité de l'agent ; à défaut de responsable à ce niveau, on remonte aux unités parentes du chemin.
+        // Règle : un agent qui n'est PAS lui-même responsable est d'abord rattaché au(x) responsable(s) de SA propre unité d'affectation
+        // (son équipe, son site) ; un responsable, lui, est rattaché à l'unité au-dessus. À défaut de responsable à ce niveau, on remonte
+        // aux unités du chemin hiérarchique (de la plus fine à la plus haute), comme avant.
+        // Cas visé : le chemin de l'agent s'arrête au niveau direction alors que son équipe a un responsable (ex. accueil de la DRH) : sans cette
+        // règle, tous les agents de la direction étaient proposés au directeur.
         let list = [];
         a.valideur_niveau = 0;
-        const codes = unitCodes(a.chemin);
-        for (let i = 0; i < codes.length && !list.length; i++) {
-            list = (byUnit.get(codes[i]) || []).filter(v => v.matricule !== a.matricule);
-            a.valideur_niveau = i;
+        a.valideur_via = '';
+        if (!isValideurFonction(a.poste_fonction) && a.poste_affectation_code) {
+            list = (byUnit.get(a.poste_affectation_code) || []).filter(v => v.matricule !== a.matricule);
+            if (list.length) a.valideur_via = 'unite_affectation';
+        }
+        if (!list.length) {
+            const codes = unitCodes(a.chemin);
+            for (let i = 0; i < codes.length && !list.length; i++) {
+                list = (byUnit.get(codes[i]) || []).filter(v => v.matricule !== a.matricule);
+                a.valideur_niveau = i;
+            }
+            if (list.length) a.valideur_via = 'chemin';
         }
         const preferred = list.filter(v => v.a_conserver);
         a.est_valideur = isValideurFonction(a.poste_fonction);
@@ -324,23 +337,44 @@ function computeCandidates(agents) {
 async function importWorkbook(buffer, filename, actor) {
     await ensureSchema();
     const agents = parseAgents(buffer);
+    if (!agents.length) throw Object.assign(new Error('Aucun agent lu dans « Base_agents » : import annulé, la base actuelle est conservée.'), { status: 400 });
     computeCandidates(agents);
     const templates = await parseTemplates(buffer);
 
     // Choix d'administrateur et rapprochements AD déjà faits : conservés d'un dépôt à l'autre.
-    const old = new Map((await pgDb.all('SELECT * FROM hub_entretiens.base_agents')).map(r => [r.matricule, r]));
+    // Matricules comparés sans tenir compte des zéros de tête (« 2209 » = « 0002209 ») : un format différent d'un classeur à l'autre ne doit pas faire perdre un rapprochement.
+    const mkey = (m) => (/^\d+$/.test(String(m || '').trim()) ? String(m).trim().replace(/^0+/, '') : String(m || '').trim());
+    const oldRows = await pgDb.all('SELECT * FROM hub_entretiens.base_agents');
+    const old = new Map(oldRows.map(r => [mkey(r.matricule), r]));
+    // Filet de sécurité : copie de la base avant remplacement (restauration possible : hub_entretiens.base_agents_avant_import)
+    try {
+        await pgDb.run('DROP TABLE IF EXISTS hub_entretiens.base_agents_avant_import');
+        await pgDb.run('CREATE TABLE hub_entretiens.base_agents_avant_import AS SELECT * FROM hub_entretiens.base_agents');
+    } catch (e) { console.warn('[ep-base] copie de sécurité impossible :', e.message); }
+    const newKeys = new Set(agents.map(a => mkey(a.matricule)));
     for (const a of agents) {
-        const o = old.get(a.matricule);
+        const o = old.get(mkey(a.matricule));
         const candIds = a.candidats.map(c => c.matricule);
         let chosen = '', source = '';
         // Choix manuel de l'admin : conservé tant que le valideur choisi existe encore dans le classeur (même hors des propositions automatiques).
-        if (o && o.valideur_source === 'admin' && o.valideur_matricule && agents.some(x => x.matricule === o.valideur_matricule)) { chosen = o.valideur_matricule; source = 'admin'; }
+        if (o && o.valideur_source === 'admin' && o.valideur_matricule && agents.some(x => mkey(x.matricule) === mkey(o.valideur_matricule))) { chosen = (agents.find(x => mkey(x.matricule) === mkey(o.valideur_matricule)) || {}).matricule || o.valideur_matricule; source = 'admin'; }
         else if (candIds.length === 1) { chosen = candIds[0]; source = 'auto'; }
         a.valideur_matricule = chosen; a.valideur_source = source;
         a.email = o ? o.email || '' : ''; a.ad_username = o ? o.ad_username || '' : ''; a.ad_status = o ? o.ad_status || 'non_verifie' : 'non_verifie'; a.email_deduit = !!(o && o.email_deduit);
     }
 
     await pgDb.run('DELETE FROM hub_entretiens.base_agents');
+    // Agents présents avant et absents du nouveau classeur : conservés tels quels (ils ne sont plus « à évaluer » mais gardent leurs rapprochements AD et leurs choix)
+    const absents = oldRows.filter(r => !newKeys.has(mkey(r.matricule)));
+    for (const r of absents) {
+        await pgDb.run(
+            `INSERT INTO hub_entretiens.base_agents (matricule, nom_prenom, modele, a_conserver, direction, service, poste, grade, chemin, unit_code,
+                poste_fonction, poste_affectation_code, est_valideur, valideur_candidats, valideur_matricule, valideur_source, email, ad_username, ad_status, email_deduit, nom, prenom, categorie)
+             VALUES (?,?,?,FALSE,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,?,?,?,?,?,?,?,?) ON CONFLICT (matricule) DO NOTHING`,
+            [r.matricule, r.nom_prenom, r.modele, r.direction, r.service, r.poste, r.grade, r.chemin, r.unit_code, r.poste_fonction, r.poste_affectation_code, r.est_valideur,
+                JSON.stringify(typeof r.valideur_candidats === 'string' ? JSON.parse(r.valideur_candidats || '[]') : (r.valideur_candidats || [])), r.valideur_matricule, r.valideur_source,
+                r.email, r.ad_username, r.ad_status, !!r.email_deduit, r.nom || '', r.prenom || '', r.categorie || '']);
+    }
     for (const a of agents) {
         await pgDb.run(
             `INSERT INTO hub_entretiens.base_agents (matricule, nom_prenom, modele, a_conserver, direction, service, poste, grade, chemin, unit_code,
@@ -515,6 +549,8 @@ async function syncEntretiens({ matricules, actor } = {}) {
                 'SELECT * FROM hub_entretiens.entretiens WHERE campaign_id = ? AND agent_matricule = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1', [campaign.id, a.matricule]);
             if (!a.valideur_matricule) {
                 out.sans_valideur++;
+                // Évaluateur choisi à la main sur l'entretien : conservé même si la base n'a pas (ou plus) de valideur pour cet agent
+                if (existing && (existing.evaluator_manuel || text(existing.evaluator_email) || text(existing.evaluator_username))) { out.manuels_conserves = (out.manuels_conserves || 0) + 1; continue; }
                 if (existing && existing.source === 'base' && !hasProgress(existing)) {
                     await pgDb.run("UPDATE hub_entretiens.entretiens SET deleted_at = NOW(), deleted_by = 'valideur retiré' WHERE id = ?", [existing.id]);
                     out.retires++;
@@ -534,10 +570,15 @@ async function syncEntretiens({ matricules, actor } = {}) {
             const ev = { username: text(a.v_username), email: text(a.v_email).toLowerCase(), nom: evalName({ nom: a.v_nom, prenom: a.v_prenom, nom_prenom: a.v_nom_prenom }) };
             if (existing) {
                 if (hasProgress(existing)) { out.deja_commences++; continue; }
+                // Évaluateur choisi à la main : conservé ; compte AD / e-mail de l'agent déjà renseignés : jamais effacés par une base qui n'en a pas
+                const keepEval = !!existing.evaluator_manuel;
+                if (keepEval) out.manuels_conserves = (out.manuels_conserves || 0) + 1;
                 await pgDb.run(
                     `UPDATE hub_entretiens.entretiens SET agent_username = ?, agent_email = ?, evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?,
                         direction = ?, service = ?, poste = ?, agent_grade = ?, updated_at = NOW() WHERE id = ?`,
-                    [text(a.ad_username), text(a.email).toLowerCase(), ev.username, ev.email, ev.nom, a.direction, a.service, a.poste, a.grade, existing.id]);
+                    [text(a.ad_username) || text(existing.agent_username), text(a.email).toLowerCase() || text(existing.agent_email).toLowerCase(),
+                        keepEval ? existing.evaluator_username : ev.username, keepEval ? existing.evaluator_email : ev.email, keepEval ? existing.evaluator_nom : ev.nom,
+                        a.direction, a.service, a.poste, a.grade, existing.id]);
                 out.mis_a_jour++;
                 continue;
             }

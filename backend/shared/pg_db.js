@@ -7914,6 +7914,8 @@ async function setupPgDbFull() {
       await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS mode_simple BOOLEAN NOT NULL DEFAULT FALSE`);
       // QR code imprimé en haut à gauche de chaque page du CREP (rattachement automatique à la numérisation) : activé par défaut
       await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS qr_code BOOLEAN NOT NULL DEFAULT TRUE`);
+      // Évaluateur choisi à la main sur l'entretien (« Ajouter un·e agent·e », « Changer l'évaluateur ») : jamais écrasé par la synchronisation avec la base des agents
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS evaluator_manuel BOOLEAN NOT NULL DEFAULT FALSE`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_entretiens.entretiens (

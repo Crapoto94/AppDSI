@@ -2427,7 +2427,7 @@ const entretiensController = {
             }
             await pgDb.run(
                 `UPDATE hub_entretiens.entretiens
-                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, updated_at = NOW()
+                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, evaluator_manuel = TRUE, updated_at = NOW()
                  WHERE id = ?`,
                 [actor.username || '', actor.email || '', evaluatorName, row.id]
             );
@@ -2488,7 +2488,7 @@ const entretiensController = {
             }
             await pgDb.run(
                 `UPDATE hub_entretiens.entretiens
-                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, updated_at = NOW()
+                 SET evaluator_username = ?, evaluator_email = ?, evaluator_nom = ?, evaluator_manuel = TRUE, updated_at = NOW()
                  WHERE id = ?`,
                 [evaluator.ad_username || '', evaluator.email || '', evaluator.nom_prenom || '', row.id]
             );
