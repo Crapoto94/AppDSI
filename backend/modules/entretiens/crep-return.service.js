@@ -45,13 +45,14 @@ function ensureTable() {
             )`);
             // Canal d'entrée du CREP numérisé : « drh » (téléversement par un administrateur) ou « mail » (boîte moissonnée)
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_return_batches ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'drh'`);
+            await pgDb.run(`ALTER TABLE hub_entretiens.crep_return_batches ADD COLUMN IF NOT EXISTS phase_total INTEGER`);
             await pgDb.run(`ALTER TABLE hub_entretiens.crep_return_batches ADD COLUMN IF NOT EXISTS source_meta JSONB`);
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_canal TEXT`);
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_canal_detail TEXT`);
             // Mode simple : l'évaluateur signale avoir transmis le CREP à la DRH
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS simple_sent_at TIMESTAMPTZ`);
             await pgDb.run(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS simple_sent_by TEXT`);
-            await pgDb.run(`UPDATE hub_entretiens.crep_return_batches SET status = 'echec', error = 'Analyse interrompue par un redémarrage du serveur : renvoyez le fichier.' WHERE status = 'analyse'`);
+            await pgDb.run(`UPDATE hub_entretiens.crep_return_batches SET status = 'echec', error = 'Analyse interrompue par un redémarrage du serveur : renvoyez le fichier.' WHERE status IN ('analyse', 'identification')`);
         })().catch(e => { ready = null; throw e; });
     }
     return ready;
@@ -103,11 +104,11 @@ function decodeRegion(canvas, x, y, w, h) {
 let lastForeign = '';
 
 /** Lecture robuste d'une page : plusieurs résolutions de rendu, puis lecture avec inversion de contraste (scans de qualité variable). */
-async function findDashcodeRobust(doc, n) {
+async function findDashcodeRobust(doc, n, quick = false) {
     lastForeign = '';
-    for (const inverse of [false, true]) {
+    for (const inverse of quick ? [false] : [false, true]) {
         strictInversion = !inverse;
-        for (const w of [QR_WIDTH_PX, 3000, 1400, 1000]) {
+        for (const w of quick ? [QR_WIDTH_PX] : [QR_WIDTH_PX, 3000, 1400, 1000]) {
             const r = findDashcode(await renderPage(doc, n, w));
             if (r.code) { strictInversion = true; return r; }
         }
@@ -144,18 +145,32 @@ async function analyse(batchId, buffer) {
         doc = await openPdf(buffer);
         const total = Math.min(doc.numPages, MAX_PAGES);
         await pgDb.run('UPDATE hub_entretiens.crep_return_batches SET pages_total = ? WHERE id = ?', [total, batchId]);
+        const info = await pgDb.get('SELECT channel, campaign_id FROM hub_entretiens.crep_return_batches WHERE id = ?', [batchId]);
+        // Option « QR code » de la campagne désactivée : simple tentative rapide (des CREP imprimés avant la désactivation peuvent en porter un)
+        const qrOn = !info?.campaign_id || (await pgDb.get('SELECT qr_code FROM hub_entretiens.campaigns WHERE id = ?', [info.campaign_id]))?.qr_code !== false;
         const pages = [];
         for (let i = 1; i <= total; i++) {
             let entry = { idx: i, code: null, rot: 0 };
-            try { entry = { idx: i, ...(await findDashcodeRobust(doc, i)) }; }
+            try { entry = { idx: i, ...(await findDashcodeRobust(doc, i, !qrOn)) }; }
             catch (e) { console.warn(`[ENTRETIENS] retours : page ${i} illisible :`, e.message); }
             pages.push(entry);
             if (i % 3 === 0 || i === total) {
                 await pgDb.run('UPDATE hub_entretiens.crep_return_batches SET progress = ?, pages = CAST(? AS jsonb) WHERE id = ?', [i, JSON.stringify(pages), batchId]);
             }
         }
-        const none = pages.every(p => !p.code);
-        const mailBatch = (await pgDb.get('SELECT channel FROM hub_entretiens.crep_return_batches WHERE id = ?', [batchId]))?.channel === 'mail';
+        const mailBatch = info?.channel === 'mail';
+        // Pages sans QR code (option désactivée, QR illisible, CREP imprimé avant son activation) : lecture IA du nom de l'agent et du titre de la page
+        const unresolved = pages.filter(p => !p.code);
+        if (unresolved.length && !(mailBatch && total > 40)) {
+            await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET status = 'identification', progress = 0, phase_total = ?, pages = CAST(? AS jsonb) WHERE id = ?", [unresolved.length, JSON.stringify(pages), batchId]);
+            try {
+                await require('./crep-identify.service').identifyPages({
+                    pages, campaignId: info?.campaign_id || null, doc, renderPage, deps: { rotated },
+                    onProgress: async (done, n, ps) => { await pgDb.run('UPDATE hub_entretiens.crep_return_batches SET progress = ?, pages = CAST(? AS jsonb) WHERE id = ?', [done, JSON.stringify(ps), batchId]); },
+                });
+            } catch (e) { console.warn('[ENTRETIENS] retours : identification des pages par l’IA impossible :', e.message); }
+        }
+        const none = pages.every(p => !p.code && !p.auto);
         await pgDb.run(`UPDATE hub_entretiens.crep_return_batches SET status = ?, progress = ?, pages = CAST(? AS jsonb), finished_at = NOW() WHERE id = ?`, [none && mailBatch ? 'sans_crep' : 'a_verifier', total, JSON.stringify(pages), batchId]);
         // Contrôle des signatures sur la dernière page de chaque CREP (en tâche de fond : le lot est déjà consultable)
         if (!(none && mailBatch)) detectBatchSignatures(batchId).catch(e => console.warn('[ENTRETIENS] retours : détection des signatures :', e.message));
@@ -202,7 +217,9 @@ async function detectBatchSignatures(batchId) {
 function effective(p) {
     if (p.ignore) return null;
     if (p.manual && p.manual.id && p.manual.page) return { id: Number(p.manual.id), page: Number(p.manual.page), manual: true };
-    return p.code ? { ...p.code, manual: false } : null;
+    if (p.code) return { ...p.code, manual: false };
+    if (p.auto && p.auto.id && p.auto.page) return { id: Number(p.auto.id), page: Number(p.auto.page), manual: false, auto: true };
+    return null;
 }
 
 /** Vue d'un lot : CREP reconstitués (par entretien), avec contrôle du nombre de pages, et pages à classer à la main. */
@@ -215,9 +232,9 @@ async function describe(batch) {
     for (const p of pages) {
         const e = effective(p);
         if (p.ignore) { ignored.push(p.idx); continue; }
-        if (!e) { orphans.push({ idx: p.idx, foreign: p.foreign || null }); continue; }
+        if (!e) { orphans.push({ idx: p.idx, foreign: p.foreign || null, suggest: p.suggest || null, read: p.read ? { titre: p.read.titre || '', agent: p.read.agent || '' } : null }); continue; }
         if (!byEnt.has(e.id)) byEnt.set(e.id, []);
-        byEnt.get(e.id).push({ idx: p.idx, page: e.page, rot: p.rot || 0, manual: e.manual, signatures: p.signatures || null });
+        byEnt.get(e.id).push({ idx: p.idx, page: e.page, rot: p.rot || 0, manual: e.manual, signatures: p.signatures || null, source: e.manual ? 'manuel' : e.auto ? 'nom' : 'qr', assoc: p.auto || null, unverified: !!(p.code && p.code.unverified) });
     }
     const ids = [...byEnt.keys()];
     const rows = ids.length ? await pgDb.all(
@@ -239,7 +256,13 @@ async function describe(batch) {
             direction: m?.direction || '', service: m?.service || '', evaluateur: m?.evaluator_nom || '',
             already_received: !!m?.crep_signed_path,
             confirmed: confirmed[id] || null,
-            pages: list.map(({ signatures, ...rest }) => rest),
+            pages: list.map(({ signatures, assoc, ...rest }) => rest),
+            // Comment l'agent a été retenu : QR code, lecture du nom (avec taux de certitude et autres candidats) ou choix manuel
+            assoc: (() => {
+                const src = list.some(l => l.source === 'manuel') ? 'manuel' : list.some(l => l.source === 'qr') ? 'qr' : 'nom';
+                const a = (list.find(l => l.assoc) || {}).assoc || null;
+                return { source: src, read_name: a?.read_name || '', confidence: src === 'nom' ? (a?.confidence ?? null) : null, candidates: a?.candidates || [], page_guess: list.some(l => l.assoc && l.assoc.page_guess), unverified: list.some(l => l.unverified) };
+            })(),
             // Signatures vues sur la dernière page : { agent, evaluateur } ; null = contrôle en cours ; { unknown: true } = indéterminé
             signatures: (list.find(l => l.page === EXPECTED_PAGES) || {}).signatures || null,
             missing, duplicates, out_of_range: outOfRange,
@@ -249,6 +272,7 @@ async function describe(batch) {
         };
     }).sort((a, b) => String(a.agent || '').localeCompare(String(b.agent || ''), 'fr'));
     return {
+        phase_total: batch.phase_total || 0,
         id: batch.id, campaign_id: batch.campaign_id, status: batch.status, channel: batch.channel || 'drh', source_meta: batch.source_meta || null, file_name: batch.file_name, error: batch.error,
         pages_total: batch.pages_total, progress: batch.progress, created_at: batch.created_at, created_by: batch.created_by,
         expected_pages: EXPECTED_PAGES, groups, orphans, ignored,
@@ -263,7 +287,7 @@ async function getBatch(id) {
 async function listBatches(campaignId) {
     await ensureTable();
     return pgDb.all(
-        `SELECT id, campaign_id, created_by, file_name, status, pages_total, progress, created_at, channel, source_meta FROM hub_entretiens.crep_return_batches ${campaignId ? 'WHERE campaign_id = ?' : ''} ORDER BY id DESC LIMIT 30`,
+        `SELECT id, campaign_id, created_by, file_name, status, pages_total, phase_total, progress, created_at, channel, source_meta FROM hub_entretiens.crep_return_batches ${campaignId ? 'WHERE campaign_id = ?' : ''} ORDER BY id DESC LIMIT 30`,
         campaignId ? [campaignId] : []);
 }
 
@@ -287,6 +311,26 @@ async function assignPage(batchId, idx, body) {
     await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET pages = CAST(? AS jsonb), status = CASE WHEN status = 'sans_crep' AND ? THEN 'a_verifier' ELSE status END WHERE id = ?", [JSON.stringify(pages), !!(p.manual && p.manual.id), batchId]);
     // Page rattachée à la main comme dernière page : contrôle des signatures
     if (p.manual && p.manual.page === EXPECTED_PAGES && !p.signatures) detectSignatureOnPage(batchId, idx).catch(() => {});
+}
+
+/** Affecte d'un coup toutes les pages d'un CREP reconstitué à un autre agent (en conservant le numéro de chaque page). */
+async function assignGroup(batchId, idxs, entretienId) {
+    const batch = await getBatch(batchId);
+    if (!batch) { const e = new Error('Lot introuvable.'); e.status = 404; throw e; }
+    const ent = await pgDb.get('SELECT id FROM hub_entretiens.entretiens WHERE id = ? AND deleted_at IS NULL', [Number(entretienId)]);
+    if (!ent) { const e = new Error('Entretien introuvable.'); e.status = 404; throw e; }
+    const pages = Array.isArray(batch.pages) ? batch.pages : [];
+    let n = 0;
+    for (const idx of idxs) {
+        const p = pages.find(x => x.idx === Number(idx));
+        const eff = p && effective(p);
+        if (!p || !eff || !eff.page) continue;
+        p.manual = { id: ent.id, page: eff.page };
+        delete p.ignore;
+        n++;
+    }
+    await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET pages = CAST(? AS jsonb), status = CASE WHEN status = 'sans_crep' THEN 'a_verifier' ELSE status END WHERE id = ?", [JSON.stringify(pages), batchId]);
+    return n;
 }
 
 /** Miniature (JPEG) d'une page du lot, remise à l'endroit. */
@@ -323,6 +367,7 @@ async function confirmGroups(batchId, { entretienIds, replace, actor }) {
     const svc = require('./entretiens.service');
     const batch = await getBatch(batchId);
     if (!batch) { const e = new Error('Lot introuvable.'); e.status = 404; throw e; }
+    if (batch.status === 'identification') { const e = new Error('La lecture des noms est en cours : attendez la fin de l’identification.'); e.status = 409; throw e; }
     if (!['a_verifier', 'sans_crep'].includes(batch.status)) { const e = new Error('Ce lot n’est pas (ou plus) en attente de vérification.'); e.status = 409; throw e; }
     const view = await describe(batch);
     const srcBuffer = await readStored(batch.file_path);
@@ -407,7 +452,7 @@ async function confirmGroups(batchId, { entretienIds, replace, actor }) {
 async function reanalyse(batchId) {
     const batch = await getBatch(batchId);
     if (!batch) { const e = new Error('Lot introuvable.'); e.status = 404; throw e; }
-    if (batch.status === 'analyse') { const e = new Error('Analyse déjà en cours.'); e.status = 409; throw e; }
+    if (batch.status === 'analyse' || batch.status === 'identification') { const e = new Error('Analyse déjà en cours.'); e.status = 409; throw e; }
     const buffer = await readStored(batch.file_path);
     await pgDb.run("UPDATE hub_entretiens.crep_return_batches SET status = 'analyse', progress = 0, pages = '[]'::jsonb, confirmed = '{}'::jsonb, error = NULL WHERE id = ?", [batchId]);
     analyse(batchId, buffer);
@@ -504,4 +549,4 @@ async function reading(entretienId) {
     return job || null;
 }
 
-module.exports = { _internal: { openPdf, renderPage, findDashcode, findDashcodeRobust, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, reanalyse, summary, reading };
+module.exports = { _internal: { openPdf, renderPage, findDashcode, findDashcodeRobust, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, reanalyse, assignGroup, summary, reading };

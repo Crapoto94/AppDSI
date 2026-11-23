@@ -620,4 +620,4 @@ async function detectSignaturesOnImage(buf) {
     return detectSignatures(apm, model, await loadImage(buf), 0);
 }
 
-module.exports = { scanToProposal, scanDocuments, pagePrompt, pageType, detectSignaturesOnImage };
+module.exports = { scanToProposal, scanDocuments, pagePrompt, pageType, detectSignaturesOnImage, pickVisionModel, askVision, extractJson };

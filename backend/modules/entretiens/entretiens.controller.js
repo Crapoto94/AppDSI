@@ -320,8 +320,8 @@ const entretiensController = {
 
             const result = await pgDb.run(
                 `INSERT INTO hub_entretiens.campaigns
-                   (annee, libelle, date_ouverture, date_cloture, date_limite_ep, statut, instructions, created_by, analyse_coherence, mode_simple)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                   (annee, libelle, date_ouverture, date_cloture, date_limite_ep, statut, instructions, created_by, analyse_coherence, mode_simple, qr_code)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     annee,
                     text(req.body?.libelle).trim() || `Campagne ${annee}`,
@@ -333,6 +333,7 @@ const entretiensController = {
                     actor.username || null,
                     req.body?.analyse_coherence === true,
                     req.body?.mode_simple === true,
+                    req.body?.qr_code !== false,
                 ]
             );
             const row = await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [result.lastID]);
@@ -352,7 +353,7 @@ const entretiensController = {
             await pgDb.run(
                 `UPDATE hub_entretiens.campaigns
                  SET annee = ?, libelle = ?, date_ouverture = ?, date_cloture = ?, date_limite_ep = ?,
-                     statut = ?, instructions = ?, analyse_coherence = ?, mode_simple = ?, updated_at = NOW()
+                     statut = ?, instructions = ?, analyse_coherence = ?, mode_simple = ?, qr_code = ?, updated_at = NOW()
                  WHERE id = ?`,
                 [
                     intOr(b.annee, current.annee),
@@ -364,6 +365,7 @@ const entretiensController = {
                     b.instructions !== undefined ? text(b.instructions) : current.instructions,
                     b.analyse_coherence !== undefined ? b.analyse_coherence === true : !!current.analyse_coherence,
                     b.mode_simple !== undefined ? b.mode_simple === true : !!current.mode_simple,
+                    b.qr_code !== undefined ? b.qr_code !== false : current.qr_code !== false,
                     id,
                 ]
             );
@@ -638,6 +640,19 @@ const entretiensController = {
             await require('./crep-return.service').deleteReturn(Number(req.params.id), actor);
             res.json({ ok: true });
         } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsDeleteReturn:', err.message); fail(res, 500, err.message); }
+    },
+
+    // PUT /api/entretiens/returns/batches/:id/group { idxs: [..], entretien_id } — affecte un CREP reconstitué à un autre agent
+    returnsAssignGroup: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const ret = require('./crep-return.service');
+            const idxs = (Array.isArray(req.body?.idxs) ? req.body.idxs : []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+            if (!idxs.length) return fail(res, 400, 'Aucune page indiquée.');
+            await ret.assignGroup(Number(req.params.id), idxs, Number(req.body?.entretien_id));
+            res.json(await ret.describe(await ret.getBatch(Number(req.params.id))));
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsAssignGroup:', err.message); fail(res, 500, err.message); }
     },
 
     // POST /api/entretiens/returns/batches/:id/reanalyse — relance la lecture des QR codes du lot

@@ -453,9 +453,9 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
         }
     }
 
-    // Dashcode (QR code + libellé) en haut à gauche de chaque page : permet de reconnaître l'entretien et le numéro de page
-    // lors de la numérisation en lot des CREP (pages mélangées) — cf. crep-return.service.js.
-    {
+    // Dashcode (QR code) en haut à gauche de chaque page : permet de reconnaître l'entretien et le numéro de page
+    // lors de la numérisation en lot des CREP (pages mélangées) — cf. crep-return.service.js. Option de campagne (activé par défaut).
+    if (opts.qr !== undefined ? opts.qr !== false : await qrEnabled(entretien)) {
         const pages = pdf.getPages();
         pages.forEach((pg, i) => {
             const label = pageCode(entretien.id, i + 1);
@@ -523,6 +523,16 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
     }
 
     return Buffer.from(await pdf.save());
+}
+
+/** Option « QR code » de la campagne de l'entretien (activée par défaut, y compris pour un document sans campagne). */
+async function qrEnabled(entretien) {
+    try {
+        if (!entretien || !entretien.campaign_id) return true;
+        const { pgDb } = require('../../shared/database');
+        const c = await pgDb.get('SELECT qr_code FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]);
+        return !c || c.qr_code !== false;
+    } catch (e) { return true; }
 }
 
 /** Code de page : « EPC.<id>.<page>.<signature courte> » (signé : un QR code forgé ou d'un autre système est ignoré). */

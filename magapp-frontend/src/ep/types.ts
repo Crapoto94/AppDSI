@@ -9,6 +9,7 @@ export interface Campaign {
   instructions?: string | null;
   analyse_coherence?: boolean;
   mode_simple?: boolean;
+  qr_code?: boolean;
 }
 
 export interface Access {

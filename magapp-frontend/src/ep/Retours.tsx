@@ -17,14 +17,15 @@ interface Summary { kpis: { total: number; programmes: number; realises: number;
 interface PageRef { idx: number; page: number; rot: number; manual: boolean }
 interface Group {
   entretien_id: number; known: boolean; agent: string | null; direction: string; service: string; evaluateur: string; already_received: boolean;
+  assoc?: { source: 'qr' | 'nom' | 'manuel'; read_name: string; confidence: number | null; candidates: Array<{ id: number; name: string; score: number }>; page_guess?: boolean; unverified?: boolean };
   signatures?: { agent?: boolean; evaluateur?: boolean; unknown?: boolean } | null; confirmed: { at: string; by: string } | null; pages: PageRef[]; missing: number[]; duplicates: number[]; out_of_range: number[]; complete: boolean; other_campaign: boolean;
 }
 interface Batch {
-  id: number; status: 'analyse' | 'a_verifier' | 'termine' | 'echec' | 'sans_crep'; channel?: string; source_meta?: SourceMeta | null; file_name: string; error?: string | null; pages_total: number; progress: number;
-  expected_pages: number; groups: Group[]; orphans: { idx: number; foreign?: string | null }[]; ignored: number[];
+  id: number; phase_total?: number; status: 'analyse' | 'identification' | 'a_verifier' | 'termine' | 'echec' | 'sans_crep'; channel?: string; source_meta?: SourceMeta | null; file_name: string; error?: string | null; pages_total: number; progress: number;
+  expected_pages: number; groups: Group[]; orphans: { idx: number; foreign?: string | null; read?: { titre: string; agent: string } | null; suggest?: { read_name: string; page: number | null; confidence: number; candidates: Array<{ id: number; name: string; score: number }> } | null }[]; ignored: number[];
 }
 interface SourceMeta { from?: string; from_name?: string; subject?: string; received_at?: string | null; mailbox?: string }
-interface BatchLine { id: number; file_name: string; status: string; pages_total: number; progress: number; created_at: string; created_by: string; channel?: string; source_meta?: SourceMeta | null }
+interface BatchLine { phase_total?: number; id: number; file_name: string; status: string; pages_total: number; progress: number; created_at: string; created_by: string; channel?: string; source_meta?: SourceMeta | null }
 
 /** CREP signé disponible : champ calculé par le serveur, à défaut le chemin du fichier signé. */
 const signedOf = (r: Row) => r.crep_signe_dispo ?? !!r.crep_signed_path;
@@ -187,19 +188,29 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
   }, [batchId, headers]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (batch?.status !== 'analyse') return;
+    if (batch?.status !== 'analyse' && batch?.status !== 'identification') return;
     const t = window.setInterval(load, 2500);
     return () => window.clearInterval(t);
   }, [batch?.status, load]);
   // Par défaut : tous les CREP complets, pas encore reçus ni validés
   useEffect(() => {
-    if (batch?.status === 'a_verifier') setSel(prev => (prev.size ? prev : new Set(batch.groups.filter(g => g.complete && !g.confirmed && !g.already_received).map(g => g.entretien_id))));
+    if (batch?.status === 'a_verifier') setSel(prev => (prev.size ? prev : new Set(batch.groups.filter(g => g.complete && !g.confirmed && !g.already_received && (g.assoc?.source !== 'nom' || (g.assoc?.confidence ?? 0) >= 80)).map(g => g.entretien_id))));
   }, [batch?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const assign = async (idx: number, body: any) => {
     setMsg(null);
     try { setBatch((await axios.put(`/api/entretiens/returns/batches/${batchId}/pages/${idx}`, body, { headers })).data); }
     catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Modification impossible.' }); }
+  };
+
+  /** Affecte toutes les pages d'un CREP reconstitué à un autre agent. */
+  const assignGroup = async (g: Group, entretienId: number) => {
+    if (!entretienId || entretienId === g.entretien_id) return;
+    setMsg(null);
+    try {
+      setBatch((await axios.put(`/api/entretiens/returns/batches/${batchId}/group`, { idxs: g.pages.map(x => x.idx), entretien_id: entretienId }, { headers })).data);
+      setSel(prev => { const n = new Set(prev); n.delete(g.entretien_id); return n; });
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Affectation impossible.' }); }
   };
 
   const validate = async () => {
@@ -222,8 +233,8 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
   const personLabel = (r: Row) => `${r.agent_nom} ${r.agent_prenom}`.trim();
   const sortedPeople = useMemo(() => [...people].sort((a, b) => personLabel(a).localeCompare(personLabel(b), 'fr')), [people]);
 
-  const PageControls = ({ p, g }: { p: PageRef; g?: Group }) => {
-    const [ent, setEnt] = useState<number>(g?.entretien_id || 0);
+  const PageControls = ({ p, g, suggestId }: { p: PageRef; g?: Group; suggestId?: number }) => {
+    const [ent, setEnt] = useState<number>(g?.entretien_id || suggestId || 0);
     const [pg, setPg] = useState<number>(p.page || 1);
     return (
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
@@ -257,6 +268,12 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
             <Loader2 size={22} className="spin" /><div style={{ marginTop: 8 }}>Reconnaissance des pages en cours… {batch.progress}/{batch.pages_total || '?'}</div>
           </div>
         )}
+        {batch?.status === 'identification' && (
+          <div style={{ padding: 20, textAlign: 'center', color: COLORS.muted }}>
+            <Loader2 size={22} className="spin" /><div style={{ marginTop: 8 }}>Lecture du nom de l’agent et du titre de chaque page (pas de QR code reconnu)… {batch.progress}/{batch.phase_total || '?'}</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Environ 3 secondes par page. Vous pouvez fermer cette fenêtre : le lot sera à vérifier à la fin.</div>
+          </div>
+        )}
         {batch?.status === 'sans_crep' && <div style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px', marginBottom: 10, fontSize: 12.5 }}>Aucun QR code de CREP n’a été reconnu automatiquement dans ce document reçu par mail. Vous pouvez <strong>relancer l’analyse</strong>, classer les pages à la main ci-dessous (agent et numéro de page), ou supprimer le lot. <button style={{ ...btnGhost, marginLeft: 8, padding: '2px 9px', fontSize: 12 }} onClick={async () => { try { await axios.post(`/api/entretiens/returns/batches/${batch.id}/reanalyse`, {}, { headers }); await load(); } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Relance impossible.' }); } }}><RotateCw size={12} /> Relancer l’analyse</button></div>}
         {batch?.status === 'echec' && <div style={{ color: COLORS.danger, padding: 12 }}>Analyse impossible : {batch.error}</div>}
         {batch && (batch.status === 'a_verifier' || batch.status === 'termine' || batch.status === 'sans_crep') && (
@@ -275,7 +292,8 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
                     <div key={o.idx} style={{ width: 190 }}>
                       <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 3 }}>Page {o.idx} du fichier{o.foreign ? ` · QR lu : « ${o.foreign} »` : ''}</div>
                       <Thumb batchId={batch.id} idx={o.idx} rot={0} headers={headers} width={190} />
-                      <PageControls p={{ idx: o.idx, page: 1, rot: 0, manual: false }} />
+                      {o.read && (o.read.agent || o.read.titre) && <div style={{ fontSize: 10.5, color: '#92400e', margin: '2px 0' }}>Lu : {o.read.agent ? `« ${o.read.agent} »` : ''}{o.suggest ? ` · certitude ${o.suggest.confidence} %` : ''}</div>}
+                      <PageControls p={{ idx: o.idx, page: o.suggest?.page || 1, rot: 0, manual: false }} suggestId={o.suggest?.candidates?.[0]?.id} />
                     </div>
                   ))}
                 </div>
@@ -293,6 +311,30 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
                     {g.confirmed ? <Chip text="Enregistré" color="#166534" bg="#dcfce7" />
                       : g.complete ? <Chip text={`Complet (${g.pages.length}/${batch.expected_pages})`} color="#166534" bg="#dcfce7" />
                       : <Chip text={`Incomplet (${g.pages.length}/${batch.expected_pages})`} color="#991b1b" bg="#fee2e2" />}
+                    {g.assoc && (() => {
+                      const a = g.assoc;
+                      if (a.source === 'nom') {
+                        const c = a.confidence ?? 0;
+                        const col = c >= 80 ? { color: '#166534', bg: '#dcfce7' } : c >= 50 ? { color: '#9a3412', bg: '#ffedd5' } : { color: '#991b1b', bg: '#fee2e2' };
+                        return <>
+                          <span title={`Agent reconnu par la lecture du nom imprimé sur la première page : « ${a.read_name} ». Pages remises dans l’ordre d’après leurs titres.`}><Chip text={`Nom lu : « ${a.read_name} » — certitude ${c} %`} color={col.color} bg={col.bg} /></span>
+                          <Chip text="Pages ordonnées par leurs titres" color="#475569" bg="#f1f5f9" />
+                        </>;
+                      }
+                      if (a.source === 'manuel') return <Chip text="Affecté manuellement" color="#334155" bg="#e2e8f0" />;
+                      return <Chip text={a.unverified ? 'QR code reconnu (non signé par ce serveur)' : 'Reconnu par QR code'} color={a.unverified ? '#9a3412' : '#075985'} bg={a.unverified ? '#ffedd5' : '#e0f2fe'} />;
+                    })()}
+                    {!g.confirmed && batch.status !== 'termine' && (
+                      <select style={{ ...input, width: 'auto', maxWidth: 200, padding: '2px 6px', fontSize: 11.5 }} value="" onChange={e => assignGroup(g, Number(e.target.value))} title="Affecter ce CREP à un autre agent">
+                        <option value="">Affecter à un autre agent…</option>
+                        {(g.assoc?.candidates || []).filter(c => c.id !== g.entretien_id).length > 0 && <optgroup label="Autres candidats probables">
+                          {(g.assoc?.candidates || []).filter(c => c.id !== g.entretien_id).map(c => <option key={c.id} value={c.id}>{c.name} ({c.score} %)</option>)}
+                        </optgroup>}
+                        <optgroup label="Tous les agents">
+                          {sortedPeople.filter(r => r.id !== g.entretien_id).map(r => <option key={r.id} value={r.id}>{personLabel(r)}</option>)}
+                        </optgroup>
+                      </select>
+                    )}
                     {g.missing.length > 0 && !g.confirmed && <Chip text={`Page(s) manquante(s) : ${g.missing.join(', ')}`} color="#991b1b" bg="#fee2e2" />}
                     {g.duplicates.length > 0 && <Chip text={`Page(s) en double : ${g.duplicates.join(', ')}`} color="#92400e" bg="#fef3c7" />}
                     {!g.confirmed && (() => {
@@ -474,7 +516,7 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
                 <div key={b.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', fontSize: 12.5, borderTop: `1px solid ${COLORS.border}` }}>
                   <CanalChip canal={b.channel || 'drh'} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.file_name} <span style={{ color: COLORS.muted }}>· {fmtDate(b.created_at)} · {b.channel === 'mail' ? [b.source_meta?.from, b.source_meta?.subject].filter(Boolean).join(' · ') : b.created_by}</span></span>
-                  <Chip text={b.status === 'analyse' ? `Analyse ${b.progress}/${b.pages_total || '?'}` : b.status === 'a_verifier' ? 'À vérifier' : b.status === 'termine' ? 'Terminé' : b.status === 'sans_crep' ? 'Aucun CREP reconnu' : 'Échec'}
+                  <Chip text={b.status === 'analyse' ? `Analyse ${b.progress}/${b.pages_total || '?'}` : b.status === 'identification' ? `Lecture des noms ${b.progress}/${b.phase_total || '?'}` : b.status === 'a_verifier' ? 'À vérifier' : b.status === 'termine' ? 'Terminé' : b.status === 'sans_crep' ? 'Aucun CREP reconnu' : 'Échec'}
                     color={b.status === 'termine' ? '#166534' : b.status === 'echec' ? '#991b1b' : b.status === 'sans_crep' ? '#475569' : '#92400e'} bg={b.status === 'termine' ? '#dcfce7' : b.status === 'echec' ? '#fee2e2' : b.status === 'sans_crep' ? '#f1f5f9' : '#fef3c7'} />
                   <button style={{ ...btnGhost, padding: '3px 9px', fontSize: 12 }} onClick={() => setReview(b.id)}>Ouvrir</button>
                   <button style={{ ...btnGhost, padding: '3px 7px' }} title="Supprimer le lot" onClick={() => deleteBatch(b)}><Trash2 size={13} /></button>

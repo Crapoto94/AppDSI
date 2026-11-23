@@ -1,12 +1,26 @@
 {
   "module": "entretiens",
-  "version": "0.51.1",
+  "version": "0.52.0",
   "date": "2026-11-23",
   "releases": [
     {
+      "version": "0.52.0",
+      "date": "2026-11-23",
+      "commit": "f555fecc",
+      "groups": {
+        "nouveautes": [
+          "QR code des CREP imprimés en option de campagne (décoché : aucun QR code)",
+          "Numérisation et moisson de mails sans QR code : lecture IA du nom de l'agent et du titre de chaque page, pages remises dans l'ordre d'après les titres du modèle, agent proposé avec un taux de certitude et affectation possible à un autre agent (candidats probables en tête)",
+          "Un rapprochement sous 80 % n'est pas coché d'office"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.51.1",
       "date": "2026-11-23",
-      "commit": "a7bc1bc9",
+      "commit": "bc76071e",
       "groups": {
         "nouveautes": [],
         "ameliorations": [

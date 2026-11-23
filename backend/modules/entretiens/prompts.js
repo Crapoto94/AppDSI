@@ -123,6 +123,14 @@ const DEFS = [
             + 'Réponds UNIQUEMENT par un objet JSON : {"agent_signe": true ou false, "evaluateur_signe": true ou false}.',
     },
     {
+        id: 'crep.identification', group: 'Lecture des CREP manuscrits', label: 'Identification d’une page (numérisation en lot sans QR code)',
+        description: 'Lit le titre imprimé de la page et le nom de l’agent pour reconnaître le numéro de page et l’agent. ATTENTION : ne changez pas les noms de champs JSON.', vars: [],
+        text: 'Cette image est une page d’un compte rendu d’entretien professionnel imprimé (la photo peut être couchée ou à l’envers). '
+            + 'Lis le TITRE PRINCIPAL de la page (le grand titre ou le bandeau en gras en haut de page, tel qu’il est imprimé), et le nom de l’agent s’il est imprimé sur la page '
+            + '(ligne « Agent : » de la première page, en MAJUSCULES, nom puis prénom). Si la page est à l’envers ou couchée, indique-le. '
+            + 'Réponds UNIQUEMENT par un objet JSON : {"titre": "titre lu ou vide", "agent": "NOM Prénom lu ou vide", "sens_correct": true ou false}.',
+    },
+    {
         id: 'crep.agent', group: 'Lecture des CREP manuscrits', label: 'Mode « commentaires de l’agent » (document d’origine numérique)',
         description: 'Quand le compte rendu a été saisi dans l’outil puis imprimé : seuls les 2 commentaires manuscrits de l’agent sont lus.', vars: ['regles'],
         text: 'Cette image est la dernière page d’un compte rendu d’entretien professionnel imprimé. Seuls deux cadres ont été remplis À LA MAIN par l’agent. Extrais :\n'
