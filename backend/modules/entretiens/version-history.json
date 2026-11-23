@@ -1,12 +1,39 @@
 {
   "module": "entretiens",
-  "version": "0.49.0",
-  "date": "2026-11-22",
+  "version": "0.50.0",
+  "date": "2026-11-23",
   "releases": [
+    {
+      "version": "0.50.0",
+      "date": "2026-11-23",
+      "commit": "57cde809",
+      "groups": {
+        "nouveautes": [
+          "Option de cohérence par campagne (sinon simple complétude : obligatoires bloquants, facultatifs en alerte)",
+          "Mode simple par campagne (aucun téléversement du CREP signé par l'évaluateur, bouton « J'ai envoyé le CREP à la DRH », pas de réouverture)",
+          "QR code signé en haut à gauche de chaque page du CREP imprimé",
+          "Menu administrateur « Suivi des retours » (EP programmés, réalisés, en retard, retournés, filtres) avec numérisation en lot de plusieurs CREP (pages mélangées reconnues par QR code, contrôle des 4 pages, vérification et correction par l'administrateur, détection des 2 signatures, lecture IA en parallèle, clôture automatique de l'entretien et e-mail de remerciement à l'agent et à son évaluateur)",
+          "Collecteur de boîte mail « Entretiens » (CREP reçus en pièce jointe proposés automatiquement, canal d'entrée mail ou téléversement DRH conservé)",
+          "Colonnes CREP papier et CREP numérique (formulaire en lecture seule avec badges « Lu par l'IA », « Saisi », « Lecture incertaine »)",
+          "Suppression d'un retour de CREP par un administrateur",
+          "Durées d'entretien limitées à 60, 90, 120 ou 150 minutes",
+          "Cases de la grille sans couleur",
+          "Bouton « Faire l'EP »",
+          "EP clôturé : seuls CREP papier et CREP saisi sont proposés",
+          "« EP de mon équipe » liste les évaluateurs sous soi sans s'afficher soi-même",
+          "Impression en masse des CREP d'un évaluateur",
+          "Sélection limitée aux EP affichés",
+          "RAZ complet (signalement DRH et dossier des PDF)",
+          "Tutoriel (ampoule, passer avec rappel) et aide conditionnelle mis à jour pour le mode simple"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
     {
       "version": "0.49.0",
       "date": "2026-11-22",
-      "commit": "3325bbb8",
+      "commit": "196247bb",
       "groups": {
         "nouveautes": [
           "Rôle pilotage paramétrable dans Paramétrage > Administrateurs",

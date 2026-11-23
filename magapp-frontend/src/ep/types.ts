@@ -7,6 +7,8 @@ export interface Campaign {
   date_limite_ep?: string | null;
   statut: string;
   instructions?: string | null;
+  analyse_coherence?: boolean;
+  mode_simple?: boolean;
 }
 
 export interface Access {
@@ -144,9 +146,14 @@ export interface Entretien {
   crep_mode?: 'manuscrit' | 'outil' | 'pdf' | null;
   /** CREP signé reçu par la DRH (déclaré par un administrateur au Pilotage). */
   drh_received_at?: string | null;
+  /** Canal d'entrée du CREP signé : « mail » ou « drh » (téléversement par un administrateur). */
+  crep_canal?: string | null;
   drh_received_by?: string | null;
   /** « Lecture des entretiens numérisés » activée ? (sinon le valideur consulte et valide le document sans lecture visible). */
   scan_reading?: boolean;
+  /** Options de la campagne en cours : mode simple (aucun téléversement du CREP signé) et analyse de cohérence. */
+  simple_mode?: boolean;
+  coherence_mode?: boolean;
   /** Option « PDF formulaire hors ligne » activée. */
   offline_form?: boolean;
   /** Affichage du module en plein écran (sinon « dans MagApp »). */
@@ -158,6 +165,9 @@ export interface Entretien {
   reopen_request?: { id: number; status: 'en_attente' | 'acceptee' | 'refusee'; reason: string; created_at: string; decided_at?: string | null; decision_note?: string } | null;
   /** La campagne de cet entretien est close : les documents ne sont plus consultables ici (dossier de l'agent). */
   campaign_closed?: boolean;
+  campaign_coherence?: boolean;
+  campaign_simple?: boolean;
+  simple_sent_at?: string | null;
   objectifs?: Objectif[];
   formations?: Formation[];
   objectifs_total?: number;
@@ -180,6 +190,8 @@ export interface MeData {
   esignAccess?: EsignAccess;
   /** « Lecture des entretiens numérisés » activée. */
   scan_reading?: boolean;
+  simple_mode?: boolean;
+  coherence_mode?: boolean;
   /** Option « PDF formulaire hors ligne » activée. */
   offline_form?: boolean;
   /** Affichage du module en plein écran (sinon « dans MagApp »). */

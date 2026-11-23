@@ -60,6 +60,7 @@ const MODULES = [
   { value: 'tickets',  label: 'Tickets (créer des tickets depuis les emails)' },
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
   { value: 'taches',   label: 'Tâches (transformer un mail en tâche personnelle)' },
+  { value: 'entretiens', label: 'Entretiens (récupérer les CREP signés reçus en pièce jointe PDF)' },
 ];
 
 const DEFAULT_PER_PAGE = 50;
@@ -239,7 +240,7 @@ export default function MailCollector() {
   };
 
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
-  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : v === 'taches' ? '✅ Tâches' : '🎫 Tickets';
+  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : v === 'taches' ? '✅ Tâches' : v === 'entretiens' ? '📝 Entretiens (CREP)' : '🎫 Tickets';
 
   const statusColor = (s: string) => s === 'success' ? '#10b981' : s === 'partial_error' ? '#f59e0b' : '#ef4444';
   const statusIcon = (s: string) => s === 'success' ? '✓' : s === 'partial_error' ? '⚠' : '✕';

@@ -69,6 +69,18 @@ const DEFS = [
         },
     },
     {
+        id: 'crepRecu', label: 'CREP reçu et vérifié (remerciements)', to: 'Agent·e et évaluateur·rice', color: '#16a34a',
+        description: 'Envoyé à l’agent·e et à son évaluateur·rice quand les administrateurs ont numérisé et vérifié le CREP signé : l’entretien est clos.',
+        variables: [{ key: 'destinataire', label: 'Nom du destinataire', example: 'Isabelle Abbas' }, V.agent, V.evaluateur, V.annee],
+        defaults: {
+            subject: 'Entretien professionnel {{annee}} : CREP reçu, tout est en ordre',
+            title: 'CREP reçu et vérifié',
+            intro: 'Bonjour <strong>{{destinataire}}</strong>,<br><br>le compte rendu de l’entretien professionnel {{annee}} de <strong>{{agent}}</strong> (évaluateur·rice : {{evaluateur}}) a bien été reçu et vérifié.',
+            body: '<p style="font-size:14px;color:#334155;"><strong>Merci à vous</strong> pour le temps consacré à cet entretien. Tout est en ordre pour la DRH : le CREP signé est conservé et l’entretien est clos, vous n’avez plus aucune démarche à effectuer.</p><p style="font-size:13px;color:#64748b;">Le CREP est désormais consultable dans le dossier de l’agent·e.</p>',
+            button: '',
+        },
+    },
+    {
         id: 'aPlanifier', label: 'Entretien à planifier', to: 'Évaluateur·rice', color: '#4f46e5',
         description: 'Envoyé à l’évaluateur·rice quand un entretien lui est attribué et qu’aucune date n’est fixée.',
         variables: [V.evaluateur, V.agent, V.annee, V.service, H('info_agent', 'Bloc « Entretien à planifier » (agent·e, service)', EX_INFO),

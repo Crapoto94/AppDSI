@@ -81,7 +81,7 @@ const Activable = () => (
   <span title="Fonction non active par défaut : elle s'active dans Paramétrage" style={{ display: 'inline-block', marginLeft: 8, verticalAlign: 'middle', background: '#ede9fe', color: '#5b21b6', border: '1px solid #ddd6fe', borderRadius: 999, padding: '0 8px', fontSize: 10.5, fontWeight: 800, letterSpacing: .2 }}>activable</span>
 );
 
-export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean; scanReading?: boolean; offlineForm?: boolean }
+export interface AideFeatures { prep?: boolean; aiDraft?: boolean; aiReview?: boolean; esign?: boolean; scanReading?: boolean; offlineForm?: boolean; simple?: boolean; coherence?: boolean }
 
 /** Étapes du chemin d'un EP : seules les fonctions activées apparaissent, la numérotation s'adapte. */
 function ProcessSchema({ f }: { f: AideFeatures }) {
@@ -94,7 +94,7 @@ function ProcessSchema({ f }: { f: AideFeatures }) {
   if (f.prep) steps.push({ title: "L'agent·e prépare son entretien", who: 'Agent·e', body: <>Dans « Mon entretien » (il a une adresse e-mail et l'accès a été ouvert pour lui). Vous retrouvez sa préparation dans l'EP. Cette étape est facultative : l'entretien peut avoir lieu sans.</> });
   steps.push(
     { title: 'Vous choisissez le mode de saisie du CREP', who: 'Évaluateur·rice', body: <>Dès l'ouverture du CREP, l'outil vous demande si vous le tenez <strong>à la main</strong> ou <strong>dans l'outil</strong> ; vous pouvez changer à tout moment. Un <strong>fil d'Ariane</strong> indique où vous en êtes. Si vous souhaitez un CREP <strong>totalement manuscrit</strong>, vous l'<strong>imprimez</strong>. Si vous saisissez dans l'outil, vous saisissez la grille et les rubriques, puis vous validez votre partie avant d'imprimer.{f.offlineForm && <> Un 3ᵉ choix existe : le <strong>PDF formulaire hors ligne</strong> (voir « Méthode 3 »), qui demande <strong>2 téléversements</strong>.</>}</> },
-    { title: "L'entretien a lieu", who: 'Évaluateur·rice + Agent·e', body: <>Vous échangez avec l'agent·e et vous prenez vos notes : à la main sur le CREP imprimé, ou directement dans l'outil (« Saisir l'EP »).</> },
+    { title: "L'entretien a lieu", who: 'Évaluateur·rice + Agent·e', body: <>Vous échangez avec l'agent·e et vous prenez vos notes : à la main sur le CREP imprimé, ou directement dans l'outil (« Faire l’EP »).</> },
     { title: "Si vous avez saisi dans l'outil, vous imprimez", who: 'Évaluateur·rice', body: <>Cliquez sur <strong>« Imprimer / PDF »</strong> pour obtenir le CREP à faire signer. (Écrit à la main : vous avez déjà le papier.)</> },
     { title: "Vous transmettez le CREP à l'agent·e", who: 'Évaluateur·rice + Agent·e', body: <>L'agent·e <strong>renseigne les 2 cadres qui le concernent</strong> (ses observations sur les conditions de travail, puis sur l'entretien) et <strong>signe à la main</strong>.</> },
     { title: 'Vous contresignez', who: 'Évaluateur·rice', body: <>Quand l'agent·e vous rend le CREP signé, vous le <strong>contresignez</strong>.</> },
@@ -106,13 +106,26 @@ function ProcessSchema({ f }: { f: AideFeatures }) {
     { title: "Vous clôturez l'entretien", who: 'Évaluateur·rice', body: <>Cliquez sur <strong>« Clôturer l'entretien »</strong> : le CREP signé est archivé, tout est terminé. <strong>Transmettez l'original signé à la DRH.</strong></> },
     { title: 'La DRH reçoit le CREP signé', who: 'Administrateur', body: <>Quand l'original est arrivé, un administrateur le déclare <strong>« reçu par la DRH »</strong> au Pilotage. Les compteurs « À transmettre à la DRH » et « Reçus par la DRH » se mettent à jour, pour le Pilotage comme pour vous.</> },
   );
+  if (f.simple) {
+    // Mode simple : l'évaluateur ne téléverse jamais le CREP signé ; il l'envoie à la DRH et le signale
+    const drop = ['Vous numérisez et vous téléversez', "Vous vérifiez ce que l'outil a lu", 'Vous consultez le document et confirmez les signatures', "Vous clôturez l'entretien", 'La DRH reçoit le CREP signé'];
+    const kept = steps.filter(x => !drop.includes(x.title)).map(x => x.title.startsWith('Vous choisissez le mode')
+      ? { ...x, body: <>Dès l'ouverture du CREP, l'outil vous demande si vous le tenez <strong>à la main</strong> ou <strong>dans l'outil</strong> ; vous pouvez changer à tout moment. Un <strong>fil d'Ariane</strong> indique où vous en êtes. Si vous saisissez dans l'outil, vous validez votre partie avant d'imprimer.{f.offlineForm && <> Un 3ᵉ choix existe : le <strong>PDF formulaire hors ligne</strong>, à importer une fois rempli.</>} <strong>Vous n'aurez jamais de CREP signé à téléverser.</strong></> }
+      : x.title.startsWith('(PDF hors ligne)') ? { ...x, title: '(PDF hors ligne) Vous importez le formulaire rempli' } : x);
+    steps.length = 0;
+    steps.push(...kept,
+      { title: 'Vous envoyez le CREP signé à la DRH et vous le signalez', who: 'Évaluateur·rice', body: <>Le CREP est signé par l'agent·e et par vous : <strong>envoyez l'original à la DRH</strong>, puis cliquez sur <strong>« J'ai envoyé le CREP à la DRH »</strong> dans l'entretien. <strong>Il n'y a rien à numériser ni à téléverser.</strong> L'entretien affiche « Envoyé à la DRH » (vous pouvez annuler tant que le CREP n'est pas reçu).</> },
+      { title: 'Les administrateurs numérisent et vérifient', who: 'Administrateur', body: <>Les CREP signés sont <strong>numérisés par les administrateurs</strong> (Suivi des retours) ou arrivent <strong>par e-mail</strong>. Chaque page porte un <strong>QR code</strong> qui permet de rattacher le CREP au bon agent, même si les pages sont mélangées. L'administrateur vérifie le regroupement et valide.</> },
+      { title: "L'entretien est clôturé automatiquement", who: 'Automatique', body: <>À la validation, le CREP signé est rattaché à l'agent·e, l'entretien est <strong>clôturé</strong> et l'agent·e comme vous recevez un <strong>e-mail de remerciement</strong> : tout est en ordre pour la DRH.</> },
+    );
+  }
   return (
     <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12, background: '#f8fafc', marginBottom: 10 }}>
       <div style={{ fontSize: 12.5, fontWeight: 800, color: COLORS.text, marginBottom: 8 }}>Le chemin d'un EP, de la désignation à la validation</div>
       {steps.map((s, i) => <Step key={i} n={i + 1} title={s.title} who={s.who}>{s.body}</Step>)}
       {f.esign && (
         <div style={{ marginTop: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 8, padding: '8px 11px', fontSize: 12 }}>
-          <strong>Signature électronique ouverte pour cet·te agent·e</strong> (il a une adresse e-mail, vous aussi) : au lieu de faire imprimer, signer, numériser et téléverser, vous cliquez sur <strong>« Envoyer à l'agent·e »</strong> ; il relit, remplit ses 2 cadres et valide, puis vous signez tous les deux dans le parapheur. Le document signé est archivé automatiquement.
+          <strong>Signature électronique ouverte pour cet·te agent·e</strong> (il a une adresse e-mail, vous aussi) : au lieu de faire imprimer, signer, {f.simple ? 'envoyer à la DRH' : 'numériser et téléverser'}, vous cliquez sur <strong>« Envoyer à l'agent·e »</strong> ; il relit, remplit ses 2 cadres et valide, puis vous signez tous les deux dans le parapheur. Le document signé est archivé automatiquement.
         </div>
       )}
     </div>
@@ -137,9 +150,9 @@ function ScreenMap({ f }: { f: AideFeatures }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 6 }}>
         {box('Bouton « Planifier »', 'Fixer le rendez-vous (facultatif)')}
-        {box('Bouton « Saisir l’EP »', 'Ouvrir et remplir le CREP')}
+        {box('Bouton « Faire l’EP »', 'Ouvrir et remplir le CREP')}
         {box('Icône imprimante', 'Imprimer le CREP (vierge ou rempli)')}
-        {box('« Importer un compte rendu papier »', 'Téléverser le CREP signé (scan ou photos)')}
+        {f.simple ? box('« J’ai envoyé le CREP à la DRH »', 'Signaler l’envoi du CREP signé (rien à téléverser)') : box('« Importer un compte rendu papier »', 'Téléverser le CREP signé (scan ou photos)')}
         {box('« Valider le compte rendu »', 'Passe l\'EP à « Réalisé »')}
         {f.esign && box('« Envoyer à l’agent·e »', 'Signature électronique (si ouverte pour l\'agent·e)')}
         {f.aiDraft && box('« Rédiger avec l’IA »', 'Propose un texte à partir de vos notes')}
@@ -313,6 +326,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Cas code="Vue équipe" title="Si vous êtes directeur ou DGA : depuis « EP de mon équipe »" color="#64748b" icon={<Users size={14} color="#64748b" />}>
                 Dans l'onglet <strong>« EP de mon équipe »</strong>, les agent·e·s sont rangés par évaluateur·rice (cliquer sur « Tout déplier »). Le bouton « Ajouter un·e agent·e » devient
                 <strong> « Choisir l'évaluateur »</strong> : vous choisissez d'abord l'agent·e sans évaluateur, puis l’évaluateur·rice à lui affecter, parmi les évaluateur·rice·s de votre périmètre.
+                <div style={{ marginTop: 6 }}><strong>Vous n'y figurez pas vous-même</strong> : seuls les évaluateur·rice·s placés sous vous sont listés (vos propres agent·e·s sont dans « EP que je réalise »). Sur la ligne de chaque évaluateur·rice, <strong>« Imprimer ses N CREP »</strong> imprime d'un coup les CREP vierges de ses agent·e·s, sans rien sélectionner. « Tout sélectionner » ne concerne que les EP affichés (évaluateur·rice·s dépliés).</div>
               </Cas>
 
               <Cas code="Pas d'e-mail" title="Un·e agent·e est affiché sans adresse e-mail : le rapprochement RH ↔ annuaire informatique" color="#d97706" icon={<MailX size={14} color="#d97706" />}>
@@ -350,7 +364,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Gestes items={[
                 <>Dans « EP que je réalise », repérer la ligne de l'agent·e.</>,
                 <>Cliquer sur <strong>« Planifier »</strong> (ou « Modifier le RDV » si une date existe déjà).</>,
-                <>Choisir la <strong>date et l'heure</strong>, la <strong>durée</strong> (2 heures par défaut) et le <strong>lieu</strong>.</>,
+                <>Choisir la <strong>date et l'heure</strong>, la <strong>durée</strong> (2 heures par défaut ; seulement <strong>1 h, 1 h 30, 2 h ou 2 h 30</strong>) et le <strong>lieu</strong>.</>,
                 <>Pour être aidé : cliquer sur <strong>« Prochains créneaux libres »</strong>. L'outil lit votre agenda et celui de l'agent·e, puis propose des créneaux communs. Cliquer sur un créneau.</>,
                 <>Cliquer sur le bouton de validation. Un message vert confirme l'envoi.</>,
               ]} />
@@ -378,7 +392,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             {f.prep && (
               <Section icon={<FileSignature size={15} color={COLORS.primary} />} title={`Étape ${nPrep} — Avant l'entretien : la préparation de l'agent·e, avec l'accès à « Mon entretien »`}>
                 <Cas code="En ligne" title="L'agent·e a un e-mail et l'accès à « Mon entretien »" color="#4f46e5">
-                  Il remplit une fiche (bilan, difficultés, souhaits de formation, perspectives) <strong>dans MagApp</strong>. Vous la retrouvez dans « Saisir l'EP ». Elle sert à <strong>nourrir l'échange</strong> : vous n'avez pas à la recopier.
+                  Il remplit une fiche (bilan, difficultés, souhaits de formation, perspectives) <strong>dans MagApp</strong>. Vous la retrouvez dans « Faire l’EP ». Elle sert à <strong>nourrir l'échange</strong> : vous n'avez pas à la recopier.
                 </Cas>
                 <Cas code="Papier" title="L'agent·e n'a pas d'e-mail, ou préfère le papier" color="#64748b" icon={<Printer size={14} color="#64748b" />}>
                   Il prépare sur le <strong>CREP vierge papier</strong> et vous le remet (ou le garde pour l'entretien). Dans ce cas, il n'y a rien dans l'outil : c'est normal.
@@ -388,43 +402,57 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
             )}
 
             <Section icon={<PenLine size={15} color={COLORS.primary} />} title={`Étape ${nCrep} — Le CREP : avant, pendant et après l'entretien`}>
-              <div style={{ marginBottom: 8 }}>Deux façons de tenir le compte rendu. <strong>Dans les deux cas, le CREP est signé à la main sur papier, puis téléversé dans l'outil</strong>{f.esign && <> (sauf signature électronique, voir plus bas)</>}.</div>
+              {f.simple
+                ? <div style={{ marginBottom: 8 }}>Deux façons de tenir le compte rendu. <strong>Dans les deux cas, le CREP est signé à la main sur papier par l'agent·e et par vous, puis envoyé à la DRH : vous n'avez rien à téléverser</strong> (mode simple).</div>
+                : <div style={{ marginBottom: 8 }}>Deux façons de tenir le compte rendu. <strong>Dans les deux cas, le CREP est signé à la main sur papier, puis téléversé dans l'outil</strong>{f.esign && <> (sauf signature électronique, voir plus bas)</>}.</div>}
 
               <Cas code="Méthode 1" title="Je saisis dans l'outil" color="#16a34a">
                 <Gestes items={[
-                  <>Cliquer sur <strong>« Saisir l'EP »</strong> sur la ligne de l'agent·e{f.prep && <> et lire sa préparation si elle existe</>}.</>,
+                  <>Cliquer sur <strong>« Faire l’EP »</strong> sur la ligne de l'agent·e{f.prep && <> et lire sa préparation si elle existe</>}.</>,
                   <>Remplir le <strong>compte rendu</strong> : bilan, objectifs, compétences, formations, perspectives, <strong>appréciation générale</strong>. L'<strong>enregistrement est automatique</strong> (un message « enregistré à … » le confirme) : rien n'est envoyé. La grille d'appréciation se coche comme sur le papier : une ligne par critère, trois cases <strong>S / AS / I</strong>.</>,
-                  <>Cliquer sur <strong>« Vérifier la cohérence »</strong> : l'outil liste les rubriques oubliées. Les corriger.</>,
-                  <>Cliquer sur <strong>« Imprimer / PDF »</strong> : le CREP sort sur 4 pages, <strong>à faire signer</strong>.</>,
+                  <>{f.coherence ? <>Cliquer sur <strong>« Vérifier la cohérence »</strong> : l'outil liste les rubriques oubliées et les incohérences entre vos commentaires et la grille. Les corriger.</> : <>Cliquer sur <strong>« Vérifier la complétude »</strong> : l'outil liste les rubriques obligatoires oubliées (elles bloquent la validation) et signale les rubriques facultatives non renseignées. Les corriger.</>}</>,
+                  <>{f.simple ? <>Cliquer sur <strong>« Valider la partie évaluateur »</strong>, puis sur <strong>« Imprimer / PDF »</strong></> : <>Cliquer sur <strong>« Imprimer / PDF »</strong></>} : le CREP sort sur 4 pages, <strong>à faire signer</strong> (un <strong>QR code</strong> en haut à gauche de chaque page sert à le reconnaître : ne le masquez pas).</>,
                   <>Remettre le CREP à l'agent·e : il <strong>renseigne les 2 cadres qui le concernent</strong> et <strong>signe à la main</strong>. Quand il vous le rend, <strong>vous le contresignez</strong>.</>,
-                  <><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>,
-                  <>Vérifier le contenu puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>,
+                  ...(f.simple ? [<>Envoyer le CREP signé à la DRH, puis cliquer sur <strong>« J'ai envoyé le CREP à la DRH »</strong>. <strong>Rien à téléverser.</strong></>] : [<><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>]),
+                  ...(f.simple ? [] : [<>Vérifier le contenu puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>]),
                 ]} />
               </Cas>
 
               <Cas code="Méthode 2" title="Je préfère écrire à la main" color="#d97706" icon={<PenLine size={14} color="#d97706" />}>
                 <Gestes items={[
-                  <>Avant l'entretien : <strong>imprimer le CREP vierge</strong> (icône imprimante de la ligne de l'agent·e).</>,
+                  <>Avant l'entretien : <strong>imprimer le CREP vierge</strong> (icône imprimante de la ligne de l'agent·e, ou <strong>« Imprimer ses N CREP »</strong> sur la ligne d'un·e évaluateur·rice pour tous ses agent·e·s d'un coup).</>,
                   <>Pendant l'entretien : écrire à la main, comme avant.</>,
                   <>Remettre le CREP à l'agent·e : il <strong>renseigne les 2 cadres qui le concernent</strong> et <strong>signe à la main</strong>. Quand il vous le rend, <strong>vous le contresignez</strong>.</>,
-                  <><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>,
-                  <>Vérifier le contenu lu sur le papier puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>,
+                  ...(f.simple ? [<>Envoyer le CREP signé à la DRH, puis cliquer sur <strong>« J'ai envoyé le CREP à la DRH »</strong>. <strong>Rien à téléverser.</strong></>] : [<><strong>Numériser</strong> les pages signées et les <strong>téléverser dans l'outil</strong> (voir « Téléverser le CREP signé »).</>]),
+                  ...(f.simple ? [] : [<>Vérifier le contenu lu sur le papier puis cliquer sur <strong>« Valider le compte rendu »</strong>.</>]),
                 ]} />
               </Cas>
 
               {f.offlineForm && (
-                <Cas code="Méthode 3" title="Je remplis un PDF sans connexion (2 téléversements)" color="#7c3aed" icon={<FileDown size={14} color="#7c3aed" />}>
+                <Cas code="Méthode 3" title={f.simple ? 'Je remplis un PDF sans connexion (1 import)' : 'Je remplis un PDF sans connexion (2 téléversements)'} color="#7c3aed" icon={<FileDown size={14} color="#7c3aed" />}>
                   <Gestes items={[
                     <>Choisir le mode <strong>« PDF formulaire hors ligne »</strong> à l'ouverture du CREP, puis <strong>« Télécharger le PDF formulaire »</strong> : le PDF est au modèle de l'agent·e (grille, rubriques) et prérempli avec ce qui est déjà saisi.</>,
                     <>Pendant l'entretien, <strong>sans connexion</strong> : l'ouvrir avec <strong>Adobe Acrobat Reader</strong> (PC) ou une application PDF de tablette, remplir les champs et <strong>enregistrer</strong>. L'aperçu d'un navigateur n'enregistre pas toujours les champs.</>,
                     <><strong>1er téléversement</strong> : de retour en ligne, cliquer sur <strong>« Importer le PDF rempli »</strong>. Le contenu remplace la saisie ; un formulaire généré pour un autre entretien, ou un document scanné, est refusé. Relire, puis <strong>« Valider la partie évaluateur »</strong>.</>,
                     <><strong>Imprimer</strong> le CREP. Les 2 cadres de l'agent·e sont vides : il les <strong>écrit à la main</strong> et <strong>signe</strong> ; vous contresignez.</>,
-                    <><strong>2ᵉ téléversement</strong> : <strong>numériser</strong> le CREP signé et le téléverser à l'étape « Téléverser le CREP signé ». Seuls les <strong>2 cadres de l'agent·e</strong> et les <strong>2 signatures</strong> sont repris ; le reste du compte rendu n'est pas modifié.</>,
-                    <>Vérifier puis <strong>« Clôturer l'entretien »</strong>. <strong>L'original signé part à la DRH.</strong></>,
+                    ...(f.simple
+                      ? [<>Envoyer le CREP signé à la DRH, puis cliquer sur <strong>« J'ai envoyé le CREP à la DRH »</strong> : <strong>rien d'autre à téléverser</strong>.</>]
+                      : [<><strong>2ᵉ téléversement</strong> : <strong>numériser</strong> le CREP signé et le téléverser à l'étape « Téléverser le CREP signé ». Seuls les <strong>2 cadres de l'agent·e</strong> et les <strong>2 signatures</strong> sont repris ; le reste du compte rendu n'est pas modifié.</>,
+                        <>Vérifier puis <strong>« Clôturer l'entretien »</strong>. <strong>L'original signé part à la DRH.</strong></>]),
                   ]} />
                 </Cas>
               )}
 
+              {f.simple ? (<>
+              <Callout tone="ok" title="Mode simple : vous n'avez rien à téléverser">
+                Une fois le CREP <strong>signé par l'agent·e et par vous</strong> (sur papier), <strong>envoyez l'original à la DRH</strong>, puis cliquez sur <strong>« J'ai envoyé le CREP à la DRH »</strong> à la dernière étape du fil d'Ariane. L'entretien affiche alors <strong>« Envoyé à la DRH »</strong> ; si vous vous êtes trompé, <strong>« Annuler »</strong> est possible tant que le CREP n'est pas reçu. Aucun e-mail n'est envoyé à ce moment-là.
+              </Callout>
+              <Gestes items={[
+                <>Les <strong>administrateurs numérisent</strong> les CREP reçus (ou les récupèrent par e-mail) : le <strong>QR code</strong> imprimé en haut à gauche de chaque page rattache chaque page au bon agent, même si les pages sont mélangées. <strong>N'imprimez donc pas le CREP sans ce QR code et ne le masquez pas</strong> (une photocopie est possible).</>,
+                <>Quand l'administrateur valide le CREP, <strong>l'entretien est clôturé automatiquement</strong> : l'agent·e et vous recevez un <strong>e-mail de remerciement</strong> et le CREP est consultable dans le dossier de l'agent·e.</>,
+                <>En mode simple, le bouton « Demander la réouverture » n'existe pas : en cas d'erreur, <strong>contactez un administrateur du module</strong>.</>,
+              ]} />
+              </>) : (<>
               <Callout tone="warn" title="Téléverser le CREP signé : dans tous les cas où il y a du papier">
                 Que le CREP ait été <strong>écrit à la main</strong> ou <strong>saisi dans l'outil puis imprimé</strong>, la signature est manuscrite : le document signé doit être <strong>numérisé</strong> (scan ou photos des pages) et <strong>téléversé dans l'outil</strong>. <strong>L'original signé part à la DRH.</strong> Le document numérique conservé dans l'outil est « non contractuel » : seul l'original signé fait foi.
               </Callout>
@@ -432,7 +460,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               {f.scanReading ? (<>
               <div style={{ fontWeight: 800, color: COLORS.text, margin: '10px 0 6px' }}>Téléverser le CREP signé</div>
               <Gestes items={[
-                <>Ouvrir l'EP (« Saisir l'EP »). À l'étape « Téléverser », le <strong>grand bouton de téléversement</strong> se trouve <strong>dans le cadre du fil d'Ariane</strong>, en haut : cliquer dessus et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone, ou PDF ; 8 pages au maximum, 25 Mo par fichier). Pour archiver le document signé, le bouton <strong>« CREP manuscrit (4 pages scannées) »</strong> est aussi disponible une fois le compte rendu validé.</>,
+                <>Ouvrir l'EP (« Faire l’EP »). À l'étape « Téléverser », le <strong>grand bouton de téléversement</strong> se trouve <strong>dans le cadre du fil d'Ariane</strong>, en haut : cliquer dessus et choisir <strong>toutes les pages d'un coup</strong> (photos JPG/PNG prises au téléphone, ou PDF ; 8 pages au maximum, 25 Mo par fichier). Pour archiver le document signé, le bouton <strong>« CREP manuscrit (4 pages scannées) »</strong> est aussi disponible une fois le compte rendu validé.</>,
                 <>Les textes manuscrits et <strong>les cases cochées de la grille d'appréciation</strong> sont lus et rangés dans les bonnes rubriques. La lecture prend quelques minutes (environ 30 secondes par page) et se fait <strong>en tâche de fond</strong> : un bandeau « Lecture des textes en cours » s'affiche, vous pouvez fermer la fenêtre, et vous recevez un <strong>e-mail</strong> quand c'est prêt. Revenez alors sur l'entretien et cliquez sur <strong>« Voir la proposition »</strong>.</>,
                 <><strong>Relisez et corrigez la proposition, rubrique par rubrique, dans l'ordre des pages du CREP.</strong> Les lectures incertaines et les corrections automatiques sont signalées. Cochez « J'ai vérifié chaque ligne par rapport au document papier », puis « Appliquer au formulaire ». Rien n'est enregistré tant que vous n'avez pas validé.</>,
               ]} />
@@ -453,13 +481,20 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
 
               </>)}
 
+              </>)}
+              {f.simple ? (
+              <Callout tone="ok" title="Après la clôture : consultation">
+                Dès que les administrateurs ont <strong>vérifié le CREP signé</strong>, l'entretien est <strong>clôturé</strong> et tous les champs passent en <strong>lecture seule</strong>. Vous pouvez <strong>consulter les documents jusqu'à la clôture de la campagne</strong> ; ensuite, le CREP est consultable dans le <strong>dossier de l'agent·e</strong>. Un entretien clôturé n'offre que <strong>l'affichage du CREP original</strong> et de la <strong>version numérique</strong> : <strong>pas de demande de réouverture en mode simple</strong>. Dans la liste, sur un EP clôturé, il n'y a plus ni impression ni changement d'évaluateur : <strong>« CREP papier »</strong> (le document scanné) et <strong>« CREP saisi »</strong> (si vous aviez saisi dans l'outil) suffisent ; « Ouvrir » disparaît dès que la DRH a reçu le CREP, et la fenêtre de l'entretien indique la date de réception.
+              </Callout>
+              ) : (
               <Callout tone="ok" title="Après la clôture : lecture seule, original à la DRH, consultation">
                 Dès que le CREP est <strong>validé</strong>, tous les champs passent en <strong>lecture seule</strong> et les boutons de saisie disparaissent. L'outil rappelle que <strong>l'original signé doit être transmis à la DRH</strong>.
                 Vous pouvez <strong>consulter les documents</strong> (scan du CREP signé, PDF) <strong>jusqu'à la clôture de la campagne</strong> ; une fois la campagne close, le CREP est consultable dans le <strong>dossier de l'agent·e</strong>.
                 Un entretien clôturé n'offre plus que <strong>trois actions</strong> : <strong>afficher le CREP original</strong>, <strong>afficher la version numérique</strong> et <strong>demander la réouverture</strong>.
-                La demande de réouverture doit être <strong>justifiée</strong> : elle prévient les administrateurs par e-mail, qui l'acceptent (l'entretien redevient modifiable) ou la refusent, et vous répondent par e-mail.
+                La demande de réouverture doit être <strong>justifiée</strong> : elle prévient les administrateurs par e-mail, qui l'acceptent (l'entretien redevient modifiable) ou la refusent, et vous répondent par e-mail. Dans la liste, sur un EP clôturé, il n'y a plus ni impression ni changement d'évaluateur : <strong>« CREP papier »</strong> (le document scanné) et <strong>« CREP saisi »</strong> (si vous aviez saisi dans l'outil) suffisent ; « Ouvrir » disparaît dès que la DRH a reçu le CREP, et la fenêtre de l'entretien indique la date de réception.
               </Callout>
 
+              )}
               <Callout tone="warn" title="Valider : une étape obligatoire">
                 Cliquez sur <strong>« Valider le compte rendu »</strong> après avoir tout vérifié (toutes les rubriques obligatoires doivent être remplies ; la rubrique « Mobilité » est facultative). L'EP passe à « Réalisé ». Tant que le compte rendu n'est pas validé, l'EP n'est pas « Réalisé » et il apparaît « en retard » dans les statistiques de la Direction.
               </Callout>
@@ -503,8 +538,8 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
               <Gestes items={[
                 <>Ouvrir l'onglet <strong>« EP de mon équipe »</strong> et cliquer sur <strong>« Tout déplier »</strong>.</>,
                 <>Repérer l’évaluateur·rice marqué <strong>« Évaluateur·rice sans e-mail : vous gérez ses EP »</strong>. Ses agent·e·s portent la mention « Sans e-mail · géré par son N+1 ».</>,
-                <>Sur la ligne d'un·e agent·e, vous avez les boutons <strong>« Planifier »</strong> et <strong>« Saisir l'EP »</strong>, exactement comme pour vos propres agent·e·s.</>,
-                <>Après l'entretien (mené par l’évaluateur·rice, sur le CREP papier signé), <strong>téléversez le compte rendu papier</strong> (scan ou photos), vérifiez-le, puis <strong>« Valider le compte rendu »</strong>.</>,
+                <>Sur la ligne d'un·e agent·e, vous avez les boutons <strong>« Planifier »</strong> et <strong>« Faire l’EP »</strong>, exactement comme pour vos propres agent·e·s.</>,
+                f.simple ? <>Après l'entretien (mené par l’évaluateur·rice, sur le CREP papier signé), <strong>envoyez l'original à la DRH</strong> puis cliquez sur <strong>« J'ai envoyé le CREP à la DRH »</strong> : rien à téléverser.</> : <>Après l'entretien (mené par l’évaluateur·rice, sur le CREP papier signé), <strong>téléversez le compte rendu papier</strong> (scan ou photos), vérifiez-le, puis <strong>« Valider le compte rendu »</strong>.</>,
               ]} />
               <Callout tone="info" title="Toujours le circuit papier">
                 Sans e-mail de l’évaluateur·rice, il n'y a ni invitation Outlook pour lui{f.esign && <>, ni signature électronique</>} : c'est normal. Chaque action est tracée à <strong>votre</strong> nom dans le Journal.
@@ -556,11 +591,16 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                   <>Si j'ai saisi dans l'outil : « Imprimer / PDF ».</>,
                   <>Transmettre le CREP à l'agent·e : il remplit ses 2 cadres et signe à la main.</>,
                   <>Contresigner.</>,
+                  ...(f.simple
+                    ? [<>Envoyer le CREP signé à la DRH, puis cliquer sur « J'ai envoyé le CREP à la DRH » (rien à téléverser).</>,
+                       <>Les administrateurs numérisent et valident le CREP : l'entretien est clôturé automatiquement et l'agent·e et moi recevons un e-mail de remerciement.</>]
+                    : [
                   <>Numériser et téléverser le CREP signé{f.offlineForm ? ' (2ᵉ téléversement en mode PDF hors ligne)' : ''} ; l'original part à la DRH.</>,
                   ...(f.scanReading
                     ? [<>Vérifier ce que l'outil a lu (2 cadres de l'agent, ou tout le CREP en mode manuscrit) et confirmer les 2 signatures.</>]
                     : [<>Consulter le document téléversé et confirmer les 2 signatures.</>]),
                   <>Cliquer sur « Clôturer l'entretien », puis transmettre l'original à la DRH.</>,
+                    ]),
                 ].map((it, i) => <div key={i}>{i + 1}. {it}</div>)}
               </div>
             </Section>
@@ -584,7 +624,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div><strong>J'ai validé trop vite ou sur le mauvais agent·e.</strong> Ne rien modifier ailleurs et prévenir l'administrateur du module.</div>
                 <div><strong>Le CREP papier est perdu avant la numérisation.</strong> Réimprimer le CREP rempli depuis l'EP, refaire signer, puis numériser.</div>
                 <div><strong>La lecture du papier est mauvaise ou incomplète.</strong> Refaire les photos (une par page, à plat, bien éclairées) ou recopier les rubriques à la main dans l'outil. Vous restez maître du contenu validé.</div>
-                <div><strong>Je ne vois pas « Saisir l'EP ».</strong> Vérifier que vous êtes sur « EP que je réalise ». Si l'EP est déjà réalisé, le bouton devient « Ouvrir ».</div>
+                <div><strong>Je ne vois pas « Faire l’EP ».</strong> Vérifier que vous êtes sur « EP que je réalise ». Si l'EP est déjà réalisé, le bouton devient « Ouvrir » ; il disparaît quand la DRH a reçu le CREP (restent « CREP papier » et « CREP saisi »).</div>
               </div>
             </Section>
 
@@ -717,6 +757,27 @@ export default function AideEp({ onClose, isAdmin, features, onTuto }: { onClose
                 <div>L'onglet <strong>« Backlog »</strong> (compteur des demandes en attente) rassemble toutes les demandes déposées avec l'<strong>ampoule</strong> : questions, améliorations et bugs, avec leurs pièces jointes et leurs commentaires. Filtres par <strong>état</strong> et par <strong>type</strong>.</div>
                 <div><strong>Question</strong> : « Répondre » (la réponse est obligatoire). <strong>Amélioration ou bug</strong> : « Accepter », « Marquer réalisée » ou « Refuser » (<strong>motif obligatoire</strong>) ; « Remettre en attente » annule une décision.</div>
                 <div>À chaque nouvelle demande, les administrateur·rice·s reçoivent un <strong>e-mail</strong> ; à chaque décision, le demandeur est <strong>prévenu par e-mail</strong> (avec le motif ou la réponse). Chacun·e peut commenter les demandes, y compris les administrateur·rice·s (leurs commentaires sont signalés).</div>
+              </div>
+            </Section>
+
+            <Section icon={<ShieldCheck size={15} color={COLORS.primary} />} title={<>Options de campagne : analyse de cohérence et mode simple<Activable /></>}>
+              <div style={{ marginBottom: 8 }}>Dans <strong>Paramétrage → Campagnes</strong>, deux cases propres à chaque campagne (décochées par défaut) :</div>
+              <Cas code="Cohérence" title="Analyse de cohérence" color="#0f766e">
+                <strong>Cochée</strong> : le bouton de l'évaluateur s'appelle « Vérifier la cohérence » ; il contrôle le fond (adéquation entre les commentaires et la grille d'appréciation, relecture automatique si elle est ouverte à l'évaluateur).
+                <br /><strong>Décochée</strong> : le bouton devient « Vérifier la <strong>complétude</strong> » ; il contrôle seulement que les rubriques <strong>obligatoires</strong> sont renseignées (elles bloquent la validation) et <strong>alerte</strong> sur les rubriques facultatives vides, sans appel à l'IA.
+              </Cas>
+              <Cas code="Mode simple" title="Mode simple" color="#7c3aed">
+                <strong>Cochée</strong> : les évaluateurs <strong>ne téléversent jamais le CREP signé</strong>. Ils le réalisent (outil, papier ou PDF), le font signer par l'agent·e et par eux, l'envoient à la DRH puis cliquent sur <strong>« J'ai envoyé le CREP à la DRH »</strong> (aucune notification). Le CREP signé est ensuite numérisé par les administrateurs (menu « Suivi des retours »). <strong>Pas de demande de réouverture</strong> en mode simple ; un administrateur peut toujours dévalider un CREP.
+              </Cas>
+            </Section>
+
+            <Section icon={<ScanLine size={15} color={COLORS.primary} />} title="Suivi des retours : avancement, numérisation en lot et boîte mail">
+              <div style={{ display: 'grid', gap: 6 }}>
+                <div><strong>Menu « Suivi des retours »</strong> (marqué ADMIN) : choisir la campagne ; les compteurs donnent le nombre d'EP <strong>programmés</strong>, <strong>réalisés</strong>, <strong>en retard</strong> (date dépassée sans compte rendu validé) et <strong>CREP retournés</strong> (et, en mode simple, « Transmis, à numériser »). Ils sont cliquables ; des filtres existent par direction, service, évaluateur et état. Chaque ligne indique le <strong>canal d'entrée</strong> du CREP (<strong>Mail</strong> ou <strong>Téléversement DRH</strong>) et la lecture IA, que l'on peut consulter.</div>
+                <div><strong>« Téléverser des CREP »</strong> : déposer <strong>un PDF scanné contenant plusieurs CREP</strong>, pages dans le désordre si besoin. Chaque page imprimée porte un <strong>QR code signé</strong> (en haut à gauche) : l'outil reconnaît l'agent et le numéro de page, remet les pages à l'endroit, reconstitue chaque CREP et <strong>vérifie qu'il compte 4 pages</strong>. Pour chaque CREP, vous voyez les miniatures ; une page non reconnue, en double ou manquante est signalée et se corrige à la main (choisir l'agent et la page, pivoter, écarter). Seuls les CREP complets se valident.</div>
+                <div><strong>À la validation</strong> : le CREP signé est rattaché à l'agent·e, la réception par la DRH est déclarée, <strong>l'entretien est clôturé</strong>, la <strong>lecture IA</strong> (la plus précise) démarre en tâche de fond (résultat réservé aux administrateurs) et l'agent·e et son évaluateur reçoivent un <strong>e-mail de remerciement</strong> (modèle « CREP reçu et vérifié », modifiable dans Paramétrage → Modèles d'e-mails). Si un CREP signé existe déjà, son remplacement est confirmé.</div>
+                <div><strong>Colonnes « CREP papier » et « CREP numérique »</strong> : le bouton <strong>« Signé »</strong> ouvre le CREP scanné ; il est <strong>vert</strong> si la lecture voit les 2 signatures (agent·e et évaluateur), <strong>orange</strong> s'il en manque au moins une (l'info-bulle dit laquelle), gris tant que c'est inconnu. Le bouton <strong>« Formulaire »</strong> ouvre le <strong>CREP numérique</strong> : le formulaire de saisie en lecture seule, renseigné par la lecture IA, avec un badge <strong>« Lu par l'IA »</strong> (ou « Saisi » pour ce qui vient de l'outil) et un badge orange <strong>« Lecture incertaine »</strong> quand l'IA a lu deux versions différentes. <strong>« Saisi »</strong> ouvre le PDF de la saisie dans l'outil. La <strong>corbeille</strong> supprime le retour d'un agent (erreur d'affectation, mauvais document) : le CREP scanné est effacé, l'EP clôturé repasse à « réalisé » et le CREP redevient validable dans son lot. La détection des signatures est automatique : à vérifier sur le document.</div>
+                <div><strong>Boîte mail à moissonner</strong> : dans l'administration du DSI Hub (<strong>Collecteurs de mails</strong>), créer un collecteur de module <strong>« Entretiens »</strong> avec l'adresse de la boîte et la fréquence. Chaque PDF reçu en pièce jointe devient un lot « à vérifier » (canal <strong>Mail</strong>, avec expéditeur et objet) et passe par la même vérification. Un PDF sans QR code de CREP est classé « Aucun CREP reconnu » et n'est pas proposé.</div>
               </div>
             </Section>
 

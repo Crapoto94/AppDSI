@@ -377,6 +377,18 @@ async function getEntretienById(id) {
     return row || null;
 }
 
+/** Options de la campagne en cours (ouverte, à défaut la plus récente) : mode simple et analyse de cohérence. Alimente l'aide et le tutoriel. */
+async function currentCampaignFlags() {
+    try {
+        const c = await pgDb.get("SELECT analyse_coherence, mode_simple FROM hub_entretiens.campaigns ORDER BY (statut = 'ouverte') DESC, annee DESC, id DESC LIMIT 1");
+        return { simple_mode: !!c?.mode_simple, coherence_mode: !!c?.analyse_coherence };
+    } catch (e) { return { simple_mode: false, coherence_mode: false }; }
+}
+
+/** Durées d'entretien autorisées (minutes). Toute autre valeur est ramenée à la valeur par défaut. */
+const DUREES_EP = [60, 90, 120, 150];
+const dureeEp = (v, fallback = 120) => { const n = Number(v); return DUREES_EP.includes(n) ? n : (DUREES_EP.includes(Number(fallback)) ? Number(fallback) : 120); };
+
 /** Charge les objectifs et formations d'un entretien. */
 async function withRelations(entretien) {
     if (!entretien) return null;
@@ -397,11 +409,16 @@ async function withRelations(entretien) {
     try { digital_silent = !!(await pgDb.get("SELECT 1 AS x FROM hub_entretiens.crep_scan_jobs WHERE entretien_id = ? AND silent AND status = 'termine' AND result IS NOT NULL LIMIT 1", [entretien.id])); } catch (e) { /* table absente */ }
     let reopen_request = null;
     if (entretien.statut === 'cloture') { try { reopen_request = await require('./reopen').latestFor(entretien.id); } catch (e) { /* ignore */ } }
-    let campaign_closed = false;
-    try { campaign_closed = (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]))?.statut === 'close'; } catch (e) { /* campagne inconnue */ }
+    let campaign_closed = false, campaign_coherence = false, campaign_simple = false;
+    try {
+        const camp = await pgDb.get('SELECT statut, analyse_coherence, mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [entretien.campaign_id]);
+        campaign_closed = camp?.statut === 'close';
+        campaign_coherence = !!camp?.analyse_coherence;
+        campaign_simple = !!camp?.mode_simple;
+    } catch (e) { /* campagne inconnue */ }
     return {
         ...entretien,
-        campaign_closed, reopen_request, scan_reading, offline_form, digital_silent,
+        campaign_closed, campaign_coherence, campaign_simple, reopen_request, scan_reading, offline_form, digital_silent,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],
@@ -964,6 +981,7 @@ async function removeOutlook(entretien) {
 }
 
 module.exports = {
+    DUREES_EP, dureeEp, currentCampaignFlags,
     tokenKey,
     findReprise,
     attachReprise,

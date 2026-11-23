@@ -164,4 +164,22 @@ function gridWarning(crep, definition) {
     return n ? `Grille d’appréciation de la valeur professionnelle : ${n} critère(s) sans réponse` : '';
 }
 
-module.exports = { LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields, setTemplateDefs, definitionFor, groupsOf, gridWarning };
+/** Rubriques facultatives non renseignées : simple alerte (jamais bloquante). */
+function optionalMissing(crep, definition) {
+    const c = normalizeCrep(crep, definition);
+    const empty = (v) => !String(v || '').trim();
+    const out = [];
+    c.objectifs_ecoules.forEach((o, i) => {
+        if (empty(o.objectif)) return;
+        if (empty(o.observations)) out.push(`Objectif ${i + 1} de l’année écoulée : observations non renseignées`);
+        if (!o.niveau) out.push(`Objectif ${i + 1} de l’année écoulée : niveau d’atteinte non renseigné`);
+    });
+    c.objectifs_futurs.forEach((o, i) => {
+        if (!empty(o.descriptif) && empty(o.moyens)) out.push(`Objectif ${i + 1} de l’année à venir : moyens non renseignés`);
+    });
+    if (empty(c.evolution)) out.push('Perspectives d’évolution professionnelle non renseignées');
+    if (empty(c.mobilite)) out.push('Souhaits de mobilité non renseignés');
+    return out;
+}
+
+module.exports = { optionalMissing, LEVELS, CRITERIA_GROUPS, NB_OBJECTIFS, emptyCrep, normalizeCrep, missingFields, setTemplateDefs, definitionFor, groupsOf, gridWarning };

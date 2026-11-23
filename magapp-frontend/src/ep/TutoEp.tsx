@@ -49,9 +49,9 @@ const STEPS: Record<TutoRole, Step[]> = {
         { label: 'Je recrée l\'agent·e moi-même', ok: false, why: 'Non : on ne crée jamais un·e agent·e. On le rattache à son compte avec « Lier l\'AD ».' },
       ] } },
     { emoji: '🎤', quest: 'Étape 3', title: 'Mener l\'entretien et noter', xp: 150, shot: '/aide-ep/07-crep.jpg',
-      body: <>Le jour J, cliquez sur <B>« Saisir l'EP »</B> et remplissez le compte rendu dans l'outil. L'<B>enregistrement est automatique</B> : rien n'est envoyé à l'agent·e tant que vous ne validez pas. La grille d'appréciation se coche comme sur le papier (une ligne par critère, cases <B>S / AS / I</B>) ; la rubrique « Mobilité » est facultative.
+      body: <>Le jour J, cliquez sur <B>« Faire l’EP »</B> et remplissez le compte rendu dans l'outil. L'<B>enregistrement est automatique</B> : rien n'est envoyé à l'agent·e tant que vous ne validez pas. La grille d'appréciation se coche comme sur le papier (une ligne par critère, cases <B>S / AS / I</B>) ; la rubrique « Mobilité » est facultative.
         <div style={{ marginTop: 8 }}>Vous préférez écrire à la main ? C'est permis : imprimez le CREP vierge avant, écrivez pendant, puis téléversez le document signé à l'étape suivante.</div></>,
-      example: <Ex>Exemple : <B>Nadia Roux</B> a passé son entretien mardi. Vous ouvrez son EP, vous remplissez le bilan, les objectifs, l'appréciation générale, et vous cliquez sur <B>« Vérifier la cohérence »</B> : l'outil vous liste ce qui manque.</Ex> },
+      example: <Ex>Exemple : <B>Nadia Roux</B> a passé son entretien mardi. Vous ouvrez son EP, vous remplissez le bilan, les objectifs, l'appréciation générale, et vous cliquez sur le bouton de <B>vérification</B> (cohérence ou complétude, selon la campagne) : l'outil vous liste ce qui manque.</Ex> },
     { emoji: '📸', quest: 'Étape 4', title: 'Téléverser le CREP signé : l’IA lit pour vous', xp: 150, shot: '/aide-ep/07-crep.jpg',
       body: <>Le CREP est signé par l'agent·e et par vous ? Dans le cadre du <B>fil d'Ariane</B>, cliquez sur le <B>grand bouton de téléversement</B> et choisissez <B>toutes les pages</B> d'un coup. L'<B>IA locale de la Ville</B> les lit en tâche de fond (environ 30 secondes par page) :
         un bandeau « Analyse en cours » apparaît, <B>vous pouvez fermer la fenêtre</B>, et vous recevez un <B>e-mail</B> quand c'est prêt. Cliquez alors sur <B>« Voir la proposition »</B>.
@@ -106,15 +106,50 @@ const STEPS: Record<TutoRole, Step[]> = {
         { label: 'Oui, avec le nom des agent·e·s', ok: false, why: 'Non : l\'analyse est volontairement non nominative.' },
         { label: 'Non : seulement les textes, les types, les directions et les services', ok: true, why: 'Exact. Aucun nom n\'est affiché ni transmis à l\'IA.' },
       ] } },
-    { emoji: '📊', quest: 'Étape 4 (dernière)', title: 'Piloter', xp: 150,
+    { emoji: '📥', quest: 'Étape 4', title: 'Suivi des retours : numériser et valider les CREP', xp: 150,
+      body: <>Le menu <B>« Suivi des retours »</B> montre, par campagne, les EP <B>programmés</B>, <B>réalisés</B>, <B>en retard</B> et les <B>CREP retournés</B>. <B>« Téléverser des CREP »</B> : déposez un PDF scanné de plusieurs CREP, pages dans le désordre si besoin. Le <B>QR code</B> imprimé en haut à gauche de chaque page rattache chaque page au bon agent ; vous vérifiez le regroupement (4 pages par CREP), corrigez si besoin, puis validez : l'EP est <B>clôturé</B>, la lecture IA démarre et l'agent·e et son évaluateur reçoivent un e-mail de remerciement. Les CREP reçus par mail dans la boîte moissonnée arrivent aussi comme lots à vérifier (le <B>canal</B>, mail ou téléversement DRH, est conservé).</>,
+      quiz: { question: 'Les pages d\'un lot scanné sont dans le désordre. Que faites-vous ?', options: [
+        { label: 'Rien : le QR code de chaque page les rattache au bon agent', ok: true, why: 'Exact. Vous vérifiez le regroupement (4 pages) et corrigez seulement les pages non reconnues.' },
+        { label: 'Je remets les pages dans l\'ordre avant de scanner', ok: false, why: 'Inutile : l\'ordre n\'a pas d\'importance.' },
+      ] } },
+    { emoji: '📊', quest: 'Étape 5 (dernière)', title: 'Piloter', xp: 150,
       body: <><B>« Pilotage »</B> donne l'avancement par direction. Les <B>compteurs</B> du haut sont <B>cliquables : ils filtrent la liste</B>. Le bouton <B>« Aperçu CREP »</B> propose le CREP numérisé ou reconstruit, et le menu <B>« ⋯ »</B> permet de déclarer qu'un CREP est <B>reçu par la DRH</B> (ce qui alimente les compteurs « À transmettre » et « Reçus par la DRH », visibles aussi des évaluateur·rice·s). <B>« Journal »</B> trace chaque action. Le bouton <B>Aide</B>, en haut, détaille tous les cas.</> },
   ],
 };
 
 /** Dernière étape, commune à tous les profils : l'ampoule (questions, idées, bugs). */
-const AMPOULE: Step = { emoji: '💡', quest: 'Bonus', title: 'Une question, une idée, un bug ? L’ampoule', xp: 50,
+const AMPOULE: Step = { emoji: '💡', quest: 'Bonus', title: 'Une question, une demande ou un bug ? L’ampoule', xp: 50,
+  quiz: { question: 'Vous constatez qu\'un bouton ne fait rien, ou vous avez une idée d\'amélioration. Que faites-vous ?', options: [
+    { label: 'Je clique sur l\'ampoule en haut à droite et je décris la situation', ok: true, why: 'Exact : « J\'ai une question », « Je propose une amélioration » ou « Il y a un bug », avec une capture si besoin. Vous êtes prévenu·e par e-mail de la suite.' },
+    { label: 'J\'attends que quelqu\'un le remarque', ok: false, why: 'Mieux vaut le signaler : les administrateurs reçoivent la demande et vous répondent.' },
+  ] },
   body: <>En haut à droite, l'<B>ampoule</B> vous permet de déposer en quelques lignes <B>« J'ai une question »</B>, <B>« Je propose une amélioration »</B> ou <B>« Il y a un bug »</B>, avec une <B>pièce jointe</B> si besoin.
     Vous suivez vos demandes dans <B>« Mes demandes »</B>, vous lisez et <B>commentez</B> celles des autres dans <B>« Celles des autres »</B>, et vous êtes <B>prévenu·e par e-mail</B> de la suite donnée.</> };
+
+/** Mode simple (option de la campagne) : le CREP signé n'est jamais téléversé par l'évaluateur ; il l'envoie à la DRH et le signale. */
+const SIMPLE_INTRO: Step = { emoji: '👋', quest: 'Présentation', title: 'Votre parcours en 5 étapes', xp: 50,
+  body: <>Vous allez conduire les entretiens professionnels de votre équipe dans MagApp. Ce court parcours de <B>2 minutes</B> présente les étapes et les boutons à utiliser. Il reste consultable à tout moment depuis l'aide.
+    <ol style={{ margin: '10px 0 0 18px', padding: 0, lineHeight: 1.8 }}>
+      <li>Retrouver vos agent·e·s</li><li>Prendre rendez-vous</li><li>Mener l'entretien et noter</li><li>Valider le compte rendu</li><li>Envoyer le CREP signé à la DRH et le signaler</li>
+    </ol>
+    <div style={{ marginTop: 8 }}><B>Vous n'avez jamais de CREP signé à téléverser</B> : les administrateurs s'en chargent.</div></> };
+const SIMPLE_MENER: Step = { emoji: '🎤', quest: 'Étape 3', title: 'Mener l\'entretien et noter', xp: 150, shot: '/aide-ep/07-crep.jpg',
+  body: <>Le jour J, cliquez sur <B>« Faire l’EP »</B> et remplissez le compte rendu dans l'outil. L'<B>enregistrement est automatique</B> : rien n'est envoyé à l'agent·e tant que vous ne validez pas. La grille d'appréciation se coche comme sur le papier (une ligne par critère, cases <B>S / AS / I</B>) ; la rubrique « Mobilité » est facultative.
+    <div style={{ marginTop: 8 }}>Vous préférez écrire à la main ? C'est permis : imprimez le CREP vierge avant et écrivez pendant. Le CREP imprimé porte un <B>QR code</B> en haut à gauche de chaque page : il permet de le rattacher au bon agent à la numérisation, <B>ne le masquez pas</B>.</div></>,
+  example: <Ex>Exemple : <B>Nadia Roux</B> a passé son entretien mardi. Vous ouvrez son EP, vous remplissez le bilan, les objectifs, l'appréciation générale, puis vous lancez la <B>vérification</B> : l'outil vous liste ce qui manque.</Ex> };
+const SIMPLE_VALIDER: Step = { emoji: '✅', quest: 'Étape 4', title: 'Valider le compte rendu', xp: 100,
+  body: <>Dans l'outil, cliquez sur <B>« Valider la partie évaluateur »</B> : l'EP passe à <B>« Réalisé »</B>, puis <B>« Imprimer / PDF »</B> pour obtenir le CREP à faire signer. Les rubriques obligatoires sont signalées ; les facultatives vides ne font que donner une alerte. Si vous avez tout écrit à la main, il n'y a rien à valider dans l'outil.</>,
+  quiz: { question: 'Vous avez saisi le CREP dans l\'outil. Que faites-vous avant de l\'imprimer ?', options: [
+    { label: 'Rien, j\'imprime directement', ok: false, why: 'Validez d\'abord votre partie : l\'EP doit passer à « Réalisé ».' },
+    { label: 'Je clique sur « Valider la partie évaluateur »', ok: true, why: 'Exact. Ensuite vous imprimez et vous faites signer.' },
+  ] } };
+const SIMPLE_ENVOI: Step = { emoji: '📮', quest: 'Étape 5 (dernière)', title: 'Envoyer le CREP signé à la DRH et le signaler', xp: 200, shot: '/aide-ep/06-statuts.jpg',
+  body: <>L'agent·e renseigne ses 2 cadres et signe à la main, puis vous <B>contresignez</B>. <B>Envoyez l'original signé à la DRH</B>, puis cliquez sur <B>« J'ai envoyé le CREP à la DRH »</B> dans l'entretien. <B>Rien à numériser, rien à téléverser.</B>
+    <div style={{ marginTop: 8 }}>Les administrateurs numérisent les CREP reçus : l'entretien est alors <B>clôturé automatiquement</B>, et l'agent·e comme vous recevez un <B>e-mail de remerciement</B>. Un envoi signalé par erreur ? <B>« Annuler »</B>, tant que le CREP n'est pas reçu. Il n'y a pas de demande de réouverture en mode simple : en cas d'erreur, contactez un administrateur.</div></>,
+  quiz: { question: 'Le CREP est signé par l\'agent·e et par vous. Que faites-vous ?', options: [
+    { label: 'Je le scanne et je le téléverse dans l\'outil', ok: false, why: 'Pas en mode simple : les administrateurs numérisent les CREP reçus.' },
+    { label: 'Je l\'envoie à la DRH, puis je clique sur « J\'ai envoyé le CREP à la DRH »', ok: true, why: 'Exact. Rien d\'autre à faire : l\'entretien sera clôturé après la numérisation.' },
+  ] } };
 
 /** Option « PDF formulaire hors ligne » (si activée dans le Paramétrage) : le parcours à 2 téléversements. */
 const OFFLINE_STEP: Step = { emoji: '📴', quest: 'Option', title: 'Sans connexion : le PDF formulaire (2 téléversements)', xp: 100,
@@ -128,8 +163,14 @@ const OFFLINE_STEP: Step = { emoji: '📴', quest: 'Option', title: 'Sans connex
   ] } };
 
 /** Lecture des entretiens numérisés désactivée : pas d'étape de vérification de la lecture, l’évaluateur·rice consulte le document et confirme les signatures. */
-function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false): Step[] {
+function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false, simple = false): Step[] {
   let base = [...STEPS[role], AMPOULE];
+  if (simple && role === 'valideur') {
+    // Mode simple : parcours en 5 étapes, sans téléversement ni vérification de lecture
+    const early = STEPS.valideur.filter(st => ['Étape 1', 'Étape 2', 'Étape 2 (cas particulier)'].includes(st.quest));
+    const offline: Step[] = offlineForm ? [{ ...OFFLINE_STEP, title: 'Sans connexion : le PDF formulaire', body: <>À l'ouverture du CREP, choisissez le mode <B>« PDF formulaire hors ligne »</B>. <B>Téléchargez</B> le PDF, ouvrez-le avec <B>Adobe Acrobat Reader</B> (ou une application PDF de tablette), remplissez-le pendant l'entretien et enregistrez-le. De retour en ligne, <B>« Importer le PDF rempli »</B> reprend votre saisie dans l'outil ; relisez, puis <B>« Valider la partie évaluateur »</B>. Vous imprimez, l'agent·e écrit ses 2 cadres à la main et signe, vous contresignez, puis vous envoyez le CREP à la DRH. <B>Rien d'autre à téléverser.</B></>, quiz: undefined }] : [];
+    return [SIMPLE_INTRO, ...early, SIMPLE_MENER, ...offline, SIMPLE_VALIDER, SIMPLE_ENVOI, AMPOULE];
+  }
   if (offlineForm && role === 'valideur') {
     const k = base.findIndex(st => st.quest === 'Étape 3');
     base = [...base.slice(0, k + 1), OFFLINE_STEP, ...base.slice(k + 1)];
@@ -147,9 +188,10 @@ function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false): 
     : st);
 }
 
-export default function TutoEp({ role, onClose, onOpenAide, scanReading = false, offlineForm = false }: { role: TutoRole; onClose: () => void; onOpenAide: () => void; scanReading?: boolean; offlineForm?: boolean }) {
-  const steps = adaptSteps(role, scanReading, offlineForm);
+export default function TutoEp({ role, onClose, onOpenAide, scanReading = false, offlineForm = false, simple = false }: { role: TutoRole; onClose: (markSeen?: boolean) => void; onOpenAide: () => void; scanReading?: boolean; offlineForm?: boolean; simple?: boolean }) {
+  const steps = adaptSteps(role, scanReading, offlineForm, simple);
   const [i, setI] = useState(0);
+  const [askSkip, setAskSkip] = useState(false);
   const [answered, setAnswered] = useState<Record<number, number>>({});
   const [earned, setEarned] = useState<Record<number, boolean>>({});
   const step = steps[Math.min(i, steps.length - 1)]; // à l'écran de fin (i = steps.length) on garde la dernière étape en arrière-plan
@@ -165,8 +207,8 @@ export default function TutoEp({ role, onClose, onOpenAide, scanReading = false,
   const next = () => { if (!quiz) setEarned(e => ({ ...e, [i]: true })); setI(x => x + 1); };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'linear-gradient(135deg,#312e81 0%,#4f46e5 55%,#7c3aed 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, overflowY: 'auto' }}>
-      <div style={{ width: '100%', maxWidth: 760, background: '#fff', borderRadius: 18, boxShadow: '0 25px 60px rgba(15,23,42,.45)', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'linear-gradient(135deg,#312e81 0%,#4f46e5 55%,#7c3aed 100%)', display: 'flex', justifyContent: 'center', padding: 14, overflowY: 'auto' }}>
+      <div style={{ width: '100%', maxWidth: 760, margin: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 25px 60px rgba(15,23,42,.45)', overflow: 'hidden' }}>
         <div style={{ padding: '12px 18px', background: '#eef2ff', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 800, color: COLORS.primary, marginBottom: 4 }}>
@@ -177,7 +219,7 @@ export default function TutoEp({ role, onClose, onOpenAide, scanReading = false,
               <div style={{ width: `${((i + (earned[i] ? 1 : 0)) / steps.length) * 100}%`, height: '100%', background: 'linear-gradient(90deg,#4f46e5,#a855f7)', transition: 'width .35s' }} />
             </div>
           </div>
-          <button style={{ ...btnGhost, padding: '5px 9px', fontSize: 12 }} onClick={onClose} title="Passer le tutoriel"><X size={14} /> Passer</button>
+          <button style={{ ...btnGhost, padding: '5px 9px', fontSize: 12 }} onClick={() => setAskSkip(true)} title="Passer le tutoriel"><X size={14} /> Passer</button>
         </div>
 
         <div style={{ padding: '22px 26px 8px' }}>
@@ -236,6 +278,20 @@ export default function TutoEp({ role, onClose, onOpenAide, scanReading = false,
         </div>
       </div>
 
+      {askSkip && i < steps.length && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 3100, background: 'rgba(15,23,42,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+          <div style={{ width: '100%', maxWidth: 440, background: '#fff', borderRadius: 16, padding: '24px 24px 20px', boxShadow: '0 25px 60px rgba(15,23,42,.45)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 900, color: COLORS.text }}>Passer le tutoriel ?</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#475569' }}>Souhaitez-vous le revoir la prochaine fois que vous ouvrirez le module ? Il reste de toute façon consultable à tout moment depuis l’aide.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button style={btnPrimary} onClick={() => onClose(false)}>Oui, me le reproposer la prochaine fois</button>
+              <button style={btnGhost} onClick={() => onClose(true)}>Non, ne plus me le proposer</button>
+              <button style={{ ...btnGhost, border: 'none', color: '#64748b' }} onClick={() => setAskSkip(false)}>Continuer le tutoriel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {i >= steps.length && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 3100, background: 'linear-gradient(135deg,#312e81 0%,#4f46e5 55%,#7c3aed 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
           <div style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 18, padding: '30px 28px', textAlign: 'center', boxShadow: '0 25px 60px rgba(15,23,42,.45)' }}>
@@ -243,11 +299,11 @@ export default function TutoEp({ role, onClose, onOpenAide, scanReading = false,
             <h2 style={{ margin: '10px 0 4px', fontSize: 22, fontWeight: 900, color: COLORS.text }}>Tutoriel terminé</h2>
             <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.6, margin: '14px 0 20px' }}>
               Vous avez parcouru les étapes essentielles. Le bouton <strong>« Aide »</strong> (en haut à droite) reste disponible à tout moment, avec tous les cas détaillés et des captures d'écran.
-              Ce tutoriel peut être rouvert depuis l'aide.
+              Une question, une demande d'amélioration ou un bug ? Cliquez sur l'<strong>ampoule 💡</strong> en haut à droite, à tout moment. Ce tutoriel peut être rouvert depuis l'aide.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button style={btnGhost} onClick={() => { onClose(); onOpenAide(); }}><BookOpen size={15} /> Ouvrir l'aide complète</button>
-              <button style={btnPrimary} onClick={onClose}><CheckCircle2 size={15} /> Fermer</button>
+              <button style={btnGhost} onClick={() => { onClose(true); onOpenAide(); }}><BookOpen size={15} /> Ouvrir l'aide complète</button>
+              <button style={btnPrimary} onClick={() => onClose(true)}><CheckCircle2 size={15} /> Fermer</button>
             </div>
           </div>
         </div>

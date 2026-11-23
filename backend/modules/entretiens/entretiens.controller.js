@@ -1,7 +1,7 @@
 const { pgDb } = require('../../shared/database');
 const { PDFDocument } = require('../../shared/lazy').lazy('pdf-lib');
 const svc = require('./entretiens.service');
-const { normalizeCrep, missingFields, definitionFor, gridWarning } = require('./crep.definition');
+const { normalizeCrep, missingFields, optionalMissing, definitionFor, gridWarning } = require('./crep.definition');
 const epBase = require('../ep-base/ep-base.service');
 const { buildCrepPdf } = require('./crep-pdf.service');
 const storage = require('../../shared/storage');
@@ -285,6 +285,7 @@ const entretiensController = {
                 selfAccess,
                 esignAccess: await svc.esignAllowedFor(actor),
                 scan_reading: await svc.scanReadingOn(),
+                ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 aiAccess: {
@@ -319,8 +320,8 @@ const entretiensController = {
 
             const result = await pgDb.run(
                 `INSERT INTO hub_entretiens.campaigns
-                   (annee, libelle, date_ouverture, date_cloture, date_limite_ep, statut, instructions, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                   (annee, libelle, date_ouverture, date_cloture, date_limite_ep, statut, instructions, created_by, analyse_coherence, mode_simple)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     annee,
                     text(req.body?.libelle).trim() || `Campagne ${annee}`,
@@ -330,6 +331,8 @@ const entretiensController = {
                     ['ouverte', 'close', 'preparation'].includes(req.body?.statut) ? req.body.statut : 'ouverte',
                     text(req.body?.instructions),
                     actor.username || null,
+                    req.body?.analyse_coherence === true,
+                    req.body?.mode_simple === true,
                 ]
             );
             const row = await pgDb.get('SELECT * FROM hub_entretiens.campaigns WHERE id = ?', [result.lastID]);
@@ -349,7 +352,7 @@ const entretiensController = {
             await pgDb.run(
                 `UPDATE hub_entretiens.campaigns
                  SET annee = ?, libelle = ?, date_ouverture = ?, date_cloture = ?, date_limite_ep = ?,
-                     statut = ?, instructions = ?, updated_at = NOW()
+                     statut = ?, instructions = ?, analyse_coherence = ?, mode_simple = ?, updated_at = NOW()
                  WHERE id = ?`,
                 [
                     intOr(b.annee, current.annee),
@@ -359,6 +362,8 @@ const entretiensController = {
                     b.date_limite_ep !== undefined ? svc.normalizeDate(b.date_limite_ep) : current.date_limite_ep,
                     ['ouverte', 'close', 'preparation'].includes(b.statut) ? b.statut : current.statut,
                     b.instructions !== undefined ? text(b.instructions) : current.instructions,
+                    b.analyse_coherence !== undefined ? b.analyse_coherence === true : !!current.analyse_coherence,
+                    b.mode_simple !== undefined ? b.mode_simple === true : !!current.mode_simple,
                     id,
                 ]
             );
@@ -377,6 +382,19 @@ const entretiensController = {
             const j = jobs[0];
             if (!j) return fail(res, 404, 'Aucune lecture disponible pour cet entretien.');
             const result = typeof j.result === 'string' ? JSON.parse(j.result) : j.result;
+            // ?form=1 : CREP numérique « mode formulaire » = le CREP complet reconstitué (saisie + lecture du document signé) dans un PDF aux champs renseignés
+            if (req.query?.form === '1') {
+                const cdefF = definitionFor(await epBase.modeleOfEntretien(row));
+                const baseF = typeof row.crep === 'string' ? JSON.parse(row.crep) : (row.crep || {});
+                const fieldsF = j.mode === 'agent'
+                    ? { ...baseF, obs_agent_conditions: result.fields?.obs_agent_conditions || baseF.obs_agent_conditions || '', obs_agent_entretien: result.fields?.obs_agent_entretien || baseF.obs_agent_entretien || '' }
+                    : { ...(result.fields || {}), origine: 'manuscrit' };
+                const campF = await pgDb.get('SELECT annee FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+                const pdfF = await buildCrepPdf({ ...row, crep: normalizeCrep(fieldsF, cdefF) }, campF?.annee, { form: true });
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', 'inline; filename="CREP-numerique-formulaire.pdf"');
+                return res.send(Buffer.from(pdfF));
+            }
             if (j.mode === 'agent') {
                 // Saisie dans l'outil : seuls les éléments ajoutés par la lecture (2 commentaires de l'agent, présence des signatures)
                 const scans = typeof row.crep_scans === 'string' ? JSON.parse(row.crep_scans || '[]') : (row.crep_scans || []);
@@ -415,6 +433,8 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !(access.isEvaluator || access.isSuperieur || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
             if (row.statut !== 'cloture') return fail(res, 400, 'Cet entretien n’est pas clôturé.');
+            // Mode simple : pas de demande de réouverture (un administrateur peut toujours dévalider en cas d'erreur manifeste)
+            if ((await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : les demandes de réouverture ne sont pas ouvertes. Contactez un administrateur du module.');
             const reason = text(req.body?.reason).trim();
             if (reason.length < 10) return fail(res, 400, 'Justifiez votre demande de réouverture (au moins 10 caractères).');
             const camp = await pgDb.get('SELECT annee, statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
@@ -525,6 +545,146 @@ const entretiensController = {
             }
             res.json({ ok: true, updated: ok, refused });
         } catch (err) { console.error('[ENTRETIENS] drhReception:', err.message); fail(res, 500, err.message); }
+    },
+
+
+    // ─── Suivi des retours de CREP (administrateurs) ──────────────────────
+
+    // GET /api/entretiens/returns/summary?campaign_id= — programmés / réalisés / retournés
+    returnsSummary: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const campaignId = intOr(req.query?.campaign_id, 0);
+            if (!campaignId) return fail(res, 400, 'Campagne manquante.');
+            res.json(await require('./crep-return.service').summary(campaignId));
+        } catch (err) { console.error('[ENTRETIENS] returnsSummary:', err.message); fail(res, 500, err.message); }
+    },
+
+    returnsList: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            res.json(await require('./crep-return.service').listBatches(intOr(req.query?.campaign_id, 0)));
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/returns/batches (multipart : file, campaign_id) — dépose un PDF numérisé de plusieurs CREP
+    returnsCreate: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const f = req.file;
+            if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
+            if (f.buffer.slice(0, 5).toString('latin1') !== '%PDF-') return fail(res, 400, 'Le fichier doit être un PDF.');
+            const row = await require('./crep-return.service').createBatch({ file: f, campaignId: intOr(req.body?.campaign_id, 0), actor });
+            res.status(202).json({ id: row.id });
+        } catch (err) { console.error('[ENTRETIENS] returnsCreate:', err.message); fail(res, 500, err.message); }
+    },
+
+    returnsGet: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const ret = require('./crep-return.service');
+            const batch = await ret.getBatch(Number(req.params.id));
+            if (!batch) return fail(res, 404, 'Lot introuvable.');
+            res.json(await ret.describe(batch));
+        } catch (err) { console.error('[ENTRETIENS] returnsGet:', err.message); fail(res, 500, err.message); }
+    },
+
+    returnsPage: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const width = Math.min(1600, Math.max(200, intOr(req.query?.w, 720)));
+            const jpg = await require('./crep-return.service').pageImage(Number(req.params.id), Number(req.params.idx), width);
+            if (!jpg) return fail(res, 404, 'Page introuvable.');
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'private, max-age=60');
+            res.send(jpg);
+        } catch (err) { console.error('[ENTRETIENS] returnsPage:', err.message); fail(res, 500, err.message); }
+    },
+
+    // PUT /api/entretiens/returns/batches/:id/pages/:idx { entretien_id, page } | { ignore: true } | { rot } | {} — correction manuelle
+    returnsAssign: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const ret = require('./crep-return.service');
+            await ret.assignPage(Number(req.params.id), Number(req.params.idx), req.body || {});
+            res.json(await ret.describe(await ret.getBatch(Number(req.params.id))));
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsAssign:', err.message); fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/returns/batches/:id/confirm { entretien_ids: [..], replace? }
+    returnsConfirm: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            const ids = [...new Set((Array.isArray(req.body?.entretien_ids) ? req.body.entretien_ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+            if (!ids.length) return fail(res, 400, 'Aucun CREP sélectionné.');
+            const ret = require('./crep-return.service');
+            const results = await ret.confirmGroups(Number(req.params.id), { entretienIds: ids, replace: req.body?.replace === true, actor });
+            res.json({ results, batch: await ret.describe(await ret.getBatch(Number(req.params.id))) });
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsConfirm:', err.message); fail(res, 500, err.message); }
+    },
+
+    // DELETE /api/entretiens/returns/entretien/:id — supprime le retour de CREP d'un entretien (administrateurs)
+    returnsDeleteReturn: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            await require('./crep-return.service').deleteReturn(Number(req.params.id), actor);
+            res.json({ ok: true });
+        } catch (err) { if (err && err.status) return fail(res, err.status, err.message); console.error('[ENTRETIENS] returnsDeleteReturn:', err.message); fail(res, 500, err.message); }
+    },
+
+    returnsDelete: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            await require('./crep-return.service').deleteBatch(Number(req.params.id));
+            res.json({ ok: true });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // GET /api/entretiens/returns/reading/:entretienId — lecture IA du CREP numérisé (administrateurs)
+    returnsReading: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Réservé aux administrateurs du module.');
+            res.json({ job: await require('./crep-return.service').reading(Number(req.params.entretienId)) });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    // POST /api/entretiens/:id/crep/simple-sent { sent: true|false } — mode simple : l'évaluateur signale avoir envoyé le CREP à la DRH
+    crepSimpleSent: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            const row = await svc.getEntretienById(Number(req.params.id));
+            if (!row) return fail(res, 404, 'Entretien introuvable.');
+            const role = await svc.resolveRole(actor);
+            const access = await svc.buildAccess(actor, row, role.isAdmin);
+            if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
+            const camp = await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            if (!camp?.mode_simple) return fail(res, 400, 'Le mode simple n’est pas activé pour cette campagne.');
+            const sent = req.body?.sent !== false;
+            if (sent) {
+                const papier = row.crep_mode === 'manuscrit';
+                if (row.statut !== 'realise' && row.statut !== 'cloture' && !papier) return fail(res, 400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
+                // CREP tenu sur papier : l'entretien a eu lieu, il est marqué « réalisé » au signalement
+                if (papier && row.statut !== 'realise' && row.statut !== 'cloture') await pgDb.run("UPDATE hub_entretiens.entretiens SET statut = 'realise' WHERE id = ?", [row.id]);
+                await pgDb.run('UPDATE hub_entretiens.entretiens SET simple_sent_at = COALESCE(simple_sent_at, NOW()), simple_sent_by = COALESCE(simple_sent_by, ?), updated_at = NOW() WHERE id = ?', [actor.username || actor.email || '', row.id]);
+            } else {
+                if (row.crep_signed_path) return fail(res, 409, 'Le CREP signé a déjà été reçu : impossible d’annuler la transmission.');
+                await pgDb.run('UPDATE hub_entretiens.entretiens SET simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW() WHERE id = ?', [row.id]);
+            }
+            await svc.logAudit({ actor, action: sent ? 'crep_transmis_drh' : 'crep_transmis_drh_annule', entretien: row, details: {} });
+            const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
+            const newAccess = await svc.buildAccess(actor, await svc.getEntretienById(row.id), role.isAdmin);
+            res.json({ ok: true, entretien: { ...svc.forViewer(await attachParapheur(fresh), newAccess), access: newAccess } });
+        } catch (err) { console.error('[ENTRETIENS] crepSimpleSent:', err.message); fail(res, 500, err.message); }
     },
 
     // POST /api/entretiens/:id/crep/unvalidate { reason } — « dévalider » un CREP en cas d'erreur manifeste (administrateurs uniquement)
@@ -644,6 +804,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
@@ -812,6 +973,7 @@ const entretiensController = {
             res.json({
                 simulation: await require('./simulation').isOn(),
                 scan_reading: await svc.scanReadingOn(),
+                ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
@@ -923,6 +1085,7 @@ const entretiensController = {
             const role = await svc.resolveRole(actor);
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access || !access.canEditEvaluation) return fail(res, 403, 'Seul l’évaluateur peut importer un compte rendu papier.');
+            if (!access.isAdmin && (await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : le CREP signé n’est pas téléversé par l’évaluateur. Envoyez-le à la DRH puis signalez-le dans l’outil.');
             const up = [...(req.files?.files || []), ...(req.files?.file || [])].filter(f => f && f.buffer && f.buffer.length);
             if (!up.length) return fail(res, 400, 'Aucun fichier reçu.');
             if (up.some(f => !/^(application\/pdf|image\/(png|jpe?g|webp|tiff?))$/i.test(f.mimetype || ''))) return fail(res, 400, 'Format non pris en charge : PDF ou image (PNG, JPEG).');
@@ -1170,7 +1333,7 @@ const entretiensController = {
                     evaluatorEmail.toLowerCase(),
                     text(b.evaluator_nom).trim(),
                     dateEntretien,
-                    intOr(b.duree_minutes, 120),
+                    svc.dureeEp(b.duree_minutes, 120),
                     text(b.lieu).trim(),
                     statut,
                     text(b.notes_admin),
@@ -1235,7 +1398,7 @@ const entretiensController = {
                 if (d && ['a_planifier'].includes(current.statut)) add('statut', 'planifie');
                 if (!d && !['realise', 'cloture'].includes(current.statut)) add('statut', 'a_planifier');
             }
-            if (b.duree_minutes !== undefined) add('duree_minutes', Math.max(15, intOr(b.duree_minutes, 120)));
+            if (b.duree_minutes !== undefined) add('duree_minutes', svc.dureeEp(b.duree_minutes, 120));
             if (b.lieu !== undefined) add('lieu', text(b.lieu).trim());
             if (b.notes_admin !== undefined) add('notes_admin', text(b.notes_admin));
             if (b.statut !== undefined && NOMENCLATURE_STATUTS.some(s => s.key === b.statut)) add('statut', b.statut);
@@ -1522,7 +1685,7 @@ const entretiensController = {
             if (!d) return fail(res, 400, 'La date et l’heure de l’entretien sont requises.');
 
             const set = ['date_entretien = ?', 'statut = ?', 'duree_minutes = ?', 'lieu = ?'];
-            const params = [d, current.statut === 'a_planifier' ? 'planifie' : current.statut, Math.max(15, intOr(b.duree_minutes, current.duree_minutes || 120)), b.lieu !== undefined ? text(b.lieu).trim() : (current.lieu || '')];
+            const params = [d, current.statut === 'a_planifier' ? 'planifie' : current.statut, svc.dureeEp(b.duree_minutes, current.duree_minutes), b.lieu !== undefined ? text(b.lieu).trim() : (current.lieu || '')];
             params.push(id);
             await pgDb.run(`UPDATE hub_entretiens.entretiens SET ${set.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
 
@@ -1719,9 +1882,19 @@ const entretiensController = {
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur de cet entretien.');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));
             const crep = normalizeCrep(req.body?.crep, cdef);
-            const out = { missing: missingFields(crep, cdef), issues: coherenceIssues(crep, cdef), warnings: [gridWarning(crep, cdef)].filter(Boolean), ai: null, ai_error: null };
-            // La relecture par l'IA ne s'exécute que si le module l'autorise pour cet évaluateur.
-            const aiAllowed = req.body?.ai !== false && (await svc.aiAccessFor(actor, 'review')).allowed;
+            // Option de la campagne : analyse de cohérence « de fond » (cohérence commentaires / évaluations + relecture IA).
+            // Désactivée : simple analyse de complétude (obligatoires bloquants, facultatifs en alerte).
+            const camp = await pgDb.get('SELECT analyse_coherence FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]);
+            const coherence = !!camp?.analyse_coherence;
+            const out = {
+                coherence,
+                missing: missingFields(crep, cdef),
+                issues: coherence ? coherenceIssues(crep, cdef) : [],
+                warnings: [gridWarning(crep, cdef), ...optionalMissing(crep, cdef)].filter(Boolean),
+                ai: null, ai_error: null,
+            };
+            // La relecture par l'IA ne s'exécute que si l'analyse de cohérence est activée et que le module l'autorise pour cet évaluateur.
+            const aiAllowed = coherence && req.body?.ai !== false && (await svc.aiAccessFor(actor, 'review')).allowed;
             if (aiAllowed) {
                 try { out.ai = (await reviewCrep(summarizeCrep(crep, row, cdef))).items; }
                 catch (e) { out.ai_error = e.message; }
@@ -1928,6 +2101,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             if (!(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut téléverser le compte rendu signé.');
+            if (!access.isAdmin && (await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : le CREP signé n’est pas téléversé par l’évaluateur. Envoyez-le à la DRH puis signalez-le dans l’outil.');
             if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') return fail(res, 400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
             const f = req.file;
             if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
@@ -1993,6 +2167,7 @@ const entretiensController = {
                 await pgDb.run('DELETE FROM hub_entretiens.relances WHERE entretien_id = ?', [row.id]).catch(() => {});
                 await pgDb.run('DELETE FROM hub_entretiens.reopen_requests WHERE entretien_id = ?', [row.id]).catch(() => {});   // demandes de réouverture
             } catch (e) { warnings.push('Scans originaux : ' + e.message); }
+            try { await storage.deletePath(`entretiens/${row.id}`); } catch (e) { /* dossier déjà absent */ }
             try { await pgDb.run('DELETE FROM hub_entretiens.objectifs WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Objectifs : ' + e.message); }
             try { await pgDb.run('DELETE FROM hub_entretiens.formations WHERE entretien_id = ?', [row.id]); } catch (e) { warnings.push('Formations : ' + e.message); }
 
@@ -2010,7 +2185,7 @@ const entretiensController = {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
 
             await svc.logAudit({
@@ -2040,6 +2215,7 @@ const entretiensController = {
             const access = await svc.buildAccess(actor, row, role.isAdmin);
             if (!access) return fail(res, 403, 'Vous n’avez pas accès à cet entretien.');
             if (!(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Seul l’évaluateur peut téléverser le CREP manuscrit.');
+            if (!access.isAdmin && (await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : le CREP signé n’est pas téléversé par l’évaluateur. Envoyez-le à la DRH puis signalez-le dans l’outil.');
             if (row.statut !== 'realise' || row.evaluation_statut !== 'soumis') return fail(res, 400, 'Validez d’abord le compte rendu : l’entretien doit être marqué « réalisé ».');
             if (row.crep_statut === 'en_signature') {
                 const p = row.crep_parapheur_id ? await pgDb.get('SELECT status FROM hub_parapheur.parapheurs WHERE id = ?', [row.crep_parapheur_id]) : null;
@@ -2122,7 +2298,7 @@ const entretiensController = {
                 organizerEmail: actor.email,
                 participants: parts,
                 includeOrganizer: false,
-                durationMinutes: parseInt(duree_minutes, 10) || 120,
+                durationMinutes: svc.dureeEp(duree_minutes, 120),
                 afterHours: !!after_hours,
                 strict: strict !== false,
                 after: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(apres || '') ? String(apres).slice(0, 16) : null,

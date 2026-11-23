@@ -15,7 +15,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
 }) {
   const { token } = useAuth();
   const [date, setDate] = useState(entretien.date_entretien || '');
-  const [duree, setDuree] = useState(entretien.duree_minutes || 120);
+  const [duree, setDuree] = useState([60, 90, 120, 150].includes(Number(entretien.duree_minutes)) ? Number(entretien.duree_minutes) : 120);
   const [lieu, setLieu] = useState(entretien.lieu || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
     if (!date) { setError('Choisissez la date et l’heure de l’entretien.'); return; }
     setSaving(true); setError(null);
     try {
-      const r = await axios.put(`/api/entretiens/${entretien.id}/planning`, { date_entretien: date, duree_minutes: Number(duree) || 120, lieu },
+      const r = await axios.put(`/api/entretiens/${entretien.id}/planning`, { date_entretien: date, duree_minutes: Number(duree), lieu },
         { headers: { Authorization: `Bearer ${token}` } });
       const o = r.data.outlook;
       setResult({
@@ -67,7 +67,9 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                   </div>
                 )}
                 <Field label="Durée (minutes)">
-                  <input style={input} type="number" min={15} step={15} value={duree} onChange={e => setDuree(Number(e.target.value))} />
+                  <select style={input} value={duree} onChange={e => setDuree(Number(e.target.value))}>
+                    {[60, 90, 120, 150].map(m => <option key={m} value={m}>{m} minutes</option>)}
+                  </select>
                 </Field>
                 <Field label="Lieu / visioconférence">
                   <input style={input} placeholder="Bureau, salle, Teams…" value={lieu} onChange={e => setLieu(e.target.value)} />

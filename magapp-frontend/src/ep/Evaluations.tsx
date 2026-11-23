@@ -103,6 +103,8 @@ const sansMailValideur = (e: Entretien) => !(e.evaluator_email || '').trim();
 
 /** Où en est le compte rendu après sa validation : à envoyer / à imprimer, chez l’agent, en signature, signé. */
 function crepEtat(e: Entretien): { label: string; hint?: string; color: string; bg: string } | null {
+  // Mode simple : l'évaluateur a signalé l'envoi du CREP signé à la DRH (avant même que l'entretien soit validé dans l'outil, en mode manuscrit)
+  if (e.simple_sent_at && e.crep_statut !== 'signe_papier') return { label: 'Envoyé à la DRH', hint: 'En attente de numérisation par les administrateurs', color: '#065f46', bg: '#d1fae5' };
   if (e.evaluation_statut !== 'soumis') return null;
   const cs = e.crep_statut || 'non_envoye';
   if (cs === 'signe_papier') return { label: 'Signé (papier)', hint: 'CREP manuscrit archivé', color: '#065f46', bg: '#d1fae5' };
@@ -187,6 +189,13 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   }, [token, endpoint]);
 
   useEffect(load, [load]);
+
+  /** CREP saisi dans l'outil (PDF des 4 pages), quand ce mode de saisie a été choisi. */
+  const openSaisi = async (id: number) => {
+    try {
+      await openViewer('CREP saisi', async () => (await axios.get(`/api/entretiens/${id}/crep.pdf`, { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })).data);
+    } catch { setError('CREP saisi indisponible.'); }
+  };
 
   const openSigned = async (id: number) => {
     try {
@@ -348,7 +357,6 @@ Motif (obligatoire) :`, '');
   }).sort((a, b) => readOnly
     ? valideurLabel(a).localeCompare(valideurLabel(b), 'fr') || nomComplet(a).localeCompare(nomComplet(b), 'fr')
     : 0), [scopedItems, q, statut, onlyTodo, valideur, readOnly, kpiF]);
-  const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
   const pageSize = 50;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   useEffect(() => { setPage(1); }, [q, statut, onlyTodo, valideur, fDir, fSvc, fSec, fCat, pilotage, kpiF]);
@@ -426,10 +434,21 @@ Motif (obligatoire) :`, '');
       n.children.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
       n.children.forEach(sortNode);
     };
-    roots.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-    roots.forEach(sortNode);
-    return roots;
-  }, [filtered, items, readOnly, evalInfo]);
+    // « EP de mon équipe » : je ne m'affiche pas moi-même (mes agent·e·s directs sont dans « EP que je réalise »), mais je liste les évaluateur·rice·s placés sous moi
+    const mine = (() => {
+      if (!readOnly || pilotage) return new Set<string>();
+      try {
+        const pl = JSON.parse(atob((token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return new Set([lc(pl.username), lc(pl.email)].filter(Boolean));
+      } catch { return new Set<string>(); }
+    })();
+    const isMe = (n: EvalTreeNode) => mine.size > 0 && [n.key, lc(n.items[0]?.evaluator_username), lc(n.items[0]?.evaluator_email)].some(x => x && mine.has(x));
+    const dropMe = (list: EvalTreeNode[]): EvalTreeNode[] => list.flatMap(n => isMe(n) ? dropMe(n.children) : [{ ...n, children: dropMe(n.children) }]);
+    const shownRoots = mine.size ? dropMe(roots) : roots;
+    shownRoots.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    shownRoots.forEach(sortNode);
+    return shownRoots;
+  }, [filtered, items, readOnly, pilotage, evalInfo, token]);
   const allNodeKeys = useMemo(() => {
     const keys = new Set<string>();
     const walk = (n: EvalTreeNode) => { keys.add(n.key); n.children.forEach(walk); };
@@ -473,6 +492,9 @@ Motif (obligatoire) :`, '');
   } else {
     for (const e of paged) displayItems.push({ kind: 'ep', key: 'e:' + e.id, e, depth: 0 });
   }
+  // Sélection groupée : uniquement les EP actuellement affichés
+  const visibleIds = displayItems.flatMap(i => (i.kind === 'ep' ? [i.e.id] : []));
+  const allFilteredSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id));
 
   return (
     <div>
@@ -549,7 +571,7 @@ Motif (obligatoire) :`, '');
             <UserPlus size={14} /> Ajouter un·e agent·e
           </button>
         )}
-        {!noActions && <button style={btnGhost} onClick={() => allFilteredSelected ? setSelected(new Set()) : selectAll(filtered.map(e => e.id))} disabled={!filtered.length}>
+        {!noActions && <button style={btnGhost} onClick={() => allFilteredSelected ? setSelected(new Set()) : selectAll(visibleIds)} disabled={!visibleIds.length}>
           {allFilteredSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
         </button>}
         {!noActions && <span style={{ fontSize: 12, color: COLORS.muted, marginRight: 4 }}>{selected.size} sélectionné(s)</span>}
@@ -561,9 +583,6 @@ Motif (obligatoire) :`, '');
             <Inbox size={14} /> Reçus par la DRH
           </button>
         )}
-        {!noActions && <button style={btnGhost} disabled={!selected.size || printBusy !== null} onClick={() => printCrep('filled')}>
-          {printBusy === 'filled' ? <Loader2 size={14} /> : <Printer size={14} />} Imprimer CREP renseignés
-        </button>}
         {readOnly && (
           <>
             <button style={btnGhost} onClick={() => setOpenEvaluators(new Set(allNodeKeys))}>Tout déplier</button>
@@ -593,7 +612,7 @@ Motif (obligatoire) :`, '');
             <thead>
               <tr>
                 <Th style={{ width: 34 }}>
-                  {!noActions && <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(filtered.map(x => x.id)) : setSelected(new Set())} title="Tout sélectionner" />}
+                  {!noActions && <input type="checkbox" checked={allFilteredSelected} onChange={e => e.target.checked ? selectAll(visibleIds) : setSelected(new Set())} title="Sélectionner les EP affichés" />}
                 </Th>
                 <Th>Agent·e</Th>
                 <Th>E-mail</Th>
@@ -651,6 +670,13 @@ Motif (obligatoire) :`, '');
                               );
                             })()}
                           </div>
+                          {!noActions && node.items.length > 0 && (
+                            <div style={{ display: 'inline-flex', flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
+                              <button style={btnGhost} disabled={printBusy !== null} onClick={() => printCrep('blank', node.items.map(x => x.id))} title={`Imprimer d’un coup les CREP vierges des ${node.items.length} agent·e·s de cet·te évaluateur·rice`}>
+                                {printBusy === 'blank' ? <Loader2 size={13} /> : <Printer size={13} />} {node.items.length > 1 ? `Imprimer ses ${node.items.length} CREP` : "Imprimer son CREP"}
+                              </button>
+                            </div>
+                          )}
                           {agent && !canReset && !noActions && (
                             <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexShrink: 0 }} onClick={ev => ev.stopPropagation()}>
                               <button style={btnGhost} onClick={() => printCrep('filled', [agent.id])} disabled={printBusy !== null} title="Imprimer le CREP"><Printer size={13} /></button>
@@ -750,10 +776,10 @@ Motif (obligatoire) :`, '');
                             <CalendarClock size={13} /> {e.date_entretien ? 'Modifier le RDV' : 'Planifier'}
                           </button>
                         )}
-                        {!noActions && <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
+                        {!noActions && e.statut !== 'cloture' && <button style={btnGhost} onClick={() => printCrep('filled', [e.id])} disabled={printBusy !== null} title="Imprimer le CREP">
                           <Printer size={13} />
                         </button>}
-                        {canReset && (e.crep_signed_at || (e.crep_scans || []).length > 0 || e.evaluation_statut === 'soumis') && (
+                        {canReset && e.statut !== 'cloture' && (e.crep_signed_at || (e.crep_scans || []).length > 0 || e.evaluation_statut === 'soumis') && (
                           <button style={{ ...btnGhost, color: '#5b21b6', borderColor: '#ddd6fe', background: '#faf5ff' }} onClick={() => openApercu(e)} title="Aperçu : CREP numérisé ou CREP reconstruit">
                             <Eye size={13} /> Aperçu CREP
                           </button>
@@ -763,18 +789,24 @@ Motif (obligatoire) :`, '');
                             <MoreHorizontal size={15} />
                           </button>
                         )}
-                        {!pilotage && (
+                        {!pilotage && e.statut !== 'cloture' && (
                           <button style={btnGhost} onClick={() => openReassign(e)} title="Changer l’évaluateur">
                             <UserCog size={13} />
                           </button>
                         )}
                         {!noActions && (e.crep_statut === 'signe_papier' || (e.crep_statut === 'en_signature' && e.crep_parapheur_status === 'termine')) && (
-                          <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(e.id)} title="Compte rendu signé">
-                            <FileDown size={13} /> CREP signé
+                          <button style={{ ...btnGhost, color: '#166534', borderColor: '#bbf7d0' }} onClick={() => openSigned(e.id)} title="Afficher le CREP papier signé (scanné)">
+                            <FileDown size={13} /> CREP papier
                           </button>
                         )}
-                        {!noActions && <button style={btnGhost} onClick={() => setOpenId(e.id)}>
-                          <Eye size={13} /> {(readOnly && !(!pilotage && sansMailValideur(e))) || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Saisir l’EP'}
+                        {/* CREP reçu par la DRH : plus de bouton « Ouvrir » ; on affiche le CREP saisi (si ce choix a été fait) et le CREP papier (scanné) */}
+                        {!noActions && (!!e.drh_received_at || e.statut === 'cloture') && e.evaluation_statut === 'soumis' && e.crep_mode !== 'manuscrit' && (
+                          <button style={btnGhost} onClick={() => openSaisi(e.id)} title="Afficher le CREP saisi dans l’outil">
+                            <Eye size={13} /> CREP saisi
+                          </button>
+                        )}
+                        {!noActions && !e.drh_received_at && <button style={btnGhost} onClick={() => setOpenId(e.id)}>
+                          <Eye size={13} /> {(readOnly && !(!pilotage && sansMailValideur(e))) || ['realise', 'cloture'].includes(e.statut) ? 'Ouvrir' : 'Faire l’EP'}
                         </button>}
                       </div>
                     </Td>

@@ -161,7 +161,7 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
             const buf = Buffer.from(extra.b64, 'base64');
             const img = extra.mime === 'image/png' ? await pdf.embedPng(buf) : await pdf.embedJpg(buf);
             const eh = 38, ew = Math.min(120, (img.width / img.height) * eh);
-            page.drawImage(img, { x: MX, y: H - 22 - eh, width: ew, height: eh });
+            page.drawImage(img, { x: MX + 32, y: H - 22 - eh, width: ew, height: eh });
         } catch (e) { /* logo facultatif */ }
     }
     draw(page, `COMPTE-RENDU D’ENTRETIEN PROFESSIONNEL ${annee || ''}`.trim(), MX, 90, { font: F.b, size: 16, align: 'center', maxW: CW });
@@ -371,7 +371,7 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
 
     // ════════════════════ PAGE 4 ════════════════════
     page = pdf.addPage([W, H]);
-    bar(page, 'Perspectives d’évolution en termes de missions, de carrière et de mobilité', 40);
+    bar(page, 'Perspectives d’évolution en termes de missions, de carrière et de mobilité', 56, 12);
     draw(page, '1. Evolution des missions et/ou de carrière :', MX + 6, 68, { font: F.b, size: 10 });
     box(page, crep.evolution, MX, 82, CW, 62, { size: 9.5, field: N.evolution });
     draw(page, '2. Mobilité :', MX + 6, 154, { font: F.b, size: 10 });
@@ -453,6 +453,16 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
         }
     }
 
+    // Dashcode (QR code + libellé) en haut à gauche de chaque page : permet de reconnaître l'entretien et le numéro de page
+    // lors de la numérisation en lot des CREP (pages mélangées) — cf. crep-return.service.js.
+    {
+        const pages = pdf.getPages();
+        pages.forEach((pg, i) => {
+            const label = pageCode(entretien.id, i + 1);
+            drawDashcode(pg, label);
+        });
+    }
+
     if (formMode) {
         const form = pdf.getForm();
         const groups = new Map();
@@ -515,10 +525,37 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
     return Buffer.from(await pdf.save());
 }
 
+/** Code de page : « EPC.<id>.<page>.<signature courte> » (signé : un QR code forgé ou d'un autre système est ignoré). */
+function pageCode(id, page) {
+    const sig = require('crypto').createHmac('sha256', require('../../shared/config').SECRET_KEY).update(`ep-crep-page:${id}:${page}`).digest('hex').slice(0, 6);
+    return `EPC.${id}.${page}.${sig}`;
+}
+
+/** Lit un code de page ; renvoie { id, page } ou null s'il est invalide / non signé par cette instance. */
+function parsePageCode(text) {
+    const m = String(text || '').trim().match(/^EPC\.(\d+)\.(\d+)\.([0-9a-f]{6})$/);
+    if (!m) return null;
+    const id = Number(m[1]), page = Number(m[2]);
+    return pageCode(id, page) === m[0] ? { id, page } : null;
+}
+
+/** Dessine le QR code (vectoriel, net à l'impression) dans le coin supérieur gauche, hors de la zone non imprimable des imprimantes. */
+function drawDashcode(page, code) {
+    const QRCode = require('qrcode');
+    const qr = QRCode.create(code, { errorCorrectionLevel: 'M' });
+    const n = qr.modules.size;
+    const size = 44, cell = size / n;     // 44 pt (~15 mm) : lisible même sur un scan de qualité moyenne
+    const x0 = 14, top0 = 8, quiet = 3;   // 14 pt (~5 mm) du bord gauche ; zone blanche autour du code
+    page.drawRectangle({ x: x0 - quiet, y: H - top0 - size - quiet, width: size + 2 * quiet, height: size + 2 * quiet, color: rgb(1, 1, 1) });
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        if (qr.modules.get(r, c)) page.drawRectangle({ x: x0 + c * cell, y: H - top0 - (r + 1) * cell, width: cell, height: cell, color: rgb(0, 0, 0) });
+    }
+}
+
 /** Jeton d'identification du PDF formulaire : « EP<id>.<signature courte> » (HMAC du numéro d'entretien). */
 function formToken(id) {
     const sig = require('crypto').createHmac('sha256', require('../../shared/config').SECRET_KEY).update(`ep-crep-form:${id}`).digest('hex').slice(0, 12);
     return `EP${id}.${sig}`;
 }
 
-module.exports = { buildCrepPdf, formToken };
+module.exports = { buildCrepPdf, formToken, pageCode, parsePageCode };

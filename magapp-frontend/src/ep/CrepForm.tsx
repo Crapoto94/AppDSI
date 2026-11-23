@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Loader2, Save, CheckCircle2, FileDown, ClipboardList, Info, Send, AlertTriangle, PenLine, ShieldCheck, Undo2, Upload, Eye } from 'lucide-react';
 import { useAuth } from './useAuth';
@@ -21,7 +21,25 @@ function H({ children, sub }: { children: React.ReactNode; sub?: string }) {
   );
 }
 
-function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
+/** Origine d'un champ du CREP numérique (version reconstituée par la lecture IA) : lu par l'IA ou saisi dans l'outil, avec un éventuel doute de lecture. */
+export interface FieldOrigin { kind: 'ia' | 'saisi'; doubt?: string }
+const OriginCtx = createContext<Record<string, FieldOrigin> | null>(null);
+
+function OriginBadges({ field, value }: { field?: string; value: string }) {
+  const origins = useContext(OriginCtx);
+  const o = origins && field ? origins[field] : null;
+  if (!o || !String(value || '').trim()) return null;
+  const chip = (text: string, color: string, bg: string, title?: string) => <span title={title} style={{ fontSize: 10.5, fontWeight: 800, color, background: bg, borderRadius: 999, padding: '1px 8px', marginLeft: 6, whiteSpace: 'nowrap' }}>{text}</span>;
+  return (
+    <>
+      {o.kind === 'ia' ? chip('Lu par l’IA', '#5b21b6', '#ede9fe', 'Contenu reconstitué par la lecture automatique du document papier signé') : chip('Saisi', '#334155', '#e2e8f0', 'Contenu saisi dans l’outil')}
+      {o.doubt && chip('Lecture incertaine', '#9a3412', '#ffedd5', o.doubt)}
+    </>
+  );
+}
+
+function Area({ field, label, value, onChange, rows = 3, disabled, hint, ai }: {
+  field?: string;
   label?: string; value: string; onChange: (v: string) => void; rows?: number; disabled?: boolean; hint?: string;
   ai?: { entretienId: number; rubrique: string; contexte?: string; crep?: unknown };
 }) {
@@ -32,7 +50,7 @@ function Area({ label, value, onChange, rows = 3, disabled, hint, ai }: {
   if (!label) return <div>{ta}<div style={{ marginTop: 4 }}>{assist}</div></div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>{label}</label>
+      <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>{label}<OriginBadges field={field} value={value} /></label>
       {ta}
       {hint && <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.4 }}>{hint}</span>}
       {assist}
@@ -52,7 +70,9 @@ const isoDay = (v?: string | null): string => {
   return d && !isNaN(d.getTime()) ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
 };
 
-export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = false, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, eSignGloballyEnabled = true, prepEnabled = true }: {
+export default function CrepForm({ fieldOrigins, entretien, canEdit, onSaved, isAdminUser = false, mode = 'evaluateur', aiEnabled = true, aiReviewEnabled = true, eSignEnabled = true, eSignGloballyEnabled = true, prepEnabled = true }: {
+  /** CREP numérique (lecture seule) : origine de chaque champ (lu par l'IA / saisi), pour afficher des badges. */
+  fieldOrigins?: Record<string, FieldOrigin>;
   entretien: Entretien;
   canEdit: boolean;
   onSaved: (e: Entretien) => void;
@@ -97,7 +117,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   const noMail = !(entretien.agent_email || '').trim() || !(entretien.evaluator_email || '').trim();
   const canSend = !isAgent && canEdit && eSignEnabled && !noMail && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis' && crepStatut === 'non_envoye';
   const hasSigned = !!entretien.crep_signed_at || (crepStatut === 'en_signature' && entretien.crep_parapheur_status === 'termine');
-  const canUploadSigned = !isAgent && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis'
+  const simpleMode = entretien.campaign_simple === true;   // mode simple : aucun téléversement de CREP signé côté évaluateur
+  const canUploadSigned = !simpleMode && !isAgent && entretien.statut === 'realise' && entretien.evaluation_statut === 'soumis'
     && (crepStatut === 'non_envoye' || crepStatut === 'signe_papier' || (crepStatut === 'en_signature' && ['refuse', 'annule'].includes(entretien.crep_parapheur_status || '')));
   const agentCanValidate = isAgent && eSignEnabled && crepStatut === 'envoye_agent';
 
@@ -107,6 +128,8 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     await confirm(`Le compte rendu est incomplet : il ne peut être validé qu’une fois tout renseigné.\n\n${items.map(i => `• ${i}`).join('\n')}`,
       { title: 'Validation impossible', confirmLabel: 'Compris', hideCancel: true, danger: true });
   };
+
+  const coherenceOn = !!entretien.campaign_coherence;
 
   const save = async (submit: boolean, allowIncomplete = false) => {
     setMsg(null); setMissing([]);
@@ -119,8 +142,11 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       // Contrôles de cohérence fiables (sans IA) avant validation : l'évaluateur peut passer outre après les avoir lus.
       try {
         const chk = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: false }, { headers });
-        const found: string[] = chk.data?.issues || [];
-        if (found.length && !(await confirm(`Des incohérences ont été détectées :\n\n- ${found.join('\n- ')}\n\nValider quand même le compte rendu ?`, { title: 'Incohérences détectées', confirmLabel: 'Valider quand même' }))) {
+        // Analyse de cohérence activée : incohérences de fond ; sinon, simple alerte sur les rubriques facultatives non renseignées.
+        const found: string[] = coherenceOn
+          ? (chk.data?.issues || [])
+          : ((chk.data?.warnings || []) as string[]).filter(w => !w.startsWith('Grille d’appréciation'));
+        if (found.length && !(await confirm(`${coherenceOn ? 'Des incohérences ont été détectées' : 'Des rubriques facultatives ne sont pas renseignées'} :\n\n- ${found.join('\n- ')}\n\nValider quand même le compte rendu ?`, { title: coherenceOn ? 'Incohérences détectées' : 'Rubriques facultatives non renseignées', confirmLabel: 'Valider quand même' }))) {
           setCheck({ loading: false, missing: [], issues: found, ai: null, aiError: null });
           return;
         }
@@ -171,7 +197,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
     setMsg(null); setMissing([]);
     setCheck({ loading: true, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: null });
     try {
-      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiReviewEnabled }, { headers });
+      const r = await axios.post(`/api/entretiens/${entretien.id}/crep/check`, { crep, ai: aiReviewEnabled && coherenceOn }, { headers });
       setCheck({ loading: false, missing: r.data.missing || [], issues: [...(r.data.warnings || []), ...(r.data.issues || [])], ai: r.data.ai ?? null, aiError: r.data.ai_error || null });
     } catch (e: any) {
       setCheck({ loading: false, missing: missingFields(crep, entretien.crep_definition), issues: [], ai: null, aiError: e.response?.data?.message || 'Vérification impossible' });
@@ -338,7 +364,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   }, []);
   const gMode = entretien.crep_mode === 'pdf' ? 'outil' : (entretien.crep_mode || null);   // le mode « PDF hors ligne » suit les mêmes étapes que l'outil
   // Ce qui est proposé à chaque étape : l'import seulement à l'étape de téléversement, les boutons du bas seulement pendant la saisie
-  const showImport = !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
+  const showImport = simpleMode ? false : !guided ? (canEdit && !isAgent) : (gMode === 'manuscrit' ? step === 3 : gMode === 'outil' ? step === 5 : false);
   const showBottom = isAgent || !guided || (gMode === 'outil' && step <= 2);
   const scanOn = entretien.scan_reading === true;
   const incompleteAfterImport = gMode === 'manuscrit' && signedVerified && scanOn ? missingFields(crep, entretien.crep_definition) : [];
@@ -445,6 +471,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
   }
 
   return (
+    <OriginCtx.Provider value={fieldOrigins || null}>
     <div>
       {confirmDialog}
       {viewerElement}
@@ -534,7 +561,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           <Info size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
             {!(entretien.agent_email || '').trim() && !(entretien.evaluator_email || '').trim() ? 'L’agent·e et l’évaluateur n’ont pas d’adresse e-mail' : !(entretien.agent_email || '').trim() ? 'L’agent·e n’a pas d’adresse e-mail' : 'L’évaluateur n’a pas d’adresse e-mail'} :
-            le compte rendu ne peut pas passer par le parapheur. <strong>Imprimez-le</strong> (bouton « Imprimer / PDF »), faites-le signer, puis <strong>téléversez le PDF signé</strong>.
+            le compte rendu ne peut pas passer par le parapheur. <strong>Imprimez-le</strong> (bouton « Imprimer / PDF »), faites-le signer, puis {simpleMode ? <><strong>envoyez-le à la DRH</strong> puis signalez-le dans l’outil.</> : <><strong>téléversez le PDF signé</strong>.</>}
           </span>
         </div>
       )}
@@ -543,7 +570,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
             La signature électronique n’est pas activée pour cet·te agent·e. <strong>Imprimez le compte rendu</strong> (bouton « Imprimer / PDF »),
-            faites-le signer, puis <strong>téléversez le PDF signé</strong> depuis cette page.
+            faites-le signer, puis {simpleMode ? <><strong>envoyez-le à la DRH</strong> puis signalez-le depuis cette page.</> : <><strong>téléversez le PDF signé</strong> depuis cette page.</>}
           </span>
         </div>
       )}
@@ -591,16 +618,16 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <Field label="Nom de l’évaluateur (N+1)"><input style={input} disabled={dis} value={crep.evaluateur_nom} onChange={e => set('evaluateur_nom', e.target.value)} /></Field>
       </div>
       <div style={{ marginTop: 12 }}>
-        <Area label="Rappel des missions de l’agent·e" rows={3} disabled={dis} value={crep.missions} onChange={v => set('missions', v)} />
+        <Area field="missions" label="Rappel des missions de l’agent·e" rows={3} disabled={dis} value={crep.missions} onChange={v => set('missions', v)} />
       </div>
 
       {/* Volet 1 */}
       <H sub="Objectifs de travail de l’année écoulée">VOLET 1 – Bilan de l’année écoulée</H>
       {crep.objectifs_ecoules.map((o, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) auto', gap: 10, alignItems: 'start', marginBottom: 10 }}>
-          <Area label={`Objectif ${i + 1}`} rows={3} disabled={dis} value={o.objectif}
+          <Area field={`objectifs_ecoules.${i}.objectif`} label={`Objectif ${i + 1}`} rows={3} disabled={dis} value={o.objectif}
             onChange={v => set('objectifs_ecoules', crep.objectifs_ecoules.map((x, k) => k === i ? { ...x, objectif: v } : x))} />
-          <Area label="Observations" rows={3} disabled={dis} value={o.observations}
+          <Area field={`objectifs_ecoules.${i}.observations`} label="Observations" rows={3} disabled={dis} value={o.observations}
             onChange={v => set('objectifs_ecoules', crep.objectifs_ecoules.map((x, k) => k === i ? { ...x, observations: v } : x))} />
           <Field label="Niveau de réalisation">
             <div style={{ display: 'flex', gap: 5 }}>
@@ -620,7 +647,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         </div>
       ))}
       <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>A = Atteint · PA = Partiellement atteint · NA = Non atteint</div>
-      <Area label="Observations complémentaires (contexte, faits marquants, acquis professionnels)" rows={4} disabled={dis} ai={ai('Observations complémentaires (contexte, faits marquants, acquis professionnels)')}
+      <Area field="observations_complementaires" label="Observations complémentaires (contexte, faits marquants, acquis professionnels)" rows={4} disabled={dis} ai={ai('Observations complémentaires (contexte, faits marquants, acquis professionnels)')}
         value={crep.observations_complementaires} onChange={v => set('observations_complementaires', v)} />
 
       {/* Appréciation */}
@@ -646,12 +673,12 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
                     <td style={{ padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{it.label}</td>
                     {LEVELS.map(l => {
                       const on = v === l.key;
-                      const col = l.key === 'S' ? '#16a34a' : l.key === 'AS' ? '#b45309' : '#b91c1c';
+                      const col = '#0f172a';   // cases neutres : aucune couleur selon le niveau
                       return (
                         <td key={l.key} style={{ textAlign: 'center', border: `1px solid ${COLORS.border}`, padding: 0 }}>
                           <button type="button" disabled={dis} aria-label={`${it.label} : ${l.key}`} aria-pressed={on}
                             onClick={() => { if (dis) return; const nv = { ...crep.valeur }; if (on) delete nv[it.key]; else nv[it.key] = l.key; set('valeur', nv); }}
-                            style={{ width: '100%', height: 30, border: 'none', background: on ? `${col}18` : 'transparent', cursor: dis ? 'default' : 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
+                            style={{ width: '100%', height: 30, border: 'none', background: 'transparent', cursor: dis ? 'default' : 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
                             {on ? '☒' : '☐'}
                           </button>
                         </td>
@@ -666,7 +693,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>S = satisfaisant · AS = assez satisfaisant · I = insuffisant. Une seule réponse par critère ; recliquer sur une case la décoche.</div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <Area label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
+        <Area field="appreciation_generale" label="Appréciation générale sur l’exercice des missions" rows={5} disabled={dis} ai={ai('Appréciation générale sur l’exercice des missions', undefined, true)}
           value={crep.appreciation_generale} onChange={v => set('appreciation_generale', v)}
           hint={aiEnabled
             ? 'L’appréciation de la valeur professionnelle sera prise en compte pour l’avancement de grade et la promotion interne. L’IA s’appuie sur l’ensemble du compte rendu (grille, objectifs, observations).'
@@ -675,27 +702,27 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
 
       {/* Volet 2 */}
       <H sub="Échanges sur les perspectives de l’année à venir">VOLET 2 – Perspectives</H>
-      {entretien.crep_definition?.flags?.objectifs_service !== false && <Area label="Rappel des objectifs du service / de la direction" rows={4} disabled={dis} value={crep.objectifs_service} onChange={v => set('objectifs_service', v)} />}
+      {entretien.crep_definition?.flags?.objectifs_service !== false && <Area field="objectifs_service" label="Rappel des objectifs du service / de la direction" rows={4} disabled={dis} value={crep.objectifs_service} onChange={v => set('objectifs_service', v)} />}
       <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.text, margin: '16px 0 8px' }}>Objectifs individuels de travail de l’année à venir</div>
       {crep.objectifs_futurs.map((o, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginBottom: 10 }}>
-          <Area label={`${i + 1}. Descriptif`} rows={3} disabled={dis} value={o.descriptif}
+          <Area field={`objectifs_futurs.${i}.descriptif`} label={`${i + 1}. Descriptif`} rows={3} disabled={dis} value={o.descriptif}
             onChange={v => set('objectifs_futurs', crep.objectifs_futurs.map((x, k) => k === i ? { ...x, descriptif: v } : x))} />
-          <Area label="Moyens et échéances" rows={3} disabled={dis} value={o.moyens}
+          <Area field={`objectifs_futurs.${i}.moyens`} label="Moyens et échéances" rows={3} disabled={dis} value={o.moyens}
             onChange={v => set('objectifs_futurs', crep.objectifs_futurs.map((x, k) => k === i ? { ...x, moyens: v } : x))} />
         </div>
       ))}
       <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.text, margin: '16px 0 8px' }}>Actions de formation à envisager <span style={{ fontWeight: 400, color: COLORS.muted }}>(inscriptions à faire ultérieurement)</span></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="Formations obligatoires (statutaires et réglementaires)" rows={2} disabled={dis} value={crep.formations.obligatoires} onChange={v => set('formations', { ...crep.formations, obligatoires: v })} />
-        <Area label="Autres formations métiers" rows={2} disabled={dis} value={crep.formations.metiers} onChange={v => set('formations', { ...crep.formations, metiers: v })} />
-        <Area label="Formations liées à l’accompagnement des parcours et/ou à un projet professionnel" rows={2} disabled={dis} value={crep.formations.parcours} onChange={v => set('formations', { ...crep.formations, parcours: v })} />
+        <Area field="formations.obligatoires" label="Formations obligatoires (statutaires et réglementaires)" rows={2} disabled={dis} value={crep.formations.obligatoires} onChange={v => set('formations', { ...crep.formations, obligatoires: v })} />
+        <Area field="formations.metiers" label="Autres formations métiers" rows={2} disabled={dis} value={crep.formations.metiers} onChange={v => set('formations', { ...crep.formations, metiers: v })} />
+        <Area field="formations.parcours" label="Formations liées à l’accompagnement des parcours et/ou à un projet professionnel" rows={2} disabled={dis} value={crep.formations.parcours} onChange={v => set('formations', { ...crep.formations, parcours: v })} />
       </div>
 
       <H sub="Missions, carrière et mobilité">Perspectives d’évolution</H>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Area label="1. Évolution des missions et/ou de carrière (facultatif)" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
-        <Area label="2. Mobilité" rows={3} disabled={dis} value={crep.mobilite} onChange={v => set('mobilite', v)} />
+        <Area field="evolution" label="1. Évolution des missions et/ou de carrière (facultatif)" rows={3} disabled={dis} value={crep.evolution} onChange={v => set('evolution', v)} />
+        <Area field="mobilite" label="2. Mobilité" rows={3} disabled={dis} value={crep.mobilite} onChange={v => set('mobilite', v)} />
       </div>
 
       {/* Champs réservés à l'agent : renseignés par lui, après réception du compte rendu */}
@@ -703,9 +730,9 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
         <>
           <H sub={isAgent ? 'Champs réservés à l’agent·e : à renseigner avant de valider' : 'Renseignées par l’agent·e'}>Observations de l’agent·e</H>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Area label="Observations de l’agent·e sur les conditions de travail et le fonctionnement du service" rows={4} disabled={!agentCanValidate}
+            <Area field="obs_agent_conditions" label="Observations de l’agent·e sur les conditions de travail et le fonctionnement du service" rows={4} disabled={!agentCanValidate}
               value={crep.obs_agent_conditions} onChange={v => set('obs_agent_conditions', v)} />
-            <Area label="Observations de l’agent·e sur l’entretien" rows={4} disabled={!agentCanValidate}
+            <Area field="obs_agent_entretien" label="Observations de l’agent·e sur l’entretien" rows={4} disabled={!agentCanValidate}
               value={crep.obs_agent_entretien} onChange={v => set('obs_agent_entretien', v)} />
           </div>
         </>
@@ -717,16 +744,16 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ShieldCheck size={15} color={COLORS.primary} /> Vérification globale du compte rendu</span>
             <button type="button" onClick={() => setCheck(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>Fermer</button>
           </div>
-          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Vérification en cours{aiReviewEnabled ? ' (relecture automatique, quelques secondes)' : ''}…</div>}
+          {check.loading && <div style={{ color: COLORS.muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={13} /> Vérification en cours{aiReviewEnabled && coherenceOn ? ' (relecture automatique, quelques secondes)' : ''}…</div>}
           {!check.loading && check.missing.length === 0 && check.issues.length === 0 && (check.ai?.length ?? 0) === 0 && !check.aiError && (
-            <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> Aucune incohérence détectée : le compte rendu est complet et cohérent.</div>
+            <div style={{ color: COLORS.success, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}><CheckCircle2 size={14} /> {coherenceOn ? 'Aucune incohérence détectée : le compte rendu est complet et cohérent.' : 'Le compte rendu est complet.'}</div>
           )}
           {check.missing.length > 0 && (
             <div style={{ marginTop: 6 }}><strong style={{ color: '#92400e' }}>Rubriques à compléter ({check.missing.length})</strong>
               <ul style={{ margin: '3px 0 0', paddingLeft: 20, lineHeight: 1.5 }}>{check.missing.map((m, i) => <li key={i}>{m}</li>)}</ul></div>
           )}
           {check.issues.length > 0 && (
-            <div style={{ marginTop: 6 }}><strong style={{ color: '#b91c1c' }}>Incohérences détectées ({check.issues.length})</strong>
+            <div style={{ marginTop: 6 }}><strong style={{ color: coherenceOn ? '#b91c1c' : '#92400e' }}>{coherenceOn ? 'Incohérences détectées' : 'Alertes (non bloquantes)'} ({check.issues.length})</strong>
               <ul style={{ margin: '3px 0 0', paddingLeft: 20, lineHeight: 1.5 }}>{check.issues.map((m, i) => <li key={i}>{m}</li>)}</ul></div>
           )}
           {!check.loading && check.ai && check.ai.length > 0 && (
@@ -783,7 +810,7 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
               {busy === 'submit' ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Valider le compte rendu
             </button>
             <button style={btnGhost} disabled={!!busy || !!check?.loading} onClick={runCheck}>
-              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} {check?.loading ? 'Vérification en cours…' : 'Vérifier la cohérence'}
+              {check?.loading ? <Loader2 size={14} /> : <ShieldCheck size={14} />} {check?.loading ? 'Vérification en cours…' : (coherenceOn ? 'Vérifier la cohérence' : 'Vérifier la complétude')}
             </button>
             {canSend && (
               <button style={{ ...btnPrimary }} disabled={!!busy} onClick={sendToAgent}>
@@ -827,5 +854,6 @@ export default function CrepForm({ entretien, canEdit, onSaved, isAdminUser = fa
       </div>
       )}
     </div>
+    </OriginCtx.Provider>
   );
 }

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   X, Loader2, Users, CalendarDays, ShieldCheck, Plus, Trash2, Search, CalendarClock, Eye, UserPlus, AlertTriangle, CheckCircle2, UserCog, UserMinus, ArrowRightLeft, ClipboardCheck, ChevronDown, ChevronRight, FileDown, TrendingUp, BookOpen, History,
-  GraduationCap, Unlock, Lightbulb, Maximize2, Minimize2, Moon, Sun,
+  GraduationCap, Unlock, Lightbulb, Maximize2, Minimize2, Moon, Sun, ScanLine,
 } from 'lucide-react';
 import type { Entretien, MeData } from './types';
 import MonEntretien from './MonEntretien';
@@ -19,6 +19,7 @@ import PlanningModal from './PlanningModal';
 import { Avatar, Badge, COLORS, EmptyState, btnGhost, btnPrimary, btnDanger, card, input, useConfirm } from './ui';
 import { useDocViewer } from './DocViewerModal';
 import Reouvertures from './Reouvertures';
+import Retours from './Retours';
 import { BacklogDialog, BacklogAdmin } from './Backlog';
 import logoVille from '../assets/logo-ville.jpg';
 import ModuleVersion from './ModuleVersion';
@@ -819,7 +820,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
+  const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'retours' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
   const [reopenPending, setReopenPending] = useState(0);
   const [backlogPending, setBacklogPending] = useState(0);
   const [showBacklog, setShowBacklog] = useState(false);
@@ -881,7 +882,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   useEffect(() => {
     if (tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
   }, [tutoRole, tutoUser]);
-  const closeTuto = () => { if (tutoRole) tutoMarkSeen(tutoRole, tutoUser); setShowTuto(false); };
+  const closeTuto = (markSeen = true) => { if (markSeen && tutoRole) tutoMarkSeen(tutoRole, tutoUser); setShowTuto(false); };
 
   const tabs = [
     { key: 'moi' as const, label: 'Mon entretien', icon: <CalendarDays size={15} />, visible: !!dsi?.entretien && !!dsi?.selfAccess?.allowed },
@@ -889,6 +890,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!(me?.isAdmin || me?.isPilotage) },
+    { key: 'retours' as const, label: 'Suivi des retours', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true },
     { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: reopenPending },
     { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: backlogPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin, adminOnly: true },
@@ -981,6 +983,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} canReset={!!me.isAdmin} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
               {tab === 'pilotage' && (me.isAdmin || me.isPilotage) && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} noActions={!me.isAdmin} />}
+              {tab === 'retours' && me.isAdmin && <Retours />}
               {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'reouvertures' && me.isAdmin && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}
@@ -994,7 +997,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
         </div>
       </div>
       </div>
-      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form} />}
+      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form} simple={!!dsi?.simple_mode} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
       {showAide && (
         <AideEp
@@ -1008,6 +1011,8 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
             esign: !!dsi?.esignAccess?.enabled,
             scanReading: !!dsi?.scan_reading,
             offlineForm: !!dsi?.offline_form,
+            simple: !!dsi?.simple_mode,
+            coherence: !!dsi?.coherence_mode,
           }}
         />
       )}

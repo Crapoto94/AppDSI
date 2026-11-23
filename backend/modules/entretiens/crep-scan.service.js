@@ -612,4 +612,12 @@ async function scanDocuments(files, definition, opts = {}) {
     };
 }
 
-module.exports = { scanToProposal, scanDocuments, pagePrompt, pageType };
+/** Détection des signatures (agent·e et évaluateur) sur l'image de la dernière page d'un CREP : { agent, evaluateur } ou null si indéterminé. */
+async function detectSignaturesOnImage(buf) {
+    await prompts.refresh();
+    const apm = require('../../shared/apm_ai');
+    const model = await pickVisionModel(apm);
+    return detectSignatures(apm, model, await loadImage(buf), 0);
+}
+
+module.exports = { scanToProposal, scanDocuments, pagePrompt, pageType, detectSignaturesOnImage };

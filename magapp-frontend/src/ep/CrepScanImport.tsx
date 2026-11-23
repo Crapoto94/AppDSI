@@ -321,12 +321,12 @@ export default function CrepScanImport({ entretienId, headers, disabled, onApply
                               <td style={{ padding: '5px 8px', border: `1px solid ${COLORS.border}`, color: '#334155' }}>{it.label}</td>
                               {(['S', 'AS', 'I'] as const).map(k => {
                                 const on = v === k;
-                                const col = k === 'S' ? '#16a34a' : k === 'AS' ? '#b45309' : '#b91c1c';
+                                const col = '#0f172a';
                                 return (
                                   <td key={k} style={{ textAlign: 'center', border: `1px solid ${COLORS.border}`, padding: 0 }}>
                                     <button type="button" aria-label={`${it.label} : ${k}`} aria-pressed={on}
                                       onClick={() => setEdit(x => ({ ...x, valeur: { ...(x.valeur || {}), [it.key]: on ? '' : k } }))}
-                                      style={{ width: '100%', height: 30, border: 'none', background: on ? `${col}18` : 'transparent', cursor: 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
+                                      style={{ width: '100%', height: 30, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, fontWeight: 900, color: on ? col : '#cbd5e1' }}>
                                       {on ? '☒' : '☐'}
                                     </button>
                                   </td>

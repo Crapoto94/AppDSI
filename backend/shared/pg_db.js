@@ -7909,6 +7909,10 @@ async function setupPgDbFull() {
         )
       `);
 
+      // Options par campagne : analyse de cohérence « de fond » (sinon simple complétude) et mode simple (l'évaluateur ne téléverse jamais le CREP signé).
+      await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS analyse_coherence BOOLEAN NOT NULL DEFAULT FALSE`);
+      await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS mode_simple BOOLEAN NOT NULL DEFAULT FALSE`);
+
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_entretiens.entretiens (
           id SERIAL PRIMARY KEY,

@@ -86,6 +86,11 @@ function compteRenduRappele({ agent, annee: an, evaluateur }) {
     return T.build('compteRenduRappele', { agent, annee: annee(an), evaluateur: evaluateur || 'votre évaluateur·rice' });
 }
 
+/** À l'agent·e et à son évaluateur·rice : le CREP signé a été reçu, vérifié et l'entretien est clos. */
+function crepRecu({ destinataire, agent, annee: an, evaluateur }) {
+    return T.build('crepRecu', { destinataire: nice(destinataire || ''), agent, annee: annee(an), evaluateur: evaluateur || 'son évaluateur·rice' });
+}
+
 /** Aux administrateur·rice·s : un·e évaluateur·rice demande la réouverture d'un entretien clôturé. */
 function reouvertureDemande({ demandeur, agent, annee: an, motif, link }) {
     return T.build('reouvertureDemande', { demandeur, agent, annee: annee(an), motif }, { info_motif: infoBlock('Justification de la demande', [['Motif', motif]]) }, { link });
@@ -165,7 +170,7 @@ const wrap = (fn) => (p = {}) => fn({ ...p, ...(p.agent ? { agent: nice(p.agent)
 
 module.exports = {
     analyseCrep: wrap(analyseCrep), entretiensUrl, nice,
-    preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
+    crepRecu: wrap(crepRecu), preparation: wrap(preparation), compteRenduEnvoye: wrap(compteRenduEnvoye), aPlanifier: wrap(aPlanifier), rdvPlanifie: wrap(rdvPlanifie),
     backlogCommentaire: wrap(backlogCommentaire), backlogNouvelle: wrap(backlogNouvelle), backlogDecision: wrap(backlogDecision),
     reouvertureDemande: wrap(reouvertureDemande), reouvertureDecision: wrap(reouvertureDecision),
     relancePreparation: wrap(relancePreparation), relanceValidation: wrap(relanceValidation), relanceEvaluateur: wrap(relanceEvaluateur), compteRenduRappele: wrap(compteRenduRappele),

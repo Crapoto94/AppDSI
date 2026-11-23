@@ -4,6 +4,7 @@ const ctrl = require('./entretiens.controller');
 const backlog = require('./backlog');
 const { authenticateJWT } = require('../../shared/middleware');
 const multer = require('multer');
+const uploadBatch = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 // Toutes les routes exigent un utilisateur connecté. Le module est « public »
@@ -42,6 +43,17 @@ router.post('/:id/reopen-request', authenticateJWT, ctrl.reopenRequestCreate);
 router.post('/campaigns/:id/close', authenticateJWT, ctrl.closeCampaign);
 router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
 router.post('/drh-reception', authenticateJWT, ctrl.drhReception);
+// Suivi des retours de CREP + numérisation en lot (administrateurs) — avant les routes /:id
+router.get('/returns/summary', authenticateJWT, ctrl.returnsSummary);
+router.get('/returns/batches', authenticateJWT, ctrl.returnsList);
+router.post('/returns/batches', authenticateJWT, uploadBatch.single('file'), ctrl.returnsCreate);
+router.get('/returns/batches/:id', authenticateJWT, ctrl.returnsGet);
+router.delete('/returns/batches/:id', authenticateJWT, ctrl.returnsDelete);
+router.get('/returns/batches/:id/pages/:idx', authenticateJWT, ctrl.returnsPage);
+router.put('/returns/batches/:id/pages/:idx', authenticateJWT, ctrl.returnsAssign);
+router.post('/returns/batches/:id/confirm', authenticateJWT, ctrl.returnsConfirm);
+router.delete('/returns/entretien/:id', authenticateJWT, ctrl.returnsDeleteReturn);
+router.get('/returns/reading/:entretienId', authenticateJWT, ctrl.returnsReading);
 
 // Administrateurs délégués & paramètres
 router.get('/admins', authenticateJWT, ctrl.listAdmins);
@@ -103,6 +115,7 @@ router.get('/:id/crep/scan/latest', authenticateJWT, ctrl.crepScanLatest);
 router.post('/:id/crep/scan/:jobId/ack', authenticateJWT, ctrl.crepScanAck);
 router.get('/:id/crep/scans/:idx.pdf', authenticateJWT, ctrl.crepScanFile);
 router.get('/:id/crep/scan/:jobId/file.pdf', authenticateJWT, ctrl.crepScanJobFile);
+router.post('/:id/crep/simple-sent', authenticateJWT, ctrl.crepSimpleSent);
 router.post('/:id/crep/signed-upload', authenticateJWT, uploadPdf.single('file'), ctrl.crepSignedUpload);
 router.post('/:id/crep/manuscript', authenticateJWT, uploadPdf.array('files', 8), ctrl.crepManuscriptUpload);
 router.post('/:id/reset', authenticateJWT, ctrl.resetEntretien);
