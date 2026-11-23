@@ -1143,6 +1143,7 @@ const entretiensController = {
             const mode = req.body?.mode;
             if (!['manuscrit', 'outil', 'pdf'].includes(mode)) return fail(res, 400, 'Mode inconnu.');
             if (mode === 'pdf' && row.crep_mode !== 'pdf' && !(await svc.offlineFormOn())) return fail(res, 403, 'Le mode « PDF formulaire hors ligne » n’est pas activé.');
+            if (mode === 'pdf' && !role.isAdmin && (await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : le PDF formulaire hors ligne n’est pas disponible (aucun téléversement par l’évaluateur).');
             await pgDb.run('UPDATE hub_entretiens.entretiens SET crep_mode = ?, updated_at = NOW() WHERE id = ?', [mode, row.id]);
             await svc.logAudit({ actor, action: 'crep_mode', entretien: row, details: { mode, avant: row.crep_mode || null } });
             const fresh = await svc.withRelations(await svc.getEntretienById(row.id));
@@ -2045,6 +2046,7 @@ const entretiensController = {
             if (!access || !(access.isEvaluator || access.isAdmin)) return fail(res, 403, 'Réservé à l’évaluateur.');
             if (!access.canEditEvaluation) return fail(res, 403, 'Le compte rendu n’est plus modifiable.');
             if (!(await svc.offlineFormOn())) return fail(res, 403, 'Le PDF formulaire hors ligne n’est pas activé.');
+            if (!access.isAdmin && (await pgDb.get('SELECT mode_simple FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.mode_simple) return fail(res, 403, 'Mode simple : l’évaluateur ne téléverse plus rien ; le formulaire rempli est importé par un administrateur.');
             const f = req.file;
             if (!f || !f.buffer || !f.buffer.length) return fail(res, 400, 'Aucun fichier reçu.');
             const cdef = definitionFor(await epBase.modeleOfEntretien(row));

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, ChevronRight, ChevronLeft, BookOpen, CheckCircle2, XCircle } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, BookOpen, CheckCircle2, XCircle, Lightbulb } from 'lucide-react';
 import { COLORS, btnGhost, btnPrimary } from './ui';
 
 export type TutoRole = 'valideur' | 'agent' | 'admin';
@@ -118,7 +118,15 @@ const STEPS: Record<TutoRole, Step[]> = {
 };
 
 /** Dernière étape, commune à tous les profils : l'ampoule (questions, idées, bugs). */
+const AmpouleBar = () => (
+  <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', padding: '10px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+    <span style={{ fontSize: 12, color: '#64748b', marginRight: 'auto' }}>En haut à droite du module :</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fef3c7', color: '#d97706', borderRadius: 10, padding: '8px 11px', boxShadow: '0 0 0 3px #fde68a, 0 0 0 5px #fbbf24' }} title="L'ampoule"><Lightbulb size={18} /></span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eef2ff', color: '#4f46e5', borderRadius: 10, padding: '8px 12px', fontWeight: 800, fontSize: 13 }}><BookOpen size={15} /> Aide</span>
+  </div>
+);
 const AMPOULE: Step = { emoji: '💡', quest: 'Bonus', title: 'Une question, une demande ou un bug ? L’ampoule', xp: 50,
+  example: <AmpouleBar />,
   quiz: { question: 'Vous constatez qu\'un bouton ne fait rien, ou vous avez une idée d\'amélioration. Que faites-vous ?', options: [
     { label: 'Je clique sur l\'ampoule en haut à droite et je décris la situation', ok: true, why: 'Exact : « J\'ai une question », « Je propose une amélioration » ou « Il y a un bug », avec une capture si besoin. Vous êtes prévenu·e par e-mail de la suite.' },
     { label: 'J\'attends que quelqu\'un le remarque', ok: false, why: 'Mieux vaut le signaler : les administrateurs reçoivent la demande et vous répondent.' },
@@ -132,7 +140,7 @@ const SIMPLE_INTRO: Step = { emoji: '👋', quest: 'Présentation', title: 'Votr
     <ol style={{ margin: '10px 0 0 18px', padding: 0, lineHeight: 1.8 }}>
       <li>Retrouver vos agent·e·s</li><li>Prendre rendez-vous</li><li>Mener l'entretien et noter</li><li>Valider le compte rendu</li><li>Envoyer le CREP signé à la DRH et le signaler</li>
     </ol>
-    <div style={{ marginTop: 8 }}><B>Vous n'avez jamais de CREP signé à téléverser</B> : les administrateurs s'en chargent.</div></> };
+  </> };
 const SIMPLE_MENER: Step = { emoji: '🎤', quest: 'Étape 3', title: 'Mener l\'entretien et noter', xp: 150, shot: '/aide-ep/07-crep.jpg',
   body: <>Le jour J, cliquez sur <B>« Faire l’EP »</B> et remplissez le compte rendu dans l'outil. L'<B>enregistrement est automatique</B> : rien n'est envoyé à l'agent·e tant que vous ne validez pas. La grille d'appréciation se coche comme sur le papier (une ligne par critère, cases <B>S / AS / I</B>) ; la rubrique « Mobilité » est facultative.
     <div style={{ marginTop: 8 }}>Vous préférez écrire à la main ? C'est permis : imprimez le CREP vierge avant et écrivez pendant. Le CREP imprimé porte un <B>QR code</B> en haut à gauche de chaque page : il permet de le rattacher au bon agent à la numérisation, <B>ne le masquez pas</B>.</div></>,
@@ -145,11 +153,7 @@ const SIMPLE_VALIDER: Step = { emoji: '✅', quest: 'Étape 4', title: 'Valider 
   ] } };
 const SIMPLE_ENVOI: Step = { emoji: '📮', quest: 'Étape 5 (dernière)', title: 'Envoyer le CREP signé à la DRH et le signaler', xp: 200, shot: '/aide-ep/06-statuts.jpg',
   body: <>L'agent·e renseigne ses 2 cadres et signe à la main, puis vous <B>contresignez</B>. <B>Envoyez l'original signé à la DRH</B>, puis cliquez sur <B>« J'ai envoyé le CREP à la DRH »</B> dans l'entretien. <B>Rien à numériser, rien à téléverser.</B>
-    <div style={{ marginTop: 8 }}>Les administrateurs numérisent les CREP reçus : l'entretien est alors <B>clôturé automatiquement</B>, et l'agent·e comme vous recevez un <B>e-mail de remerciement</B>. Un envoi signalé par erreur ? <B>« Annuler »</B>, tant que le CREP n'est pas reçu. Il n'y a pas de demande de réouverture en mode simple : en cas d'erreur, contactez un administrateur.</div></>,
-  quiz: { question: 'Le CREP est signé par l\'agent·e et par vous. Que faites-vous ?', options: [
-    { label: 'Je le scanne et je le téléverse dans l\'outil', ok: false, why: 'Pas en mode simple : les administrateurs numérisent les CREP reçus.' },
-    { label: 'Je l\'envoie à la DRH, puis je clique sur « J\'ai envoyé le CREP à la DRH »', ok: true, why: 'Exact. Rien d\'autre à faire : l\'entretien sera clôturé après la numérisation.' },
-  ] } };
+    <div style={{ marginTop: 8 }}>À réception du CREP papier signé, <B>la DRH vous notifie</B> (l'agent·e aussi) et l'entretien est <B>clôturé</B>. Un envoi signalé par erreur ? <B>« Annuler »</B>, tant que le CREP n'est pas reçu. Il n'y a pas de demande de réouverture en mode simple : en cas d'erreur, contactez un administrateur.</div></> };
 
 /** Option « PDF formulaire hors ligne » (si activée dans le Paramétrage) : le parcours à 2 téléversements. */
 const OFFLINE_STEP: Step = { emoji: '📴', quest: 'Option', title: 'Sans connexion : le PDF formulaire (2 téléversements)', xp: 100,
@@ -163,7 +167,24 @@ const OFFLINE_STEP: Step = { emoji: '📴', quest: 'Option', title: 'Sans connex
   ] } };
 
 /** Lecture des entretiens numérisés désactivée : pas d'étape de vérification de la lecture, l’évaluateur·rice consulte le document et confirme les signatures. */
-function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false, simple = false): Step[] {
+/** Signature électronique (parapheur) non ouverte : le circuit est papier pour tous, on n'en parle pas. */
+const PAPIER_VALIDEUR: Step = { emoji: '✍️', quest: 'Étape 6 (dernière)', title: 'Clôturer et transmettre l’original à la DRH', xp: 200, shot: '/aide-ep/06-statuts.jpg',
+  body: <>Le circuit est <B>papier</B> : « Imprimer / PDF », l'agent·e renseigne ses 2 cadres et signe, vous contresignez, puis vous <B>numérisez</B> le CREP signé et vous le téléversez (<B>« CREP manuscrit (4 pages scannées) »</B>).
+    <div style={{ marginTop: 8 }}><B>Transmettez l'ORIGINAL signé à la DRH</B>, puis cliquez sur <B>« Clôturer l'entretien »</B>. Quand la DRH l'a reçu, un administrateur le déclare : vous le voyez dans le compteur <B>« Reçus par la DRH »</B>.</div></>,
+  quiz: { question: 'Le CREP est signé par l’agent·e et par vous. Que faites-vous ?', options: [
+    { label: 'Je le numérise et je le téléverse, je transmets l’original à la DRH, puis je clôture', ok: true, why: 'Exact. Le résultat numérique est identique ; l’original papier signé fait foi.' },
+    { label: 'Je clôture sans rien téléverser ni transmettre', ok: false, why: 'Le document signé doit être téléversé et l’original transmis à la DRH avant la clôture.' },
+  ] } };
+const PAPIER_AGENT: Step = { emoji: '🖊️', quest: 'Étape 3 (dernière)', title: 'Signer le compte rendu', xp: 150,
+  body: <>Votre responsable vous remet le <B>compte rendu imprimé</B> : relisez-le, renseignez <B>vos deux cases</B> (conditions de travail, entretien ; « Néant » si rien à dire) et <B>signez à la main</B>. Il le contresigne puis l'envoie à la DRH.</> };
+
+function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false, simple = false, esign = true): Step[] {
+  const base0 = adaptStepsBase(role, scanReading, offlineForm, simple);
+  if (esign || simple) return base0;
+  return base0.map(st => (role === 'valideur' && st.quest === 'Étape 6 (dernière)') ? PAPIER_VALIDEUR : (role === 'agent' && st.quest === 'Étape 3 (dernière)') ? PAPIER_AGENT : st);
+}
+
+function adaptStepsBase(role: TutoRole, scanReading: boolean, offlineForm = false, simple = false): Step[] {
   let base = [...STEPS[role], AMPOULE];
   if (simple && role === 'valideur') {
     // Mode simple : parcours en 5 étapes, sans téléversement ni vérification de lecture
@@ -188,8 +209,8 @@ function adaptSteps(role: TutoRole, scanReading: boolean, offlineForm = false, s
     : st);
 }
 
-export default function TutoEp({ role, onClose, onOpenAide, scanReading = false, offlineForm = false, simple = false }: { role: TutoRole; onClose: (markSeen?: boolean) => void; onOpenAide: () => void; scanReading?: boolean; offlineForm?: boolean; simple?: boolean }) {
-  const steps = adaptSteps(role, scanReading, offlineForm, simple);
+export default function TutoEp({ role, onClose, onOpenAide, scanReading = false, offlineForm = false, simple = false, esign = true }: { role: TutoRole; onClose: (markSeen?: boolean) => void; onOpenAide: () => void; scanReading?: boolean; offlineForm?: boolean; simple?: boolean; esign?: boolean }) {
+  const steps = adaptSteps(role, scanReading, offlineForm, simple, esign);
   const [i, setI] = useState(0);
   const [askSkip, setAskSkip] = useState(false);
   const [answered, setAnswered] = useState<Record<number, number>>({});

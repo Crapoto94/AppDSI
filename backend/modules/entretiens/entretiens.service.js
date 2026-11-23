@@ -418,7 +418,9 @@ async function withRelations(entretien) {
     } catch (e) { /* campagne inconnue */ }
     return {
         ...entretien,
-        campaign_closed, campaign_coherence, campaign_simple, reopen_request, scan_reading, offline_form, digital_silent,
+        campaign_closed, campaign_coherence, campaign_simple, reopen_request, scan_reading, digital_silent,
+        // Mode simple : plus de PDF formulaire hors ligne pour les évaluateurs (aucun téléversement)
+        offline_form: offline_form && !campaign_simple,
         date_entretien_label: formatDateTimeFr(entretien.date_entretien),
         objectifs: objectifs || [],
         formations: formations || [],

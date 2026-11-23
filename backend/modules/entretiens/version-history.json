@@ -1,12 +1,27 @@
 {
   "module": "entretiens",
-  "version": "0.50.0",
+  "version": "0.51.0",
   "date": "2026-11-23",
   "releases": [
     {
+      "version": "0.51.0",
+      "date": "2026-11-23",
+      "commit": "78f723e0",
+      "groups": {
+        "nouveautes": [
+          "Mode simple sans PDF formulaire hors ligne pour les évaluateurs (option masquée, import réservé aux administrateurs)",
+          "Aide et tutoriel entièrement relus et adaptés au mode simple (la DRH notifie à réception du CREP papier signé, plus d'étape de désignation des évaluateurs, parapheur seulement si la signature électronique est activée)",
+          "Le mode simple et la cohérence sont lus dans les campagnes",
+          "Ampoule illustrée dans le tutoriel"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
       "version": "0.50.0",
       "date": "2026-11-23",
-      "commit": "57cde809",
+      "commit": "65104435",
       "groups": {
         "nouveautes": [
           "Option de cohérence par campagne (sinon simple complétude : obligatoires bloquants, facultatifs en alerte)",

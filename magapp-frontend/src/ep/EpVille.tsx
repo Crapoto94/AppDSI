@@ -819,6 +819,17 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   const [me, setMe] = useState<Me | null>(null);
   // Module EP existant de la DSI (mêmes tables, mêmes routes /api/entretiens) : mon entretien d'agent et mes entretiens d'évaluateur.
   const [dsi, setDsi] = useState<MeData | null>(null);
+  // Options de la campagne en cours (mode simple, analyse de cohérence) lues dans la liste des campagnes : l'aide et le tutoriel s'y adaptent
+  const [campFlags, setCampFlags] = useState<{ simple: boolean; coherence: boolean } | null>(null);
+  useEffect(() => {
+    axios.get('/api/entretiens/campaigns', { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } }).then(r => {
+      const list = (Array.isArray(r.data) ? r.data : []) as Array<{ statut?: string; mode_simple?: boolean; analyse_coherence?: boolean }>;
+      const c = list.find(x => x.statut === 'ouverte') || list[0];
+      if (c) setCampFlags({ simple: !!c.mode_simple, coherence: !!c.analyse_coherence });
+    }).catch(() => { /* repli : indicateurs du profil */ });
+  }, []);
+  const simpleMode = campFlags ? campFlags.simple : !!dsi?.simple_mode;
+  const coherenceMode = campFlags ? campFlags.coherence : !!dsi?.coherence_mode;
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'retours' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
   const [reopenPending, setReopenPending] = useState(0);
@@ -997,7 +1008,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
         </div>
       </div>
       </div>
-      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form} simple={!!dsi?.simple_mode} />}
+      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form && !simpleMode} simple={simpleMode} esign={!!dsi?.esignAccess?.enabled} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
       {showAide && (
         <AideEp
@@ -1010,9 +1021,9 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
             aiReview: !!dsi?.aiAccess?.review?.allowed,
             esign: !!dsi?.esignAccess?.enabled,
             scanReading: !!dsi?.scan_reading,
-            offlineForm: !!dsi?.offline_form,
-            simple: !!dsi?.simple_mode,
-            coherence: !!dsi?.coherence_mode,
+            offlineForm: !!dsi?.offline_form && !simpleMode,
+            simple: simpleMode,
+            coherence: coherenceMode,
           }}
         />
       )}
