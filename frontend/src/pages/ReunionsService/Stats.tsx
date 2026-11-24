@@ -11,7 +11,7 @@ import {
     PieChart, Pie, Cell, Legend,
 } from 'recharts';
 
-interface ApiErrorLike { response?: { data?: { error?: string } }; message?: string; }
+interface ApiErrorLike { response?: { status?: number; data?: { error?: string } }; message?: string; }
 interface Rubrique { title: string; is_meta: boolean; meetings: number; total_min: number; avg_min: number; items: number; }
 interface ServiceRow { service: string; total: number; present: number; excused: number; absent: number; }
 interface AbsentRow { name: string; service: string; total: number; present: number; excused: number; absent: number; }
@@ -219,7 +219,7 @@ export default function ReunionsServiceStats() {
                                         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                                         <XAxis type="number" tick={{ fontSize: 10 }} domain={[0, 100]} unit="%" />
                                         <YAxis type="category" dataKey="service" width={150} tick={{ fontSize: 10 }} />
-                                        <Tooltip formatter={(v: number) => `${v} %`} />
+                                        <Tooltip formatter={(v) => `${v ?? 0} %`} />
                                         <Bar dataKey="presence_rate" name="Présence" fill="#16a34a" radius={[0, 4, 4, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
