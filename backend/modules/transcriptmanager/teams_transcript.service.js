@@ -141,6 +141,66 @@ function graphAccessHint(graphMessage = '', code = '') {
 /** Date ISO UTC (format requis par calendarView / getAllTranscripts). */
 const toIsoUtc = (d) => d.toISOString().replace('.000Z', 'Z');
 
+// Graph renvoie souvent les heures en UTC (dateTime sans suffixe + timeZone
+// "UTC"). Les interpréter comme heure locale décalait les réunions d'une heure
+// (ex. REDI 09:30 affichée 08:30). On normalise en ISO avec fuseau.
+const WINDOWS_TIMEZONES = {
+    'Romance Standard Time': 'Europe/Paris',
+    'W. Europe Standard Time': 'Europe/Berlin',
+    'Central Europe Standard Time': 'Europe/Budapest',
+    'GMT Standard Time': 'Europe/London',
+    'UTC': 'UTC',
+};
+
+function graphTimezoneToIana(tz) {
+    const raw = String(tz || '').trim();
+    if (!raw) return 'Europe/Paris';
+    if (WINDOWS_TIMEZONES[raw]) return WINDOWS_TIMEZONES[raw];
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: raw });
+        return raw;
+    } catch {
+        return 'Europe/Paris';
+    }
+}
+
+function tzOffsetMs(utcMs, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const parts = {};
+    for (const p of dtf.formatToParts(new Date(utcMs))) {
+        if (p.type !== 'literal') parts[p.type] = p.value;
+    }
+    const hour = parts.hour === '24' ? '00' : parts.hour;
+    const asUtc = Date.UTC(
+        Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+        Number(hour), Number(parts.minute), Number(parts.second)
+    );
+    return asUtc - utcMs;
+}
+
+function normalizeGraphDateTime(raw, tz) {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    // Heure déjà absolue (Z ou décalage explicite) : on la garde.
+    if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+        const cleaned = s.replace(/(\.\d{3})\d+/, '$1');
+        const d = new Date(cleaned);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    if (!m) return null;
+    const naiveUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    const timeZone = graphTimezoneToIana(tz);
+    let utc = naiveUtc - tzOffsetMs(naiveUtc, timeZone);
+    // Seconde passe pour les transitions d'heure d'été/hiver.
+    utc = naiveUtc - tzOffsetMs(utc, timeZone);
+    return new Date(utc).toISOString();
+}
+
 // Cache process des IDs AAD (évite un GET /users par appel).
 const aadIdCache = new Map();
 
@@ -251,7 +311,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 
     const baseFromEvent = (ev) => ({
         subject: ev.subject || 'Réunion Teams',
-        startDateTime: ev.start?.dateTime || null,
+        startDateTime: normalizeGraphDateTime(ev.start?.dateTime, ev.start?.timeZone),
         organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
         participants: (ev.attendees || [])
             .map(a => a.emailAddress?.name || a.emailAddress?.address || '')
@@ -517,8 +577,8 @@ async function listCalendarMeetingsForDate(userEmail, dateIso) {
         return {
             eventId: ev.id,
             subject: ev.subject || 'Réunion',
-            startDateTime: ev.start?.dateTime || null,
-            endDateTime: ev.end?.dateTime || null,
+            startDateTime: normalizeGraphDateTime(ev.start?.dateTime, ev.start?.timeZone),
+            endDateTime: normalizeGraphDateTime(ev.end?.dateTime, ev.end?.timeZone),
             organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
             location: ev.location?.displayName || null,
             isOnline: !!ev.isOnlineMeeting || !!joinUrl,
