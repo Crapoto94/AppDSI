@@ -166,6 +166,70 @@ Cette répartition croise les groupes du DSIHub, les affectations de tickets, le
 - **Applications maison** : la maintenance repose sur peu de personnes (voir section Vibecoding).
 - **Encadrement** : une note de service du 25/09 annonce la prise de fonction de deux responsables de service ; leur identité n'apparaît pas dans mes sources.
 
+## Chiffres clés de l'activité
+
+Ces indicateurs viennent du DSIHub (base lue en lecture seule le 24/11/2026). Une version illustrée figure dans la présentation `PANORAMA_DSI_DGA.pptx`.
+
+**Support et tickets**
+
+| Indicateur | Valeur | Évolution |
+| --- | --- | --- |
+| Tickets créés de janvier à novembre | 3 680 en 2026 | 4 487 en 2025 (−19 %), 5 574 en 2024 : −34 % en deux ans |
+| Tickets créés par année | 5 336 (2020), 6 697 (2021), 5 857 (2022), 6 227 (2023), 5 907 (2024), 4 780 (2025) | Baisse régulière depuis 2023 |
+| Délai de résolution (6 mois) | Médiane 1,2 jour, moyenne 11,3 jours | Moyenne tirée par quelques tickets très anciens |
+| Stock ouvert | 361 tickets : 176 de moins de 30 jours, 99 de 30 à 90 jours, 86 de plus de 90 jours | À purger |
+| Canaux d'entrée (12 mois) | Collecteur de messagerie 40 %, mail 31 %, téléphone 12 %, DSIHub 9 %, magasin d'applications 5 % | Le mail domine |
+| Volume historique | 39 009 tickets et 52 159 suivis en base | Données GLPI reprises |
+| Satisfaction | 3 réponses seulement (4,67 sur 5) | Non significatif : aucune mesure fiable |
+
+**Contrats**
+
+| Indicateur | Valeur | Évolution |
+| --- | --- | --- |
+| Nombre de contrats | 162 (146 actifs, 16 archivés) | 34 contrats démarrés en 2025, 21 en 2024, 7 en 2026 |
+| Montants annuels | 441 k€ (2022), 563 k€ (2023), 764 k€ (2024), 1 349 k€ (2025), 1 217 k€ (2026) | Multiplié par 2,8 en quatre ans |
+| Prévisions | 1 524 k€ (2027), 1 592 k€ (2028) | +25 % en 2027 |
+| Poids de Microsoft O365 | 290 k€ en 2026, soit 24 % du total | Premier contrat, devant CART@DS (77 k€) et Doctolib (65 k€) |
+| Contrats par type | Maintenance 62, abonnement 38, licences 24 | Abonnements 254 k€, maintenance 210 k€ en 2026 |
+| Échéances des contrats actifs | 33 en 2027, 26 en 2028, 16 en 2029 | 67 ont une date de fin déjà passée |
+
+Une part de la hausse 2024-2025 vient de la saisie progressive des contrats dans le DSIHub (51 contrats sans année initiale) : la tendance est à confirmer avec la comptabilité.
+
+**Parc, réseau et téléphonie**
+
+| Indicateur | Valeur |
+| --- | --- |
+| Postes de travail | 1 564 dans l'AD (2 108 fiches dans l'inventaire historique) |
+| Écrans, imprimantes, copieurs | 2 436 écrans, 440 imprimantes, 114 copieurs suivis |
+| Lignes mobiles | 1 293 lignes, 1 324 appareils |
+| Lignes fixes et accès internet | 322 (316 en service, 6 en résiliation) |
+| Équipements réseau | 186 |
+| Écoles et certificats | 28 écoles, 140 certificats |
+
+**Données, applications et usages**
+
+| Indicateur | Valeur |
+| --- | --- |
+| Base de données | 3,8 Go, 48 schémas applicatifs ; tickets 1,4 Go, GRU 0,6 Go (107 000 usagers), GLPI historique 0,2 Go |
+| Catalogue MagApp | 115 applications, 302 demandes d'applications (119 en juin, 65 en octobre, 15 en novembre), près de 70 000 clics |
+| IA interne | 949 appels en septembre 2026 |
+| Messages envoyés par le DSIHub | 19 770 mails, 1 374 SMS |
+| GED | 5 077 documents |
+| Réunions transcrites | 87 au total, 25 en septembre, 14 en octobre, 12 en novembre |
+
+## Forces et faiblesses par service
+
+Lecture déduite des chiffres ci-dessus, des réunions et des fils Teams ; à discuter avec chaque responsable.
+
+| Service | Forces | Faiblesses |
+| --- | --- | --- |
+| Support et déploiement (BF9) | Médiane de résolution d'un jour ; 1 130 tickets résolus en 6 mois ; doctrines écrites et canal DSIHub | 202 tickets ouverts ; 5 techniciens portent 74 % de la charge ; le responsable traite lui-même 209 tickets |
+| Systèmes, réseaux, téléphonie (BF6) | Expertise réseau et systèmes réunie ; médiane d'un jour sur 163 tickets ; plan Wi-Fi sécurisé (Radius) préparé | Pannes répétées (boucle, énergie, stockage) ; boucle optique, sauvegardes et DMZ encore en « idée » ; trois agents sur la plupart des pannes |
+| Projets et applications (BF8) | 109 contrats et logiciels métier suivis ; 9 projets en recette ou en clôture ; portefeuille recensé | 58 idées jamais qualifiées ; 34 projets sur un seul chef de projet ; statuts et dates non tenus à jour |
+| Direction et pilotage (BF1) | Gouvernance en place (REDI, 16 doctrines) ; DSIHub 1.0.0 en production ; rattachement au pôle Transitions | Applications maison dépendantes de peu de personnes ; chartes IA et informatique non écrites ; responsables de service à identifier |
+| Sécurité (RSSI) | Démarche EBIOS RM / NIS2 structurée ; NTLM désactivé, MFA en place ; veille active (failles PHP, OpenSSH) | Deux personnes seulement ; 172 postes hors de l'outil HarfangLab ; taux de clic phishing préoccupant ; Windows 2012 à traiter |
+| Écoles | Équipe dédiée de 2 agents ; pannes suivies dans le fil Crise ; 28 écoles couvertes | Pannes de liens et d'énergie récurrentes ; 1 seul ticket affecté en 6 mois (traçabilité faible) ; dépendance aux appels directs |
+
 ## Décisions à demander au DGA, points à valider et limites
 
 **Cinq arbitrages à proposer à M. Lorès :**
