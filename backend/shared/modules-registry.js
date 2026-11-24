@@ -49,6 +49,7 @@ const MODULES_REGISTRY = [
     { key: 'bpmn',         title: 'Modélisation BPMN',     icon: 'Workflow',    description: 'Création et export de processus au format BPMN 2.0 (éditeur bpmn.io).', url: '/bpmn' },
     { key: 'fast',        title: 'Actions rapides',       icon: 'Zap',         description: 'Gestes rapides du quotidien : nouveau ticket, tâche, mot de passe par SMS, gestion de compte AD et analyse mail.', url: '/fast' },
     { key: 'entretiens',  title: 'Entretiens professionnels', icon: 'ClipboardCheck', description: 'Campagne annuelle des entretiens professionnels : préparation de l’agent, évaluation et compte rendu.', url: '/entretiens', is_public: true },
+    { key: 'reunions-service', title: 'Réunions de service', icon: 'Presentation', description: 'Modèles de réunions, préparation des rubriques et tenue en direct synchronisée (maître du temps).', url: '/reunions-service' },
 ];
 
 module.exports = { MODULES_REGISTRY };

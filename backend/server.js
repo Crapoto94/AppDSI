@@ -1202,6 +1202,10 @@ const TRANSCRIPT_SETTINGS_KEYS = [
     // Texte d'information affiché avec les comptes rendus générés par IA
     // (UI + mail) — modifiable en admin.
     'summary_notice_text',
+    // Prompt spécifique aux réunions tenues en PRÉSENTIEL (transcript ne
+    // comportant qu'un seul locuteur). Placeholder {PARTICIPANTS}. Vide =
+    // consigne par défaut (cf. transcriptmanager.controller.js).
+    'physical_prompt',
     // Analyse IA d'un contrat (bouton "Analyser avec l'IA" dans /contrats,
     // vue de documents) — prompt + choix de source IA propres à cette fonctionnalité.
     'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
@@ -1213,6 +1217,17 @@ app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
         for (const key of TRANSCRIPT_SETTINGS_KEYS) {
             const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
             config[key] = s ? s.setting_value : '';
+        }
+        // Prompts par défaut (lecture seule) : affichés dans l'admin quand le
+        // réglage correspondant est vide, pour éviter d'en dupliquer le texte
+        // côté frontend et de le laisser diverger.
+        try {
+            const ctrl = require('./modules/transcriptmanager/transcriptmanager.controller');
+            config.default_custom_prompt = ctrl.__defaultPrompts?.default || '';
+            config.default_physical_prompt = ctrl.__defaultPrompts?.physical || '';
+        } catch (e) {
+            config.default_custom_prompt = '';
+            config.default_physical_prompt = '';
         }
         res.json(config);
     } catch (error) {
@@ -6713,6 +6728,7 @@ app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.rou
 
 // Entretiens professionnels annuels (module public : chaque agent voit son EP)
 app.use('/api/entretiens', require('./modules/entretiens/entretiens.routes'));
+app.use('/api/reunions-service', require('./modules/reunions-service/reunions-service.routes'));
 app.use('/api/ep-ville', require('./modules/ep-ville/ep-ville.routes'));
 app.use('/api/ep-base', require('./modules/ep-base/ep-base.routes'));
 

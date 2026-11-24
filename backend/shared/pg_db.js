@@ -2676,6 +2676,15 @@ async function setupPgDbFull() {
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='summary_annotated_spans') THEN
             ALTER TABLE transcript.meetings ADD COLUMN summary_annotated_spans TEXT;
           END IF;
+          -- Mode de tenue de la réunion : 'physique' | 'distanciel'.
+          -- Règle métier : un transcript qui ne contient qu'UN SEUL locuteur
+          -- (celui qui a lancé l'enregistrement Teams) correspond à une réunion
+          -- tenue en présentiel — le micro unique a capté la salle entière.
+          -- Renseigné au traitement des cues et utilisé pour choisir le prompt
+          -- IA d'analyse adapté (cf. transcriptmanager.controller.js).
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='meeting_mode') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN meeting_mode TEXT;
+          END IF;
         END $$;
       `);
     } catch (e) {
@@ -8141,6 +8150,187 @@ async function setupPgDbFull() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_edit_projects_user ON hub.pdf_edit_projects(username)`);
     } catch (e) { console.error('[PG DB] hub.pdf_edit_projects:', e.message); }
+
+    // ============================================
+    // RÉUNIONS DE SERVICE / DE DIRECTION
+    // Templates (modèles réutilisables) + occurrences (réunions concrètes) +
+    // rubriques, items (contenu riche), participants, pièces jointes.
+    // ============================================
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS reunions_service;');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.templates (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          is_active BOOLEAN DEFAULT TRUE
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.template_sections (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER NOT NULL REFERENCES reunions_service.templates(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          duration_minutes INTEGER DEFAULT 0,
+          position INTEGER DEFAULT 0,
+          is_meta BOOLEAN DEFAULT FALSE
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_sections_tpl ON reunions_service.template_sections(template_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.template_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.template_participants (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER NOT NULL REFERENCES reunions_service.templates(id) ON DELETE CASCADE,
+          email TEXT,
+          username TEXT,
+          name TEXT
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_participants_tpl ON reunions_service.template_participants(template_id)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meetings (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER REFERENCES reunions_service.templates(id) ON DELETE SET NULL,
+          template_name TEXT,
+          title TEXT NOT NULL,
+          meeting_date TIMESTAMP,
+          status TEXT NOT NULL DEFAULT 'planned',
+          started_at TIMESTAMPTZ,
+          ended_at TIMESTAMPTZ,
+          time_master_username TEXT,
+          time_master_name TEXT,
+          current_section_id INTEGER,
+          current_section_started_at TIMESTAMPTZ,
+          -- Lien vers le compte rendu / transcript (Transcript Manager) et vers
+          -- la réunion Teams d'origine (import automatique du transcript + CR IA).
+          transcript_meeting_id INTEGER,
+          teams_meeting_id TEXT,
+          teams_transcript_id TEXT,
+          teams_subject TEXT,
+          teams_start TIMESTAMP,
+          meeting_mode TEXT DEFAULT 'presentiel',
+          zoom REAL DEFAULT 1,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meetings_date ON reunions_service.meetings(meeting_date DESC)`);
+      // Heure de départ de la rubrique courante — sert au bandeau de gestion du
+      // temps (vert ≤80 %, orange ≤100 %, rouge au-delà).
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS current_section_started_at TIMESTAMPTZ`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS transcript_meeting_id INTEGER`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_meeting_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_transcript_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_subject TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_start TIMESTAMP`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS meeting_mode TEXT DEFAULT 'presentiel'`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meeting_sections (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          duration_minutes INTEGER DEFAULT 0,
+          position INTEGER DEFAULT 0,
+          is_meta BOOLEAN DEFAULT FALSE,
+          completed BOOLEAN DEFAULT FALSE
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_sections_meeting ON reunions_service.meeting_sections(meeting_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meeting_participants (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          email TEXT,
+          username TEXT,
+          name TEXT,
+          present BOOLEAN DEFAULT TRUE,
+          excused BOOLEAN DEFAULT FALSE
+        );
+      `);
+      try { await client.query(`ALTER TABLE reunions_service.meeting_participants ADD COLUMN IF NOT EXISTS excused BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_participants_meeting ON reunions_service.meeting_participants(meeting_id)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.items (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          section_id INTEGER NOT NULL REFERENCES reunions_service.meeting_sections(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          content_html TEXT,
+          position INTEGER DEFAULT 0,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_section ON reunions_service.items(section_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.items ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_meeting ON reunions_service.items(meeting_id)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.attachments (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          item_id INTEGER REFERENCES reunions_service.items(id) ON DELETE CASCADE,
+          filename TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size INTEGER,
+          uploaded_by TEXT,
+          uploaded_by_name TEXT,
+          file_path TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_attachments_meeting ON reunions_service.attachments(meeting_id)`);
+      // Sondages « à la volée » lancés depuis une occurrence.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.polls (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          question TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'single',
+          options JSONB DEFAULT '[]'::jsonb,
+          explanation TEXT,
+          image TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          closed_at TIMESTAMPTZ
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_polls_meeting ON reunions_service.polls(meeting_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS anonymous BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'nominatif'`); } catch (e) {}
+      try { await client.query(`UPDATE reunions_service.polls SET visibility = CASE WHEN anonymous THEN 'semi_anonyme' ELSE 'nominatif' END WHERE visibility IS NULL OR visibility = ''`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_quiz_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_session_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_code TEXT`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.poll_answers (
+          id SERIAL PRIMARY KEY,
+          poll_id INTEGER NOT NULL REFERENCES reunions_service.polls(id) ON DELETE CASCADE,
+          participant_key TEXT NOT NULL,
+          participant_username TEXT,
+          participant_email TEXT,
+          participant_name TEXT,
+          answer JSONB,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_rs_poll_answers ON reunions_service.poll_answers(poll_id, participant_key)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_poll_answers_poll ON reunions_service.poll_answers(poll_id)`);
+    } catch (e) {
+      console.error('[PG DB] reunions_service schema:', e.message);
+    }
 
     // Réaligne les séquences des tables migrées depuis SQLite avec des id explicites
     // (scripts/migrate-non-config-sqlite.js) : l'insertion d'id explicites ne fait pas

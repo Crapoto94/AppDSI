@@ -100,6 +100,10 @@ import ParapheurDetail from './pages/Parapheur/ParapheurDetail';
 import SignatureSignataire from './pages/Parapheur/SignatureSignataire';
 import ParapheurVerification from './pages/Parapheur/ParapheurVerification';
 import ParapheurShare from './pages/Parapheur/ParapheurShare';
+import ReunionsServiceIndex from './pages/ReunionsService';
+import ReunionServiceTemplateEdit from './pages/ReunionsService/TemplateEdit';
+import ReunionServiceMeetingView from './pages/ReunionsService/MeetingView';
+import ReunionServiceStats from './pages/ReunionsService/Stats';
 
 const ChatWidgetWrapper = () => {
   const location = useLocation();
@@ -193,6 +197,10 @@ function App() {
         <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
         <Route path="/bpmn" element={<PrivateRoute path="/bpmn"><BpmnEditor /></PrivateRoute>} />
         <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
+        <Route path="/reunions-service" element={<PrivateRoute path="/reunions-service"><ReunionsServiceIndex /></PrivateRoute>} />
+        <Route path="/reunions-service/templates/:id" element={<PrivateRoute path="/reunions-service"><ReunionServiceTemplateEdit /></PrivateRoute>} />
+        <Route path="/reunions-service/meetings/:id" element={<PrivateRoute path="/reunions-service"><ReunionServiceMeetingView /></PrivateRoute>} />
+        <Route path="/reunions-service/statistiques" element={<PrivateRoute path="/reunions-service"><ReunionServiceStats /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />

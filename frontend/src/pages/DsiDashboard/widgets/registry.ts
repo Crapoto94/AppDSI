@@ -364,6 +364,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 5, h: 3 },
     minSize: { w: 3, h: 2 },
   },
+  // ── Réunions de service ──────────────────────────────────────────────────
+  {
+    key: 'reunions_service_kpi',
+    label: 'KPIs Réunions de service',
+    description: 'Planifiées, en cours, terminées et réunions prévues sous 7 jours',
+    module: 'Réunions de service',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',

@@ -12,6 +12,7 @@ const apmAi = require('../../shared/apm_ai');
 const apmMail = require('../../shared/apm_mail');
 const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
+const encadrantsCtrl = require('../rh/encadrants.controller');
 const teamsTranscript = require('./teams_transcript.service');
 const { marked } = require('marked');
 // diffWordsWithSpace (et non diffWords) : diffWords réattribue parfois un
@@ -165,6 +166,85 @@ async function buildParticipantsList(db, meetingId) {
     }
     list.sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
     return list;
+}
+
+/** Ajoute (ou complète) des participants à une réunion. Utilisé par la modale
+ *  « participants » proposée avant l'analyse IA d'une réunion en présentiel
+ *  (ajout manuel via recherche agent ou via un groupe). Idempotent sur l'email
+ *  (comparaison insensible à la casse) : un participant déjà présent n'est pas
+ *  dupliqué, seul son nom est éventuellement mis à jour. */
+async function upsertMeetingParticipants(db, meetingId, participants) {
+    const list = Array.isArray(participants) ? participants : [];
+    for (const p of list) {
+        const email = String(p?.email || '').trim().toLowerCase();
+        if (!email.includes('@')) continue;
+        const name = p?.name ? String(p.name).trim() : null;
+        const existing = await db.get(
+            'SELECT id FROM transcript.meeting_participants WHERE meeting_id = ? AND LOWER(email) = LOWER(?)',
+            [meetingId, email]
+        );
+        if (existing) {
+            if (name) await db.run('UPDATE transcript.meeting_participants SET name = ? WHERE id = ?', [name, existing.id]);
+        } else {
+            await db.run(
+                'INSERT INTO transcript.meeting_participants (meeting_id, email, username, name) VALUES (?, ?, ?, ?)',
+                [meetingId, email, email.split('@')[0], name]
+            );
+        }
+    }
+}
+
+// Encadrants (DG / directeurs / responsables de service) — mis en cache 15 min
+// car getEncadrants déclenche des recherches AD/LDAP coûteuses.
+let _encadrantsCache = { list: null, expiresAt: 0 };
+async function getEncadrantsCached() {
+    if (_encadrantsCache.list && Date.now() < _encadrantsCache.expiresAt) return _encadrantsCache.list;
+    let raw = [];
+    await new Promise((resolve) => {
+        const fakeRes = { status: () => fakeRes, json: (d) => { raw = Array.isArray(d) ? d : []; resolve(); } };
+        Promise.resolve(encadrantsCtrl.getEncadrants({}, fakeRes)).catch(() => resolve());
+    });
+    _encadrantsCache = { list: raw, expiresAt: Date.now() + 15 * 60 * 1000 };
+    return raw;
+}
+
+/** Normalise un membre de groupe (encadrant RH, membre de groupe AD…) vers la
+ *  forme attendue côté front / dans transcript.meeting_participants. */
+function normalizeGroupMember(m) {
+    const email = String(m?.email || '').trim().toLowerCase();
+    const name = (m?.displayName || [m?.prenom, m?.nom].filter(Boolean).join(' ') || m?.name || email).trim();
+    return {
+        email,
+        name,
+        fonction: m?.fonction || m?.poste || m?.title || null,
+        direction: m?.direction_label || m?.direction || m?.department || null,
+        service: m?.service_label || m?.service || null,
+        username: m?.ad_username || m?.username || null,
+    };
+}
+
+/** Règle métier : un transcript qui ne comporte qu'un seul locuteur distinct
+ *  (hors « Inconnu ») correspond à une réunion tenue en PRÉSENTIEL — le micro
+ *  d'un unique participant Teams a capté la salle entière. */
+function computeMeetingMode(distinctSpeakers) {
+    return distinctSpeakers <= 1 ? 'physique' : 'distanciel';
+}
+
+/** Appelle une méthode contrôleur « à la Express » depuis un autre contrôleur
+ *  et renvoie le corps JSON qu'elle aurait écrit (sans passer par le réseau). */
+async function callControllerForBody(fn, req) {
+    let body = null;
+    await new Promise((resolve) => {
+        const fakeRes = {
+            status: () => fakeRes,
+            setHeader: () => fakeRes,
+            json: (d) => { body = d; resolve(); },
+            send: () => { resolve(); },
+            end: () => { resolve(); },
+        };
+        Promise.resolve(fn(req, fakeRes)).catch(() => resolve());
+    });
+    return body;
 }
 
 /** Un utilisateur (compte interne authentifié) a-t-il accès à cette réunion
@@ -962,6 +1042,30 @@ const SUMMARY_LEVEL_INSTRUCTIONS = {
 };
 
 /**
+ * Consigne spéciale ajoutée en tête du prompt quand la réunion a été tenue en
+ * PRÉSENTIEL (transcript ne comportant qu'un seul locuteur : celui qui a lancé
+ * l'enregistrement Teams depuis la salle). Le modèle doit alors considérer que
+ * plusieurs personnes étaient physiquement présentes, ne pas s'appuyer sur les
+ * étiquettes de locuteur (un seul micro a tout capté), et s'efforcer d'identifier
+ * les personnes présentes à partir des noms cités, des rôles évoqués et de la
+ * liste des participants connus — sans jamais inventer un locuteur.
+ * Le placeholder {PARTICIPANTS} est remplacé par la liste des participants
+ * enregistrés/ajoutés pour la réunion.
+ */
+const PHYSICAL_MEETING_INSTRUCTIONS = `CONSIGNE SPÉCIALE — RÉUNION TENUE EN PRÉSENTIEL (ET NON EN VISIOCONFÉRENCE) :
+Cette réunion n'a PAS été tenue en distanciel. L'enregistrement Teams provient d'UNE SEULE personne physiquement présente dans la salle (l'organisateur / demandeur) : son micro a capté l'ensemble des échanges. Il faut donc analyser cette réunion sous l'angle d'une réunion où PLUSIEURS PERSONNES étaient présentes. En conséquence :
+- NE considère PAS que le locuteur unique identifié dans la transcription est la seule personne de la réunion, et N'ATTRIBUE PAS indistinctement toutes les paroles à ce compte Teams.
+- Il est IMPOSSIBLE d'identifier de façon fiable chaque locuteur à partir des étiquettes de la transcription : ne fabrique jamais de nom de locuteur. En cas d'incertitude, écris « un participant », « un interlocuteur » ou « l'assemblée ».
+- Efforce-toi de déterminer les personnes présentes en croisant plusieurs indices : (1) les noms explicitement cités dans les échanges, (2) les fonctions et rôles évoqués (directeur, directeur général, responsable de service…), (3) la liste des participants connus fournie ci-dessous. Sois prudent et distingue clairement les présences certaines des présences probables.
+- Rédige le compte-rendu en te concentrant sur le FOND (sujets, arguments, positions, décisions, engagements, actions) plutôt que sur « qui a dit quoi ».
+- Ajoute, juste après le « ## Résumé exécutif », une section « ## Participants probables » : liste les personnes que tu penses présentes, avec pour chacune une justification courte (nom cité dans les échanges, rôle évoqué, ou présence dans la liste des participants). Si le doute subsiste, précise « présence à confirmer ».
+
+PARTICIPANTS CONNUS OU AJOUTÉS POUR CETTE RÉUNION :
+{PARTICIPANTS}
+
+`;
+
+/**
  * Controller for Transcript Manager module
  */
 let importJobs = {};
@@ -1044,7 +1148,13 @@ const transcriptController = {
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
                 `, [username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...pm]);
             }
-            res.json(meetings);
+            // Mode « présentiel » : la colonne prime, sinon repli calculé sur le
+            // nombre d'intervenants (réunions importées avant l'ajout de la colonne).
+            const withMode = meetings.map(m => ({
+                ...m,
+                meeting_mode: m.meeting_mode || computeMeetingMode(Number(m.speaker_count || 0)),
+            }));
+            res.json(withMode);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1229,8 +1339,20 @@ const transcriptController = {
                 const spans = JSON.parse(meeting.summary_annotated_spans || 'null') || [];
                 if (spans.some(s => s.type !== 'text')) summaryAmendedMarkdown = renderAnnotatedMarkdown(spans, {});
             } catch { /* pas encore d'amendement */ }
+            // Mode de la réunion : colonne renseignée à l'import ; repli calculé
+            // pour les réunions importées avant l'ajout de la colonne.
+            let meetingMode = meeting.meeting_mode;
+            if (!meetingMode) {
+                const sc = await db.get(
+                    `SELECT COUNT(DISTINCT speaker_name) AS n FROM transcript_cues WHERE meeting_id = ? AND speaker_name IS NOT NULL AND speaker_name <> 'Inconnu'`,
+                    [meetingId]
+                );
+                meetingMode = computeMeetingMode(Number(sc?.n || 0));
+            }
             res.json({
-                ...meeting, cues,
+                ...meeting,
+                meeting_mode: meetingMode,
+                cues,
                 summary_last_send: summaryLastSend,
                 summary_amendments: summaryAmendments,
                 summary_amended_markdown: summaryAmendedMarkdown,
@@ -1255,6 +1377,118 @@ const transcriptController = {
 
             const participants = await buildParticipantsList(db, meetingId);
             res.json(participants);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Ajoute des participants à une réunion (modale « réunion en présentiel »,
+     * avant l'analyse IA) : ajout manuel un par un ou sélection par groupe.
+     * Renvoie la liste complète des participants à jour.
+     */
+    addMeetingParticipants: async (req, res) => {
+        try {
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const meeting = await db.get('SELECT id FROM transcript_meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+            if (!(await canAmendMeeting(db, meetingId, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+            await upsertMeetingParticipants(db, meetingId, (req.body || {}).participants);
+            res.json(await buildParticipantsList(db, meetingId));
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Groupes proposés pour ajouter en masse des participants à une réunion en
+     * présentiel : groupes de rôles issus de /admin/ville › Encadrants
+     * (directeurs généraux, directeurs, responsables de service) + groupes
+     * particuliers (listes de diffusion AD « nommées »). La liste des membres
+     * est résolue à la demande via getParticipantGroupMembers.
+     */
+    getParticipantGroups: async (req, res) => {
+        try {
+            const groups = [];
+            const encadrants = await getEncadrantsCached();
+            const roleGroups = [
+                { key: 'role:dg', label: 'Directeurs généraux', role: 'dg' },
+                { key: 'role:directeur', label: 'Directeurs', role: 'directeur' },
+                { key: 'role:responsable_service', label: 'Responsables de service', role: 'responsable_service' },
+            ];
+            for (const g of roleGroups) {
+                const count = encadrants.filter(e => e.role === g.role && String(e.email || '').includes('@')).length;
+                groups.push({ key: g.key, label: g.label, type: 'role', member_count: count });
+            }
+            try {
+                const custom = await pgDb.all(
+                    `SELECT id, name, description FROM hub.custom_groups ORDER BY name`
+                );
+                for (const c of custom) {
+                    groups.push({ key: `custom:${c.id}`, label: c.name, type: 'custom', description: c.description || null });
+                }
+            } catch (e) {
+                console.error('[TranscriptManager] groupes particuliers indisponibles :', e.message);
+            }
+            res.json({ groups });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Liste des groupes AD / listes de diffusion (chargement paresseux : la
+     * recherche LDAP peut prendre plusieurs secondes).
+     */
+    getParticipantAdGroups: async (req, res) => {
+        try {
+            const body = await callControllerForBody(encadrantsCtrl.listADGroups, {});
+            const raw = Array.isArray(body?.groups) ? body.groups : [];
+            const groups = raw.map(g => ({ key: `ad:${g.dn}`, label: g.displayName || g.cn, type: 'ad', mail: g.mail || null, description: g.description || null }));
+            res.json({ groups });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Membres d'un groupe (`key` = role:… | custom:<id> | ad:<dn>), normalisés
+     * pour l'ajout en tant que participants.
+     */
+    getParticipantGroupMembers: async (req, res) => {
+        try {
+            const key = String(req.query.key || '');
+            if (!key) return res.status(400).json({ error: 'Paramètre key requis' });
+            let members = [];
+            if (key.startsWith('role:')) {
+                const role = key.slice(5);
+                const encadrants = await getEncadrantsCached();
+                members = encadrants.filter(e => e.role === role).map(normalizeGroupMember);
+            } else if (key.startsWith('custom:')) {
+                const id = key.slice(7);
+                const group = await pgDb.get('SELECT * FROM hub.custom_groups WHERE id = ?', [id]);
+                if (!group) return res.status(404).json({ error: 'Groupe introuvable' });
+                const body = await callControllerForBody(encadrantsCtrl.getCustomGroupMembers, { params: { id: String(id) } });
+                members = (Array.isArray(body?.members) ? body.members : []).map(normalizeGroupMember);
+            } else if (key.startsWith('ad:')) {
+                const dn = key.slice(3);
+                const body = await callControllerForBody(encadrantsCtrl.getADGroup, { query: { dn } });
+                members = (Array.isArray(body?.members) ? body.members : []).map(normalizeGroupMember);
+            } else {
+                return res.status(400).json({ error: 'Type de groupe non reconnu' });
+            }
+            const seen = new Set();
+            const out = [];
+            for (const m of members) {
+                if (!m.email || !m.email.includes('@') || seen.has(m.email)) continue;
+                seen.add(m.email);
+                out.push(m);
+            }
+            out.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+            res.json({ key, members: out, count: out.length });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1413,6 +1647,16 @@ const transcriptController = {
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
             const jobId = `sum_${Date.now()}_${meetingId}`;
+            // Participants ajoutés dans la modale « réunion en présentiel » juste
+            // avant l'analyse : persistés ICI pour que le prompt IA (liste des
+            // participants) les voie, sans dépendre d'un appel séparé du front.
+            if (Array.isArray((req.body || {}).participants) && req.body.participants.length) {
+                try {
+                    await upsertMeetingParticipants(pgDb, meetingId, req.body.participants);
+                } catch (e) {
+                    console.error('[TranscriptManager] persistance participants avant analyse échouée :', e.message);
+                }
+            }
             // niveau : sommaire/normal/detaille — ajuste le prompt envoyé à l'IA (cf.
             // SUMMARY_LEVEL_INSTRUCTIONS), au même titre que le modèle choisi par le front.
             const niveau = ['sommaire', 'normal', 'detaille'].includes((req.body || {}).niveau) ? req.body.niveau : 'normal';
@@ -2113,6 +2357,18 @@ async function processCuesForMeeting(importJob, cues, meetingId) {
     const speakerCache = new Map();
     const uniqueSpeakers = [...new Set(cues.map(c => c.speaker))];
 
+    // Détection présentiel / distanciel : un seul locuteur distinct (hors
+    // « Inconnu ») => réunion physique captée par le micro d'un unique
+    // participant Teams. Renseigné avant même la résolution AD pour que la
+    // fiche soit correcte dès la fin de l'import.
+    try {
+        const distinctSpeakers = uniqueSpeakers.filter(s => s && s !== 'Inconnu').length;
+        await db.run('UPDATE transcript_meetings SET meeting_mode = ? WHERE id = ?',
+            [computeMeetingMode(distinctSpeakers), meetingId]);
+    } catch (e) {
+        console.error('[TM IMPORT] meeting_mode update failed:', e.message);
+    }
+
     if (adSettings && adSettings.is_enabled) {
         const total = uniqueSpeakers.length;
         for (let i = 0; i < total; i++) {
@@ -2681,7 +2937,33 @@ async function runSummarizeJob(meetingId, model, job, niveau = 'normal') {
         // Consigne de niveau de détail en tête de prompt — s'applique aussi bien au prompt par
         // défaut qu'à un prompt personnalisé en admin (pas besoin d'y prévoir un placeholder).
         const levelInstruction = SUMMARY_LEVEL_INSTRUCTIONS[niveau] || '';
-        const prompt = levelInstruction + promptTemplate
+        // Réunion en présentiel (un seul locuteur dans le transcript) : consigne
+        // spécifique + liste des participants connus, pour que l'IA raisonne
+        // « plusieurs personnes présentes » et tente d'identifier l'assistance.
+        // Le prompt peut être personnalisé en admin (/admin/transcript, réglage
+        // `physical_prompt`) ; sinon on utilise la consigne par défaut.
+        let physicalInstruction = '';
+        const meetingMode = meeting.meeting_mode || computeMeetingMode(
+            (await db.get(`SELECT COUNT(DISTINCT speaker_name) AS n FROM transcript_cues WHERE meeting_id = ? AND speaker_name IS NOT NULL AND speaker_name <> 'Inconnu'`, [meetingId]))?.n
+        );
+        if (meetingMode === 'physique') {
+            let participantsText = 'Aucun participant renseigné pour le moment.';
+            try {
+                const known = await buildParticipantsList(db, meetingId);
+                if (known.length) {
+                    participantsText = known.map(p => {
+                        const details = [p.fonction, [p.direction, p.service].filter(Boolean).join(' / ')].filter(Boolean).join(' — ');
+                        return `- ${p.name || p.email}${details ? ` (${details})` : ''}${p.email ? ` <${p.email}>` : ''}`;
+                    }).join('\n');
+                }
+            } catch (e) {
+                console.error('[TranscriptManager] participants (prompt présentiel) indisponibles :', e.message);
+            }
+            const physicalRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['physical_prompt']);
+            const physicalTemplate = (physicalRow?.setting_value || '').trim() || PHYSICAL_MEETING_INSTRUCTIONS;
+            physicalInstruction = physicalTemplate.replaceAll('{PARTICIPANTS}', () => participantsText);
+        }
+        const prompt = levelInstruction + physicalInstruction + promptTemplate
             .replaceAll('{REUNION}', () => meeting.title)
             .replaceAll('{TRANSCRIPTION}', () => transcriptText);
 
@@ -2777,3 +3059,10 @@ transcriptController.getShareLink = async (req, res) => {
 };
 
 module.exports = transcriptController;
+
+// Prompts par défaut exposés à l'admin (/admin/transcript) pour affichage et
+// réinitialisation, sans dupliquer le texte côté frontend.
+transcriptController.__defaultPrompts = {
+    default: DEFAULT_PROMPT_TEMPLATE,
+    physical: PHYSICAL_MEETING_INSTRUCTIONS,
+};

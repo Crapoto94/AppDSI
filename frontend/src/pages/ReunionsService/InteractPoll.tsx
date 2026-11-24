@@ -1,0 +1,447 @@
+import { useState } from 'react';
+import type { CSSProperties } from 'react';
+import axios from 'axios';
+import { X, Sparkles, Clock, Send, Upload, Trash2 } from 'lucide-react';
+
+export interface PollOptionResult { label: string; count: number; percent: number; }
+export interface PollResults {
+    total: number;
+    anonymous?: boolean;
+    visibility?: string;
+    by_option: PollOptionResult[];
+    texts: string[];
+    average: number | null;
+    distribution: { value: number; count: number }[];
+    responses?: { name: string; answer: unknown }[];
+}
+export interface Poll {
+    id: number;
+    meeting_id: number;
+    question: string;
+    type: string;
+    options: string[];
+    explanation?: string | null;
+    image?: string | null;
+    status: 'open' | 'closed' | string;
+    anonymous?: boolean;
+    visibility?: 'nominatif' | 'semi_anonyme' | 'totalement_anonyme';
+    created_by?: string | null;
+    created_by_name?: string | null;
+    created_at?: string;
+    interact_code?: string | null;
+    results?: PollResults;
+    my_answer?: unknown;
+}
+
+const TYPES = [
+    { value: 'single', label: 'Choix unique', group: 'Quiz & connaissances' },
+    { value: 'multiple', label: 'Choix multiples', group: 'Quiz & connaissances' },
+    { value: 'truefalse', label: 'Vrai ou Faux', group: 'Quiz & connaissances' },
+    { value: 'slider', label: 'Curseur (estimation)', group: 'Quiz & connaissances' },
+    { value: 'stars', label: "Échelle d'avis (étoiles)", group: 'Quiz & connaissances' },
+    { value: 'open', label: 'Réponse ouverte', group: 'Contributions libres & avis' },
+    { value: 'wordcloud', label: 'Nuage de mots', group: 'Contributions libres & avis' },
+    { value: 'idea', label: 'Boîte à idées', group: 'Contributions libres & avis' },
+];
+
+function resizeImageFile(file: File, maxDim = 1400, quality = 0.88): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const ratio = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+                const w = Math.max(1, Math.round((img.width || 1) * ratio));
+                const h = Math.max(1, Math.round((img.height || 1) * ratio));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) { reject(new Error('canvas')); return; }
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            } catch (e) { reject(e); } finally { URL.revokeObjectURL(url); }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
+        img.src = url;
+    });
+}
+
+const typeLabel = (t: string) => TYPES.find(x => x.value === t)?.label || t;
+
+function formatAnswer(poll: Poll, answer: unknown): string {
+    if (answer === null || answer === undefined || answer === '') return '—';
+    if (poll.type === 'single') return poll.options[Number(answer)] ?? String(answer);
+    if (poll.type === 'truefalse') return answer ? 'Vrai' : 'Faux';
+    if (poll.type === 'multiple') {
+        return Array.isArray(answer)
+            ? answer.map(v => poll.options[Number(v)] ?? String(v)).join(', ')
+            : String(answer);
+    }
+    if (poll.type === 'stars') return `${answer} ★`;
+    return String(answer);
+}
+const needsOptions = (t: string) => t === 'single' || t === 'multiple';
+
+export function PollComposerModal({
+    token, meetingId, onClose, onCreated,
+}: {
+    token: string;
+    meetingId: number;
+    onClose: () => void;
+    onCreated: () => void;
+}) {
+    const [type, setType] = useState('single');
+    const [question, setQuestion] = useState('');
+    const [options, setOptions] = useState<string[]>(['', '']);
+    const [explanation, setExplanation] = useState('');
+    const [image, setImage] = useState('');
+    const [visibility, setVisibility] = useState<'nominatif' | 'semi_anonyme' | 'totalement_anonyme'>('nominatif');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    const headers = { headers: { Authorization: `Bearer ${token}` } };
+
+    const launch = async () => {
+        if (!question.trim()) { setError('Énoncé requis.'); return; }
+        if (needsOptions(type) && options.filter(o => o.trim()).length < 2) {
+            setError('Ajoutez au moins deux propositions.');
+            return;
+        }
+        setBusy(true);
+        setError('');
+        try {
+            await axios.post(`/api/reunions-service/meetings/${meetingId}/polls`, {
+                question: question.trim(),
+                type,
+                options: needsOptions(type) ? options.map(o => o.trim()).filter(Boolean) : [],
+                explanation,
+                image: image || null,
+                visibility,
+            }, headers);
+            onCreated();
+            onClose();
+        } catch (e) {
+            const err = e as { response?: { data?: { error?: string } }; message?: string };
+            setError(err?.response?.data?.error || err?.message || 'Impossible de lancer l\'INTERACT');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const onImage = async (file: File | null) => {
+        if (!file) return;
+        try {
+            setImage(await resizeImageFile(file));
+        } catch {
+            const reader = new FileReader();
+            reader.onload = () => setImage(String(reader.result || ''));
+            reader.readAsDataURL(file);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1350, padding: 16 }}>
+            <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 680, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.3rem .4rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Sparkles size={18} color="#7c3aed" /> Nouvel INTERACT
+                    </h3>
+                    <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
+                </div>
+                <div style={{ padding: '.4rem 1.3rem 1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                        <label style={labelStyle}>Type de question</label>
+                        <select value={type} onChange={e => setType(e.target.value)} style={inputStyle} disabled={busy}>
+                            {['Quiz & connaissances', 'Contributions libres & avis'].map(g => (
+                                <optgroup key={g} label={g}>
+                                    {TYPES.filter(t => t.group === g).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Énoncé / consigne</label>
+                        <input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Quelle est la question ?" style={inputStyle} disabled={busy} />
+                    </div>
+                    {needsOptions(type) && (
+                        <div>
+                            <label style={labelStyle}>Propositions</label>
+                            {options.map((o, i) => (
+                                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                    <input value={o} onChange={e => setOptions(prev => prev.map((x, j) => j === i ? e.target.value : x))} placeholder={`Proposition ${i + 1}`} style={{ ...inputStyle, flex: 1 }} disabled={busy} />
+                                    <button onClick={() => setOptions(prev => prev.filter((_, j) => j !== i))} disabled={busy || options.length <= 2} style={iconBtn} title="Supprimer"><X size={14} /></button>
+                                </div>
+                            ))}
+                            <button onClick={() => setOptions(prev => [...prev, ''])} disabled={busy || options.length >= 8} style={{ ...secondaryBtn, padding: '.35rem .7rem', fontSize: '.78rem' }}>+ Ajouter une proposition</button>
+                        </div>
+                    )}
+                    <div>
+                        <label style={labelStyle}>Explication affichée à la réponse (optionnel)</label>
+                        <textarea value={explanation} onChange={e => setExplanation(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} disabled={busy} />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Confidentialité des réponses</label>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button type="button" onClick={() => setVisibility('nominatif')} disabled={busy}
+                                style={{ flex: '1 1 150px', textAlign: 'left', padding: '.55rem .7rem', borderRadius: 9, border: `1.5px solid ${visibility === 'nominatif' ? '#0078a4' : '#e2e8f0'}`, background: visibility === 'nominatif' ? '#f0f9ff' : '#fff', cursor: 'pointer' }}>
+                                <b style={{ fontSize: '.82rem', color: visibility === 'nominatif' ? '#0078a4' : '#334155' }}>Nominatif</b>
+                                <div style={{ fontSize: '.72rem', color: '#64748b' }}>Tout le monde voit qui a répondu et ce qu’il a répondu.</div>
+                            </button>
+                            <button type="button" onClick={() => setVisibility('semi_anonyme')} disabled={busy}
+                                style={{ flex: '1 1 150px', textAlign: 'left', padding: '.55rem .7rem', borderRadius: 9, border: `1.5px solid ${visibility === 'semi_anonyme' ? '#0078a4' : '#e2e8f0'}`, background: visibility === 'semi_anonyme' ? '#f0f9ff' : '#fff', cursor: 'pointer' }}>
+                                <b style={{ fontSize: '.82rem', color: visibility === 'semi_anonyme' ? '#0078a4' : '#334155' }}>Semi-anonyme</b>
+                                <div style={{ fontSize: '.72rem', color: '#64748b' }}>Résultats globaux pour les participants ; le lanceur, le maître du temps et les admins peuvent voir qui a répondu.</div>
+                            </button>
+                            <button type="button" onClick={() => setVisibility('totalement_anonyme')} disabled={busy}
+                                style={{ flex: '1 1 150px', textAlign: 'left', padding: '.55rem .7rem', borderRadius: 9, border: `1.5px solid ${visibility === 'totalement_anonyme' ? '#0078a4' : '#e2e8f0'}`, background: visibility === 'totalement_anonyme' ? '#f0f9ff' : '#fff', cursor: 'pointer' }}>
+                                <b style={{ fontSize: '.82rem', color: visibility === 'totalement_anonyme' ? '#0078a4' : '#334155' }}>Totalement anonyme</b>
+                                <div style={{ fontSize: '.72rem', color: '#64748b' }}>Personne ne voit qui a répondu, pas même les administrateurs.</div>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Image (optionnel)</label>
+                        <label
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={e => { e.preventDefault(); void onImage(e.dataTransfer.files?.[0] || null); }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '.7rem .8rem', border: '1.5px dashed #cbd5e1', borderRadius: 9, background: '#fbfdff', color: '#64748b', fontSize: '.85rem', cursor: busy ? 'default' : 'pointer' }}
+                        >
+                            <Upload size={16} />
+                            <span style={{ fontWeight: 700, color: '#334155' }}>{image ? "Remplacer l'image" : 'Choisir une image'}</span>
+                            <span style={{ fontSize: '.74rem' }}>ou glisser-déposer</span>
+                            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => void onImage(e.target.files?.[0] || null)} disabled={busy} />
+                        </label>
+                        {image && (
+                            <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                <img src={image} alt="" style={{ display: 'block', maxWidth: 220, maxHeight: 140, width: 'auto', height: 'auto', objectFit: 'contain', borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                                <button onClick={() => setImage('')} disabled={busy} style={iconBtn} title="Retirer l'image"><X size={14} /></button>
+                            </div>
+                        )}
+                    </div>
+                    {error && <div style={{ color: '#b91c1c', fontSize: '.82rem' }}>{error}</div>}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '.85rem 1.3rem', borderTop: '1px solid #f1f5f9', background: '#fbfdff' }}>
+                    <button onClick={onClose} disabled={busy} style={{ ...secondaryBtn }}>Annuler</button>
+                    <button onClick={launch} disabled={busy} style={{ ...primaryBtn, opacity: busy ? .7 : 1 }}>
+                        <Sparkles size={15} /> {busy ? 'Lancement…' : "Lancer l'INTERACT"}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export function PollAnswerForm({ poll, onSubmit, busy }: { poll: Poll; onSubmit: (answer: unknown) => void; busy?: boolean }) {
+    const [single, setSingle] = useState<number | null>(null);
+    const [multiple, setMultiple] = useState<number[]>([]);
+    const [text, setText] = useState('');
+    const [value, setValue] = useState(50);
+
+    const submit = () => {
+        if (poll.type === 'single') { if (single === null) return; onSubmit(single); }
+        else if (poll.type === 'multiple') { if (!multiple.length) return; onSubmit(multiple); }
+        else if (poll.type === 'truefalse') { if (single === null) return; onSubmit(single === 0); }
+        else if (poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') { if (!text.trim()) return; onSubmit(text.trim()); }
+        else if (poll.type === 'stars') { if (single === null) return; onSubmit(single + 1); }
+        else if (poll.type === 'slider') { onSubmit(value); }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {poll.image && (
+                <img
+                    src={poll.image}
+                    alt=""
+                    style={{ display: 'block', margin: '0 auto', maxWidth: '100%', maxHeight: 220, width: 'auto', height: 'auto', objectFit: 'contain', borderRadius: 8, alignSelf: 'center' }}
+                />
+            )}
+            {(poll.type === 'single' || poll.type === 'truefalse') && (
+                (poll.type === 'truefalse' ? ['Vrai', 'Faux'] : poll.options).map((label, i) => (
+                    <label key={i} style={choiceStyle(single === i)}>
+                        <input type="radio" checked={single === i} onChange={() => setSingle(i)} disabled={busy} /> {label}
+                    </label>
+                ))
+            )}
+            {poll.type === 'multiple' && poll.options.map((label, i) => (
+                <label key={i} style={choiceStyle(multiple.includes(i))}>
+                    <input type="checkbox" checked={multiple.includes(i)} onChange={e => setMultiple(prev => e.target.checked ? [...prev, i] : prev.filter(x => x !== i))} disabled={busy} /> {label}
+                </label>
+            ))}
+            {(poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') && (
+                <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder="Votre réponse…" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} disabled={busy} />
+            )}
+            {poll.type === 'stars' && (
+                <div style={{ display: 'flex', gap: 6, fontSize: 24 }}>
+                    {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} onClick={() => setSingle(n - 1)} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 26, color: (single ?? -1) >= n - 1 ? '#f59e0b' : '#cbd5e1' }}>★</button>
+                    ))}
+                </div>
+            )}
+            {poll.type === 'slider' && (
+                <div>
+                    <input type="range" min={0} max={100} step={1} value={value} onChange={e => setValue(Number(e.target.value))} style={{ width: '100%' }} disabled={busy} />
+                    <div style={{ textAlign: 'center', fontWeight: 800, color: '#0078a4' }}>{value}</div>
+                </div>
+            )}
+            <button onClick={submit} disabled={busy} style={{ ...primaryBtn, alignSelf: 'flex-start' }}>
+                <Send size={15} /> Envoyer ma réponse
+            </button>
+        </div>
+    );
+}
+
+export function PollResultsView({ poll }: { poll: Poll }) {
+    const r = poll.results;
+    if (!r) return null;
+    const vis = poll.visibility || (poll.anonymous ? 'semi_anonyme' : 'nominatif');
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: '.75rem', color: '#64748b' }}>{r.total} réponse{r.total > 1 ? 's' : ''}</div>
+            {r.by_option.map((o, i) => (
+                <div key={i}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.8rem', color: '#334155' }}>
+                        <span>{o.label}</span><span style={{ fontWeight: 700 }}>{o.percent} % ({o.count})</span>
+                    </div>
+                    <div style={{ height: 6, background: '#eef2f7', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${o.percent}%`, background: '#0078a4' }} />
+                    </div>
+                </div>
+            ))}
+            {(poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {r.texts.map((t, i) => (
+                        <span key={i} style={{ fontSize: '.78rem', background: poll.type === 'wordcloud' ? '#ede9fe' : '#f1f5f9', color: poll.type === 'wordcloud' ? '#6d28d9' : '#334155', borderRadius: 999, padding: '2px 9px' }}>{t}</span>
+                    ))}
+                </div>
+            )}
+            {r.average !== null && (
+                <div style={{ fontSize: '.85rem', fontWeight: 800, color: '#0078a4' }}>
+                    Moyenne : {r.average}{poll.type === 'stars' ? ' / 5' : ''} ({r.total} réponse{r.total > 1 ? 's' : ''})
+                </div>
+            )}
+            {vis === 'semi_anonyme' && (
+                <div style={{ fontSize: '.74rem', color: '#94a3b8' }}>Semi-anonyme : résultats globaux ; le lanceur, le maître du temps et les admins peuvent voir qui a répondu.</div>
+            )}
+            {vis === 'totalement_anonyme' && (
+                <div style={{ fontSize: '.74rem', color: '#94a3b8' }}>Totalement anonyme : personne ne peut voir qui a répondu.</div>
+            )}
+            {vis === 'nominatif' && (r.responses?.length || 0) > 0 && (
+                <div style={{ marginTop: 4, borderTop: '1px dashed #e2e8f0', paddingTop: 6 }}>
+                    <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b', marginBottom: 4 }}>Qui a répondu</div>
+                    {r.responses!.map((resp, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '.78rem', color: '#334155', padding: '1px 0' }}>
+                            <span style={{ fontWeight: 600 }}>{resp.name}</span>
+                            <span style={{ color: '#0078a4', fontWeight: 700 }}>{formatAnswer(poll, resp.answer)}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+export function PollCard({
+    poll, canManage, myAnswer, onAnswer, onClose, busy, token, canDelete, onDelete,
+}: {
+    poll: Poll;
+    canManage: boolean;
+    myAnswer: unknown;
+    onAnswer: (answer: unknown) => void;
+    onClose: () => void;
+    busy?: boolean;
+    token: string;
+    canDelete?: boolean;
+    onDelete?: () => void;
+}) {
+    const open = poll.status === 'open';
+    const vis = poll.visibility || (poll.anonymous ? 'semi_anonyme' : 'nominatif');
+    const canReveal = canManage && vis !== 'totalement_anonyme'
+        && (vis !== 'nominatif' || !(poll.results?.responses?.length));
+    const answered = myAnswer !== null && myAnswer !== undefined;
+    const [revealed, setRevealed] = useState<{ name: string; answer: unknown }[] | null>(null);
+    const [revealBusy, setRevealBusy] = useState(false);
+    const [revealError, setRevealError] = useState('');
+    const reveal = async () => {
+        setRevealBusy(true);
+        try {
+            const res = await axios.get(`/api/reunions-service/polls/${poll.id}/responses`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            setRevealed(Array.isArray(res.data?.responses) ? res.data.responses : []);
+        } catch (e) {
+            const err = e as { response?: { status?: number; data?: { error?: string } } };
+            setRevealed([]);
+            setRevealError(err?.response?.status === 404
+                ? 'Liste des noms indisponible : redémarrez le backend pour activer cet endpoint.'
+                : (err?.response?.data?.error || 'Impossible de charger les noms.'));
+        } finally {
+            setRevealBusy(false);
+        }
+    };
+    return (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '.85rem 1rem', background: '#fff', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '.92rem' }}>{poll.question}</div>
+                    <div style={{ fontSize: '.72rem', color: '#94a3b8' }}>
+                        {typeLabel(poll.type)} · lancé par {poll.created_by_name || poll.created_by || '—'}
+                        {poll.interact_code ? ` · code Interact'Ivry ${poll.interact_code}` : ''}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: '.68rem', fontWeight: 800, borderRadius: 999, padding: '2px 8px', background: open ? '#dcfce7' : '#f1f5f9', color: open ? '#15803d' : '#64748b' }}>
+                        {open ? 'ouvert' : 'clos'}
+                    </span>
+                    {canDelete && onDelete && (
+                        <button onClick={onDelete} disabled={busy} title="Supprimer l'INTERACT" style={iconBtn}>
+                            <Trash2 size={14} />
+                        </button>
+                    )}
+                </div>
+            </div>
+            {poll.explanation && <div style={{ fontSize: '.78rem', color: '#64748b', marginBottom: 6 }}>{poll.explanation}</div>}
+            {open && !answered ? (
+                <PollAnswerForm poll={poll} onSubmit={onAnswer} busy={busy} />
+            ) : (
+                <PollResultsView poll={poll} />
+            )}
+            {canReveal && (
+                <div style={{ marginTop: 8 }}>
+                    {!revealed && (
+                        <button onClick={reveal} disabled={revealBusy} style={{ ...secondaryBtn, padding: '.35rem .7rem', fontSize: '.75rem' }}>
+                            {revealBusy ? 'Chargement…' : 'Voir qui a répondu'}
+                        </button>
+                    )}
+                    {revealError && <div style={{ fontSize: '.75rem', color: '#b45309', marginTop: 4 }}>{revealError}</div>}
+                    {revealed && (
+                        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '.5rem .6rem' }}>
+                            <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b', marginBottom: 4 }}>Réponses nominatives (visible lanceur / maître / admin)</div>
+                            {revealed.length === 0 && <div style={{ fontSize: '.78rem', color: '#94a3b8' }}>Aucune réponse.</div>}
+                            {revealed.map((resp, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '.78rem', color: '#334155' }}>
+                                    <span style={{ fontWeight: 600 }}>{resp.name}</span>
+                                    <span style={{ color: '#0078a4', fontWeight: 700 }}>{formatAnswer(poll, resp.answer)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+            {open && canManage && (
+                <button onClick={onClose} disabled={busy} style={{ ...secondaryBtn, marginTop: 8, padding: '.35rem .7rem', fontSize: '.75rem' }}>
+                    <Clock size={13} /> Clôturer l'INTERACT
+                </button>
+            )}
+        </div>
+    );
+}
+
+const labelStyle: CSSProperties = { display: 'block', fontSize: '.76rem', fontWeight: 700, color: '#334155', marginBottom: 4 };
+const inputStyle: CSSProperties = { width: '100%', padding: '.55rem .7rem', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: '.88rem', boxSizing: 'border-box', outline: 'none' };
+const primaryBtn: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 9, padding: '.55rem 1rem', fontWeight: 700, fontSize: '.84rem', cursor: 'pointer' };
+const secondaryBtn: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 9, padding: '.55rem 1rem', fontWeight: 700, fontSize: '.84rem', cursor: 'pointer' };
+const iconBtn: CSSProperties = { background: '#f1f5f9', border: 'none', borderRadius: 7, width: 30, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', flexShrink: 0 };
+const choiceStyle = (active: boolean): CSSProperties => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '.45rem .6rem', border: `1px solid ${active ? '#0078a4' : '#e2e8f0'}`, background: active ? '#f0f9ff' : '#fff', borderRadius: 8, cursor: 'pointer', fontSize: '.85rem' });

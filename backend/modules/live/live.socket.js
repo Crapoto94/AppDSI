@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
 const { pgDb } = require('../../shared/database');
 const { toParisSql } = require('../../shared/utils');
+const reunionServiceSocket = require('../reunions-service/reunions-service.socket');
 
 let ioInstance = null;
 
@@ -33,6 +34,9 @@ function setupSocket(server) {
     io.on('connection', (socket) => {
         const user = socket.user;
         console.log(`[LIVE] Connected: ${user.username}`);
+
+        // ── Réunions de service : pilotage synchronisé (maître du temps) ──
+        reunionServiceSocket.handleConnection(io, socket);
 
         // ── Tech: watch for new sessions ────────────────────────────
         socket.on('tech_watch', () => {

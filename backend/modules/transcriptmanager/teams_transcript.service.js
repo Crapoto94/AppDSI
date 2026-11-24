@@ -431,8 +431,109 @@ async function listTeamsTranscripts(userEmail, days = 30) {
  *        (getAllTranscripts) — permet d'éviter de reconstruire l'URL.
  * @returns {Promise<string>} contenu brut du transcript
  */
-async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl) {
-    const settings = await getGraphSettings();
+/**
+ * Recherche les réunions Exchange/O365 du calendrier de l'utilisateur pour une
+ * DATE donnée (et non seulement les derniers jours), afin d'associer une
+ * occurrence DSIHub à son occurrence Exchange/Teams. Pour chaque réunion en
+ * ligne, on résout l'onlineMeetingId et, si disponible, le transcriptId.
+ *
+ * @param {string} userEmail
+ * @param {string} dateIso  AAAA-MM-JJ
+ * @returns {Promise<{ok:boolean, meetings:Array, warnings:string[], error?:string}>}
+ */
+async function listCalendarMeetingsForDate(userEmail, dateIso) {
+    const warnings = [];
+    let settings, axiosOpts, token;
+    try {
+        settings = await getGraphSettings();
+        axiosOpts = getAxiosOpts();
+        token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
+    } catch (e) {
+        const net = isNetworkError(e)
+            ? ` (${e.code || 'connexion interrompue'})`
+            : ` : ${e.message || e}`;
+        return { ok: false, meetings: [], warnings, error: `Connexion à Microsoft impossible${net}` };
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+    const startDate = new Date(`${dateIso}T00:00:00`);
+    const endDate = new Date(`${dateIso}T23:59:59`);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return { ok: false, meetings: [], warnings, error: 'Date invalide' };
+    }
+    const aadId = await resolveUserAadId(userEmail, axiosOpts, headers);
+    const userKey = aadId || userEmail;
+
+    let events = [];
+    try {
+        let pageUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
+            + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
+            + `&$select=id,subject,start,end,onlineMeeting,organizer,attendees,location,isOnlineMeeting&$top=50`;
+        for (let page = 0; page < 10 && pageUrl; page++) {
+            const res = await retryNetwork(() => axios.get(pageUrl, { ...axiosOpts, headers }));
+            events.push(...(res.data.value || []));
+            pageUrl = res.data['@odata.nextLink'] || null;
+        }
+    } catch (e) {
+        const code = e.response?.data?.error?.code || 'Erreur';
+        const msg = e.response?.data?.error?.message || e.message;
+        return { ok: false, meetings: [], warnings, error: `Accès au calendrier impossible (${code}) : ${msg}` };
+    }
+
+    // Résolution de l'ID de réunion en ligne par joinUrl.
+    const meetingIdByUrl = new Map();
+    const withJoinUrl = events.filter(ev => ev.onlineMeeting?.joinUrl);
+    await Promise.all(withJoinUrl.map(async (ev) => {
+        const joinUrl = ev.onlineMeeting.joinUrl;
+        try {
+            const filter = `JoinWebUrl eq '${escapeODataString(joinUrl)}'`;
+            const r = await axios.get(
+                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings?$filter=${encodeURIComponent(filter)}`,
+                { ...axiosOpts, headers }
+            );
+            const m = (r.data.value || [])[0];
+            if (m?.id) meetingIdByUrl.set(joinUrl, m.id);
+        } catch (e) {
+            // Pas d'accès aux onlineMeetings : la réunion Exchange reste listée.
+        }
+    }));
+
+    // Transcripts disponibles par onlineMeetingId (best effort).
+    const transcriptByMeetingId = new Map();
+    await Promise.all([...meetingIdByUrl.values()].map(async (mid) => {
+        try {
+            const r = await axios.get(
+                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(mid)}/transcripts`,
+                { ...axiosOpts, headers }
+            );
+            const t = (r.data.value || [])[0];
+            if (t?.id) transcriptByMeetingId.set(mid, t.id);
+        } catch (e) { /* pas de transcript accessible */ }
+    }));
+
+    const meetings = events.map(ev => {
+        const joinUrl = ev.onlineMeeting?.joinUrl || null;
+        const onlineMeetingId = joinUrl ? (meetingIdByUrl.get(joinUrl) || null) : null;
+        const transcriptId = onlineMeetingId ? (transcriptByMeetingId.get(onlineMeetingId) || null) : null;
+        return {
+            eventId: ev.id,
+            subject: ev.subject || 'Réunion',
+            startDateTime: ev.start?.dateTime || null,
+            endDateTime: ev.end?.dateTime || null,
+            organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
+            location: ev.location?.displayName || null,
+            isOnline: !!ev.isOnlineMeeting || !!joinUrl,
+            joinUrl,
+            meetingId: onlineMeetingId,
+            transcriptId,
+            participants: (ev.attendees || []).map(a => a.emailAddress?.name || a.emailAddress?.address || '').filter(Boolean),
+            participantEmails: (ev.attendees || []).map(a => (a.emailAddress?.address || '').toLowerCase()).filter(e => e.includes('@')),
+        };
+    }).sort((a, b) => String(a.startDateTime).localeCompare(String(b.startDateTime)));
+
+    return { ok: true, meetings, warnings };
+}
+
+async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl) {    const settings = await getGraphSettings();
     const axiosOpts = getAxiosOpts();
     const token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
     const headers = { Authorization: `Bearer ${token}` };
@@ -462,4 +563,4 @@ async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transc
     }
 }
 
-module.exports = { listTeamsTranscripts, fetchTranscriptContent };
+module.exports = { listTeamsTranscripts, listCalendarMeetingsForDate, fetchTranscriptContent };

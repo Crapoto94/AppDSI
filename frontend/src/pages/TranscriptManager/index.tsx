@@ -25,6 +25,7 @@ interface Meeting {
     char_count?: number;
     shared_with_direction?: string | null;
     shared_with_service?: string | null;
+    meeting_mode?: 'physique' | 'distanciel' | null;
 }
 
 interface SearchMatch {
@@ -456,6 +457,12 @@ const TranscriptManager: React.FC = () => {
                                                         <span className="summary-badge" title="Résumé IA disponible">
                                                             <Sparkles size={12} />
                                                             Résumé
+                                                        </span>
+                                                    )}
+                                                    {meeting.meeting_mode === 'physique' && (
+                                                        <span title="Réunion tenue en présentiel (un seul compte Teams a enregistré la salle)"
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, background: '#FEF3C7', color: '#B45309', padding: '2px 8px', borderRadius: 12, border: '1px solid #FCD34D', whiteSpace: 'nowrap' }}>
+                                                            🏛️ Présentiel
                                                         </span>
                                                     )}
                                                     {meeting.speaker_emails?.split(',').map(e => e.trim().toLowerCase()).includes(user?.email?.toLowerCase() || '') && (
