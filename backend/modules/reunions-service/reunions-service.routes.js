@@ -3,16 +3,18 @@ const router = express.Router();
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
-const { authenticateJWT, isAdminLike } = require('../../shared/middleware');
+const { authenticateJWT, isAdminLike, isModuleAdmin } = require('../../shared/middleware');
 const ctrl = require('./reunions-service.controller');
 
-// Réservé aux administrateurs du module (admin / superadmin) : création et
-// gestion des modèles, suppression des occurrences.
-const requireModuleAdmin = (req, res, next) => {
-    if (!isAdminLike(req.user)) {
-        return res.status(403).json({ error: 'Réservé aux administrateurs du module.' });
+const MODULE_KEY = 'reunions-service';
+
+// Administrateur du module = admin global OU utilisateur ayant la tuile
+// « Réunions de service » cochée dans les paramètres du Hub (ex. lrigoulat).
+const requireModuleAdmin = async (req, res, next) => {
+    if (isAdminLike(req.user) || await isModuleAdmin(req.user, MODULE_KEY)) {
+        return next();
     }
-    next();
+    return res.status(403).json({ error: 'Réservé aux administrateurs du module.' });
 };
 
 // Pièces jointes (PDF, images, documents) en mémoire → écrites via la GED
@@ -32,7 +34,10 @@ const authJwtOrQuery = (req, res, next) => {
     });
 };
 
-// ===== Templates (paramétrage) — création/gestion réservées aux admins =====
+// ===== Templates (paramétrage) — création/gestion réservées aux admins du module =====
+router.get('/access', authenticateJWT, async (req, res) => {
+    res.json({ admin: isAdminLike(req.user) || await isModuleAdmin(req.user, MODULE_KEY) });
+});
 router.get('/templates', authenticateJWT, ctrl.listTemplates);
 router.get('/templates/:id', authenticateJWT, ctrl.getTemplate);
 router.post('/templates', authenticateJWT, requireModuleAdmin, ctrl.createTemplate);
@@ -82,6 +87,7 @@ router.delete('/sections/:id', authenticateJWT, ctrl.deleteSection);
 
 // Items (contenu riche par rubrique)
 router.post('/meetings/:id/sections/:sectionId/items', authenticateJWT, ctrl.createItem);
+router.patch('/meetings/:id/sections/:sectionId/items/order', authenticateJWT, ctrl.reorderItems);
 router.put('/items/:itemId', authenticateJWT, ctrl.updateItem);
 router.patch('/items/:itemId/move', authenticateJWT, ctrl.moveItem);
 router.delete('/items/:itemId', authenticateJWT, ctrl.deleteItem);

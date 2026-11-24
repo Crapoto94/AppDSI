@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
 import { useAuth } from '../../contexts/AuthContext';
+import useReunionAccess from './useReunionAccess';
 import {
     BarChart3, ArrowLeft, Users, Clock, XCircle, AlertTriangle, Timer, RefreshCw,
 } from 'lucide-react';
@@ -44,9 +45,9 @@ const fmtMin = (m: number) => {
 };
 
 export default function ReunionsServiceStats() {
-    const { token, user } = useAuth();
+    const { token } = useAuth();
     const navigate = useNavigate();
-    const isAdmin = ['admin', 'superadmin'].includes(String(user?.role || ''));
+    const isAdmin = useReunionAccess();
     const [year, setYear] = useState<string>('');
     const [data, setData] = useState<DetailedStats | null>(null);
     const [loading, setLoading] = useState(true);

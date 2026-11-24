@@ -13,6 +13,36 @@ const isAdminLike = (user) =>
     isSuperAdmin(user) || (user && user.role === 'admin');
 
 /**
+ * Administrateur d'un MODULE : les admins/superadmins, ou tout utilisateur à
+ * qui la tuile du module a été cochée dans les paramètres du Hub
+ * (`hub.tiles.module_key` + `user_tiles`). Ex. : lrigoulat responsable du
+ * module Réunions de service sans être administrateur global.
+ */
+async function isModuleAdmin(user, moduleKey) {
+    if (!user) return false;
+    if (isAdminLike(user)) return true;
+    try {
+        const db = getSqlite();
+        if (!db) return false;
+        const tile = await db.get('SELECT id FROM tiles WHERE module_key = ?', [moduleKey]);
+        if (!tile) return false;
+        const row = await db.get(
+            'SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = ?',
+            [user.id, tile.id]
+        );
+        return !!row;
+    } catch {
+        return false;
+    }
+}
+
+/** Middleware Express : accès réservé aux admins du module (ou admins globaux). */
+const requireModuleAdmin = (moduleKey) => async (req, res, next) => {
+    if (await isModuleAdmin(req.user, moduleKey)) return next();
+    return res.status(403).json({ error: 'Réservé aux administrateurs de ce module.' });
+};
+
+/**
  * Jetons kiosque DSI Dashboard : code opaque court (16 car.), révocable en base,
  * limité au strict accès en lecture (GET). Utilisés pour l'affichage automatisé
  * sans ré-authentification (postes en mode kiosque). Contrairement aux JWT
@@ -712,4 +742,6 @@ module.exports = {
     scopeForPath,
     isSuperAdmin,
     isAdminLike,
+    isModuleAdmin,
+    requireModuleAdmin,
 };

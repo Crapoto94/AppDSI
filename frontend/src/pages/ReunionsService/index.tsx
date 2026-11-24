@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
 import { useAuth } from '../../contexts/AuthContext';
+import useReunionAccess from './useReunionAccess';
 import {
     Plus, Calendar, Clock, Users, ListChecks, Presentation, Pencil, Copy,
     Trash2, Play, ArrowRight, X, CheckCircle2, Timer, FileText, Search,
@@ -145,9 +146,9 @@ const ModeBadge = ({ mode }: { mode?: string | null }) => {
 };
 
 export default function ReunionsServiceIndex() {
-    const { token, user } = useAuth();
+    const { token } = useAuth();
     const navigate = useNavigate();
-    const isAdmin = ['admin', 'superadmin'].includes(String(user?.role || ''));
+    const isAdmin = useReunionAccess();
     const [tab, setTab] = useState<'meetings' | 'templates'>('meetings');
     const [meetings, setMeetings] = useState<MeetingRow[]>([]);
     const [templates, setTemplates] = useState<TemplateRow[]>([]);

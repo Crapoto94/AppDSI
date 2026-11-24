@@ -6,6 +6,7 @@ import AgentSearch from '../../components/AgentSearch';
 import type { AgentOption } from '../../components/AgentSearch';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import { useAuth } from '../../contexts/AuthContext';
+import useReunionAccess from './useReunionAccess';
 import {
     ArrowLeft, Plus, Trash2, Clock, Users, ChevronUp, ChevronDown, Save, X, Presentation,
     ListChecks, Sparkles, Lock, Pause, Gamepad2,
@@ -52,11 +53,11 @@ const fmtTotal = (min: number) => {
 };
 
 export default function ReunionServiceTemplateEdit() {
-    const { token, user } = useAuth();
+    const { token } = useAuth();
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const isNew = !id || id === 'new';
-    const isAdmin = ['admin', 'superadmin'].includes(String(user?.role || ''));
+    const isAdmin = useReunionAccess();
 
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
@@ -91,7 +92,7 @@ export default function ReunionServiceTemplateEdit() {
             .catch((e: ApiErrorLike) => setError(e?.response?.data?.error || 'Erreur de chargement'))
             .finally(() => setLoading(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id, token, isNew]);
+    }, [id, token, isNew, isAdmin]);
 
     const sectionsTotal = sections.reduce((sum, s) => sum + (Number(s.duration_minutes) || 0), 0);
     const total = sectionsTotal + (Number(metaDuration) || 0);

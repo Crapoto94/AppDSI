@@ -4978,10 +4978,8 @@ app.get('/api/tiles', async (req, res) => {
             const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
             const visByKey = {};
             visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
-            const admin = user && isAdminLike(user);
-            if (!admin) {
-                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
-            }
+            // Un module décoché n'est plus visible pour PERSONNE, y compris les admins.
+            tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             
             // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
             for (const tile of tiles) {
@@ -5031,10 +5029,8 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
             const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
             const visByKey = {};
             visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
-            const admin = isAdminLike(req.user);
-            if (!admin) {
-                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
-            }
+            // Un module décoché n'est plus visible pour PERSONNE, y compris les admins.
+            tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             
             // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
             for (const tile of tiles) {
@@ -5293,6 +5289,35 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
         res.json(users);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération des utilisateurs', error: error.message });
+    }
+});
+
+app.post('/api/users', authenticateAdmin, async (req, res) => {
+    const { username, password, role, service_code, service_complement, authorized_tiles } = req.body || {};
+    const uname = String(username || '').trim();
+    if (!uname) return res.status(400).json({ message: 'Identifiant requis' });
+    if (!password || !String(password).trim()) return res.status(400).json({ message: 'Mot de passe requis' });
+    try {
+        if (role === 'superadmin' && req.user.role !== 'superadmin') {
+            return res.status(403).json({ message: 'Seul un super-administrateur peut attribuer ce rôle.' });
+        }
+        const existing = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [uname]);
+        if (existing) return res.status(409).json({ message: 'Cet identifiant existe déjà' });
+        const hashed = await bcrypt.hash(String(password).trim(), 10);
+        const result = await db.run(
+            `INSERT INTO users (username, password, role, is_approved, service_code, service_complement)
+             VALUES (?, ?, ?, 1, ?, ?)`,
+            [uname, hashed, role || 'user', service_code || null, service_complement || null]
+        );
+        const userId = result.lastID;
+        if (Array.isArray(authorized_tiles) && authorized_tiles.length > 0) {
+            for (const tileId of authorized_tiles) {
+                await db.run('INSERT INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [userId, tileId]);
+            }
+        }
+        res.json({ id: userId, username: uname });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la création', error: error.message });
     }
 });
 

@@ -115,7 +115,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [originalLinks, setOriginalLinks] = useState<any[]>([]);
   const [newLink, setNewLink] = useState<Partial<TileLink>>({ label: '', url: '', is_internal: 0 });
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] as number[] });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editingUserPassword, setEditingUserPassword] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1844,7 +1844,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
+      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] });
       setIsAddingUser(false);
       fetchUsers();
     }
@@ -2400,27 +2400,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <label>Complément Service</label>
                         <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
                       </div>
-                      {editingUser && (
+                      {(editingUser || isAddingUser) && (
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                           <label>Tuiles Autorisées & Permissions</label>
                           <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
                             {tiles.filter(t => t.is_public !== 1).map(tile => {
-                              const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
+                              const currentTiles = editingUser ? (editingUser.authorized_tiles || []) : (newUser.authorized_tiles || []);
+                              const isAuth = currentTiles.includes(tile.id);
                               return (
                                 <label key={tile.id} className={`tile-checkbox-card ${isAuth ? 'selected' : ''}`}>
                                   <input 
                                     type="checkbox" 
                                     checked={!!isAuth}
                                     onChange={(e) => {
-                                      if (!editingUser) return;
-                                      const currentTiles = editingUser.authorized_tiles || [];
-                                      console.log('[DEBUG ADMIN] Tile toggle:', tile.id, tile.title, 'checked:', e.target.checked, 'currentTiles:', JSON.stringify(currentTiles));
-                                      if (e.target.checked) {
-                                        setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
+                                      const nextTiles = e.target.checked
+                                        ? [...currentTiles, tile.id]
+                                        : currentTiles.filter(id => id !== tile.id);
+                                      if (editingUser) {
+                                        setEditingUser({ ...editingUser, authorized_tiles: nextTiles });
                                       } else {
-                                        const newTiles = currentTiles.filter(id => id !== tile.id);
-                                        console.log('[DEBUG ADMIN] New authorized_tiles:', JSON.stringify(newTiles));
-                                        setEditingUser({...editingUser, authorized_tiles: newTiles});
+                                        setNewUser({ ...newUser, authorized_tiles: nextTiles });
                                       }
                                     }}
                                   />
@@ -4753,7 +4752,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </p>
                 </div>
                 <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', borderRadius: 999, padding: '6px 12px' }}>
-                  Les administrateurs voient tous les modules
+                  Un module décoché est masqué pour tout le monde
                 </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>

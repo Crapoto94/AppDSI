@@ -12,12 +12,13 @@ import { ReunionServiceRichEditor, ReunionRichContent } from '../../components/R
 import { PollComposerModal, PollCard, PollAnswerForm } from './InteractPoll';
 import type { Poll } from './InteractPoll';
 import TetrisPause from './TetrisPause';
+import useReunionAccess from './useReunionAccess';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     ArrowLeft, Play, Square, Timer, ListChecks, FileText, Plus, Pencil, Trash2,
     ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Eye, EyeOff, Paperclip, Upload, X,
     Calendar, RotateCcw, Save, Radio, Video, Building2, Link2, ExternalLink, Search, RefreshCw, Sparkles,
-    Pause, Gamepad2,
+    Pause, Gamepad2, GripVertical, User,
 } from 'lucide-react';
 
 interface Attachment {
@@ -35,7 +36,6 @@ interface Item {
     section_id: number;
     title: string;
     content_html: string;
-    is_pause?: boolean;
     created_by_name?: string | null;
     updated_at?: string | null;
     attachments: Attachment[];
@@ -208,6 +208,8 @@ export default function ReunionServiceMeetingView() {
     const [joinToasts, setJoinToasts] = useState<{ id: string; text: string }[]>([]);
     const [itemModal, setItemModal] = useState<{ sectionId: number; item?: Item } | null>(null);
     const [showTetris, setShowTetris] = useState<{ itemId: number; sectionId: number; title?: string } | null>(null);
+    const [dragSectionId, setDragSectionId] = useState<number | null>(null);
+    const [dragItemId, setDragItemId] = useState<number | null>(null);
     const [showStartModal, setShowStartModal] = useState(false);
     const [startMaster, setStartMaster] = useState<string>('');
     const [starting, setStarting] = useState(false);
@@ -428,7 +430,7 @@ export default function ReunionServiceMeetingView() {
 
     const isMaster = (String(meeting?.time_master_username || '').toLowerCase() === me && !!me)
         || (!!live?.masterUsername && live.masterUsername === me);
-    const isAdmin = ['admin', 'superadmin'].includes(String(user?.role || ''));
+    const isAdmin = useReunionAccess();
     const isLive = meeting?.status === 'in_progress';
     const currentLiveSectionId = Number(live?.currentSectionId || 0);
     const isPauseLive = (sectionId: number) => isLive && currentLiveSectionId > 0 && currentLiveSectionId === sectionId;
@@ -504,13 +506,43 @@ export default function ReunionServiceMeetingView() {
         }
     };
 
-    const moveItem = async (item: Item, dir: 'up' | 'down') => {
+    const reorderItemsByDrag = async (sourceId: number, targetId: number) => {
+        if (!displayedSection || sourceId === targetId) return;
+        const items = [...displayedSection.items];
+        const from = items.findIndex(i => i.id === sourceId);
+        const to = items.findIndex(i => i.id === targetId);
+        if (from < 0 || to < 0) return;
+        const [moved] = items.splice(from, 1);
+        items.splice(to, 0, moved);
         try {
-            await axios.patch(`/api/reunions-service/items/${item.id}/move`, { dir }, auth);
+            await axios.patch(
+                `/api/reunions-service/meetings/${meetingId}/sections/${displayedSection.id}/items/order`,
+                { ids: items.map(i => i.id) }, auth
+            );
             reload();
         } catch (e) {
             const err = e as ApiErrorLike;
-            window.alert(err?.response?.data?.error || 'Impossible de déplacer l\'item.');
+            window.alert(err?.response?.data?.error || 'Impossible de réordonner les items.');
+        }
+    };
+
+    const reorderSectionsByDrag = async (sourceId: number, targetId: number) => {
+        if (!canManageStructure || sourceId === targetId) return;
+        const ordered = [...sections].sort((a, b) => a.position - b.position || a.id - b.id);
+        const from = ordered.findIndex(s => s.id === sourceId);
+        const to = ordered.findIndex(s => s.id === targetId);
+        if (from < 0 || to < 0 || ordered[from].is_meta) return;
+        const [moved] = ordered.splice(from, 1);
+        ordered.splice(to, 0, moved);
+        const meta = ordered.filter(s => s.is_meta);
+        const rest = ordered.filter(s => !s.is_meta);
+        try {
+            await axios.patch(`/api/reunions-service/meetings/${meetingId}/sections/order`,
+                { ids: [...meta, ...rest].map(s => s.id) }, auth);
+            reload();
+        } catch (e) {
+            const err = e as ApiErrorLike;
+            window.alert(err?.response?.data?.error || 'Impossible de réordonner les rubriques.');
         }
     };
 
@@ -1215,10 +1247,36 @@ export default function ReunionServiceMeetingView() {
                         </div>
                         {sections.map(s => {
                             const active = s.id === displayedSectionId;
+                            const draggable = canManageStructure && !s.is_meta;
                             return (
-                                <button key={s.id} className={`rsv-sec ${active ? 'active' : ''}`} onClick={() => gotoSection(s.id)}
-                                    style={s.is_pause ? { background: '#fffbeb', borderLeft: '3px solid #f59e0b' } : undefined}>
-                                    <span className="t">{s.is_meta ? `👥 ${s.title}` : s.is_pause ? `⏸ ${s.title || 'Pause'}` : s.title}</span>
+                                <button
+                                    key={s.id}
+                                    className={`rsv-sec ${active ? 'active' : ''}`}
+                                    onClick={() => gotoSection(s.id)}
+                                    draggable={draggable}
+                                    onDragStart={e => {
+                                        if (!draggable) return;
+                                        setDragSectionId(s.id);
+                                        e.dataTransfer.effectAllowed = 'move';
+                                        e.dataTransfer.setData('text/plain', String(s.id));
+                                    }}
+                                    onDragOver={e => { if (draggable) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                    onDrop={e => {
+                                        e.preventDefault();
+                                        const src = Number(e.dataTransfer.getData('text/plain')) || dragSectionId;
+                                        if (src && src !== s.id) reorderSectionsByDrag(src, s.id);
+                                        setDragSectionId(null);
+                                    }}
+                                    onDragEnd={() => setDragSectionId(null)}
+                                    style={{
+                                        ...(s.is_pause ? { background: '#fffbeb', borderLeft: '3px solid #f59e0b' } : {}),
+                                        ...(dragSectionId === s.id ? { opacity: 0.45 } : {}),
+                                    }}
+                                >
+                                    <span className="t" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {draggable && <GripVertical size={13} style={{ opacity: 0.45, flex: '0 0 auto' }} />}
+                                        <span>{s.is_meta ? `👥 ${s.title}` : s.is_pause ? `⏸ ${s.title || 'Pause'}` : s.title}</span>
+                                    </span>
                                     <span className="d">{s.is_meta ? 'meta' : s.is_pause ? 'pause' : fmtDuration(s.duration_minutes)}</span>
                                 </button>
                             );
@@ -1387,27 +1445,42 @@ export default function ReunionServiceMeetingView() {
                                 )}
 
                                 {(displayedSection?.items || []).map(item => (
-                                    <div className="rsv-item" key={item.id} data-rs-item={item.id}>
+                                    <div
+                                        className="rsv-item"
+                                        key={item.id}
+                                        data-rs-item={item.id}
+                                        draggable
+                                        onDragStart={e => {
+                                            setDragItemId(item.id);
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            e.dataTransfer.setData('text/plain', String(item.id));
+                                        }}
+                                        onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                                        onDrop={e => {
+                                            e.preventDefault();
+                                            const src = Number(e.dataTransfer.getData('text/plain')) || dragItemId;
+                                            if (src && src !== item.id) reorderItemsByDrag(src, item.id);
+                                            setDragItemId(null);
+                                        }}
+                                        onDragEnd={() => setDragItemId(null)}
+                                        style={dragItemId === item.id ? { opacity: 0.45 } : undefined}
+                                    >
                                         <div className="rsv-item-head">
-                                            <div>
-                                                <div className="rsv-item-title">{item.title}</div>
-                                                <div className="rsv-item-meta">
-                                                    {item.created_by_name ? `Ajouté par ${item.created_by_name}` : ''}
-                                                    {item.updated_at ? ` · modifié le ${fmtDate(item.updated_at)}` : ''}
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
+                                                <span title="Glisser pour réordonner" style={{ cursor: 'grab', color: '#cbd5e1', marginTop: 2, flex: '0 0 auto' }}>
+                                                    <GripVertical size={15} />
+                                                </span>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div className="rsv-item-title">{item.title}</div>
+                                                    <div className="rsv-item-meta" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                                        <User size={11} />
+                                                        <span>{item.created_by_name || 'Auteur inconnu'}</span>
+                                                        {item.updated_at ? <span>· modifié le {fmtDate(item.updated_at)}</span> : null}
+                                                    </div>
                                                 </div>
                                             </div>
                                             {meeting.status !== 'finished' && (
                                                 <div style={{ display: 'flex', gap: 6 }}>
-                                                    {canManageStructure && (
-                                                        <>
-                                                            <button className="rsv-ibtn" title="Monter l'item" onClick={() => moveItem(item, 'up')}>
-                                                                <ChevronUp size={15} />
-                                                            </button>
-                                                            <button className="rsv-ibtn" title="Descendre l'item" onClick={() => moveItem(item, 'down')}>
-                                                                <ChevronDown size={15} />
-                                                            </button>
-                                                        </>
-                                                    )}
                                                     <button className="rsv-ibtn" title="Modifier" onClick={() => setItemModal({ sectionId: item.section_id, item })}>
                                                         <Pencil size={15} />
                                                     </button>
@@ -1420,22 +1493,6 @@ export default function ReunionServiceMeetingView() {
                                                 </div>
                                             )}
                                         </div>
-                                        {item.is_pause && isPauseLive(item.section_id) && (
-                                            <div style={{
-                                                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                                                padding: '.65rem .8rem', margin: '.15rem 0 .5rem', borderRadius: 10,
-                                                background: '#fffbeb', border: '1px solid #fcd34d',
-                                            }}>
-                                                <Pause size={18} color="#b45309" />
-                                                <span style={{ flex: 1, minWidth: 160, color: '#92400e', fontSize: '.82rem', fontWeight: 700 }}>
-                                                    Pause — Tetris multijoueur
-                                                </span>
-                                                <button className="rsv-btn" style={{ padding: '.35rem .7rem', fontSize: '.76rem', background: '#b45309', color: '#fff' }}
-                                                    onClick={() => setShowTetris({ itemId: item.id, sectionId: item.section_id, title: item.title })}>
-                                                    <Gamepad2 size={14} /> Jouer
-                                                </button>
-                                            </div>
-                                        )}
                                         <ReunionRichContent html={item.content_html} />
                                         {item.attachments.length > 0 && (
                                             <div style={{ marginTop: '.6rem', borderTop: '1px dashed #e2e8f0', paddingTop: '.5rem' }}>
@@ -1763,7 +1820,6 @@ function ItemModal({
 }) {
     const [title, setTitle] = useState(item?.title || '');
     const [content, setContent] = useState(item?.content_html || '');
-    const [isPause, setIsPause] = useState(!!item?.is_pause);
     const [files, setFiles] = useState<File[]>([]);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -1777,7 +1833,7 @@ function ItemModal({
         setError('');
         try {
             let itemId = item?.id;
-            const payload = { title: title.trim(), content_html: content, is_pause: isPause };
+            const payload = { title: title.trim(), content_html: content };
             if (itemId) {
                 await axios.put(`/api/reunions-service/items/${itemId}`, payload, auth);
             } else {
@@ -1821,14 +1877,6 @@ function ItemModal({
                     <div className="rsv-field">
                         <label>Contenu</label>
                         <ReunionServiceRichEditor value={content} onChange={setContent} placeholder="Rédigez le contenu (images par copier-coller ou bouton image)…" />
-                    </div>
-                    <div className="rsv-field">
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '.6rem .75rem', border: `1.5px solid ${isPause ? '#fcd34d' : '#e2e8f0'}`, borderRadius: 9, background: isPause ? '#fffbeb' : '#fff' }}>
-                            <input type="checkbox" checked={isPause} onChange={e => setIsPause(e.target.checked)} />
-                            <Pause size={15} color={isPause ? '#b45309' : '#64748b'} />
-                            <span style={{ color: isPause ? '#92400e' : '#334155', fontWeight: 700, fontSize: '.82rem' }}>Mode pause — Tetris multijoueur</span>
-                            <span style={{ color: '#a16207', fontSize: '.72rem' }}>Affiche un bouton « Jouer » aux participants</span>
-                        </label>
                     </div>
                     <div className="rsv-field">
                         <label>Pièces jointes (PDF, images, documents…)</label>

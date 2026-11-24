@@ -11,7 +11,7 @@
  *     pilote les écrans connectés (temps réel via socket.io).
  */
 const { pgDb } = require('../../shared/database');
-const { isAdminLike } = require('../../shared/middleware');
+const { isAdminLike, isModuleAdmin } = require('../../shared/middleware');
 const crypto = require('crypto');
 const { SECRET_KEY } = require('../../shared/config');
 const storage = require('../../shared/storage');
@@ -180,10 +180,10 @@ async function finalizePastMeetings(force = false) {
     }
 }
 
-/** Le maître du temps ou un administrateur peut piloter la structure. */
-function canManageMeeting(user, meeting) {
+/** Le maître du temps ou un administrateur du module peut piloter la structure. */
+async function canManageMeeting(user, meeting) {
     if (!meeting) return false;
-    if (isAdminLike(user)) return true;
+    if (isAdminLike(user) || await isModuleAdmin(user, 'reunions-service')) return true;
     const key = userKey(user);
     return !!key && String(meeting.time_master_username || '').toLowerCase() === key;
 }
@@ -191,8 +191,8 @@ function canManageMeeting(user, meeting) {
 async function loadManagedMeeting(req, res, meetingId) {
     const meeting = await pgDb.get('SELECT * FROM reunions_service.meetings WHERE id = ?', [meetingId]);
     if (!meeting) { res.status(404).json({ error: 'Réunion introuvable' }); return null; }
-    if (!canManageMeeting(req.user, meeting)) {
-        res.status(403).json({ error: 'Réservé au maître du temps ou aux administrateurs.' });
+    if (!(await canManageMeeting(req.user, meeting))) {
+        res.status(403).json({ error: 'Réservé au maître du temps ou aux administrateurs du module.' });
         return null;
     }
     return meeting;
@@ -1246,7 +1246,7 @@ const controller = {
                 return res.status(403).json({ error: 'Réponses totalement anonymes : personne ne peut savoir qui a répondu.' });
             }
             const username = userKey(req.user);
-            const allowed = visibility === 'nominatif' || isAdminLike(req.user)
+            const allowed = visibility === 'nominatif' || await isModuleAdmin(req.user, 'reunions-service')
                 || String(row.created_by || '') === username
                 || String(meeting?.time_master_username || '') === username;
             if (!allowed) return res.status(403).json({ error: 'Accès réservé au lanceur, au maître du temps ou à un administrateur.' });
@@ -1272,7 +1272,7 @@ const controller = {
             if (!row) return res.status(404).json({ error: 'INTERACT introuvable' });
             const meeting = await pgDb.get('SELECT * FROM reunions_service.meetings WHERE id = ?', [row.meeting_id]);
             const username = userKey(req.user);
-            const allowed = isAdminLike(req.user)
+            const allowed = await isModuleAdmin(req.user, 'reunions-service')
                 || String(row.created_by || '') === username
                 || String(meeting?.time_master_username || '') === username;
             if (!allowed) return res.status(403).json({ error: 'Seul le lanceur, le maître du temps ou un administrateur peut clôturer ce sondage.' });
@@ -1291,8 +1291,8 @@ const controller = {
     /** Suppression d'un INTERACT — réservée aux administrateurs. */
     deletePoll: async (req, res) => {
         try {
-            if (!isAdminLike(req.user)) {
-                return res.status(403).json({ error: 'Suppression réservée aux administrateurs.' });
+            if (!(await isModuleAdmin(req.user, 'reunions-service'))) {
+                return res.status(403).json({ error: 'Suppression réservée aux administrateurs du module.' });
             }
             const pollId = toInt(req.params.id);
             const row = await pgDb.get('SELECT * FROM reunions_service.polls WHERE id = ?', [pollId]);
@@ -1693,6 +1693,41 @@ const controller = {
             }
             reunionSocket.notifyContentChanged(item.meeting_id, { itemId });
             res.json({ success: true, moved: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /** Réordonne les items d'une rubrique. Ouvert à tous les participants : le
+     *  nouvel ordre est partagé à tous (exigence métier). */
+    reorderItems: async (req, res) => {
+        try {
+            const meetingId = toInt(req.params.id);
+            const sectionId = toInt(req.params.sectionId);
+            const meeting = await pgDb.get('SELECT id FROM reunions_service.meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });
+            const section = await pgDb.get(
+                'SELECT id FROM reunions_service.meeting_sections WHERE id = ? AND meeting_id = ?', [sectionId, meetingId]
+            );
+            if (!section) return res.status(404).json({ error: 'Rubrique introuvable' });
+            const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(v => toInt(v)).filter(Boolean) : [];
+            if (ids.length === 0) return res.status(400).json({ error: 'Ordre des items manquant' });
+            const existing = await pgDb.all(
+                'SELECT id FROM reunions_service.items WHERE section_id = ? ORDER BY position, id', [sectionId]
+            );
+            const valid = new Set(existing.map(i => Number(i.id)));
+            const ordered = ids.filter(id => valid.has(id));
+            // Les items non transmis restent à la fin (pas de perte).
+            for (const it of existing) {
+                if (!ordered.includes(Number(it.id))) ordered.push(Number(it.id));
+            }
+            let pos = 0;
+            for (const id of ordered) {
+                await pgDb.run('UPDATE reunions_service.items SET position = ? WHERE id = ? AND section_id = ?', [pos, id, sectionId]);
+                pos += 1;
+            }
+            reunionSocket.notifyContentChanged(meetingId, { sectionId });
+            res.json({ success: true, ids: ordered });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
