@@ -29,7 +29,7 @@ const raw = execFileSync('git', ['log', '--reverse', '--date=short', '--format=%
 const SKIP = /^(merge|wip|tmp|chore\(release\))/i;
 const parse = (subject) => {
     // Convention du dépôt pour les correctifs : « Correction bug : … »
-    const bug = String(subject).match(/^Correction bugs*:s*(.+)$/i);
+    const bug = String(subject).match(/^Correction bug\s*:\s*(.+)$/i);
     if (bug) return { type: 'fix', text: bug[1].trim() };
     const m = String(subject).match(/^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/);
     return m ? { type: m[1].toLowerCase(), text: m[3].trim() } : { type: 'autre', text: String(subject).trim() };

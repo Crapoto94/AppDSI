@@ -9,10 +9,10 @@
       "commit": "3aa2365b",
       "groups": {
         "nouveautes": [],
-        "ameliorations": [
-          "Correction bug : l'avancement par direction compte les entretiens planifiés (réalisés compris) et non les seuls réalisés"
-        ],
-        "corrections": []
+        "ameliorations": [],
+        "corrections": [
+          "L'avancement par direction compte les entretiens planifiés (réalisés compris) et non les seuls réalisés"
+        ]
       }
     },
     {
@@ -85,10 +85,10 @@
       "commit": "bc76071e",
       "groups": {
         "nouveautes": [],
-        "ameliorations": [
-          "Correction bug : lots de CREP reçus par mail ou numérisés : le QR code est reconnu même s'il est signé par une autre instance, lecture plus robuste (plusieurs résolutions, contraste inversé), lot sans CREP reconnu consultable avec classement manuel des pages et relance de l'analyse, vignettes expliquant un fichier introuvable, fichiers des lots déposés dans la GED (lisibles depuis tous les serveurs)"
-        ],
-        "corrections": []
+        "ameliorations": [],
+        "corrections": [
+          "Lots de CREP reçus par mail ou numérisés : le QR code est reconnu même s'il est signé par une autre instance, lecture plus robuste (plusieurs résolutions, contraste inversé), lot sans CREP reconnu consultable avec classement manuel des pages et relance de l'analyse, vignettes expliquant un fichier introuvable, fichiers des lots déposés dans la GED (lisibles depuis tous les serveurs)"
+        ]
       }
     },
     {
