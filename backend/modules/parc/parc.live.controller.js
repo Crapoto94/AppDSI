@@ -151,7 +151,10 @@ function mapDoc(d) {
 
 // ── Liste : recherche / filtres / tri / pagination (sur des lignes normalisées) ─
 function applyListQuery(rows, query) {
-  if (query.deleted !== '1') rows = rows.filter((r) => !r.is_deleted);
+  // Les fiches mises à la corbeille dans GLPI (état « Mis au rebut »…) sont
+  // incluses par défaut : elles font partie du parc et doivent rester visibles.
+  // deleted=0 permet de ne garder que les fiches actives (ex. compteurs).
+  if (query.deleted === '0') rows = rows.filter((r) => !r.is_deleted);
 
   const q = (query.q || '').trim().toLowerCase();
   if (q) {
@@ -482,19 +485,48 @@ async function enrichAdFound(rows) {
   } catch (e) { /* table absente ou non synchronisée */ }
 }
 
-// Enrichit ad_last_seen / ad_last_user en rapprochant le nom de l'équipement des
-// ordinateurs importés de l'AD (table hub_parc.ad_computers). Match par nom (le
-// samAccountName d'un ordinateur AD = nom + « $ »). Un seul aller-retour DB.
-async function enrichAdComputer(rows) {
+// Enrichit ad_last_seen / ad_last_user.
+//  - source 'hub'  : rapproche le nom de l'équipement des ordinateurs importés de
+//    l'AD (table hub_parc.ad_computers) — un seul aller-retour DB.
+//  - source 'live' : interroge l'annuaire en direct (module ad_live, cache 60 s),
+//    pour ne jamais dépendre de la copie locale quand on est en mode Live.
+// Match par nom (le samAccountName d'un ordinateur AD = nom + « $ »).
+async function enrichAdComputer(rows, source = 'hub') {
   const names = [...new Set(
     rows.filter(r => r.name).map(r => String(r.name).trim().toLowerCase())
   )].filter(Boolean);
   if (!names.length) return;
+
+  if (source === 'live') {
+    try {
+      const { getLiveADComputers } = require('./ad_live');
+      const { rows: adRows } = await getLiveADComputers();
+      const byName = new Map();
+      for (const x of adRows || []) {
+        const key = (x.name || '').trim().toLowerCase();
+        if (!key) continue;
+        const prev = byName.get(key);
+        if (!prev || (x.lastlogon && (!prev.lastlogon || new Date(x.lastlogon) > new Date(prev.lastlogon)))) {
+          byName.set(key, x);
+        }
+      }
+      for (const r of rows) {
+        if (!r.name) continue;
+        const m = byName.get(String(r.name).trim().toLowerCase());
+        if (m) {
+          r.ad_last_seen = m.lastlogon || null;
+          r.ad_last_user = m.description || null;
+        }
+      }
+    } catch (e) { /* AD injoignable : pas de blocage du parc GLPI */ }
+    return;
+  }
+
   try {
     const { pool } = require('../../shared/database');
     const result = await pool.query(
       `SELECT name, samaccountname, lastlogon, lastlogonuser, description FROM hub_parc.ad_computers
-       WHERE LOWER(name) = ANY($1)`, [names]
+       WHERE LOWER(name) = ANY($1) AND import_batch = (SELECT MAX(import_batch) FROM hub_parc.ad_computers)`, [names]
     );
     const byName = new Map();
     for (const x of result.rows) {
@@ -611,7 +643,9 @@ async function docCountIndex({ refresh = false } = {}) {
 }
 async function loadType(itemtype, { refresh = false, ic = null, os = null, dc = null } = {}) {
   const now = new Date();
-  const raw = await glpi.getAll(itemtype, { refresh });
+  // includeDeleted : le parc doit aussi montrer les machines mises au rebut dans
+  // GLPI (l'API les masque par défaut, ex. PO18028).
+  const raw = await glpi.getAll(itemtype, { refresh, includeDeleted: true });
   if (!ic) ic = await infocomIndex({ refresh });
   if (itemtype === 'Computer' && !os) os = await osIndex({ refresh });
   if (!dc) dc = await docCountIndex({ refresh });
@@ -623,7 +657,7 @@ async function loadType(itemtype, { refresh = false, ic = null, os = null, dc = 
     return r;
   });
   await enrichAdFound(result);
-  await enrichAdComputer(result);
+  await enrichAdComputer(result, 'live');
   computeLastContact(result);
   return result;
 }
@@ -797,6 +831,15 @@ async function usagersEquip(req, res) {
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
+// Stock : même calcul que le HUB, mais à partir de l'inventaire GLPI en direct.
+async function stockSummary(req, res) {
+  try {
+    const refresh = req.query.refresh === '1';
+    const rows = await loadAllTypesLive({ refresh });
+    res.json({ source: 'live', groups: computeStockSummary(rows) });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
 async function health(req, res) {
   let sess;
   try {
@@ -823,7 +866,9 @@ async function warmCache() {
     await glpi.getAll('OperatingSystem', { refresh: true }).catch(() => []);
     await glpi.getAll('Document_Item', { refresh: true }).catch(() => []);
     for (const key of Object.keys(glpi.ITEM_TYPES)) {
-      await glpi.getAll(glpi.ITEM_TYPES[key].itemtype, { refresh: true }).catch(() => []);
+      // includeDeleted : les vues parc utilisent aussi les fiches en corbeille GLPI
+      // (états « Mis au rebut »…) — on préchauffe donc directement ce jeu de données.
+      await glpi.getAll(glpi.ITEM_TYPES[key].itemtype, { refresh: true, includeDeleted: true }).catch(() => []);
     }
     console.log(`[PARC LIVE] cache GLPI préchauffé en ${Math.round((Date.now() - t0) / 1000)} s`);
   } catch (e) {
@@ -835,7 +880,7 @@ if (process.env.PARC_LIVE_WARMUP !== '0') {
 }
 
 module.exports = {
-  list, item, kpis, filters, health, usagersEquip,
+  list, item, kpis, filters, health, usagersEquip, stockSummary,
   // Cœur réutilisé par le module HUB
   core: {
     normalize, mergeInfocom, mapPort, mapOs, mapDoc,

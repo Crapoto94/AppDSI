@@ -46,7 +46,7 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
     setBusy('test'); setMsg(null);
     try {
       const res = await axios.post(`/api/infra/apis/${form.key}/test`, {}, { headers });
-      setMsg({ type: 'ok', text: `Connexion OK — ${res.data.count} résultat(s) reçu(s) de l'API.` });
+      setMsg({ type: 'ok', text: res.data.message || `Connexion OK — ${res.data.count} résultat(s) reçu(s) de l'API.` });
     } catch (e: unknown) {
       setMsg({ type: 'err', text: (e as any)?.response?.data?.message || 'Échec du test de connexion.' });
     } finally { setBusy(''); }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
+import RemoteControlAction from './Tickets/RemoteControlAction';
 
 function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -561,6 +562,8 @@ export default function FastActions() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Lance une synchro Azure AD Connect pour propager les changements AD vers O365.</div>
                   </div>
                 </button>
+
+                <RemoteControlAction />
 
                 {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
                 {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}

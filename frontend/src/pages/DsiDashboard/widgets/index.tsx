@@ -23,6 +23,7 @@ const BudgetInvoicesWidget  = lazy(() => import('./BudgetInvoicesWidget'));
 const BudgetRecentInvoicesWidget = lazy(() => import('./BudgetRecentInvoicesWidget'));
 const BudgetRecentOrdersWidget   = lazy(() => import('./BudgetRecentOrdersWidget'));
 const BudgetDgpWidget            = lazy(() => import('./BudgetDgpWidget'));
+const BudgetEnsWidget            = lazy(() => import('./BudgetEnsWidget'));
 const MagappMaintenancesWidget = lazy(() => import('./MagappMaintenancesWidget'));
 const MagappIdeasWidget     = lazy(() => import('./MagappIdeasWidget'));
 const MagappClicksWidget    = lazy(() => import('./MagappClicksWidget'));
@@ -45,6 +46,7 @@ const NotesWordcloudWidget = lazy(() => import('./NotesWordcloudWidget'));
 const EntretiensKpiWidget = lazy(() => import('./EntretiensKpiWidget'));
 const EntretiensStatutsWidget = lazy(() => import('./EntretiensStatutsWidget'));
 const ReunionsServiceKpiWidget = lazy(() => import('./ReunionsServiceKpiWidget'));
+const RhDepartsWidget = lazy(() => import('./RhDepartsWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -74,6 +76,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   budget_recent_invoices: BudgetRecentInvoicesWidget,
   budget_recent_orders:   BudgetRecentOrdersWidget,
   budget_dgp:             BudgetDgpWidget,
+  budget_ens:             BudgetEnsWidget,
   magapp_maintenances: MagappMaintenancesWidget,
   magapp_ideas:       MagappIdeasWidget,
   magapp_clicks:      MagappClicksWidget,
@@ -101,6 +104,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   entretiens_kpi:          EntretiensKpiWidget,
   entretiens_statuts:      EntretiensStatutsWidget,
   reunions_service_kpi:    ReunionsServiceKpiWidget,
+  rh_departs:              RhDepartsWidget,
   // Alias rétro-compatibilité : les tableaux existants enregistrés avec l'ancienne clé
   // unique (carte monde + carte pays empilées) affichent désormais la carte monde.
   mail_analyse_map:        MailAnalyseMapWorldWidget,

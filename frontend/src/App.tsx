@@ -16,6 +16,7 @@ import AdminSQL from './pages/AdminSQL';
 import AdminSettings from './pages/AdminSettings';
 import AdminInventaire from './pages/AdminInventaire';
 import AdminInfra from './pages/AdminInfra';
+import StudioIrsBrowser from './pages/Admin/StudioIrsBrowser';
 import AdminFinance from './pages/AdminFinance';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
@@ -296,6 +297,7 @@ function App() {
           <Route path="ged" element={<AdminGED />} />
           <Route path="inventaire" element={<AdminInventaire />} />
           <Route path="infra" element={<AdminInfra />} />
+          <Route path="studio-irs" element={<StudioIrsBrowser />} />
           <Route path="security" element={<SecurityMenu />} />
           <Route path="api-keys" element={<ApiKeysAdmin />} />
           <Route path="mcp" element={<McpAdmin />} />

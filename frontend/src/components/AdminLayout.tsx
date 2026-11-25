@@ -52,6 +52,7 @@ const AdminLayout: React.FC = () => {
     { title: "AD et Entra", icon: Users, path: "/admin/ad" },
     { title: "Inventaire", icon: Server, path: "/admin/inventaire" },
     { title: "API externes", icon: Network, path: "/admin/infra" },
+    { title: "Studio IRS", icon: Server, path: "/admin/studio-irs" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
     { title: "Notes IA (Mes Notes)", icon: NotebookPen, path: "/admin/notes" },

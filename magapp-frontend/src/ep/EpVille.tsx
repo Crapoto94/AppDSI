@@ -833,6 +833,15 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'retours' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
   const [reopenPending, setReopenPending] = useState(0);
+  // CREP retournés à examiner (collecteur de mails et téléversements) : pastille du menu « Suivi des retours »
+  const [retoursPending, setRetoursPending] = useState(0);
+  useEffect(() => {
+    if (!me?.isAdmin) return;
+    const load = () => axios.get('/api/entretiens/returns/pending', { headers: api() }).then(r => setRetoursPending(Number(r.data?.total) || 0)).catch(() => {});
+    load();
+    const t = window.setInterval(load, 60000);
+    return () => window.clearInterval(t);
+  }, [me?.isAdmin]);
   const [backlogPending, setBacklogPending] = useState(0);
   const [showBacklog, setShowBacklog] = useState(false);
   const [showAide, setShowAide] = useState(false);
@@ -901,7 +910,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!(me?.isAdmin || me?.isPilotage) },
-    { key: 'retours' as const, label: 'Suivi des retours', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true },
+    { key: 'retours' as const, label: 'Suivi des retours', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: retoursPending },
     { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin && !simpleMode, adminOnly: true, badge: reopenPending },
     { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: backlogPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin, adminOnly: true },
@@ -994,7 +1003,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
               {tab === 'evaluations' && (dsi?.isEvaluator || me.isValideur || base?.isValideur) && <Evaluations onChanged={loadDsi} canReset={!!me.isAdmin} />}
               {tab === 'equipe' && base?.isValideur && <Evaluations endpoint="/api/ep-base/equipe" readOnly />}
               {tab === 'pilotage' && (me.isAdmin || me.isPilotage) && <Evaluations endpoint="/api/ep-base/pilotage" readOnly pilotage canReset={!!me.isAdmin} noActions={!me.isAdmin} />}
-              {tab === 'retours' && me.isAdmin && <Retours />}
+              {tab === 'retours' && me.isAdmin && <Retours onPending={setRetoursPending} />}
               {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'reouvertures' && me.isAdmin && !simpleMode && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}

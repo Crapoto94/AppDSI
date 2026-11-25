@@ -45,6 +45,7 @@ router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
 router.post('/drh-reception', authenticateJWT, ctrl.drhReception);
 // Suivi des retours de CREP + numérisation en lot (administrateurs) — avant les routes /:id
 router.get('/returns/summary', authenticateJWT, ctrl.returnsSummary);
+router.get('/returns/pending', authenticateJWT, ctrl.returnsPending);
 router.get('/returns/batches', authenticateJWT, ctrl.returnsList);
 router.post('/returns/batches', authenticateJWT, uploadBatch.single('file'), ctrl.returnsCreate);
 router.get('/returns/batches/:id', authenticateJWT, ctrl.returnsGet);

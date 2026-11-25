@@ -87,8 +87,8 @@ router.get('/agents', async (req, res) => {
             return {
                 ...r,
                 droits: own
-                    ? { mode: own.mode, schemas: own.schemas, note: own.note, source: 'agent', updated_by: own.updated_by, updated_at: own.updated_at }
-                    : { mode: def?.mode || 'all', schemas: def?.schemas || [], note: null, source: def ? 'defaut' : 'historique' },
+                    ? { mode: own.mode, schemas: own.schemas, write_actions: own.write_actions || [], note: own.note, source: 'agent', updated_by: own.updated_by, updated_at: own.updated_at }
+                    : { mode: def?.mode || 'all', schemas: def?.schemas || [], write_actions: def?.write_actions || [], note: null, source: def ? 'defaut' : 'historique' },
             };
         }));
     } catch (e) { fail(res, e); }

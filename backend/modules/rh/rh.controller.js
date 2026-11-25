@@ -1,4 +1,5 @@
 const sedit = require('../../shared/sedit-rh');
+const { pool } = require('../../shared/database');
 
 // ─── Organigramme : résolution des responsables (skill « organigramme ») ──────
 
@@ -126,6 +127,38 @@ function pickSecteurResp(mgr, svcCode, secteurLabel) {
 }
 
 const rhController = {
+    // Agents partis sur une période — source : Studio RH (schéma StudioRH.REF_AGENTS).
+    // Alimente le KPI « agents partis depuis la dernière réunion » et le widget
+    // du tableau de bord. Les dates sentinelles (2099) ne sont pas des départs.
+    getDeparts: async (req, res) => {
+        const isoDate = (s) => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) ? s : null;
+        const today = new Date().toISOString().slice(0, 10);
+        const to = isoDate(req.query.to) || today;
+        const since = isoDate(req.query.since) || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        try {
+            const r = await pool.query(
+                `SELECT "matricule", "nom", "prenom",
+                        to_char("date_depart"::date, 'YYYY-MM-DD') AS date_depart,
+                        to_char("date_depart"::date, 'DD/MM/YYYY') AS date_depart_fr,
+                        COALESCE(NULLIF("fonction_l", ''), "poste_l") AS fonction,
+                        "nom_direction" AS direction, "nom_service" AS service, "mail"
+                 FROM "StudioRH"."REF_AGENTS"
+                 WHERE "date_depart" IS NOT NULL
+                   AND "date_depart"::date >= $1::date
+                   AND "date_depart"::date <= $2::date
+                   AND "date_depart"::date < DATE '2099-01-01'
+                 ORDER BY "date_depart"::date DESC, "nom", "prenom"`,
+                [since, to]
+            );
+            res.json({ source: 'Studio RH', since, to, count: r.rows.length, agents: r.rows });
+        } catch (err) {
+            if (err.code === '42P01' || /relation .* does not exist/i.test(err.message)) {
+                return res.json({ source: 'Studio RH', since, to, count: 0, agents: [], warning: 'Référentiel Studio RH indisponible' });
+            }
+            res.status(500).json({ message: 'Erreur lecture des départs (Studio RH)', error: err.message });
+        }
+    },
+
     // Arborescence Direction -> Services (utilisée pour alimenter des listes
     // déroulantes en cascade ailleurs dans l'app, ex. module certificats).
     getServicesTree: async (req, res) => {
@@ -143,8 +176,7 @@ const rhController = {
     },
 
     // Organisation chart depuis l'API SEDIT RH (directions > services > secteurs)
-    getOrganisationChart: async (req, res) => {
-        try {
+    getOrganisationChart: async (req, res) => {        try {
             const org = await sedit.organisation();
             const mgr = await resolveManagerIndex();
 

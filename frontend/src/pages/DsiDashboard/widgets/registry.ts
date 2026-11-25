@@ -197,6 +197,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 3 },
     minSize: { w: 4, h: 2 },
   },
+  {
+    key: 'budget_ens',
+    label: 'ENS — engagements non soldés',
+    description: 'Engagements non soldés (reports / rattachements avec reste engagé), montant restant et détail — SEDIT',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── MagApp ────────────────────────────────────────────────────────────────
   {
     key: 'magapp_maintenances',
@@ -417,6 +425,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 6 },
     minSize: { w: 4, h: 4 },
     hidden: true,
+  },
+  // ── RH ─────────────────────────────────────────────────────────────────
+  {
+    key: 'rh_departs',
+    label: 'Agents partis (Studio RH)',
+    description: 'Départs enregistrés dans Studio RH sur les 30 derniers jours, avec direction et service',
+    module: 'RH',
+    defaultSize: { w: 5, h: 3 },
+    minSize: { w: 3, h: 2 },
   },
 ];
 

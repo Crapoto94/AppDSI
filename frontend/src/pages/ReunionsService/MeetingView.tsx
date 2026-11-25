@@ -12,6 +12,9 @@ import { ReunionServiceRichEditor, ReunionRichContent } from '../../components/R
 import { PollComposerModal, PollCard, PollAnswerForm } from './InteractPoll';
 import type { Poll } from './InteractPoll';
 import TetrisPause from './TetrisPause';
+import KpiSnapshots from './KpiSnapshots';
+import type { KpiSnapshot } from './KpiSnapshots';
+import type { KpiConfig } from './KpiConfigurator';
 import useReunionAccess from './useReunionAccess';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -49,6 +52,10 @@ interface Section {
     is_meta: boolean;
     is_pause?: boolean;
     completed?: boolean;
+    // KPI : configuration recopiée du modèle, instantanés figés au lancement.
+    kpis_config?: KpiConfig[];
+    kpi_snapshots?: KpiSnapshot[] | null;
+    kpi_computed_at?: string | null;
     items: Item[];
 }
 
@@ -303,6 +310,20 @@ export default function ReunionServiceMeetingView() {
             setLoading(false);
         }
     }, [token, meetingId, auth]);
+
+    // Recalcule les KPI figés (réservé au maître du temps / admin) : utile si un
+    // indicateur a échoué au lancement ou si les données ont été corrigées après.
+    const [refreshingKpis, setRefreshingKpis] = useState(false);
+    const refreshKpis = async () => {
+        setRefreshingKpis(true);
+        try {
+            await axios.post(`/api/reunions-service/meetings/${meetingId}/kpis/refresh`, {}, auth);
+            await reload();
+        } catch (e) {
+            const err = e as ApiErrorLike;
+            window.alert(err?.response?.data?.error || 'Impossible de recalculer les KPI.');
+        } finally { setRefreshingKpis(false); }
+    };
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { setLoading(true); reload(); }, [meetingId, token]);
@@ -1311,6 +1332,11 @@ export default function ReunionServiceMeetingView() {
                                 )}
                                 {canManageStructure && meeting.status !== 'finished' && (
                                     <div style={{ display: 'flex', gap: 4, paddingLeft: 6, borderLeft: '1px solid #e2e8f0' }}>
+                                        {meeting.sections.some(s => (s.kpis_config || []).length > 0) && (
+                                            <button className="rsv-ibtn" title="Recalculer les KPI figés des rubriques" onClick={refreshKpis} disabled={refreshingKpis}>
+                                                <RefreshCw size={15} className={refreshingKpis ? 'spin' : ''} />
+                                            </button>
+                                        )}
                                         <button className="rsv-ibtn" title="Ajouter une rubrique de pause (Tetris)" onClick={addPauseSection} style={{ color: '#b45309' }}>
                                             <Gamepad2 size={15} />
                                         </button>
@@ -1372,6 +1398,13 @@ export default function ReunionServiceMeetingView() {
                                             <span style={{ color: '#94a3b8', fontSize: '.78rem' }}><Timer size={13} style={{ verticalAlign: -2 }} /> {fmtDuration(displayedSection.duration_minutes)}</span>
                                         </div>
                                     )
+                                )}
+                                {displayedSection && !displayedSection.is_meta && !displayedSection.is_pause && (
+                                    <KpiSnapshots
+                                        snapshots={displayedSection.kpi_snapshots}
+                                        configs={displayedSection.kpis_config}
+                                        status={meeting.status}
+                                    />
                                 )}
                                 {displayedSection?.is_meta && (
                                     <div style={{ marginBottom: '1rem' }}>

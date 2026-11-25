@@ -25,7 +25,8 @@ interface Batch {
   expected_pages: number; groups: Group[]; orphans: { idx: number; foreign?: string | null; read?: { titre: string; agent: string } | null; suggest?: { read_name: string; page: number | null; confidence: number; candidates: Array<{ id: number; name: string; score: number }> } | null }[]; ignored: number[];
 }
 interface SourceMeta { from?: string; from_name?: string; subject?: string; received_at?: string | null; mailbox?: string }
-interface BatchLine { phase_total?: number; id: number; file_name: string; status: string; pages_total: number; progress: number; created_at: string; created_by: string; channel?: string; source_meta?: SourceMeta | null }
+interface BatchAgent { name: string; entretien_id: number; confidence: number | null; source: string | null; complete: boolean }
+interface BatchLine { a_examiner?: number; agents?: BatchAgent[]; agents_total?: number; pages_non_reconnues?: number; suggestion?: { read_name: string; candidates: Array<{ id: number; name: string; score: number }> } | null; phase_total?: number; id: number; file_name: string; status: string; pages_total: number; progress: number; created_at: string; created_by: string; channel?: string; source_meta?: SourceMeta | null }
 
 /** CREP signé disponible : champ calculé par le serveur, à défaut le chemin du fichier signé. */
 const signedOf = (r: Row) => r.crep_signe_dispo ?? !!r.crep_signed_path;
@@ -376,7 +377,7 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
 }
 
 /** Menu administrateur « Suivi des retours » : avancement des EP et numérisation en lot des CREP signés. */
-export default function Retours() {
+export default function Retours({ onPending }: { onPending?: (n: number) => void } = {}) {
   const { token } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [confirm, confirmDialog] = useConfirm();
@@ -410,6 +411,8 @@ export default function Retours() {
         axios.get(`/api/entretiens/returns/batches?campaign_id=${campaignId}`, { headers }),
       ]);
       setData(s.data); setBatches(b.data || []);
+      // Pastille du menu : CREP retournés à examiner (tous lots, dont ceux du collecteur de mails)
+      try { onPending?.(((b.data || []) as BatchLine[]).reduce((n, x) => n + (x.a_examiner || 0), 0)); } catch { /* ignore */ }
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Chargement impossible.' }); }
   }, [campaignId, headers]);
   useEffect(() => { setData(null); load(); }, [load]);
@@ -511,11 +514,29 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
 
           {batches.length > 0 && (
             <div style={{ ...card, padding: 12, marginBottom: 14 }}>
-              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Lots numérisés et CREP reçus par mail{batches.some(b => b.status === 'a_verifier') ? ` — ${batches.filter(b => b.status === 'a_verifier').length} à vérifier` : ''}</div>
+              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Lots numérisés et CREP reçus par mail{(() => { const m = batches.filter(b => b.channel === 'mail').reduce((n, b) => n + (b.a_examiner || 0), 0); const t = batches.reduce((n, b) => n + (b.a_examiner || 0), 0); return <>{m > 0 && <span title="CREP retournés reçus par le collecteur de mails, à examiner" style={{ marginLeft: 8, background: '#0284c7', color: '#fff', borderRadius: 999, padding: '1px 9px', fontSize: 11.5, fontWeight: 800 }}>{m} du collecteur à examiner</span>}{t - m > 0 && <span style={{ marginLeft: 6, background: '#7c3aed', color: '#fff', borderRadius: 999, padding: '1px 9px', fontSize: 11.5, fontWeight: 800 }}>{t - m} à examiner (téléversés)</span>}</>; })()}</div>
               {batches.map(b => (
                 <div key={b.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', fontSize: 12.5, borderTop: `1px solid ${COLORS.border}` }}>
                   <CanalChip canal={b.channel || 'drh'} />
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.file_name} <span style={{ color: COLORS.muted }}>· {fmtDate(b.created_at)} · {b.channel === 'mail' ? [b.source_meta?.from, b.source_meta?.subject].filter(Boolean).join(' · ') : b.created_by}</span></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.file_name} <span style={{ color: COLORS.muted }}>· {fmtDate(b.created_at)} · {b.channel === 'mail' ? [b.source_meta?.from, b.source_meta?.subject].filter(Boolean).join(' · ') : b.created_by}</span></div>
+                    {/* Agents pressentis, avec le taux de certitude quand ils viennent de la lecture du nom */}
+                    {(b.agents && b.agents.length > 0) && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 3, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: COLORS.muted }}>Agent{(b.agents_total || 0) > 1 ? 's' : ''} pressenti{(b.agents_total || 0) > 1 ? 's' : ''} :</span>
+                        {b.agents.map(a => {
+                          const c = a.confidence;
+                          const col = c === null ? { color: '#075985', bg: '#e0f2fe' } : c >= 80 ? { color: '#166534', bg: '#dcfce7' } : c >= 50 ? { color: '#9a3412', bg: '#ffedd5' } : { color: '#991b1b', bg: '#fee2e2' };
+                          return <span key={a.entretien_id} title={a.source === 'nom' ? 'Agent reconnu par la lecture du nom imprimé sur la page' : a.source === 'qr' ? 'Agent reconnu par le QR code' : 'Affecté manuellement'}><Chip text={`${a.name}${c !== null ? ` — ${c} %` : a.source === 'qr' ? ' — QR' : ''}${a.complete ? '' : ' (incomplet)'}`} color={col.color} bg={col.bg} /></span>;
+                        })}
+                        {(b.agents_total || 0) > b.agents.length && <span style={{ fontSize: 11, color: COLORS.muted }}>+ {(b.agents_total || 0) - b.agents.length} autre(s)</span>}
+                      </div>
+                    )}
+                    {(!b.agents || b.agents.length === 0) && b.status === 'a_verifier' && (b.pages_non_reconnues || 0) > 0 && (
+                      <div style={{ fontSize: 11, color: '#92400e', marginTop: 3 }}>Agent non reconnu{b.suggestion?.candidates?.[0] ? ` — suggestion : ${b.suggestion.candidates[0].name} (${b.suggestion.candidates[0].score} %)` : ''} · {b.pages_non_reconnues} page(s) à classer</div>
+                    )}
+                  </div>
+                  {(b.a_examiner || 0) > 0 && <span title="CREP retournés à examiner dans ce lot" style={{ background: b.channel === 'mail' ? '#0284c7' : '#7c3aed', color: '#fff', borderRadius: 999, minWidth: 20, textAlign: 'center', padding: '1px 8px', fontSize: 11.5, fontWeight: 800 }}>{b.a_examiner}</span>}
                   <Chip text={b.status === 'analyse' ? `Analyse ${b.progress}/${b.pages_total || '?'}` : b.status === 'identification' ? `Lecture des noms ${b.progress}/${b.phase_total || '?'}` : b.status === 'a_verifier' ? 'À vérifier' : b.status === 'termine' ? 'Terminé' : b.status === 'sans_crep' ? 'Aucun CREP reconnu' : 'Échec'}
                     color={b.status === 'termine' ? '#166534' : b.status === 'echec' ? '#991b1b' : b.status === 'sans_crep' ? '#475569' : '#92400e'} bg={b.status === 'termine' ? '#dcfce7' : b.status === 'echec' ? '#fee2e2' : b.status === 'sans_crep' ? '#f1f5f9' : '#fef3c7'} />
                   <button style={{ ...btnGhost, padding: '3px 9px', fontSize: 12 }} onClick={() => setReview(b.id)}>Ouvrir</button>

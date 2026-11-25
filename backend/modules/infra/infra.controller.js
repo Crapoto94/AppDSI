@@ -6,6 +6,7 @@ const { pgDb, pool } = require('../../shared/database');
 const { syncReseauLinks, fetchLinks } = require('./reseau-sync');
 const { fetchAgentPresence, matchAgent } = require('./agent-presence');
 const studioOnboarding = require('./studio-onboarding');
+const studioIrs = require('../../shared/studio_irs');
 const xlsx = require('xlsx');
 
 function maskKey(k) {
@@ -15,7 +16,8 @@ function maskKey(k) {
     return '••••••••' + s.slice(-4);
 }
 
-function publicApi(row) {
+function publicApi(raw) {
+    const row = raw.key === 'studio_irs' ? studioIrs.withEnv(raw) : raw;
     return { ...row, api_key: maskKey(row.api_key), api_key_set: !!row.api_key };
 }
 
@@ -64,6 +66,14 @@ module.exports = {
                 return res.json({ ok: true, count: models.length, sample: models.slice(0, 5) });
             }
 
+            if (key === 'studio_irs') {
+                const { readable, results } = await studioIrs.testConnection(cfg);
+                return res.json({
+                    ok: true, count: readable.length, sample: results,
+                    message: `Connexion OK — la clé peut lire : ${readable.map((x) => x.label).join(', ')}.`,
+                });
+            }
+
             if (key === 'rh_studio_presence') {
                 const result = await fetchAgentPresence(cfg, { q: 'test' });
                 return res.json({ ok: true, count: result.found ? 1 : 0, sample: [result] });
@@ -100,6 +110,21 @@ module.exports = {
             res.json({ ok: true, count: data.length, sample: data.slice(0, 3) });
         } catch (e) {
             res.status(502).json({ ok: false, message: e.message });
+        }
+    },
+
+    // GET /api/infra/studio-irs/browse/... et /studio-irs/desktops/:id/:detail
+    browseStudioIrs: async (req, res) => {
+        try {
+            const { group, name, id, detail } = req.params;
+            const path = id ? studioIrs.browsePath(detail, id) : studioIrs.browsePath(name ? `${group}/${name}` : group);
+            if (!path) return res.status(404).json({ message: 'Lecture non autorisée' });
+            const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['studio_irs']);
+            if (!cfg || cfg.enabled === false) return res.status(503).json({ message: "Studio IRS n'est pas activé (Admin → API externes)" });
+            res.json(await studioIrs.read(cfg, path));
+        } catch (e) {
+            // Un 401 de Studio IRS ne doit pas être pris par le front pour une session AppDSI expirée.
+            res.status(e.status || 502).json({ message: e.message });
         }
     },
 

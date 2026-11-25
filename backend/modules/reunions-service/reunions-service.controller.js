@@ -13,12 +13,14 @@
 const { pgDb } = require('../../shared/database');
 const { isAdminLike, isModuleAdmin } = require('../../shared/middleware');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
 const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
 const reunionSocket = require('./reunions-service.socket');
 const teamsTranscript = require('../transcriptmanager/teams_transcript.service');
 const interactCatalog = require('./interact_catalog');
+const kpiEngine = require('./reunions-service.kpis');
 
 const ATTACHMENT_MODULE = 'reunions-service';
 
@@ -27,6 +29,19 @@ const userKey = (u) => String(u?.username || u?.email || '').toLowerCase();
 const toInt = (v, def = 0) => {
     const n = parseInt(v, 10);
     return Number.isFinite(n) ? n : def;
+};
+const parseJsonArray = (v, def = []) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : def; } catch { return def; } }
+    return v == null ? def : def;
+};
+// Les snapshots KPI sont stockés « en dur » dans la rubrique (CR) ; on les
+// expose tels quels, null tant que la réunion n'a pas été lancée.
+const parseJsonMaybe = (v) => {
+    if (v == null) return null;
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string') { try { return JSON.parse(v); } catch { return null; } }
+    return null;
 };
 
 // ─── Templates ──────────────────────────────────────────────────────────────
@@ -37,6 +52,7 @@ async function getTemplateFull(id) {
     tpl.sections = await pgDb.all(
         'SELECT * FROM reunions_service.template_sections WHERE template_id = ? ORDER BY position, id', [id]
     );
+    tpl.sections = tpl.sections.map(s => ({ ...s, kpis_config: parseJsonArray(s.kpis_config, []) }));
     tpl.participants = await pgDb.all(
         'SELECT * FROM reunions_service.template_participants WHERE template_id = ? ORDER BY name', [id]
     );
@@ -49,9 +65,9 @@ async function replaceTemplateSections(templateId, sections, metaDurationMinutes
     await pgDb.run('DELETE FROM reunions_service.template_sections WHERE template_id = ?', [templateId]);
     // La rubrique « meta » (participants prévus) existe toujours, en tête.
     await pgDb.run(
-        `INSERT INTO reunions_service.template_sections (template_id, title, duration_minutes, position, is_meta, is_pause)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [templateId, 'Participants', Math.max(0, toInt(metaDurationMinutes, 10)), 0, true, false]
+        `INSERT INTO reunions_service.template_sections (template_id, title, duration_minutes, position, is_meta, is_pause, kpis_config)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [templateId, 'Participants', Math.max(0, toInt(metaDurationMinutes, 10)), 0, true, false, JSON.stringify([])]
     );
     let pos = 1;
     for (const s of Array.isArray(sections) ? sections : []) {
@@ -59,10 +75,13 @@ async function replaceTemplateSections(templateId, sections, metaDurationMinutes
         if (!title) continue;
         const duration = Math.max(0, toInt(s?.duration_minutes, 0));
         const isPause = s?.is_pause === true || s?.is_pause === 'true';
+        // KPI associés à la rubrique (catalogue du tableau de bord) : une pause
+        // n'en porte pas.
+        const kpis = isPause ? [] : kpiEngine.normalizeList(s?.kpis || s?.kpis_config);
         await pgDb.run(
-            `INSERT INTO reunions_service.template_sections (template_id, title, duration_minutes, position, is_meta, is_pause)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [templateId, title, duration, pos, false, isPause]
+            `INSERT INTO reunions_service.template_sections (template_id, title, duration_minutes, position, is_meta, is_pause, kpis_config)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [templateId, title, duration, pos, false, isPause, JSON.stringify(kpis)]
         );
         pos += 1;
     }
@@ -92,6 +111,10 @@ async function getMeetingFull(id) {
     const sections = await pgDb.all(
         'SELECT * FROM reunions_service.meeting_sections WHERE meeting_id = ? ORDER BY position, id', [id]
     );
+    sections.forEach(s => {
+        s.kpis_config = parseJsonArray(s.kpis_config, []);
+        s.kpi_snapshots = parseJsonMaybe(s.kpi_snapshots);
+    });
     const participants = await pgDb.all(
         'SELECT * FROM reunions_service.meeting_participants WHERE meeting_id = ? ORDER BY name', [id]
     );
@@ -188,8 +211,144 @@ async function canManageMeeting(user, meeting) {
     return !!key && String(meeting.time_master_username || '').toLowerCase() === key;
 }
 
-async function loadManagedMeeting(req, res, meetingId) {
-    const meeting = await pgDb.get('SELECT * FROM reunions_service.meetings WHERE id = ?', [meetingId]);
+// ─── KPI des rubriques ──────────────────────────────────────────────────────
+// Jeton de service court : les KPI proviennent d'API internes dont certaines
+// exigent un accès étendu (projets, MagApp…). Le calcul doit aboutir quel que
+// soit le rôle du maître du temps qui lance la réunion.
+function makeServiceToken() {
+    try {
+        return jwt.sign(
+            {
+                id: 0, username: 'adminhub', displayName: 'Réunions de service',
+                role: 'superadmin', is_admin: true, is_superadmin: true, is_approved: 1,
+            },
+            SECRET_KEY,
+            { expiresIn: '10m' }
+        );
+    } catch { return null; }
+}
+
+// Date de la réunion précédente (même modèle) : sert de borne basse au préréglage
+// « depuis la réunion précédente ».
+async function previousMeetingDateFor(meeting) {
+    if (!meeting?.template_id) return null;
+    try {
+        const row = await pgDb.get(
+            `SELECT meeting_date FROM reunions_service.meetings
+             WHERE template_id = ? AND id <> ?
+               AND meeting_date IS NOT NULL AND status <> 'planned'
+               AND meeting_date < COALESCE(?, NOW())
+             ORDER BY meeting_date DESC LIMIT 1`,
+            [meeting.template_id, meeting.id, meeting.meeting_date || null]
+        );
+        return row?.meeting_date || null;
+    } catch { return null; }
+}
+
+/** Dernière réunion (même modèle) ayant des KPI figés : sert à calculer l'évolution. */
+async function previousMeetingWithKpis(meeting) {
+    if (!meeting?.template_id) return null;
+    try {
+        return await pgDb.get(
+            `SELECT m.id, m.meeting_date FROM reunions_service.meetings m
+             WHERE m.template_id = ? AND m.id <> ?
+               AND m.meeting_date IS NOT NULL AND m.status <> 'planned'
+               AND m.meeting_date < COALESCE(?, NOW())
+               AND EXISTS (SELECT 1 FROM reunions_service.meeting_sections s
+                           WHERE s.meeting_id = m.id AND s.kpi_snapshots IS NOT NULL)
+             ORDER BY m.meeting_date DESC LIMIT 1`,
+            [meeting.template_id, meeting.id, meeting.meeting_date || null]
+        );
+    } catch { return null; }
+}
+
+const kpiSignature = (key, filters) => `${key}|${JSON.stringify(
+    Object.entries(filters || {}).map(([k, v]) => [k, v && v.value]).sort()
+)}`;
+const fmtRefDate = (d) => {
+    try { return new Date(d).toLocaleDateString('fr-FR'); } catch { return String(d || ''); }
+};
+
+/**
+ * Calcule et enregistre « en dur » les KPI des rubriques de la réunion.
+ * Appelé au lancement de la réunion (les valeurs sont ensuite figées dans le CR).
+ * force = true → recalcule même si un instantané existe déjà.
+ */
+async function computeMeetingKpiSnapshots(meeting, token, { force = false } = {}) {
+    const sections = await pgDb.all(
+        `SELECT * FROM reunions_service.meeting_sections
+         WHERE meeting_id = ? AND is_meta = FALSE AND COALESCE(is_pause, FALSE) = FALSE
+         ORDER BY position, id`,
+        [meeting.id]
+    );
+    const withKpi = sections.filter(s => parseJsonArray(s.kpis_config, []).length > 0);
+    if (!withKpi.length) return 0;
+
+    const previousMeetingDate = await previousMeetingDateFor(meeting);
+    // Réunion précédente (même modèle) : permet d'afficher une flèche d'évolution
+    // même pour les KPI « à date » (photo au lancement).
+    const prevMeeting = await previousMeetingWithKpis(meeting);
+    const prevSnapshots = new Map();
+    if (prevMeeting) {
+        try {
+            const rows = await pgDb.all(
+                `SELECT kpi_snapshots FROM reunions_service.meeting_sections
+                 WHERE meeting_id = ? AND kpi_snapshots IS NOT NULL`, [prevMeeting.id]
+            );
+            for (const row of rows) {
+                for (const snap of parseJsonArray(row.kpi_snapshots, [])) {
+                    if (snap?.key) prevSnapshots.set(kpiSignature(snap.key, snap.filters), snap);
+                }
+            }
+        } catch (e) { /* historisé indisponible : pas de flèche */ }
+    }
+    const refLabel = prevMeeting ? `réunion du ${fmtRefDate(prevMeeting.meeting_date)}` : null;
+    const ctx = {
+        token: makeServiceToken() || token,
+        meetingDate: meeting.meeting_date || new Date(),
+        previousMeetingDate,
+        // Cache partagé par toutes les rubriques : un même endpoint n'est
+        // interrogé qu'une fois par lancement.
+        cache: new Map(),
+    };
+    let computed = 0;
+    await Promise.all(withKpi.map(async (s) => {
+        if (!force && s.kpi_computed_at) return;
+        const configs = parseJsonArray(s.kpis_config, []);
+        try {
+            const snapshots = await kpiEngine.evaluateList(configs, ctx);
+            // Évolution vs réunion précédente pour les KPI à date (valeur simple).
+            if (prevMeeting) {
+                for (const snap of snapshots) {
+                    if (!snap || snap.error || snap.periodic) continue;
+                    if (!snap.current || snap.current.value == null) continue;
+                    if (snap.current.items || snap.current.series) continue;
+                    const prev = prevSnapshots.get(kpiSignature(snap.key, snap.filters));
+                    const pv = prev?.current?.value;
+                    if (pv == null) continue;
+                    const cv = Number(snap.current.value) || 0;
+                    snap.previous = { value: pv, text: prev.current.text ?? String(pv), label: refLabel };
+                    snap.delta_pct = Number(pv) === 0
+                        ? (cv === 0 ? 0 : null)
+                        : Math.round(((cv - Number(pv)) / Number(pv)) * 1000) / 10;
+                    snap.delta_abs = Math.round((cv - Number(pv)) * 100) / 100;
+                    snap.evolution_ref = { meeting_id: prevMeeting.id, date: prevMeeting.meeting_date };
+                }
+            }
+            await pgDb.run(
+                `UPDATE reunions_service.meeting_sections
+                 SET kpi_snapshots = ?, kpi_computed_at = NOW() WHERE id = ?`,
+                [JSON.stringify(snapshots), s.id]
+            );
+            computed += 1;
+        } catch (e) {
+            console.error(`[REUNIONS-SERVICE] KPI rubrique ${s.id} :`, e.message);
+        }
+    }));
+    return computed;
+}
+
+async function loadManagedMeeting(req, res, meetingId) {    const meeting = await pgDb.get('SELECT * FROM reunions_service.meetings WHERE id = ?', [meetingId]);
     if (!meeting) { res.status(404).json({ error: 'Réunion introuvable' }); return null; }
     if (!(await canManageMeeting(req.user, meeting))) {
         res.status(403).json({ error: 'Réservé au maître du temps ou aux administrateurs du module.' });
@@ -975,9 +1134,10 @@ const controller = {
             for (const s of tpl.sections) {
                 await pgDb.run(
                     `INSERT INTO reunions_service.meeting_sections
-                        (meeting_id, title, duration_minutes, position, is_meta, is_pause)
-                     VALUES (?, ?, ?, ?, ?, ?)`,
-                    [id, s.title, s.duration_minutes || 0, s.position || 0, !!s.is_meta, !!s.is_pause]
+                        (meeting_id, title, duration_minutes, position, is_meta, is_pause, kpis_config)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [id, s.title, s.duration_minutes || 0, s.position || 0, !!s.is_meta, !!s.is_pause,
+                     JSON.stringify(Array.isArray(s.kpis_config) ? s.kpis_config : [])]
                 );
             }
 
@@ -1066,6 +1226,14 @@ const controller = {
                  WHERE id = ?`,
                 [masterUsername, masterName, firstSection?.id || null, id]
             );
+            // Lancement = calcul des KPI de chaque rubrique, figés dans le CR.
+            // Les instantanés déjà présents (réouverture/relance) sont conservés.
+            try {
+                const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+                await computeMeetingKpiSnapshots(existing, token, { force: false });
+            } catch (e) {
+                console.error('[REUNIONS-SERVICE] calcul des KPI au lancement :', e.message);
+            }
             await reunionSocket.notifyMasterChanged(id, { username: masterUsername, name: masterName });
             await reunionSocket.syncMeetingState(id);
             res.json(await getMeetingFull(id));
@@ -1617,12 +1785,13 @@ const controller = {
             const isPause = req.body?.is_pause === true || req.body?.is_pause === 'true';
             const title = String(req.body?.title || '').trim() || (isPause ? 'Pause' : 'Nouvelle rubrique');
             const duration = Math.max(0, toInt(req.body?.duration_minutes, isPause ? 10 : 0));
+            const kpis = isPause ? [] : kpiEngine.normalizeList(req.body?.kpis || req.body?.kpis_config);
             const max = await pgDb.get('SELECT COALESCE(MAX(position), 0) AS m FROM reunions_service.meeting_sections WHERE meeting_id = ?', [meetingId]);
             const result = await pgDb.run(
                 `INSERT INTO reunions_service.meeting_sections
-                    (meeting_id, title, duration_minutes, position, is_meta, is_pause)
-                 VALUES (?, ?, ?, ?, FALSE, ?)`,
-                [meetingId, title, duration, (Number(max?.m) || 0) + 1, isPause]
+                    (meeting_id, title, duration_minutes, position, is_meta, is_pause, kpis_config)
+                 VALUES (?, ?, ?, ?, FALSE, ?, ?)`,
+                [meetingId, title, duration, (Number(max?.m) || 0) + 1, isPause, JSON.stringify(kpis)]
             );
             reunionSocket.notifyContentChanged(meetingId, { sectionId: result.lastID });
             const section = await pgDb.get('SELECT * FROM reunions_service.meeting_sections WHERE id = ?', [result.lastID]);
@@ -1809,6 +1978,63 @@ const controller = {
             await pgDb.run('DELETE FROM reunions_service.attachments WHERE id = ?', [req.params.id]);
             reunionSocket.notifyContentChanged(att.meeting_id);
             res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── KPI des rubriques ──────────────────────────────────────────────────
+
+    /** Catalogue des KPI disponibles (repris du tableau de bord) + sources de filtres. */
+    kpiCatalog: async (req, res) => {
+        try {
+            const catalog = kpiEngine.listCatalog();
+            const token = makeServiceToken() || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+            catalog.filterSources = await kpiEngine.getFilterSources(token);
+            res.json(catalog);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Aperçu d'un KPI pendant la préparation du modèle : renvoie exactement ce
+     * qui sera figé au lancement de la réunion (mêmes période et comparaison).
+     */
+    previewKpi: async (req, res) => {
+        try {
+            const config = kpiEngine.normalizeConfig(req.body?.kpi || req.body);
+            if (!config) return res.status(400).json({ error: 'KPI inconnu ou incomplet' });
+            const meetingDate = req.body?.meeting_date || new Date();
+            const token = makeServiceToken() || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+            let previousMeetingDate = null;
+            const templateId = toInt(req.body?.template_id) || null;
+            if (templateId) {
+                const row = await pgDb.get(
+                    `SELECT meeting_date FROM reunions_service.meetings
+                     WHERE template_id = ? AND meeting_date IS NOT NULL AND status <> 'planned'
+                     ORDER BY meeting_date DESC LIMIT 1`,
+                    [templateId]
+                );
+                previousMeetingDate = row?.meeting_date || null;
+            }
+            const snapshot = await kpiEngine.evaluate(config, { token, meetingDate, previousMeetingDate });
+            res.json({ snapshot });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /** Recalcule les KPI figés d'une réunion (maître du temps / admin). */
+    refreshMeetingKpis: async (req, res) => {
+        try {
+            const id = toInt(req.params.id);
+            const meeting = await loadManagedMeeting(req, res, id);
+            if (!meeting) return;
+            const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+            const computed = await computeMeetingKpiSnapshots(meeting, token, { force: true });
+            reunionSocket.notifyContentChanged(id);
+            res.json({ success: true, sections: computed, meeting: await getMeetingFull(id) });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

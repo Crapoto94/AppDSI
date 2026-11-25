@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 type Mode = 'all' | 'restricted' | 'blocked';
 type Tab = 'agents' | 'connexions' | 'consultations';
 
-interface Droits { mode: Mode; schemas: string[]; note: string | null; source: 'agent' | 'defaut' | 'historique'; updated_by?: string; updated_at?: string }
+interface Droits { mode: Mode; schemas: string[]; write_actions?: string[]; note: string | null; source: 'agent' | 'defaut' | 'historique'; updated_by?: string; updated_at?: string }
 interface Agent {
   username: string; display_name: string | null; nb_requetes: number; nb_refus: number; nb_connexions: number;
   derniere_activite: string | null; sessions_actives: number; droits: Droits;
@@ -17,6 +17,7 @@ interface Session { jti: string; username: string; display_name: string | null; 
 interface AuditRow { id: number; created_at: string; username: string | null; api_key_name: string | null; ip: string | null; action: string; sql_text?: string | null; client?: string | null; row_count?: number | null; duration_ms?: number | null; error: string | null; trace_id: string | null }
 interface Page { total: number; limit: number; offset: number; rows: AuditRow[] }
 
+const WRITE_LABEL: Record<string, string> = { tickets: 'tickets', tasks: 'tâches', reunions: 'réunions' };
 const MODE_LABEL: Record<Mode, string> = { all: 'Tous les modules', restricted: 'Modules choisis', blocked: 'Bloqué' };
 const MODE_COLOR: Record<Mode, { bg: string; fg: string }> = {
   all: { bg: '#dcfce7', fg: '#166534' }, restricted: { bg: '#fef3c7', fg: '#92400e' }, blocked: { bg: '#fee2e2', fg: '#991b1b' },
@@ -82,7 +83,7 @@ export default function McpAdmin() {
       const [o, a, r] = await Promise.all([api('/overview'), api('/agents'), api('/rights')]);
       setOverview(o); setAgents(a);
       const def = (r as Array<Droits & { username: string }>).find(x => x.username === '*');
-      setDefaultRights(def ? { mode: def.mode, schemas: def.schemas || [], note: def.note, source: 'defaut' } : null);
+      setDefaultRights(def ? { mode: def.mode, schemas: def.schemas || [], write_actions: def.write_actions || [], note: def.note, source: 'defaut' } : null);
     } catch (e) { setError(e instanceof Error ? e.message : 'Erreur'); }
   }, [api]);
 
@@ -114,12 +115,12 @@ export default function McpAdmin() {
   }, [token, api]);
 
   const openEditor = (username: string, label: string, droits: Droits | null, hasOwn: boolean) =>
-    setEditing({ username, label, hasOwn, droits: droits || { mode: 'all', schemas: [], note: null, source: 'historique' } });
+    setEditing({ username, label, hasOwn, droits: droits || { mode: 'all', schemas: [], write_actions: [], note: null, source: 'historique' } });
 
   const saveRights = async () => {
     if (!editing) return;
     try {
-      await api(`/rights/${encodeURIComponent(editing.username)}`, { method: 'PUT', body: JSON.stringify({ mode: editing.droits.mode, schemas: editing.droits.schemas, note: editing.droits.note }) });
+      await api(`/rights/${encodeURIComponent(editing.username)}`, { method: 'PUT', body: JSON.stringify({ mode: editing.droits.mode, schemas: editing.droits.schemas, write_actions: editing.droits.write_actions || [], note: editing.droits.note }) });
       setEditing(null); flash('Droits enregistrés'); await loadAgents();
     } catch (e) { setError(e instanceof Error ? e.message : 'Erreur'); }
   };
@@ -240,6 +241,7 @@ export default function McpAdmin() {
                     <td style={td}>
                       <Badge mode={a.droits.mode} />
                       {a.droits.mode === 'restricted' && <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: 3, maxWidth: 220 }}>{a.droits.schemas.join(', ')}</div>}
+                      {(a.droits.write_actions || []).length > 0 && <div style={{ fontSize: '0.74rem', color: '#9a3412', background: '#ffedd5', borderRadius: 999, padding: '1px 8px', marginTop: 4, display: 'inline-block', fontWeight: 700 }}>Peut créer : {(a.droits.write_actions || []).map(x => WRITE_LABEL[x] || x).join(', ')}</div>}
                       {a.droits.source !== 'agent' && <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 3 }}>{a.droits.source === 'defaut' ? 'par défaut' : 'historique'}</div>}
                     </td>
                     <td style={td}>{a.nb_requetes}</td>
@@ -387,6 +389,19 @@ export default function McpAdmin() {
                 ))}
               </div>
             )}
+            <div style={{ border: '1px solid #fed7aa', background: '#fff7ed', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#9a3412', marginBottom: 4 }}>Création (écriture) via le MCP</div>
+              <div style={{ fontSize: '0.74rem', color: '#7c2d12', marginBottom: 6 }}>
+                Permet à cet agent de faire créer par Claude des éléments à son nom (création seulement, jamais de modification ni de suppression). Aucune case = lecture seule. Exige aussi une clé API en « read_write ».
+              </div>
+              {(['tickets', 'tasks', 'reunions'] as const).map(w => (
+                <label key={w} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 2px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={(editing.droits.write_actions || []).includes(w)}
+                    onChange={() => setEditing({ ...editing, droits: { ...editing.droits, write_actions: (editing.droits.write_actions || []).includes(w) ? (editing.droits.write_actions || []).filter(x => x !== w) : [...(editing.droits.write_actions || []), w] } })} />
+                  <span>Créer des <strong>{WRITE_LABEL[w]}</strong></span>
+                </label>
+              ))}
+            </div>
             <textarea placeholder="Note (facultatif)" rows={2} style={{ ...input, width: '100%', boxSizing: 'border-box', marginBottom: 6 }}
               value={editing.droits.note || ''} onChange={e => setEditing({ ...editing, droits: { ...editing.droits, note: e.target.value } })} />
             <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 12px' }}>

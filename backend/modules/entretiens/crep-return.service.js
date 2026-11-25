@@ -284,11 +284,48 @@ async function getBatch(id) {
     return pgDb.get('SELECT * FROM hub_entretiens.crep_return_batches WHERE id = ?', [id]);
 }
 
+/**
+ * Résumé d'un lot pour la liste : nombre de CREP à examiner et agents pressentis (avec taux de certitude quand l'agent vient de la lecture du nom).
+ * Un lot « terminé », en échec ou en cours d'analyse n'a rien à examiner.
+ */
+async function batchSummary(batch) {
+    if (!['a_verifier', 'sans_crep'].includes(batch.status)) return { a_examiner: 0, agents: [] };
+    const d = await describe(batch);
+    const pending = d.groups.filter(g => !g.confirmed);
+    return {
+        // un document dont aucune page n'est rattachée compte pour 1 à examiner
+        a_examiner: pending.length || (d.orphans.length ? 1 : 0),
+        agents: pending.slice(0, 4).map(g => ({
+            name: g.agent || `EP n° ${g.entretien_id} (inconnu)`, entretien_id: g.entretien_id,
+            confidence: g.assoc && g.assoc.source === 'nom' ? g.assoc.confidence : null, source: g.assoc ? g.assoc.source : null, complete: g.complete,
+        })),
+        agents_total: pending.length,
+        pages_non_reconnues: d.orphans.length,
+        suggestion: !pending.length && d.orphans.length ? ((d.orphans.find(o => o.suggest && o.suggest.candidates && o.suggest.candidates[0]) || {}).suggest || null) : null,
+    };
+}
+
 async function listBatches(campaignId) {
     await ensureTable();
-    return pgDb.all(
-        `SELECT id, campaign_id, created_by, file_name, status, pages_total, phase_total, progress, created_at, channel, source_meta FROM hub_entretiens.crep_return_batches ${campaignId ? 'WHERE campaign_id = ?' : ''} ORDER BY id DESC LIMIT 30`,
+    const rows = await pgDb.all(
+        `SELECT * FROM hub_entretiens.crep_return_batches ${campaignId ? 'WHERE campaign_id = ?' : ''} ORDER BY id DESC LIMIT 30`,
         campaignId ? [campaignId] : []);
+    const out = [];
+    for (const r of rows) {
+        let sum = { a_examiner: 0, agents: [] };
+        try { sum = await batchSummary(r); } catch (e) { /* résumé indisponible */ }
+        const { pages, confirmed, ...light } = r;
+        out.push({ ...light, ...sum });
+    }
+    return out;
+}
+
+/** Nombre de CREP retournés à examiner, tous lots confondus, dont ceux venant du collecteur de mails (pastille du menu « Suivi des retours »). */
+async function pendingCounts() {
+    const list = await listBatches(0);
+    const sum = (f) => list.filter(f).reduce((n, b) => n + (b.a_examiner || 0), 0);
+    return { total: sum(() => true), mail: sum(b => b.channel === 'mail'), drh: sum(b => b.channel !== 'mail'),
+        lots_mail: list.filter(b => b.channel === 'mail' && b.a_examiner > 0).length };
 }
 
 /** Correction manuelle d'une page : { entretien_id, page } pour la rattacher, { ignore: true } pour l'écarter, {} pour annuler la correction. */
@@ -549,4 +586,4 @@ async function reading(entretienId) {
     return job || null;
 }
 
-module.exports = { _internal: { openPdf, renderPage, findDashcode, findDashcodeRobust, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, reanalyse, assignGroup, summary, reading };
+module.exports = { _internal: { batchSummary, openPdf, renderPage, findDashcode, findDashcodeRobust, rotated, detectSignatureOnPage }, EXPECTED_PAGES, ensureTable, createBatch, getBatch, describe, listBatches, assignPage, pageImage, confirmGroups, deleteBatch, deleteReturn, reanalyse, assignGroup, pendingCounts, summary, reading };

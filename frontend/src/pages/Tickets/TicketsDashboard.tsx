@@ -7,6 +7,7 @@ import TicketList from './TicketList';
 import TicketKanban from './TicketKanban';
 import TicketInbox from './TicketInbox';
 import LiveSessionsPanel from './LiveSessionsPanel';
+import RemoteControlAction from './RemoteControlAction';
 import { useAuth } from '../../contexts/AuthContext';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 import { useRealtimeNotifications } from '../../hooks/useRealtimeNotifications';
@@ -2168,6 +2169,8 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un compte AD, réinitialise son mot de passe et crée automatiquement un ticket résolu.</div>
                   </div>
                 </button>
+
+                <RemoteControlAction />
 
                 {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
                 {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}

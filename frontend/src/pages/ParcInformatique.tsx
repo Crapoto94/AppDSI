@@ -187,11 +187,13 @@ const ParcInformatiqueContent: React.FC = () => {
   const { token } = useAuth();
   const [source, setSource] = useState<'live' | 'hub'>('live'); // GLPI en direct par défaut (HUB = base synchronisée)
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
-
   const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes' | 'etiquette'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
+  // Incrémenté par le bouton « Actualiser » quand l'onglet AD est actif :
+  // force une nouvelle interrogation (AD direct en Live, copie locale en HUB).
+  const [adRefreshKey, setAdRefreshKey] = useState(0);
   // Modal liste d'ordinateurs concernés (doublons de série / à renouveler)
   const [pcModal, setPcModal] = useState<{ kind: 'dup' | 'renew'; title: string } | null>(null);
   const [pcModalRows, setPcModalRows] = useState<Row[]>([]);
@@ -502,19 +504,19 @@ const ParcInformatiqueContent: React.FC = () => {
   };
 
   // Ouvre la modale de détail équipement à partir d'un nom de poste AD (ex: "PO22038") :
-  // résout d'abord l'id hub_parc.items correspondant (toujours en source 'hub', quel que
-  // soit le toggle live/hub courant, car les postes AD sont synchronisés côté hub).
+  // résout l'id du parc dans la source courante (GLPI en direct si Live, copie
+  // synchronisée si HUB), puis charge la fiche complète.
   const openDeviceByName = async (name: string) => {
     setDetail({ loading: true });
     try {
-      const search = await axios.get('/api/parc/hub/ordinateurs', {
+      const search = await axios.get(`/api/parc/${source}/ordinateurs`, {
         params: { q: name, limit: 5 },
         headers: { Authorization: `Bearer ${token}` }
       });
       const candidates = search.data?.rows || [];
       const match = candidates.find((c: any) => (c.name || '').toLowerCase() === name.toLowerCase()) || candidates[0];
-      if (!match) { setDetail({ error: `Équipement « ${name} » introuvable dans le parc synchronisé.` }); return; }
-      const r = await axios.get(`/api/parc/hub/ordinateurs/${match.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!match) { setDetail({ error: `Équipement « ${name} » introuvable dans le parc ${source === 'live' ? 'GLPI (Live)' : 'synchronisé (HUB)'}.` }); return; }
+      const r = await axios.get(`/api/parc/${source}/ordinateurs/${match.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setDetail(r.data);
     } catch (e: any) {
       setDetail({ error: e.response?.data?.message || e.message });
@@ -547,12 +549,12 @@ const ParcInformatiqueContent: React.FC = () => {
   const loadStock = useCallback(async () => {
     setLoadingStock(true); setStockErr(null);
     try {
-      const r = await axios.get('/api/parc/hub/stock-summary', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await axios.get(`/api/parc/${source}/stock-summary`, { headers: { Authorization: `Bearer ${token}` } });
       setStockGroups(r.data.groups || []);
     } catch (e: any) {
       setStockErr(e.response?.data?.message || e.message); setStockGroups([]);
     } finally { setLoadingStock(false); }
-  }, [token]);
+  }, [token, source]);
 
   useEffect(() => { if (tab === 'usagers') loadUsagers(); }, [tab, source]);
   useEffect(() => { if (tab === 'stock') loadStock(); }, [tab, loadStock]);
@@ -774,7 +776,7 @@ const ParcInformatiqueContent: React.FC = () => {
                 }}><I size={14} /> {l}</button>
               ))}
             </div>
-            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : tab === 'ad' ? null : loadList(true)}
+            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : tab === 'ad' ? setAdRefreshKey(k => k + 1) : loadList(true)}
               style={btn(C.blue)}>
               <RefreshCw size={15} className={loadingKpi || loadingList || loadingUsagers ? 'spin' : ''} /> Actualiser
             </button>
@@ -1147,6 +1149,11 @@ const ParcInformatiqueContent: React.FC = () => {
                             {(type === 'ordinateurs' || (isTous && r.type_key === 'ordinateurs')) &&
                               <AdSeenDot lastContact={r.last_contact} lastUser={r.ad_last_user} />}
                             {v(r.name)}
+                            {r.is_deleted && (
+                              <span title="Fiche mise à la corbeille dans GLPI (état « Mis au rebut »…)" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '1px 6px', borderRadius: 5, fontSize: '.68rem', fontWeight: 700 }}>
+                                Corbeille
+                              </span>
+                            )}
                           </span>
                         </td>
                         {isTous && <td style={{ padding: '10px 14px' }}>{r.itemtype_label ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.itemtype_label}</span> : v(null)}</td>}
@@ -2556,7 +2563,7 @@ const ParcInformatiqueContent: React.FC = () => {
       )}
 
       {/* ─── AD (ACTIVE DIRECTORY) ─── */}
-      {tab === 'ad' && <AdView onOpenDevice={openDeviceByName} />}
+      {tab === 'ad' && <AdView source={source} reloadKey={adRefreshKey} onOpenDevice={openDeviceByName} />}
 
       {/* ─── ÉTIQUETTE ─── */}
       {tab === 'etiquette' && <EtiquetteView />}

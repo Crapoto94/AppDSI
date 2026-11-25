@@ -33,6 +33,11 @@ router.put('/etiquette/texts', authenticateJWT, etiquette.saveTexts);
 router.get('/live/health', authenticateJWT, live.health);
 router.get('/live/kpis', authenticateJWT, live.kpis);
 router.get('/live/usagers-equip', authenticateJWT, live.usagersEquip);
+router.get('/live/stock-summary', authenticateJWT, live.stockSummary);
+// AD interrogé en direct (LDAP), sans passer par la copie locale hub_parc.ad_computers.
+router.get('/live/ad/computers', authenticateJWT, ad.listADComputersLive);
+router.get('/live/ad/stats', authenticateJWT, ad.adStatsLive);
+router.get('/live/ad/computers-by-os', authenticateJWT, ad.listComputersByOsLive);
 router.get('/live/:type/filters', authenticateJWT, live.filters);
 router.get('/live/:type/:id', authenticateJWT, live.item);
 router.get('/live/:type', authenticateJWT, live.list);

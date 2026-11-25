@@ -108,14 +108,21 @@ function headersFor(sess) {
 }
 
 // ── Récupère tous les items d'un type (pagination via Content-Range) ───────────
-async function fetchAll(sess, itemtype, { expand = true } = {}) {
+// deletedOnly : GET /{itemtype}?is_deleted=1 ne renvoie QUE les fiches mises à la
+// corbeille dans GLPI (état « Mis au rebut », etc.). L'API les exclut par défaut,
+// d'où la nécessité d'un second appel pour les voir apparaître dans le parc.
+async function fetchPages(sess, itemtype, { expand = true, deletedOnly = false } = {}) {
   const items = [];
   const step = 200;
   let start = 0;
   while (true) {
     const r = await axios.get(`${sess.base}/${itemtype}`, {
       headers: headersFor(sess),
-      params: { ...(expand ? { expand_dropdowns: true } : {}), range: `${start}-${start + step - 1}` },
+      params: {
+        ...(expand ? { expand_dropdowns: true } : {}),
+        ...(deletedOnly ? { is_deleted: 1 } : {}),
+        range: `${start}-${start + step - 1}`,
+      },
       httpsAgent: sess.agent, timeout: 30000,
       validateStatus: () => true,
     });
@@ -132,6 +139,18 @@ async function fetchAll(sess, itemtype, { expand = true } = {}) {
     if (cr) { const total = parseInt(cr.split('/')[1], 10); if (!isNaN(total) && start + step >= total) break; }
     start += step;
     if (start > 200000) break; // garde-fou
+  }
+  return items;
+}
+
+// Liste complète d'un type : fiches actives +, si demandé, fiches en corbeille.
+async function fetchAll(sess, itemtype, { expand = true, includeDeleted = false } = {}) {
+  const items = await fetchPages(sess, itemtype, { expand });
+  if (!includeDeleted) return items;
+  const deleted = await fetchPages(sess, itemtype, { expand, deletedOnly: true }).catch(() => []);
+  const seen = new Set(items.map((it) => String(it.id)));
+  for (const it of deleted) {
+    if (!seen.has(String(it.id))) items.push({ ...it, is_deleted: 1 });
   }
   return items;
 }
@@ -193,9 +212,9 @@ const STALE_MAX_MS = 6 * 3600 * 1000; // 6 h : au-delà, on attend le rechargeme
 const _cache = new Map();
 const _inflight = new Map();
 
-function loadAndStore(itemtype, cacheKey, expand) {
+function loadAndStore(itemtype, cacheKey, expand, includeDeleted = false) {
   if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
-  const p = withSession((sess) => fetchAll(sess, itemtype, { expand }))
+  const p = withSession((sess) => fetchAll(sess, itemtype, { expand, includeDeleted }))
     .then((data) => { _cache.set(cacheKey, { data, ts: Date.now() }); return data; })
     .finally(() => _inflight.delete(cacheKey));
   _inflight.set(cacheKey, p);
@@ -205,22 +224,24 @@ function loadAndStore(itemtype, cacheKey, expand) {
 // Renvoie la liste complète d'un type, via cache + session partagée.
 // expand=false préserve les IDs numériques (notamment items_id) ; ne pas utiliser
 // avec les types principaux (Computer, Monitor…) où on veut les labels lisibles.
-async function getAll(itemtype, { refresh = false, expand = true } = {}) {
-  const cacheKey = expand ? itemtype : `${itemtype}_raw`;
+// includeDeleted=true ajoute les fiches en corbeille GLPI (état « Mis au rebut »…).
+async function getAll(itemtype, { refresh = false, expand = true, includeDeleted = false } = {}) {
+  const baseKey = expand ? itemtype : `${itemtype}_raw`;
+  const cacheKey = includeDeleted ? `${baseKey}+deleted` : baseKey;
   const hit = _cache.get(cacheKey);
   if (!refresh && hit) {
     const age = Date.now() - hit.ts;
     if (age < CACHE_TTL_MS) return hit.data;
     if (age < STALE_MAX_MS) {
-      loadAndStore(itemtype, cacheKey, expand).catch(() => { /* on garde l'ancien jeu de données */ });
+      loadAndStore(itemtype, cacheKey, expand, includeDeleted).catch(() => { /* on garde l'ancien jeu de données */ });
       return hit.data;
     }
   }
-  return loadAndStore(itemtype, cacheKey, expand);
+  return loadAndStore(itemtype, cacheKey, expand, includeDeleted);
 }
 
 function cacheInfo(itemtype) {
-  const hit = _cache.get(itemtype);
+  const hit = _cache.get(`${itemtype}+deleted`) || _cache.get(itemtype);
   if (!hit) return { cached: false, age_ms: null };
   return { cached: true, age_ms: Date.now() - hit.ts, ttl_ms: CACHE_TTL_MS };
 }

@@ -6603,6 +6603,14 @@ async function setupPgDbFull() {
         ON CONFLICT (key) DO NOTHING
       `);
 
+      // Studio IRS : URL et clé laissées vides ici, reprises du .env (STUDIO_IRS_URL /
+      // STUDIO_IRS_KEY) tant qu'elles ne sont pas saisies dans /admin/infra.
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name)
+        VALUES ('studio_irs', 'Studio IRS', '', '/api/external/v1/hosts', '', 'X-API-Key')
+        ON CONFLICT (key) DO NOTHING
+      `);
+
       // ── Seed v2 (version-gated) ────────────────────────────────────
       // DÉSACTIVÉ : le réseau est désormais alimenté par l'API Infra (switchs + liens),
       // pas par le seed statique « DIP 2021 ». On conserve le bloc pour mémoire.
@@ -8182,6 +8190,8 @@ async function setupPgDbFull() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_sections_tpl ON reunions_service.template_sections(template_id)`);
       try { await client.query(`ALTER TABLE reunions_service.template_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // KPI associés à la rubrique du modèle (catalogue du tableau de bord).
+      try { await client.query(`ALTER TABLE reunions_service.template_sections ADD COLUMN IF NOT EXISTS kpis_config JSONB DEFAULT '[]'::jsonb`); } catch (e) {}
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.template_participants (
           id SERIAL PRIMARY KEY,
@@ -8244,6 +8254,11 @@ async function setupPgDbFull() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_sections_meeting ON reunions_service.meeting_sections(meeting_id)`);
       try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // KPI de la rubrique : configuration recopiée du modèle, puis instantanés
+      // calculés au lancement et figés dans le compte rendu.
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpis_config JSONB DEFAULT '[]'::jsonb`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpi_snapshots JSONB`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpi_computed_at TIMESTAMPTZ`); } catch (e) {}
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.meeting_participants (
           id SERIAL PRIMARY KEY,
@@ -8332,6 +8347,28 @@ async function setupPgDbFull() {
       `);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_rs_poll_answers ON reunions_service.poll_answers(poll_id, participant_key)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_poll_answers_poll ON reunions_service.poll_answers(poll_id)`);
+
+      // ── Patch one-shot : ENS dans la rubrique « ADMINISTRATIF » des modèles ──
+      // Les engagements non soldés (SEDIT) sont attendus en administratif. On ne
+      // touche qu'aux rubriques encore vierges de KPI, et une seule fois (drapeau).
+      await client.query(`CREATE TABLE IF NOT EXISTS reunions_service.settings (key TEXT PRIMARY KEY, value TEXT)`);
+      const ensFlag = await client.query(`SELECT 1 FROM reunions_service.settings WHERE key = 'ens_default_admin_v1'`);
+      if (ensFlag.rowCount === 0) {
+        const ensKpis = [
+          { id: 'kpi_ens_count', key: 'budget.ens_count', name: 'ENS — engagements non soldés', period: null, from: null, to: null, compare: 'none', display: 'number', filters: {} },
+          { id: 'kpi_ens_list', key: 'budget.ens_list', name: 'ENS — détail', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
+          { id: 'kpi_ens_section', key: 'budget.ens_par_section', name: 'ENS par section', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
+        ];
+        await client.query(
+          `UPDATE reunions_service.template_sections
+           SET kpis_config = $1::jsonb
+           WHERE is_meta = FALSE AND COALESCE(is_pause, FALSE) = FALSE
+             AND UPPER(title) LIKE '%ADMINISTRATIF%'
+             AND (kpis_config IS NULL OR kpis_config = '[]'::jsonb)`,
+          [JSON.stringify(ensKpis)]
+        );
+        await client.query(`INSERT INTO reunions_service.settings (key, value) VALUES ('ens_default_admin_v1', '1') ON CONFLICT (key) DO NOTHING`);
+      }
     } catch (e) {
       console.error('[PG DB] reunions_service schema:', e.message);
     }

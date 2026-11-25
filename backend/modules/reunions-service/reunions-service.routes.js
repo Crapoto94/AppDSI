@@ -56,6 +56,10 @@ router.get('/meetings/:id', authenticateJWT, ctrl.getMeeting);
 router.put('/meetings/:id', authenticateJWT, ctrl.updateMeeting);
 router.delete('/meetings/:id', authenticateJWT, requireModuleAdmin, ctrl.deleteMeeting);
 router.post('/meetings/:id/start', authenticateJWT, ctrl.startMeeting);
+// KPI de rubriques : catalogue du tableau de bord, aperçu, recalcul des valeurs figées.
+router.get('/kpi-catalog', authenticateJWT, ctrl.kpiCatalog);
+router.post('/kpis/preview', authenticateJWT, ctrl.previewKpi);
+router.post('/meetings/:id/kpis/refresh', authenticateJWT, ctrl.refreshMeetingKpis);
 router.post('/meetings/:id/time-master', authenticateJWT, ctrl.setTimeMaster);
 router.post('/meetings/:id/presence/self', authenticateJWT, ctrl.markSelfPresent);
 router.post('/meetings/:id/end', authenticateJWT, ctrl.endMeeting);

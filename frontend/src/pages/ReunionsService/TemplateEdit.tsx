@@ -9,13 +9,16 @@ import { useAuth } from '../../contexts/AuthContext';
 import useReunionAccess from './useReunionAccess';
 import {
     ArrowLeft, Plus, Trash2, Clock, Users, ChevronUp, ChevronDown, Save, X, Presentation,
-    ListChecks, Sparkles, Lock, Pause, Gamepad2,
+    ListChecks, Sparkles, Lock, Pause, Gamepad2, BarChart3,
 } from 'lucide-react';
+import KpiConfigurator from './KpiConfigurator';
+import type { KpiCatalog, KpiConfig } from './KpiConfigurator';
 
 interface SectionDraft {
     title: string;
     duration_minutes: number;
     is_pause?: boolean;
+    kpis?: KpiConfig[];
 }
 
 interface ParticipantDraft {
@@ -40,7 +43,14 @@ const REDI_SECTIONS: SectionDraft[] = [
     { title: 'SYSTEME & RESEAU', duration_minutes: 15 },
     { title: 'MCO & PROJETS', duration_minutes: 15 },
     { title: 'ECOLES', duration_minutes: 5 },
-    { title: 'ADMINISTRATIF', duration_minutes: 5 },
+    {
+        title: 'ADMINISTRATIF', duration_minutes: 5,
+        kpis: [
+            { id: 'kpi_ens_count', key: 'budget.ens_count', name: 'ENS — engagements non soldés', period: null, compare: 'none', display: 'number', filters: {} },
+            { id: 'kpi_ens_list', key: 'budget.ens_list', name: 'ENS — détail', period: null, compare: 'none', display: 'list', filters: {} },
+            { id: 'kpi_ens_section', key: 'budget.ens_par_section', name: 'ENS par section', period: null, compare: 'none', display: 'list', filters: {} },
+        ],
+    },
     { title: 'RELEVE DE DECISIONS', duration_minutes: 10 },
 ];
 const DEFAULT_META_DURATION = 10;
@@ -68,8 +78,19 @@ export default function ReunionServiceTemplateEdit() {
     const [loading, setLoading] = useState(!isNew);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    // Catalogue des KPI du tableau de bord + rubrique en cours de paramétrage.
+    const [kpiCatalog, setKpiCatalog] = useState<KpiCatalog | null>(null);
+    const [kpiModalIdx, setKpiModalIdx] = useState<number | null>(null);
 
     const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+    useEffect(() => {
+        if (!token) return;
+        axios.get('/api/reunions-service/kpi-catalog', auth)
+            .then(r => setKpiCatalog(r.data))
+            .catch(() => setKpiCatalog(null));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token]);
 
     useEffect(() => {
         if (!isAdmin || isNew || !token) { setLoading(false); return; }
@@ -85,7 +106,7 @@ export default function ReunionServiceTemplateEdit() {
                 setMetaDuration(Number(meta?.duration_minutes) || DEFAULT_META_DURATION);
                 const secs = allSections
                     .filter(s => !s.is_meta)
-                    .map(s => ({ title: s.title, duration_minutes: Number(s.duration_minutes) || 0, is_pause: !!s.is_pause }));
+                    .map(s => ({ title: s.title, duration_minutes: Number(s.duration_minutes) || 0, is_pause: !!s.is_pause, kpis: Array.isArray(s.kpis_config) ? s.kpis_config : [] }));
                 setSections(secs.length ? secs : REDI_SECTIONS.map(s => ({ ...s })));
                 setParticipants((Array.isArray(t.participants) ? t.participants : []).map((p: { email: string; name: string; username?: string }) => ({ email: p.email, name: p.name, username: p.username })));
             })
@@ -143,7 +164,12 @@ export default function ReunionServiceTemplateEdit() {
     const save = async () => {
         if (!name.trim()) { setError('Le nom du modèle est requis.'); return; }
         const cleanSections = sections
-            .map(s => ({ title: s.title.trim(), duration_minutes: Math.max(0, Number(s.duration_minutes) || 0), is_pause: !!s.is_pause }))
+            .map(s => ({
+                title: s.title.trim(),
+                duration_minutes: Math.max(0, Number(s.duration_minutes) || 0),
+                is_pause: !!s.is_pause,
+                kpis: s.is_pause ? [] : (s.kpis || []),
+            }))
             .filter(s => s.title);
         if (cleanSections.length === 0) { setError('Ajoutez au moins une rubrique.'); return; }
         setSaving(true);
@@ -343,7 +369,8 @@ export default function ReunionServiceTemplateEdit() {
                                         </div>
 
                                         {sections.map((s, idx) => (
-                                            <div className="rst-sec-row" key={idx} style={s.is_pause ? { background: '#fffbeb', borderColor: '#fcd34d' } : undefined}>
+                                            <div key={idx}>
+                                            <div className="rst-sec-row" style={s.is_pause ? { background: '#fffbeb', borderColor: '#fcd34d' } : undefined}>
                                                 <div className="rst-badge" style={s.is_pause ? { background: '#f59e0b' } : undefined}>{s.is_pause ? <Pause size={12} /> : idx + 1}</div>
                                                 <input className="rst-title-input" value={s.title} onChange={e => updateSection(idx, { title: e.target.value })} placeholder={s.is_pause ? 'Pause (Tetris)' : `Rubrique ${idx + 1}`} />
                                                 <div className="rst-dur">
@@ -355,9 +382,19 @@ export default function ReunionServiceTemplateEdit() {
                                                     <div className="pct">{share(s.duration_minutes)}%</div>
                                                 </div>
                                                 <div className="rst-row-actions">
+                                                    {!s.is_pause && (
+                                                        <button
+                                                            className="rst-icon-btn"
+                                                            onClick={() => setKpiModalIdx(idx)}
+                                                            title="Associer des KPI à cette rubrique"
+                                                            style={{ width: 'auto', padding: '0 8px', gap: 4, color: (s.kpis || []).length ? '#0078a4' : undefined, background: (s.kpis || []).length ? '#eef6fb' : undefined, borderColor: (s.kpis || []).length ? '#cfe3ef' : undefined }}
+                                                        >
+                                                            <BarChart3 size={14} />{(s.kpis || []).length ? <span style={{ fontSize: '.7rem', fontWeight: 800 }}>{s.kpis!.length}</span> : null}
+                                                        </button>
+                                                    )}
                                                     <button
                                                         className="rst-icon-btn"
-                                                        onClick={() => updateSection(idx, { is_pause: !s.is_pause, title: s.is_pause ? s.title : (s.title || 'Pause') })}
+                                                        onClick={() => updateSection(idx, { is_pause: !s.is_pause, title: s.is_pause ? s.title : (s.title || 'Pause'), kpis: s.is_pause ? s.kpis : [] })}
                                                         title={s.is_pause ? 'Repasser en rubrique normale' : 'Marquer comme pause (Tetris multijoueur)'}
                                                         style={s.is_pause ? { color: '#b45309', background: '#fef3c7' } : undefined}
                                                     ><Pause size={15} /></button>
@@ -365,6 +402,16 @@ export default function ReunionServiceTemplateEdit() {
                                                     <button className="rst-icon-btn" onClick={() => moveSection(idx, 1)} disabled={idx === sections.length - 1} title="Descendre"><ChevronDown size={15} /></button>
                                                     <button className="rst-icon-btn danger" onClick={() => removeSection(idx)} title="Supprimer"><Trash2 size={15} /></button>
                                                 </div>
+                                            </div>
+                                            {!s.is_pause && (s.kpis || []).length > 0 && (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, margin: '-2px 0 2px 34px' }}>
+                                                    {s.kpis!.map(k => (
+                                                        <span key={k.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.72rem', background: '#eff6ff', border: '1px solid #dbeafe', color: '#1d4ed8', borderRadius: 12, padding: '1px 8px', fontWeight: 600 }}>
+                                                            <BarChart3 size={10} /> {k.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             </div>
                                         ))}
                                     </div>
@@ -411,6 +458,19 @@ export default function ReunionServiceTemplateEdit() {
                     </>
                 )}
             </div>
+
+            {kpiModalIdx !== null && sections[kpiModalIdx] && (
+                <KpiConfigurator
+                    open
+                    sectionTitle={sections[kpiModalIdx].title}
+                    kpis={sections[kpiModalIdx].kpis || []}
+                    catalog={kpiCatalog}
+                    templateId={!isNew ? Number(id) : null}
+                    meetingDate={null}
+                    onClose={() => setKpiModalIdx(null)}
+                    onChange={(next) => updateSection(kpiModalIdx, { kpis: next })}
+                />
+            )}
         </div>
     );
 }
