@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { Entretien } from './types';
 import { nomComplet } from './types';
 import FreeSlots from './FreeSlots';
+import DateTimeQuart from './DateTimeQuart';
 import { COLORS, Field, btnGhost, btnPrimary, card, input } from './ui';
 
 /** L'évaluateur fixe lui-même le rendez-vous de l'entretien : créneaux libres communs, invitation Outlook et e-mail à l'agent. */
@@ -15,7 +16,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
 }) {
   const { token } = useAuth();
   const [date, setDate] = useState(entretien.date_entretien || '');
-  const [duree, setDuree] = useState(entretien.duree_minutes || 120);
+  const [duree, setDuree] = useState(entretien.date_entretien && [60, 90, 120, 150].includes(Number(entretien.duree_minutes)) ? Number(entretien.duree_minutes) : 90);
   const [lieu, setLieu] = useState(entretien.lieu || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
     if (!date) { setError('Choisissez la date et l’heure de l’entretien.'); return; }
     setSaving(true); setError(null);
     try {
-      const r = await axios.put(`/api/entretiens/${entretien.id}/planning`, { date_entretien: date, duree_minutes: Number(duree) || 120, lieu },
+      const r = await axios.put(`/api/entretiens/${entretien.id}/planning`, { date_entretien: date, duree_minutes: Number(duree) || 90, lieu },
         { headers: { Authorization: `Bearer ${token}` } });
       const o = r.data.outlook;
       setResult({
@@ -59,7 +60,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
                 <Field label="Date et heure" required>
-                  <input style={input} type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
+                  <DateTimeQuart value={date} onChange={setDate} />
                 </Field>
                 {date && (new Date(date).getTime() - Date.now()) < 8 * 86400000 && (
                   <div style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>
@@ -67,7 +68,9 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                   </div>
                 )}
                 <Field label="Durée (minutes)">
-                  <input style={input} type="number" min={15} step={15} value={duree} onChange={e => setDuree(Number(e.target.value))} />
+                  <select style={input} value={duree} onChange={e => setDuree(Number(e.target.value))}>
+                    {[60, 90, 120, 150].map(m => <option key={m} value={m}>{m} minutes</option>)}
+                  </select>
                 </Field>
                 <Field label="Lieu / visioconférence">
                   <input style={input} placeholder="Bureau, salle, Teams…" value={lieu} onChange={e => setLieu(e.target.value)} />
@@ -78,7 +81,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                   { email: entretien.agent_email || '', name: nomComplet(entretien) },
                   { email: entretien.evaluator_email || '', name: entretien.evaluator_nom || entretien.evaluator_email || '' },
                 ]}
-                dureeMinutes={Number(duree) || 120}
+                dureeMinutes={Number(duree) || 90}
                 value={date}
                 onPick={setDate}
               />

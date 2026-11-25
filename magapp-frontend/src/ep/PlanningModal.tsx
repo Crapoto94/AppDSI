@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 import type { Entretien } from './types';
 import { nomComplet } from './types';
 import FreeSlots from './FreeSlots';
+import DateTimeQuart from './DateTimeQuart';
 import { COLORS, Field, btnGhost, btnPrimary, card, input } from './ui';
 
 /** L'évaluateur fixe lui-même le rendez-vous de l'entretien : créneaux libres communs, invitation Outlook et e-mail à l'agent. */
@@ -15,7 +16,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
 }) {
   const { token } = useAuth();
   const [date, setDate] = useState(entretien.date_entretien || '');
-  const [duree, setDuree] = useState([60, 90, 120, 150].includes(Number(entretien.duree_minutes)) ? Number(entretien.duree_minutes) : 120);
+  const [duree, setDuree] = useState(entretien.date_entretien && [60, 90, 120, 150].includes(Number(entretien.duree_minutes)) ? Number(entretien.duree_minutes) : 90);
   const [lieu, setLieu] = useState(entretien.lieu || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +60,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
                 <Field label="Date et heure" required>
-                  <input style={input} type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
+                  <DateTimeQuart value={date} onChange={setDate} />
                 </Field>
                 {date && (new Date(date).getTime() - Date.now()) < 8 * 86400000 && (
                   <div style={{ gridColumn: '1 / -1', background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 11px', fontSize: 12.5 }}>
@@ -80,7 +81,7 @@ export default function PlanningModal({ entretien, onClose, onSaved }: {
                   { email: entretien.agent_email || '', name: nomComplet(entretien) },
                   { email: entretien.evaluator_email || '', name: entretien.evaluator_nom || entretien.evaluator_email || '' },
                 ]}
-                dureeMinutes={Number(duree) || 120}
+                dureeMinutes={Number(duree) || 90}
                 value={date}
                 onPick={setDate}
               />

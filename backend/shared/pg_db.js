@@ -8017,7 +8017,7 @@ async function setupPgDbFull() {
           evaluator_email TEXT DEFAULT '',
           evaluator_nom TEXT DEFAULT '',
           date_entretien TEXT,
-          duree_minutes INTEGER DEFAULT 120,
+          duree_minutes INTEGER DEFAULT 90,
           lieu TEXT DEFAULT '',
           statut TEXT NOT NULL DEFAULT 'a_planifier',
           realisations TEXT DEFAULT '',
@@ -8049,6 +8049,8 @@ async function setupPgDbFull() {
           updated_at TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Durée par défaut d'un entretien : 1 h 30 (bases créées avec 2 h)
+      await client.query('ALTER TABLE hub_entretiens.entretiens ALTER COLUMN duree_minutes SET DEFAULT 90');
       // Compte-rendu officiel (CREP) saisi par l'évaluateur : tous les champs du document papier DRH, en JSON.
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep JSONB`);
       // Reprise des EP de l'année précédente (missions, objectifs du service, objectifs individuels) : valeurs proposées par défaut.

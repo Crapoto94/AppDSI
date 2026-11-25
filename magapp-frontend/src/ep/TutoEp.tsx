@@ -46,7 +46,7 @@ const STEPS: Record<TutoRole, Step[]> = {
       body: <><B>Cette étape est facultative.</B> Vous pouvez toujours fixer la date « à l'ancienne » (de vive voix, par téléphone ou par courrier). L'outil n'est qu'une <B>aide</B> : recherche de créneaux communs et envoi de la convocation par e-mail.
         <div style={{ marginTop: 8 }}>Pour l'utiliser : sur la ligne de l'agent·e, cliquez sur <B>« Planifier »</B>, puis <B>« Prochains créneaux libres »</B> (l'outil lit vos agendas et propose des créneaux où vous êtes tous les deux libres), choisissez un créneau et validez.</div>
         <div style={{ marginTop: 8 }}><B>Si l'agent·e n'a pas d'adresse e-mail</B>, aucune convocation ne peut partir : vous devez de toute façon le convoquer par un autre moyen (vive voix, téléphone, courrier) et lui remettre le CREP vierge imprimé.</div></>,
-      example: <Ex>Exemple : pour <B>Julien Lefèvre</B>, vous choisissez « Mardi 1<sup>er</sup> décembre, 8h–10h ». Julien reçoit une invitation Outlook et un e-mail avec le CREP vierge.</Ex> },
+      example: <Ex>Exemple : pour <B>Julien Lefèvre</B>, vous choisissez « Mardi 1<sup>er</sup> décembre, 8h30–10h ». Julien reçoit une invitation Outlook et un e-mail avec le CREP vierge.</Ex> },
     { id: 'valideur-3', emoji: '📨', quest: 'Étape 2 (cas particulier)', title: 'Cas particulier : l\'agent·e « sans e-mail »', xp: 100, shot: '/aide-ep/05-lier-ad.jpg',
       body: <>Marc Petit apparaît avec <B>« Lier l'AD »</B> au lieu d'une adresse. Souvent, c'est juste que son nom est écrit un peu différemment dans la base RH et dans l'annuaire informatique.
         Si vous savez qu'il a un e-mail : cliquez sur <B>« Lier l'AD »</B>, tapez quelques lettres de son nom, vérifiez l'adresse, puis <B>« Lier »</B>.</>,

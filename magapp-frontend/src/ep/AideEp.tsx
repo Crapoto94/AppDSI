@@ -414,7 +414,7 @@ export default function AideEp({ onClose, isAdmin, features, onTuto, editing = f
               <Gestes items={[
                 <>Dans « EP que je réalise », repérer la ligne de l'agent·e.</>,
                 <>Cliquer sur <strong>« Planifier »</strong> (ou « Modifier le RDV » si une date existe déjà).</>,
-                <>Choisir la <strong>date et l'heure</strong>, la <strong>durée</strong> (2 heures par défaut ; seulement <strong>1 h, 1 h 30, 2 h ou 2 h 30</strong>) et le <strong>lieu</strong>.</>,
+                <>Choisir la <strong>date et l'heure</strong>, la <strong>durée</strong> (1 h 30 par défaut ; seulement <strong>1 h, 1 h 30, 2 h ou 2 h 30</strong> ; les heures se choisissent de quart d’heure en quart d’heure) et le <strong>lieu</strong>.</>,
                 <>Pour être aidé : cliquer sur <strong>« Prochains créneaux libres »</strong>. L'outil lit votre agenda et celui de l'agent·e, puis propose des créneaux communs. Cliquer sur un créneau.</>,
                 <>Cliquer sur le bouton de validation. Un message vert confirme l'envoi.</>,
               ]} />

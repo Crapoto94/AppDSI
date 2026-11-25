@@ -110,7 +110,7 @@ export default function MonEntretien({ data, onChanged }: { data: MeData; onChan
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginTop: 18 }}>
           <Info icon={<CalendarDays size={16} />} label="Date de l'entretien"
             value={entretien.date_entretien ? formatDateHeure(entretien.date_entretien) : 'À définir'} />
-          <Info icon={<Clock size={16} />} label="Durée" value={`${entretien.duree_minutes || 120} minutes`} />
+          <Info icon={<Clock size={16} />} label="Durée" value={`${entretien.duree_minutes || 90} minutes`} />
           <Info icon={<MapPin size={16} />} label="Lieu" value={entretien.lieu || 'À préciser'} />
           <Info icon={<UserCheck size={16} />} label="Évaluateur"
             value={entretien.evaluator_nom || entretien.evaluator_email || 'À définir'} />

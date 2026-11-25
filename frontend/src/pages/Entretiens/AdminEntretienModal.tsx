@@ -8,6 +8,7 @@ import type { Campaign, Entretien } from './types';
 import AgentSearch from '../../components/AgentSearch';
 import type { AgentOption } from '../../components/AgentSearch';
 import FreeSlots from './FreeSlots';
+import DateTimeQuart from './DateTimeQuart';
 import { COLORS, Field, btnGhost, btnPrimary, card, input, textarea } from './ui';
 
 interface DsiAgent {
@@ -16,7 +17,7 @@ interface DsiAgent {
 }
 
 function todayTime(): string {
-  const d = new Date();
+  const d = new Date(Math.ceil(Date.now() / 900000) * 900000);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -47,7 +48,7 @@ export default function AdminEntretienModal({ entretien, prefillAgent, campaigns
     evaluator_email: entretien?.evaluator_email || '',
     evaluator_username: entretien?.evaluator_username || '',
     date_entretien: entretien?.date_entretien || todayTime(),
-    duree_minutes: entretien?.duree_minutes || 120,
+    duree_minutes: entretien?.date_entretien && [60, 90, 120, 150].includes(Number(entretien.duree_minutes)) ? Number(entretien.duree_minutes) : 90,
     lieu: entretien?.lieu || '',
     notes_admin: entretien?.notes_admin || '',
   });
@@ -95,7 +96,7 @@ export default function AdminEntretienModal({ entretien, prefillAgent, campaigns
     if (!form.date_entretien) { setError('La date et l’heure sont requises.'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, duree_minutes: Number(form.duree_minutes) || 120 };
+      const payload = { ...form, duree_minutes: Number(form.duree_minutes) || 90 };
       const r = entretien
         ? await axios.put(`/api/entretiens/${entretien.id}`, payload, { headers })
         : await axios.post('/api/entretiens', payload, { headers });
@@ -191,10 +192,12 @@ export default function AdminEntretienModal({ entretien, prefillAgent, campaigns
 
                 <div style={grid}>
                   <Field label="Date et heure" required>
-                    <input style={input} type="datetime-local" value={form.date_entretien} onChange={e => set('date_entretien', e.target.value)} />
+                    <DateTimeQuart value={form.date_entretien} onChange={v => set('date_entretien', v)} />
                   </Field>
                   <Field label="Durée (minutes)">
-                    <input style={input} type="number" min={15} step={15} value={form.duree_minutes} onChange={e => set('duree_minutes', Number(e.target.value))} />
+                    <select style={input} value={form.duree_minutes} onChange={e => set('duree_minutes', Number(e.target.value))}>
+                      {[60, 90, 120, 150].map(m => <option key={m} value={m}>{m} minutes</option>)}
+                    </select>
                   </Field>
                   <Field label="Lieu / visioconférence">
                     <input style={input} placeholder="Bureau, salle, Teams…" value={form.lieu} onChange={e => set('lieu', e.target.value)} />
@@ -206,7 +209,7 @@ export default function AdminEntretienModal({ entretien, prefillAgent, campaigns
                     { email: form.agent_email, name: agentName || form.agent_email },
                     { email: form.evaluator_email, name: form.evaluator_nom || form.evaluator_email },
                   ]}
-                  dureeMinutes={Number(form.duree_minutes) || 120}
+                  dureeMinutes={Number(form.duree_minutes) || 90}
                   value={form.date_entretien}
                   onPick={start => set('date_entretien', start)}
                 />

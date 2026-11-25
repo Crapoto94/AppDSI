@@ -200,7 +200,7 @@ export default function Aide({ onClose, isAdmin, features }: { onClose: () => vo
               <div style={{ display: 'grid', gap: 4 }}>
                 <div><strong>1.</strong> Dans « EP que je réalise », repérer la ligne de l'agent.</div>
                 <div><strong>2.</strong> Cliquer sur <strong>« Planifier »</strong> (ou « Modifier le RDV » si une date existe déjà).</div>
-                <div><strong>3.</strong> Choisir la <strong>date</strong>, l'<strong>heure</strong>, la <strong>durée</strong> (2 heures par défaut) et le <strong>lieu</strong>.</div>
+                <div><strong>3.</strong> Choisir la <strong>date</strong>, l'<strong>heure</strong>, la <strong>durée</strong> (1 h 30 par défaut) et le <strong>lieu</strong>.</div>
                 <div><strong>4.</strong> Pour être aidé : cliquer sur <strong>« Prochains créneaux libres »</strong>. L'outil regarde les agendas de l'agent et le vôtre, puis propose des créneaux communs.</div>
                 <div><strong>5.</strong> Cliquer sur un créneau proposé, puis <strong>valider</strong>.</div>
                 <div><strong>6.</strong> L'outil envoie l'invitation Outlook et un e-mail à l'agent, avec le <strong>CREP vierge en pièce jointe</strong>.</div>

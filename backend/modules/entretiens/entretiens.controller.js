@@ -1420,7 +1420,7 @@ const entretiensController = {
                     evaluatorEmail.toLowerCase(),
                     text(b.evaluator_nom).trim(),
                     dateEntretien,
-                    svc.dureeEp(b.duree_minutes, 120),
+                    svc.dureeEp(b.duree_minutes, 90),
                     text(b.lieu).trim(),
                     statut,
                     text(b.notes_admin),
@@ -1485,7 +1485,7 @@ const entretiensController = {
                 if (d && ['a_planifier'].includes(current.statut)) add('statut', 'planifie');
                 if (!d && !['realise', 'cloture'].includes(current.statut)) add('statut', 'a_planifier');
             }
-            if (b.duree_minutes !== undefined) add('duree_minutes', svc.dureeEp(b.duree_minutes, 120));
+            if (b.duree_minutes !== undefined) add('duree_minutes', svc.dureeEp(b.duree_minutes, 90));
             if (b.lieu !== undefined) add('lieu', text(b.lieu).trim());
             if (b.notes_admin !== undefined) add('notes_admin', text(b.notes_admin));
             if (b.statut !== undefined && NOMENCLATURE_STATUTS.some(s => s.key === b.statut)) add('statut', b.statut);
@@ -2261,7 +2261,7 @@ const entretiensController = {
 
             await pgDb.run(
                 `UPDATE hub_entretiens.entretiens SET
-                    date_entretien = NULL, duree_minutes = 120, lieu = '', statut = 'a_planifier',
+                    date_entretien = NULL, duree_minutes = 90, lieu = '', statut = 'a_planifier',
                     realisations = '', difficultes = '', pistes_amelioration = '', competences_a_developper = '',
                     perspectives_missions = '', perspectives_responsabilite = '', perspectives_expertise = '',
                     perspectives_projet = '', perspectives_concours = '', commentaire_agent = '',
@@ -2386,7 +2386,7 @@ const entretiensController = {
                 organizerEmail: actor.email,
                 participants: parts,
                 includeOrganizer: false,
-                durationMinutes: svc.dureeEp(duree_minutes, 120),
+                durationMinutes: svc.dureeEp(duree_minutes, 90),
                 afterHours: !!after_hours,
                 strict: strict !== false,
                 after: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(apres || '') ? String(apres).slice(0, 16) : null,

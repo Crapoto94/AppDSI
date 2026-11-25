@@ -387,7 +387,7 @@ async function currentCampaignFlags() {
 
 /** Durées d'entretien autorisées (minutes). Toute autre valeur est ramenée à la valeur par défaut. */
 const DUREES_EP = [60, 90, 120, 150];
-const dureeEp = (v, fallback = 120) => { const n = Number(v); return DUREES_EP.includes(n) ? n : (DUREES_EP.includes(Number(fallback)) ? Number(fallback) : 120); };
+const dureeEp = (v, fallback = 90) => { const n = Number(v); return DUREES_EP.includes(n) ? n : (DUREES_EP.includes(Number(fallback)) ? Number(fallback) : 90); };
 
 /** Charge les objectifs et formations d'un entretien. */
 async function withRelations(entretien) {
@@ -919,7 +919,7 @@ async function syncOutlook(entretien, actor, campaign, { forceCreate = false } =
         const common = {
             organizerEmail,
             dateReunion: entretien.date_entretien,
-            dureeMinutes: Number(entretien.duree_minutes) || 120,
+            dureeMinutes: Number(entretien.duree_minutes) || 90,
             lieu: entretien.lieu || '',
         };
 

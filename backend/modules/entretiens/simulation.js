@@ -65,7 +65,7 @@ async function resetAll(actor, req) {
             } catch (e) { /* table absente */ }
             await pgDb.run(
                 `UPDATE hub_entretiens.entretiens SET
-                    date_entretien = NULL, duree_minutes = 120, lieu = '', statut = 'a_planifier',
+                    date_entretien = NULL, duree_minutes = 90, lieu = '', statut = 'a_planifier',
                     realisations = '', difficultes = '', pistes_amelioration = '', competences_a_developper = '',
                     perspectives_missions = '', perspectives_responsabilite = '', perspectives_expertise = '',
                     perspectives_projet = '', perspectives_concours = '', commentaire_agent = '',
