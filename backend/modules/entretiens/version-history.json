@@ -1,28 +1,15 @@
 {
   "module": "entretiens",
-  "version": "0.56.0",
+  "version": "0.55.0",
   "date": "2026-11-25",
   "releases": [
     {
-      "version": "0.56.0",
+      "version": "0.55.0",
       "date": "2026-11-25",
       "commit": "52c15b1d",
       "groups": {
         "nouveautes": [
           "Aide et tutoriel activables et modifiables par les administrateurs"
-        ],
-        "ameliorations": [],
-        "corrections": []
-      }
-    },
-    {
-      "version": "0.55.0",
-      "date": "2026-11-25",
-      "commit": "ff77a624",
-      "groups": {
-        "nouveautes": [
-          "KPI de rubrique, ENS et agents partis",
-          "Widgets dashboard"
         ],
         "ameliorations": [],
         "corrections": []

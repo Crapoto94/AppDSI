@@ -9,6 +9,8 @@
  *
  * Usage : node backend/scripts/gen-module-changelog.js <module> <chemin> [<chemin> ...]
  * Exemple : node backend/scripts/gen-module-changelog.js entretiens backend/modules/entretiens backend/modules/ep-base backend/modules/ep-ville magapp-frontend/src/ep
+ * Commits à écarter (ils touchent les fichiers du module sans le concerner) : backend/modules/<module>/version-exclude.json,
+ * liste [{ "commit": "abc12345", "motif": "…" }].
  * Sortie : backend/modules/<module>/version-history.json  { module, version, date, releases: [{version, date, groups: {nouveautes, ameliorations, corrections}}] }
  *
  * Numérotation (module pas encore stabilisé : 0.x.y) : CHAQUE commit est une version. Le premier est 0.1.0 ; ensuite une « feat » fait +1 mineur
@@ -43,10 +45,14 @@ const bullets = (text) => {
     return parts.map(sentence).filter(Boolean);
 };
 
+let excluded = [];
+const excludeFile = path.join(root, 'backend', 'modules', mod, 'version-exclude.json');
+if (fs.existsSync(excludeFile)) excluded = JSON.parse(fs.readFileSync(excludeFile, 'utf8')).map(x => x.commit);
+
 const commits = [];
 for (const rec of raw.split('').slice(1)) {
     const [date, hash, subject] = rec.split('');
-    if (!subject || SKIP.test(subject.trim())) continue;
+    if (!subject || SKIP.test(subject.trim()) || excluded.some(x => x.startsWith(hash) || hash.startsWith(x))) continue;
     const { type, text } = parse(subject.trim());
     const group = type === 'feat' ? 'nouveautes' : type === 'fix' ? 'corrections' : 'ameliorations';
     commits.push({ date, hash, type, group, bullets: bullets(text) });
