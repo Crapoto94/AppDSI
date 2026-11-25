@@ -267,6 +267,7 @@ async function saveFile(moduleName, id, file) {
             relativePath,
             dbPath: `${STORAGE_PREFIX}/${relativePath}`,
             absolutePath: null,
+            backend: 'smb',
         };
     }
 
@@ -281,6 +282,7 @@ async function saveFile(moduleName, id, file) {
         relativePath,                                   // ex. "certificats/25/123-abc.pdf"
         dbPath: `${STORAGE_PREFIX}/${relativePath}`,     // ex. "storage/certificats/25/123-abc.pdf"
         absolutePath,
+        backend: 'filesystem',
     };
 }
 

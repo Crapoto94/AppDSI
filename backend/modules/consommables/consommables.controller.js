@@ -261,6 +261,7 @@ const controller = {
           cr.mail_from,
           cr.mail_received_at,
           cr.source_document_id,
+          cr.ticket_id,
           cr.created_at,
           json_agg(
             json_build_object(
@@ -317,6 +318,7 @@ const controller = {
           cr.mail_from,
           cr.mail_received_at,
           cr.source_document_id,
+          cr.ticket_id,
           cr.created_at,
           json_agg(
             json_build_object(
@@ -730,6 +732,7 @@ const controller = {
           cr.mail_from,
           cr.mail_received_at,
           cr.source_document_id,
+          cr.ticket_id,
           json_agg(
             json_build_object(
               'id', ra.id,
@@ -949,6 +952,63 @@ const controller = {
   },
 
   /**
+   * Envoie l'accusé de réception d'une demande (utilisé par le collecteur mail
+   * quand l'option est activée). Ne fait rien si l'e-mail du demandeur manque.
+   */
+  async sendMailConfirmationForRequest(requestId) {
+    const request = await pgDb.get(
+      `SELECT cr.*, ct.name AS type_name
+       FROM hub_consommables.consumable_requests cr
+       JOIN hub_consommables.consumable_types ct ON ct.id = cr.type_id
+       WHERE cr.id = $1`,
+      [requestId]
+    );
+    if (!request || !request.email || !sendMailFn) return false;
+    const articles = await pgDb.all(
+      `SELECT ra.quantite, cc.article
+       FROM hub_consommables.request_articles ra
+       JOIN hub_consommables.consumable_catalog cc ON cc.id = ra.catalog_id
+       WHERE ra.request_id = $1 ORDER BY ra.id`,
+      [requestId]
+    );
+    const articlesHtml = articles.length
+      ? articles.map(a => `<tr><td style="padding:8px;border:1px solid #e2e8f0">${String(a.article || '').replace(/[<>&]/g, '')}</td><td style="padding:8px;border:1px solid #e2e8f0;text-align:center">${Number(a.quantite) || 0}</td></tr>`).join('')
+      : '<tr><td colspan="2" style="padding:8px;border:1px solid #e2e8f0;color:#64748b">Demande reçue par mail — pièce jointe consultable dans le Hub.</td></tr>';
+
+    let subject = `[Consommables] Prise en compte de votre demande n°${requestId}`;
+    let body = `
+      <h2>Demande de consommables n°${requestId}</h2>
+      <p>Bonjour,</p>
+      <p>Votre demande concernant <b>${String(request.nom_referent || '').replace(/[<>&]/g, '')}</b> a bien été prise en compte.</p>
+      <table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:500px">
+        <tr style="background:#003366;color:white"><th style="padding:8px;border:1px solid #003366">Article</th><th style="padding:8px;border:1px solid #003366">Quantité</th></tr>
+        ${articlesHtml}
+      </table>
+      <p>Direction : ${String(request.direction || '').replace(/[<>&]/g, '')} | Service : ${String(request.service || '').replace(/[<>&]/g, '')}</p>
+      <p>Le service informatique reviendra vers vous pour la suite.</p>
+    `;
+    try {
+      const db = getSqlite();
+      const template = await db.get("SELECT subject, body FROM email_templates WHERE slug = 'consumable_confirmation'");
+      if (template) {
+        const vars = {
+          request_id: requestId,
+          nom_referent: request.nom_referent || '',
+          direction: request.direction || '',
+          service: request.service || '',
+          date_commande: request.date_commande || '',
+          articles: articlesHtml,
+          app_name: 'DSI Hub',
+        };
+        subject = renderTemplate(template.subject, vars);
+        body = renderTemplate(template.body, vars);
+      }
+    } catch { /* template indisponible : contenu par défaut */ }
+    await sendMailFn(request.email, subject, body);
+    return true;
+  },
+
+  /**
    * Documents GED rattachés à une demande (message d'origine .eml + pièces
    * jointes du collecteur mail). Le frontend ouvre la visionneuse avec l'id.
    */
@@ -971,6 +1031,85 @@ const controller = {
     } catch (error) {
       console.error('[Consommables] Error getting request documents:', error);
       res.status(500).json({ error: 'Erreur lors de la récupération des documents', details: error.message });
+    }
+  },
+
+  /**
+   * Crée un ticket à partir d'une demande de consommables puis clôture la
+   * demande (statut « closed », archivée) en conservant le lien ticket_id.
+   * Réservé aux administrateurs consommables.
+   */
+  async createTicketFromRequest(req, res) {
+    try {
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
+
+      const request = await pgDb.get(
+        `SELECT cr.*, ct.name AS type_name
+         FROM hub_consommables.consumable_requests cr
+         JOIN hub_consommables.consumable_types ct ON ct.id = cr.type_id
+         WHERE cr.id = $1`,
+        [requestId]
+      );
+      if (!request) return res.status(404).json({ error: 'Demande introuvable' });
+      if (request.ticket_id) {
+        return res.json({ ticket_id: request.ticket_id, request_id: requestId, already: true });
+      }
+
+      const articles = await pgDb.all(
+        `SELECT ra.quantite, cc.article, cc.designation, cc.ref_commande
+         FROM hub_consommables.request_articles ra
+         JOIN hub_consommables.consumable_catalog cc ON cc.id = ra.catalog_id
+         WHERE ra.request_id = $1 ORDER BY ra.id`,
+        [requestId]
+      );
+
+      const esc = (v) => String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const articlesHtml = articles.length
+        ? `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">
+             <tr style="background:#f1f5f9"><th>Article</th><th>Désignation</th><th>Réf.</th><th>Qté</th></tr>
+             ${articles.map(a => `<tr><td>${esc(a.article)}</td><td>${esc(a.designation)}</td><td>${esc(a.ref_commande)}</td><td align="center">${Number(a.quantite) || 0}</td></tr>`).join('')}
+           </table>`
+        : '<p><i>Aucun article détaillé : demande reçue par mail, à qualifier depuis la pièce jointe.</i></p>';
+
+      const content = `
+        <p><b>Demande de consommables n°${requestId}</b> — ${esc(request.type_name)}</p>
+        <p>
+          Demandeur : <b>${esc(request.nom_referent)}</b>${request.email ? ` &lt;${esc(request.email)}&gt;` : ''}<br>
+          Direction : ${esc(request.direction)} — Service : ${esc(request.service)}<br>
+          Téléphone : ${esc(request.tel_complet) || '—'}<br>
+          Date de la demande : ${esc(request.date_commande)}
+        </p>
+        ${articlesHtml}
+        ${request.user_comment ? `<p><b>Annotation / message d'origine :</b></p><p style="white-space:pre-wrap">${esc(request.user_comment)}</p>` : ''}
+        ${request.source === 'mail' ? `<p><i>Reçue par mail le ${esc(request.mail_received_at)} — objet : ${esc(request.mail_subject)} — expéditeur : ${esc(request.mail_from)}</i></p>` : ''}
+      `;
+
+      const title = `Consommables n°${requestId} — ${request.type_name || 'demande'}${request.nom_referent ? ` — ${request.nom_referent}` : ''}`.slice(0, 250);
+      const ticketService = require('../tickets/services/ticket.service');
+      const ticketId = await ticketService.create({
+        title,
+        content,
+        type: 2, // demande
+        requester_name: request.nom_referent || request.username,
+        requester_email: request.email || undefined,
+        requester_phone: request.tel_complet || undefined,
+        source: request.source === 'mail' ? 'Mail' : 'Consommables',
+      }, req.user);
+
+      await pgDb.run(
+        `UPDATE hub_consommables.consumable_requests
+         SET status = 'closed', archived = TRUE, ticket_id = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [ticketId, requestId]
+      );
+
+      res.json({ ticket_id: ticketId, request_id: requestId });
+    } catch (error) {
+      console.error('[Consommables] Error creating ticket from request:', error);
+      res.status(500).json({ error: 'Erreur lors de la création du ticket', details: error.message });
     }
   },
 };

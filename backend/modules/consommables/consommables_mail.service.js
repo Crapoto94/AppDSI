@@ -13,7 +13,7 @@
  * enregistrées dans la GED.
  */
 const axios = require('axios');
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
 
@@ -47,6 +47,78 @@ function safeFileName(title, fallback = 'mail') {
 async function getOrgTable() {
   const v2 = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
   return Number(v2?.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
+}
+
+// ── Écoles (@ac-creteil.fr) ─────────────────────────────────────────────────
+// Les demandes venant d'une adresse @ac-creteil.fr émanent d'une école : le
+// demandeur est l'école (et non la personne), avec conservation de l'e-mail.
+const SCHOOL_DOMAIN = /@ac-creteil\.fr$/i;
+const normSchool = (s) => String(s || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+const SCHOOL_STOP = new Set([
+  'DE', 'DU', 'DES', 'LA', 'LE', 'LES', 'ET', 'A', 'B', 'SUR', 'SEINE', 'IVRY',
+  'ECOLE', 'ELEMENTAIRE', 'MATERNELLE', 'MUNICIPALE', 'PUBLIQUE', 'PRIVEE',
+  'PU', 'EE', 'EM', 'E', 'M',
+]);
+
+function resolveSchool(fromName, schools) {
+  const sn = normSchool(fromName);
+  if (!sn) return null;
+  const wantsMaternelle = /MATERNELLE|\bMAT\b/.test(sn);
+  const wantsElementaire = /ELEMENTAIRE|\bELEM\b|\bE E\b|\bE M\b/.test(sn);
+  let best = null;
+  for (const s of schools || []) {
+    const tokens = normSchool(s.nom).split(' ').filter(t => t.length >= 2 && !SCHOOL_STOP.has(t));
+    if (!tokens.length) continue;
+    const matched = tokens.filter(t => sn.includes(t)).length;
+    if (matched !== tokens.length) continue; // tous les mots du nom doivent correspondre
+    let score = 100 + tokens.join('').length;
+    if (wantsMaternelle) score += s.type === 'Maternelle' ? 20 : -10;
+    else if (wantsElementaire) score += s.type === 'Elémentaire' ? 20 : -10;
+    else score += s.type === 'Elémentaire' ? 5 : 0; // convention : élémentaire par défaut
+    if (!best || score > best.score) best = { school: s, score };
+  }
+  return best ? best.school : null;
+}
+
+async function loadSchoolContext() {
+  const schools = await pgDb.all('SELECT id, nom, type FROM hub.ecoles').catch(() => []);
+  const orgTable = await getOrgTable();
+  let direction = 'DIRECTION SCOLA. ACCUEILS LOISIRS EDUC.';
+  try {
+    const row = await pgDb.get(
+      `SELECT DISTINCT "DIRECTION_L" AS d FROM ${orgTable}
+       WHERE UPPER("DIRECTION_L") LIKE '%SCOLA%'
+         AND (UPPER("DIRECTION_L") LIKE '%ACCUEIL%' OR UPPER("DIRECTION_L") LIKE '%LOISIR%')
+       LIMIT 1`
+    );
+    if (row?.d) direction = String(row.d).trim();
+  } catch { /* repli sur le libellé connu */ }
+  return { schools: Array.isArray(schools) ? schools : [], orgTable, direction };
+}
+
+async function directionForSchool(schoolName, orgTable, fallback) {
+  try {
+    const row = await pgDb.get(
+      `SELECT DISTINCT "DIRECTION_L" AS d FROM ${orgTable}
+       WHERE UPPER(TRIM("SERVICE_L")) = UPPER(TRIM(?)) LIMIT 1`,
+      [schoolName]
+    );
+    if (row?.d) return String(row.d).trim();
+  } catch { /* organigramme indisponible */ }
+  return fallback;
+}
+
+async function isMailAckEnabled() {
+  try {
+    const db = getSqlite();
+    if (!db) return false;
+    const row = await db.get(
+      "SELECT setting_value FROM app_settings WHERE setting_key = 'consumables.mail_ack_enabled'"
+    );
+    return ['1', 'true', 'yes', 'on'].includes(String(row?.setting_value || '').trim().toLowerCase());
+  } catch { return false; }
 }
 
 async function fetchAllMessages(mailbox, token, axiosOpts, sinceTs = null) {
@@ -140,7 +212,8 @@ async function collect(collector, token, axiosOpts) {
       : null;
     const emails = await fetchAllMessages(collector.mailbox, token, axiosOpts, sinceTs);
     log.emails_received = emails.length;
-    const orgTable = await getOrgTable();
+    const schoolCtx = await loadSchoolContext();
+    const orgTable = schoolCtx.orgTable;
 
     for (const email of emails) {
       const msgId = email.internetMessageId || email.id;
@@ -158,9 +231,15 @@ async function collect(collector, token, axiosOpts) {
         const receivedAt = email.receivedDateTime ? new Date(email.receivedDateTime) : new Date();
         const dateCommande = receivedAt.toLocaleString('sv-SE').slice(0, 10);
 
+        // Les expéditeurs @ac-creteil.fr sont des écoles : le demandeur est l'école,
+        // et l'e-mail d'origine est conservé.
+        const school = SCHOOL_DOMAIN.test(fromEmail)
+          ? resolveSchool(fromName, schoolCtx.schools)
+          : null;
+
         // Demandeur : compte Hub par email (ou partie locale), sinon l'adresse.
         let user = null;
-        if (fromEmail) {
+        if (fromEmail && !school) {
           user = await pgDb.get(
             `SELECT id, username, displayname, email, service_code, service_complement, requester_phone
              FROM hub.users
@@ -170,12 +249,18 @@ async function collect(collector, token, axiosOpts) {
           );
         }
         const username = user?.username || fromEmail.split('@')[0] || fromEmail || 'inconnu';
-        const nomReferent = user?.displayname || fromName || fromEmail;
+        let nomReferent = user?.displayname || fromName || fromEmail;
 
         // Direction / service : organigramme RH à partir du code service du compte.
         let direction = '—';
         let service = '—';
-        if (user?.service_code) {
+        let isSchool = false;
+        if (school) {
+          isSchool = true;
+          nomReferent = school.nom;
+          service = school.nom;
+          direction = await directionForSchool(school.nom, orgTable, schoolCtx.direction);
+        } else if (user?.service_code) {
           try {
             const org = await pgDb.get(
               `SELECT "DIRECTION_L" AS d, "SERVICE_L" AS s FROM ${orgTable}
@@ -209,12 +294,12 @@ async function collect(collector, token, axiosOpts) {
         const ins = await pgDb.run(
           `INSERT INTO hub_consommables.consumable_requests
              (user_id, username, email, date_commande, direction, service, nom_referent, tel_complet,
-              type_id, status, user_comment, source, mail_subject, mail_from, mail_received_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'mail', ?, ?, ?)`,
+              type_id, status, user_comment, source, mail_subject, mail_from, mail_from_name, mail_received_at, is_school)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'mail', ?, ?, ?, ?, ?)`,
           [
             String(user?.id || fromEmail || username), username, fromEmail || user?.email || '',
             dateCommande, direction, service, nomReferent, user?.requester_phone || '',
-            typeId, comment, subject || null, fromEmail || null, receivedAt.toISOString(),
+            typeId, comment, subject || null, fromEmail || null, fromName || null, receivedAt.toISOString(), isSchool,
           ]
         );
         const requestId = ins.lastID;
@@ -244,6 +329,7 @@ async function collect(collector, token, axiosOpts) {
               module: 'consommables', entityType: 'request', entityId: requestId,
               title: emlName, filename: saved.filename, originalName: emlName,
               mimetype: 'message/rfc822', size: raw.length, storageRef: saved.dbPath,
+              storageBackend: saved.backend || 'filesystem',
               uploadedBy: 'collecteur-mail',
               metadata: { kind: 'email', email_message_id: msgId, subject },
             });
@@ -270,6 +356,7 @@ async function collect(collector, token, axiosOpts) {
               module: 'consommables', entityType: 'request', entityId: requestId,
               title: name, filename: saved.filename, originalName: name,
               mimetype: att.mimetype, size: att.buffer.length, storageRef: saved.dbPath,
+              storageBackend: saved.backend || 'filesystem',
               uploadedBy: 'collecteur-mail',
               metadata: { kind: 'attachment', email_message_id: msgId, subject },
             });
@@ -281,6 +368,17 @@ async function collect(collector, token, axiosOpts) {
 
         log.emails_imported++;
         log.tickets_created++;
+
+        // Accusé de réception : DÉSACTIVÉ par défaut (le temps que le client
+        // valide le texte). Activation via app_settings
+        // « consumables.mail_ack_enabled » = true.
+        if (await isMailAckEnabled()) {
+          try {
+            await require('./consommables.controller').sendMailConfirmationForRequest(requestId);
+          } catch (e) {
+            log.errors.push(`Confirmation non envoyée (demande ${requestId}) : ${e.message}`);
+          }
+        }
       } catch (e) {
         log.emails_failed++;
         log.errors.push(`${email.subject || msgId} : ${e.message}`);

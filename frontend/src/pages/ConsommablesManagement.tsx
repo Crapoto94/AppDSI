@@ -6,7 +6,7 @@ import {
   ChevronRight, Download, X, Plus, Edit2, Trash2, Search, Package,
   AlertCircle, CheckCircle, Clock, BookOpen, ArrowRight, ListChecks, Tag, Image,
   ShoppingCart, Printer, ChevronLeft, ShoppingBag, Trash, User, Calendar, Building2, Phone, Archive,
-  Paperclip, Mail
+  Paperclip, Mail, Ticket
 } from 'lucide-react';
 import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
@@ -57,6 +57,7 @@ interface ConsumableRequest {
   mail_from?: string | null;
   mail_received_at?: string | null;
   source_document_id?: number | null;
+  ticket_id?: number | null;
 }
 
 interface CartItem {
@@ -194,6 +195,26 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
       console.error('Error loading requests:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Crée un ticket depuis la demande de consommables puis clôture la demande.
+  const createTicketForRequest = async (request: ConsumableRequest) => {
+    if (request.ticket_id) {
+      window.open(`/tickets/${request.ticket_id}`, '_blank');
+      return;
+    }
+    if (!window.confirm(`Créer un ticket à partir de la demande n°${request.id} et clôturer cette demande ?`)) return;
+    try {
+      const res = await axios.post(`/api/consumable/admin/${request.id}/create-ticket`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const ticketId = res.data?.ticket_id;
+      alert(`Ticket n°${ticketId} créé. La demande de consommables est clôturée.`);
+      await loadRequests();
+      if (ticketId) window.open(`/tickets/${ticketId}`, '_blank');
+    } catch (e: any) {
+      alert(e.response?.data?.error || e.response?.data?.message || 'Impossible de créer le ticket');
     }
   };
 
@@ -663,6 +684,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
       case 'approved': return { background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' };
       case 'ordered': return { background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' };
       case 'rejected': return { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' };
+      case 'closed': return { background: '#e2e8f0', color: '#334155', border: '1px solid #cbd5e1' };
       default: return { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' };
     }
   };
@@ -672,6 +694,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
       case 'approved': return 'Approuvé';
       case 'ordered': return 'Commandé';
       case 'rejected': return 'Rejeté';
+      case 'closed': return 'Clôturée (ticket)';
       default: return 'En attente';
     }
   };
@@ -1643,12 +1666,32 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                         {isAdminForConsommables && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
                             {request.archived ? (
-                              <button onClick={() => handleUnarchiveRequest(request.id)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                                <Archive size={14} /> Désarchiver
-                              </button>
+                              <>
+                                <button onClick={() => handleUnarchiveRequest(request.id)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                  <Archive size={14} /> Désarchiver
+                                </button>
+                                {request.ticket_id && (
+                                  <a href={`/tickets/${request.ticket_id}`} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#f0fdfa', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: 6, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                                    <Ticket size={14} /> Ticket #{request.ticket_id}
+                                  </a>
+                                )}
+                              </>
                             ) : (
                               <>
+                                {request.ticket_id ? (
+                                  <a href={`/tickets/${request.ticket_id}`} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#f0fdfa', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: 6, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                                    <Ticket size={14} /> Ticket #{request.ticket_id}
+                                  </a>
+                                ) : (
+                                  <button onClick={() => createTicketForRequest(request)}
+                                    title="Créer un ticket avec cette demande et clôturer la demande"
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                                    <Ticket size={14} /> Créer un ticket
+                                  </button>
+                                )}
                                 {request.status === 'pending' && (
                                   <button onClick={() => handleValidateRequest(request.id)}
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>

@@ -4379,8 +4379,10 @@ async function setupPgDbFull() {
           ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'web',
           ADD COLUMN IF NOT EXISTS mail_subject TEXT,
           ADD COLUMN IF NOT EXISTS mail_from TEXT,
+          ADD COLUMN IF NOT EXISTS mail_from_name TEXT,
           ADD COLUMN IF NOT EXISTS mail_received_at TIMESTAMPTZ,
-          ADD COLUMN IF NOT EXISTS source_document_id INTEGER;
+          ADD COLUMN IF NOT EXISTS source_document_id INTEGER,
+          ADD COLUMN IF NOT EXISTS ticket_id INTEGER;
       `);
     } catch (e) {
       console.log('[PG DB] Migration colonnes mail consumable_requests skipped:', e.message);
