@@ -191,6 +191,16 @@ async function collect(collector, token, axiosOpts) {
         const typeId = await pickTypeId(subject, bodyText);
         if (!typeId) { log.emails_failed++; log.errors.push('Aucun type de consommable configuré'); continue; }
 
+        // Règle métier : un mail sans fichier joint n'est PAS une demande de
+        // consommables (les messages d'information, accusés, newsletters sont ignorés).
+        const atts = email.hasAttachments
+          ? await fetchAttachments(collector.mailbox, email.id, token, axiosOpts)
+          : [];
+        if (!atts.length) {
+          log.emails_skipped++;
+          continue;
+        }
+
         const comment = [
           `Reçu par mail le ${receivedAt.toLocaleDateString('fr-FR')} — Objet : ${subject || '(sans objet)'}`,
           bodyText ? `\n\n${bodyText}` : '',
@@ -250,25 +260,22 @@ async function collect(collector, token, axiosOpts) {
         }
 
         // Pièces jointes (PDF, images…) → GED également.
-        if (email.hasAttachments) {
-          const atts = await fetchAttachments(collector.mailbox, email.id, token, axiosOpts);
-          for (const att of atts) {
-            try {
-              const name = safeFileName(att.originalName, 'piece-jointe');
-              const saved = await storage.saveFile('consommables', requestId, {
-                buffer: att.buffer, originalname: name, mimetype: att.mimetype,
-              });
-              await docsService.registerExternalUpload({
-                module: 'consommables', entityType: 'request', entityId: requestId,
-                title: name, filename: saved.filename, originalName: name,
-                mimetype: att.mimetype, size: att.buffer.length, storageRef: saved.dbPath,
-                uploadedBy: 'collecteur-mail',
-                metadata: { kind: 'attachment', email_message_id: msgId, subject },
-              });
-              log.attachments_processed++;
-            } catch (e) {
-              log.errors.push(`Pièce jointe « ${att.originalName} » non stockée : ${e.message}`);
-            }
+        for (const att of atts) {
+          try {
+            const name = safeFileName(att.originalName, 'piece-jointe');
+            const saved = await storage.saveFile('consommables', requestId, {
+              buffer: att.buffer, originalname: name, mimetype: att.mimetype,
+            });
+            await docsService.registerExternalUpload({
+              module: 'consommables', entityType: 'request', entityId: requestId,
+              title: name, filename: saved.filename, originalName: name,
+              mimetype: att.mimetype, size: att.buffer.length, storageRef: saved.dbPath,
+              uploadedBy: 'collecteur-mail',
+              metadata: { kind: 'attachment', email_message_id: msgId, subject },
+            });
+            log.attachments_processed++;
+          } catch (e) {
+            log.errors.push(`Pièce jointe « ${att.originalName} » non stockée : ${e.message}`);
           }
         }
 
