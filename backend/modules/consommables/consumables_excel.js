@@ -56,6 +56,27 @@ function matchCatalog(catalog, { model, cartridge, supplier }) {
   return best;
 }
 
+/**
+ * Type de consommable probable pour une ligne absente du catalogue.
+ * 1 = LASER MONO, 2 = LASER COULEUR, 3 = JET D'ENCRE, 4 = FAX, 5 = DIVERS.
+ * Les références sont souvent communes à une gamme : c'est le modèle
+ * d'imprimante (lui aussi rempli par recopie vers le bas) qui tranche.
+ */
+function inferTypeId({ model, cartridge, supplier }) {
+  const hay = norm(`${model} ${cartridge} ${supplier}`);
+  if (/\bFAX\b/.test(hay)) return 4;
+  if (/ENCRE|\bINK\b|JET D ENCRE/.test(hay)) return 3;
+  if (/COLOR|COULEUR|CYAN|MAGENTA|JAUNE|YELLOW/.test(hay)) return 2;
+  if (/TONER|LASER|NOIR|BLACK|BROTHER|HP|CANON|EPSON|RICOH|KYOCERA/.test(hay)) return 1;
+  return 5;
+}
+
+/** Clé de regroupement d'une ligne (catalogue ou non) dans un même bon. */
+function itemKey(it) {
+  if (it.catalog_id) return `id:${it.catalog_id}`;
+  return `ref:${refKey(it.article)}|${refKey(it.code_fabricant)}`;
+}
+
 /** Lit une feuille et retourne les lignes du tableau + les infos d'en-tête. */
 function parseSheet(rows, catalog) {
   const headerIdx = rows.findIndex(row =>
@@ -95,10 +116,17 @@ function parseSheet(rows, catalog) {
     if (dateIdx >= 0 && row[dateIdx + 1]) result.date = toIsoDate(row[dateIdx + 1]);
   }
 
+  // Le modèle d'imprimante n'est saisi que sur la première ligne d'un groupe
+  // (cellules fusionnées) : on le recopie vers le bas pour les lignes suivantes.
+  let lastModel = '';
   for (const row of rows.slice(headerIdx + 1)) {
+    // Le modèle figure sur la première ligne du groupe, souvent sans quantité :
+    // on le mémorise avant de filtrer sur la quantité.
+    const rowModel = String(row[cModel] || '').trim();
+    if (rowModel) lastModel = rowModel;
     const qty = toQty(row[cQty]);
     if (!qty) continue;
-    const model = String(row[cModel] || '').trim();
+    const model = rowModel || lastModel;
     const cartridge = String(row[cCart] || '').trim();
     const supplier = String(row[cSupplier] || '').trim();
     if (!model && !cartridge && !supplier) continue;
@@ -113,7 +141,21 @@ function parseSheet(rows, catalog) {
         model, cartridge, supplier,
       });
     } else {
-      result.unmatched.push({ model, cartridge, supplier, quantite: qty });
+      // Référence inconnue du catalogue : on la conserve malgré tout, elle
+      // sera ajoutée au catalogue par l'appelant (commande réelle de l'école).
+      const type_id = inferTypeId({ model, cartridge, supplier });
+      result.items.push({
+        catalog_id: null,
+        type_id,
+        article: cartridge || supplier || model,
+        designation: model || 'Article commandé par école',
+        code_fabricant: supplier || '',
+        ref_commande: '',
+        quantite: qty,
+        model, cartridge, supplier,
+        unmatched: true,
+      });
+      result.unmatched.push({ model, cartridge, supplier, quantite: qty, type_id });
     }
   }
   return result;
@@ -128,7 +170,8 @@ function parseWorkbook(buffer, catalog) {
     const parsed = parseSheet(rows, catalog);
     // Fusionne les lignes (quantités cumulées par article)
     for (const it of parsed.items) {
-      const prev = out.items.find(x => x.catalog_id === it.catalog_id);
+      const key = itemKey(it);
+      const prev = out.items.find(x => itemKey(x) === key);
       if (prev) prev.quantite += it.quantite;
       else out.items.push({ ...it });
     }
@@ -141,4 +184,4 @@ function parseWorkbook(buffer, catalog) {
   return out;
 }
 
-module.exports = { parseWorkbook, matchCatalog, norm, refKey };
+module.exports = { parseWorkbook, matchCatalog, inferTypeId, itemKey, norm, refKey };

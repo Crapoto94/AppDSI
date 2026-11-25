@@ -320,6 +320,23 @@ const controller = {
           cr.source_document_id,
           cr.ticket_id,
           cr.created_at,
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', d.id,
+              'title', d.title,
+              'original_name', v.original_name,
+              'mimetype', v.mimetype,
+              'size', v.size,
+              'version', v.version,
+              'kind', COALESCE(d.metadata->>'kind', 'attachment')
+            ) ORDER BY d.id)
+            FROM hub_docs.documents d
+            JOIN hub_docs.document_versions v
+              ON v.document_id = d.id AND v.version = d.current_version
+            WHERE d.module = 'consommables'
+              AND d.entity_type = 'request'
+              AND d.entity_id = cr.id::text
+          ), '[]'::json) AS documents,
           json_agg(
             json_build_object(
               'id', ra.id,
@@ -733,6 +750,23 @@ const controller = {
           cr.mail_received_at,
           cr.source_document_id,
           cr.ticket_id,
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', d.id,
+              'title', d.title,
+              'original_name', v.original_name,
+              'mimetype', v.mimetype,
+              'size', v.size,
+              'version', v.version,
+              'kind', COALESCE(d.metadata->>'kind', 'attachment')
+            ) ORDER BY d.id)
+            FROM hub_docs.documents d
+            JOIN hub_docs.document_versions v
+              ON v.document_id = d.id AND v.version = d.current_version
+            WHERE d.module = 'consommables'
+              AND d.entity_type = 'request'
+              AND d.entity_id = cr.id::text
+          ), '[]'::json) AS documents,
           json_agg(
             json_build_object(
               'id', ra.id,
@@ -1035,8 +1069,26 @@ const controller = {
   },
 
   /**
+   * Construit le brouillon du ticket (titre + corps en texte) à partir d'une
+   * demande de consommables. Sert à l'aperçu modifiable avant création.
+   */
+  async getTicketDraft(req, res) {
+    try {
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
+      const draft = await buildTicketDraft(requestId);
+      if (!draft) return res.status(404).json({ error: 'Demande introuvable' });
+      res.json(draft);
+    } catch (error) {
+      console.error('[Consommables] Error building ticket draft:', error);
+      res.status(500).json({ error: 'Erreur lors de la préparation du ticket', details: error.message });
+    }
+  },
+
+  /**
    * Crée un ticket à partir d'une demande de consommables puis clôture la
    * demande (statut « closed », archivée) en conservant le lien ticket_id.
+   * Le titre et le corps peuvent être modifiés depuis l'aperçu.
    * Réservé aux administrateurs consommables.
    */
   async createTicketFromRequest(req, res) {
@@ -1045,10 +1097,7 @@ const controller = {
       if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
 
       const request = await pgDb.get(
-        `SELECT cr.*, ct.name AS type_name
-         FROM hub_consommables.consumable_requests cr
-         JOIN hub_consommables.consumable_types ct ON ct.id = cr.type_id
-         WHERE cr.id = $1`,
+        `SELECT cr.* FROM hub_consommables.consumable_requests cr WHERE cr.id = $1`,
         [requestId]
       );
       if (!request) return res.status(404).json({ error: 'Demande introuvable' });
@@ -1056,38 +1105,11 @@ const controller = {
         return res.json({ ticket_id: request.ticket_id, request_id: requestId, already: true });
       }
 
-      const articles = await pgDb.all(
-        `SELECT ra.quantite, cc.article, cc.designation, cc.ref_commande
-         FROM hub_consommables.request_articles ra
-         JOIN hub_consommables.consumable_catalog cc ON cc.id = ra.catalog_id
-         WHERE ra.request_id = $1 ORDER BY ra.id`,
-        [requestId]
-      );
+      const draft = await buildTicketDraft(requestId, request);
+      const title = String(req.body?.title || draft.title).trim().slice(0, 250) || draft.title;
+      const bodyText = String(req.body?.content ?? draft.content).trim() || draft.content;
+      const content = textToHtml(bodyText);
 
-      const esc = (v) => String(v == null ? '' : v)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      const articlesHtml = articles.length
-        ? `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">
-             <tr style="background:#f1f5f9"><th>Article</th><th>Désignation</th><th>Réf.</th><th>Qté</th></tr>
-             ${articles.map(a => `<tr><td>${esc(a.article)}</td><td>${esc(a.designation)}</td><td>${esc(a.ref_commande)}</td><td align="center">${Number(a.quantite) || 0}</td></tr>`).join('')}
-           </table>`
-        : '<p><i>Aucun article détaillé : demande reçue par mail, à qualifier depuis la pièce jointe.</i></p>';
-
-      const content = `
-        <p><b>Demande de consommables n°${requestId}</b> — ${esc(request.type_name)}</p>
-        <p>
-          Demandeur : <b>${esc(request.nom_referent)}</b>${request.email ? ` &lt;${esc(request.email)}&gt;` : ''}<br>
-          Direction : ${esc(request.direction)} — Service : ${esc(request.service)}<br>
-          Téléphone : ${esc(request.tel_complet) || '—'}<br>
-          Date de la demande : ${esc(request.date_commande)}
-        </p>
-        ${articlesHtml}
-        ${request.user_comment ? `<p><b>Annotation / message d'origine :</b></p><p style="white-space:pre-wrap">${esc(request.user_comment)}</p>` : ''}
-        ${request.source === 'mail' ? `<p><i>Reçue par mail le ${esc(request.mail_received_at)} — objet : ${esc(request.mail_subject)} — expéditeur : ${esc(request.mail_from)}</i></p>` : ''}
-      `;
-
-      const title = `Consommables n°${requestId} — ${request.type_name || 'demande'}${request.nom_referent ? ` — ${request.nom_referent}` : ''}`.slice(0, 250);
       const ticketService = require('../tickets/services/ticket.service');
       const ticketId = await ticketService.create({
         title,
@@ -1113,6 +1135,101 @@ const controller = {
     }
   },
 };
+
+const escHtml = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function textToHtml(text) {
+  return escHtml(String(text || ''))
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
+function formatFrDate(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Récupère la demande + ses articles et produit le récapitulatif du ticket. */
+async function buildTicketDraft(requestId, existingRequest = null) {
+  const request = existingRequest || await pgDb.get(
+    `SELECT cr.*, ct.name AS type_name
+     FROM hub_consommables.consumable_requests cr
+     JOIN hub_consommables.consumable_types ct ON ct.id = cr.type_id
+     WHERE cr.id = $1`,
+    [requestId]
+  );
+  if (!request) return null;
+  if (!request.type_name) {
+    const t = await pgDb.get(`SELECT name FROM hub_consommables.consumable_types WHERE id = $1`, [request.type_id]);
+    request.type_name = t?.name || 'demande';
+  }
+  const articles = await pgDb.all(
+    `SELECT ra.quantite, cc.article, cc.designation, cc.ref_commande, cc.code_fabricant
+     FROM hub_consommables.request_articles ra
+     JOIN hub_consommables.consumable_catalog cc ON cc.id = ra.catalog_id
+     WHERE ra.request_id = $1 ORDER BY ra.id`,
+    [requestId]
+  );
+
+  const title = `Consommables n°${requestId} — ${request.type_name || 'demande'}${request.nom_referent ? ` — ${request.nom_referent}` : ''}`.slice(0, 250);
+  const lines = [
+    `Demande de consommables n°${requestId} — ${request.type_name || 'demande'}`,
+    '',
+    `Demandeur : ${request.nom_referent || request.username || '—'}${request.email ? ` <${request.email}>` : ''}`,
+    `Direction : ${request.direction || '—'}`,
+    `Service : ${request.service || '—'}`,
+    `Téléphone : ${request.tel_complet || '—'}`,
+    `Date de la demande : ${formatFrDate(request.date_commande)}`,
+    '',
+    'Articles :',
+  ];
+  if (articles.length) {
+    for (const a of articles) {
+      const ref = a.ref_commande || a.code_fabricant || '—';
+      lines.push(`- ${a.article || '—'}${a.designation ? ` — ${a.designation}` : ''} — réf. ${ref} — qté ${Number(a.quantite) || 0}`);
+    }
+  } else {
+    lines.push('- Aucun article détaillé : demande reçue par mail, à qualifier depuis la pièce jointe.');
+  }
+  if (request.user_comment) {
+    lines.push('', 'Annotation / message d\'origine :', request.user_comment);
+  }
+  if (request.source === 'mail') {
+    lines.push('', `Reçue par mail le ${formatFrDate(request.mail_received_at)} — objet : ${request.mail_subject || '—'} — expéditeur : ${request.mail_from || '—'}`);
+  }
+
+  return {
+    request_id: requestId,
+    ticket_id: request.ticket_id || null,
+    title,
+    content: lines.join('\n'),
+    request: {
+      id: requestId,
+      nom_referent: request.nom_referent,
+      email: request.email,
+      direction: request.direction,
+      service: request.service,
+      tel_complet: request.tel_complet,
+      type_name: request.type_name,
+      date_commande: request.date_commande,
+      source: request.source,
+      mail_subject: request.mail_subject,
+      mail_from: request.mail_from,
+    },
+    articles: articles.map(a => ({
+      article: a.article,
+      designation: a.designation,
+      ref: a.ref_commande || a.code_fabricant || '',
+      quantite: Number(a.quantite) || 0,
+    })),
+  };
+}
 
 module.exports = controller;
 module.exports.setSendMail = setSendMail;

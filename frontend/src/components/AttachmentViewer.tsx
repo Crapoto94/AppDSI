@@ -32,6 +32,7 @@ const FILE_PATTERNS: RegExp[] = [
     /\/api\/.*\/attachments?\//,
     /\/api\/.*\/file(\/|$)/,
     /\/api\/documents\/\d+\/versions\/\d+\/content/,
+    /\/api\/documents\/\d+\/versions\/\d+\/msg\/attachments\//,
     /\/api\/vols\/\d+\/documents\//,
     /\/api\/uploads\//,
     /\/download$/,

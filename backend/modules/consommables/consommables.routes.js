@@ -78,6 +78,7 @@ router.post('/requests', authenticateJWT, consommablesController.createRequest);
 
 // Routes admin - Gestion des demandes
 router.get('/admin/all', authenticateJWT, consommablesController.getAllRequests);
+router.get('/admin/:requestId/ticket-draft', authenticateConsommablesAdmin, consommablesController.getTicketDraft);
 router.post('/admin/:requestId/create-ticket', authenticateConsommablesAdmin, consommablesController.createTicketFromRequest);
 router.put('/admin/:requestId/info', authenticateConsommablesAdmin, consommablesController.updateRequestInfo);
 router.put('/admin/:requestId/status', authenticateConsommablesAdmin, consommablesController.updateRequestStatus);

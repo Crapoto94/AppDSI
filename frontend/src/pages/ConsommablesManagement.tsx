@@ -12,6 +12,7 @@ import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import DocumentViewer from '../components/DocumentViewer';
+import { openAttachmentViewer } from '../components/AttachmentViewer';
 import { resolveDesignationImageUrl } from '../utils/designationImages';
 import { getConsumableTypeIcon } from '../utils/consumableTypeIcon';
 
@@ -45,7 +46,7 @@ interface ConsumableRequest {
   type_consommable: string;
   articles: { id: number; catalog_id?: number; article: string; designation?: string; code_fabricant?: string; quantite: number; ref_commande: string }[];
   created_at: string;
-  status: 'pending' | 'approved' | 'rejected' | 'ordered';
+  status: 'pending' | 'approved' | 'rejected' | 'ordered' | 'closed';
   order_number?: string;
   tier?: string;
   total_amount_ttc?: number;
@@ -58,6 +59,36 @@ interface ConsumableRequest {
   mail_received_at?: string | null;
   source_document_id?: number | null;
   ticket_id?: number | null;
+  documents?: {
+    id: number;
+    title: string;
+    original_name?: string | null;
+    mimetype?: string | null;
+    size?: number | null;
+    kind?: string;
+    version?: number;
+  }[];
+}
+
+interface TicketDraft {
+  request_id: number;
+  ticket_id?: number | null;
+  title: string;
+  content: string;
+  request: {
+    id: number;
+    nom_referent?: string;
+    email?: string;
+    direction?: string;
+    service?: string;
+    tel_complet?: string;
+    type_name?: string;
+    date_commande?: string;
+    source?: string;
+    mail_subject?: string;
+    mail_from?: string;
+  };
+  articles: { article?: string; designation?: string; ref?: string; quantite: number }[];
 }
 
 interface CartItem {
@@ -92,6 +123,11 @@ const ConsommablesManagement: React.FC = () => {
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
   // Visionneuse du fichier original (.eml) des demandes reçues par mail.
   const [viewerDocId, setViewerDocId] = useState<number | null>(null);
+  // Aperçu modifiable du ticket avant création depuis une demande.
+  const [ticketDraft, setTicketDraft] = useState<TicketDraft | null>(null);
+  const [ticketDraftLoading, setTicketDraftLoading] = useState(false);
+  const [ticketCreating, setTicketCreating] = useState(false);
+  const [ticketError, setTicketError] = useState('');
   const [catalogArticles, setCatalogArticles] = useState<ConsumableArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -198,24 +234,65 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     }
   };
 
-  // Crée un ticket depuis la demande de consommables puis clôture la demande.
-  const createTicketForRequest = async (request: ConsumableRequest) => {
+  // Ouvre l'aperçu du ticket (récapitulatif + corps modifiable) avant création.
+  const openTicketDraft = async (request: ConsumableRequest) => {
     if (request.ticket_id) {
       window.open(`/tickets/${request.ticket_id}`, '_blank');
       return;
     }
-    if (!window.confirm(`Créer un ticket à partir de la demande n°${request.id} et clôturer cette demande ?`)) return;
+    setTicketError('');
+    setTicketDraft(null);
+    setTicketDraftLoading(true);
     try {
-      const res = await axios.post(`/api/consumable/admin/${request.id}/create-ticket`, {}, {
+      const res = await axios.get(`/api/consumable/admin/${request.id}/ticket-draft`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      setTicketDraft(res.data);
+    } catch (e: any) {
+      alert(e.response?.data?.error || e.response?.data?.message || 'Impossible de préparer le ticket');
+    } finally {
+      setTicketDraftLoading(false);
+    }
+  };
+
+  const closeTicketDraft = () => {
+    if (ticketCreating) return;
+    setTicketDraft(null);
+    setTicketError('');
+  };
+
+  const confirmCreateTicket = async () => {
+    if (!ticketDraft) return;
+    setTicketCreating(true);
+    setTicketError('');
+    try {
+      const res = await axios.post(
+        `/api/consumable/admin/${ticketDraft.request_id}/create-ticket`,
+        { title: ticketDraft.title, content: ticketDraft.content },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       const ticketId = res.data?.ticket_id;
-      alert(`Ticket n°${ticketId} créé. La demande de consommables est clôturée.`);
+      setTicketDraft(null);
       await loadRequests();
       if (ticketId) window.open(`/tickets/${ticketId}`, '_blank');
     } catch (e: any) {
-      alert(e.response?.data?.error || e.response?.data?.message || 'Impossible de créer le ticket');
+      setTicketError(e.response?.data?.error || e.response?.data?.message || 'Impossible de créer le ticket');
+    } finally {
+      setTicketCreating(false);
     }
+  };
+
+  const openRequestDocument = (doc: NonNullable<ConsumableRequest['documents']>[number]) => {
+    if (doc.kind === 'email') {
+      setViewerDocId(doc.id);
+      return;
+    }
+    const version = doc.version || 1;
+    openAttachmentViewer({
+      url: `/api/documents/${doc.id}/versions/${version}/content?mode=inline&token=${encodeURIComponent(token || '')}`,
+      name: doc.original_name || doc.title,
+      mime: doc.mimetype || undefined,
+    });
   };
 
   const loadTypes = async () => {
@@ -1585,6 +1662,17 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                                     <Paperclip size={12} /> Voir le fichier original
                                   </button>
                                 )}
+                                {request.documents?.filter(d => d.kind !== 'email').map(d => (
+                                  <button
+                                    key={d.id}
+                                    onClick={() => openRequestDocument(d)}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', maxWidth: 280 }}
+                                    title={`Ouvrir ${d.original_name || d.title} dans la visionneuse`}
+                                  >
+                                    <Paperclip size={12} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name || d.title}</span>
+                                  </button>
+                                ))}
                               </div>
                             )}
                           </div>
@@ -1686,8 +1774,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                                     <Ticket size={14} /> Ticket #{request.ticket_id}
                                   </a>
                                 ) : (
-                                  <button onClick={() => createTicketForRequest(request)}
-                                    title="Créer un ticket avec cette demande et clôturer la demande"
+                                  <button onClick={() => openTicketDraft(request)}
+                                    title="Prévisualiser le ticket, modifier son corps puis le créer"
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                                     <Ticket size={14} /> Créer un ticket
                                   </button>
@@ -2020,6 +2108,105 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           <ConsommablesRecap token={token!} />
         )}
       </div>
+
+      {ticketDraftLoading && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '22px 28px', fontSize: 14, fontWeight: 600, color: '#334155', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            Préparation de l'aperçu du ticket…
+          </div>
+        </div>
+      )}
+
+      {ticketDraft && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={closeTicketDraft}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.35)', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Ticket size={20} color="#0f766e" /> Aperçu du ticket
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>
+                  Vérifiez le récapitulatif et modifiez le corps si nécessaire. La demande n°{ticketDraft.request_id} sera clôturée et archivée après création.
+                </p>
+              </div>
+              <button onClick={closeTicketDraft} disabled={ticketCreating}
+                style={{ background: 'none', border: 'none', fontSize: 26, lineHeight: 1, cursor: ticketCreating ? 'default' : 'pointer', color: '#64748b', padding: 0 }}>
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: '14px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>Demandeur</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>{ticketDraft.request.nom_referent || '—'}</div>
+                {ticketDraft.request.email && <div style={{ fontSize: 11.5, color: '#64748b' }}>{ticketDraft.request.email}</div>}
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>Direction / service</div>
+                <div style={{ fontSize: 13, color: '#334155' }}>{formatOrgName(ticketDraft.request.direction || '—')}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{formatOrgName(ticketDraft.request.service || '—')}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>Type / articles</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{ticketDraft.request.type_name || '—'}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{ticketDraft.articles.length} article(s) — {ticketDraft.articles.reduce((s, a) => s + (a.quantite || 0), 0)} unité(s)</div>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#475569', marginBottom: 6 }}>
+                  Titre du ticket
+                </label>
+                <input
+                  type="text"
+                  value={ticketDraft.title}
+                  onChange={e => setTicketDraft({ ...ticketDraft, title: e.target.value })}
+                  maxLength={250}
+                  style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #cbd5e1', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#475569', marginBottom: 6 }}>
+                  Corps du ticket (modifiable)
+                </label>
+                <textarea
+                  value={ticketDraft.content}
+                  onChange={e => setTicketDraft({ ...ticketDraft, content: e.target.value })}
+                  rows={16}
+                  style={{ width: '100%', padding: '12px', border: '1.5px solid #cbd5e1', borderRadius: 8, fontSize: 13, lineHeight: 1.55, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', boxSizing: 'border-box', resize: 'vertical', outline: 'none' }}
+                />
+                <p style={{ margin: '4px 0 0', fontSize: 11.5, color: '#94a3b8' }}>
+                  Les retours à la ligne sont conservés dans le ticket.
+                </p>
+              </div>
+              {ticketError && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13 }}>
+                  {ticketError}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '14px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10, background: '#f8fafc' }}>
+              <button onClick={closeTicketDraft} disabled={ticketCreating}
+                style={{ padding: '10px 18px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 600, fontSize: 13.5, cursor: ticketCreating ? 'default' : 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={confirmCreateTicket} disabled={ticketCreating || !ticketDraft.title.trim() || !ticketDraft.content.trim()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 20px', borderRadius: 8, border: 'none', background: '#0f766e', color: '#fff', fontWeight: 800, fontSize: 13.5, cursor: ticketCreating || !ticketDraft.title.trim() || !ticketDraft.content.trim() ? 'default' : 'pointer', opacity: ticketCreating || !ticketDraft.title.trim() || !ticketDraft.content.trim() ? 0.6 : 1 }}>
+                <Ticket size={15} /> {ticketCreating ? 'Création…' : 'Créer le ticket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewerDocId !== null && (
         <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} canEdit={false} />
       )}

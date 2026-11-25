@@ -16,7 +16,7 @@ const axios = require('axios');
 const { pgDb, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
-const { parseWorkbook } = require('./consumables_excel');
+const { parseWorkbook, itemKey, refKey } = require('./consumables_excel');
 
 const SUBJECT_PREFIX = /^\s*((re|ré|rep|rép|tr|fw|fwd|réf|ref)\s*:\s*)+/i;
 const MAX_MESSAGES = 1000;
@@ -109,6 +109,45 @@ async function directionForSchool(schoolName, orgTable, fallback) {
     if (row?.d) return String(row.d).trim();
   } catch { /* organigramme indisponible */ }
   return fallback;
+}
+
+/**
+ * Ajoute au catalogue les références du bon de commande encore inconnues, afin
+ * qu'elles puissent être commandées (et pas seulement signalées). Les doublons
+ * sont détectés par référence cartouche puis par référence fournisseur.
+ */
+async function ensureCatalogEntries(items, catalog) {
+  for (const it of items) {
+    if (it.catalog_id) continue;
+    const ck = refKey(it.article);
+    const sk = refKey(it.code_fabricant);
+    const existing = (catalog || []).find(c =>
+      (ck && refKey(c.article) === ck) ||
+      (sk && (refKey(c.code_fabricant) === sk || refKey(c.ref_commande) === sk))
+    );
+    if (existing) {
+      it.catalog_id = existing.id;
+      it.type_id = existing.type_id;
+      it.article = existing.article;
+      it.designation = existing.designation;
+      continue;
+    }
+    const ins = await pgDb.run(
+      `INSERT INTO hub_consommables.consumable_catalog
+         (type_id, designation, article, code_fabricant, ref_commande)
+       VALUES (?, ?, ?, ?, ?)`,
+      [it.type_id, it.designation || '', it.article || '', it.code_fabricant || '', it.ref_commande || '']
+    );
+    it.catalog_id = ins.lastID;
+    catalog.push({
+      id: ins.lastID,
+      type_id: it.type_id,
+      designation: it.designation || '',
+      article: it.article || '',
+      code_fabricant: it.code_fabricant || '',
+      ref_commande: it.ref_commande || '',
+    });
+  }
 }
 
 async function isMailAckEnabled() {
@@ -298,7 +337,8 @@ async function collect(collector, token, axiosOpts) {
           try {
             const parsed = parseWorkbook(att.buffer, catalog);
             for (const it of parsed.items) {
-              const prev = bulk.items.find(x => x.catalog_id === it.catalog_id);
+              const key = itemKey(it);
+              const prev = bulk.items.find(x => itemKey(x) === key);
               if (prev) prev.quantite += it.quantite;
               else bulk.items.push({ ...it });
             }
@@ -319,7 +359,7 @@ async function collect(collector, token, axiosOpts) {
         if (bulk.school) excelInfo.push(`École (bon de commande) : ${[bulk.school.type, bulk.school.name].filter(Boolean).join(' — ')}`);
         if (bulk.director) excelInfo.push(`Directeur/Directrice : ${bulk.director}`);
         if (bulk.phone) excelInfo.push(`Téléphone : ${bulk.phone}`);
-        if (bulk.unmatched.length) excelInfo.push(`Lignes non reconnues : ${bulk.unmatched.map(u => `${u.cartridge || u.model} (qté ${u.quantite})`).join(' ; ')}`);
+        if (bulk.unmatched.length) excelInfo.push(`Références ajoutées au catalogue : ${bulk.unmatched.map(u => `${u.cartridge || u.model} (qté ${u.quantite})`).join(' ; ')}`);
 
         const comment = [
           `Reçu par mail le ${receivedAt.toLocaleDateString('fr-FR')} — Objet : ${subject || '(sans objet)'}`,
@@ -353,11 +393,19 @@ async function collect(collector, token, axiosOpts) {
           continue;
         }
 
-        // Articles issus du bon de commande Excel (quantités > 0).
+        // Articles issus du bon de commande Excel (quantités > 0). Les
+        // références inconnues sont ajoutées au catalogue avant rattachement.
+        await ensureCatalogEntries(bulk.items, catalog);
         for (const it of bulk.items) {
           await pgDb.run(
             'INSERT INTO hub_consommables.request_articles (request_id, catalog_id, quantite) VALUES (?, ?, ?)',
             [requestId, it.catalog_id, it.quantite]
+          );
+        }
+        if (bulk.items.length && bulk.items[0].type_id !== typeId) {
+          await pgDb.run(
+            'UPDATE hub_consommables.consumable_requests SET type_id = ? WHERE id = ?',
+            [bulk.items[0].type_id, requestId]
           );
         }
         if (bulk.date || bulk.phone) {
