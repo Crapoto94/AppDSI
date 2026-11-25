@@ -49,15 +49,18 @@ async function getOrgTable() {
   return Number(v2?.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
 }
 
-async function fetchAllMessages(mailbox, token, axiosOpts) {
+async function fetchAllMessages(mailbox, token, axiosOpts, sinceTs = null) {
   // Boîte de réception uniquement : les demandes sont les mails reçus (pas les
-  // réponses envoyées). Les messages déjà présents sont importés au premier run.
+  // réponses envoyées). Au premier passage (last_run vide), tous les messages
+  // présents sont importés ; ensuite on ne relit que la veille + les nouveaux
+  // (marge de sécurité pour l'indexation Graph), la déduplication évitant les doublons.
   const baseUrl = `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/messages`;
   const params = {
     $top: 100,
     $select: 'id,subject,receivedDateTime,from,body,bodyPreview,internetMessageId,hasAttachments',
     $orderby: 'receivedDateTime desc',
   };
+  if (sinceTs) params.$filter = `receivedDateTime ge ${new Date(sinceTs).toISOString()}`;
   const all = [];
   let nextLink = null;
   const first = await axios.get(baseUrl, { ...axiosOpts, headers: { Authorization: `Bearer ${token}` }, params });
@@ -132,7 +135,10 @@ async function collect(collector, token, axiosOpts) {
   };
 
   try {
-    const emails = await fetchAllMessages(collector.mailbox, token, axiosOpts);
+    const sinceTs = collector.last_run
+      ? new Date(collector.last_run).getTime() - 86400000
+      : null;
+    const emails = await fetchAllMessages(collector.mailbox, token, axiosOpts, sinceTs);
     log.emails_received = emails.length;
     const orgTable = await getOrgTable();
 
