@@ -1261,6 +1261,22 @@ async function setupPgDbFull() {
     `);
     await client.query(`ALTER TABLE hub_tickets.mail_collectors ADD COLUMN IF NOT EXISTS module VARCHAR(50) DEFAULT 'tickets'`);
 
+    // Collecteur « Consommables » : boîte consoivry@ivry94.fr → demandes de
+    // consommables. Créé une seule fois (idempotent) ; l'activation locale reste
+    // gérée par mail_collector/local_enabled.js.
+    try {
+      await client.query(`
+        INSERT INTO hub_tickets.mail_collectors (name, mailbox, module, frequency, is_enabled, success_folder)
+        SELECT 'Consommables', 'consoivry@ivry94.fr', 'consommables', 'every_15_min', true, NULL
+        WHERE NOT EXISTS (
+          SELECT 1 FROM hub_tickets.mail_collectors
+          WHERE module = 'consommables' OR mailbox = 'consoivry@ivry94.fr'
+        )
+      `);
+    } catch (e) {
+      console.log('[PG DB] Création du collecteur Consommables ignorée:', e.message);
+    }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.mail_rules (
         id SERIAL PRIMARY KEY,
@@ -4354,6 +4370,33 @@ async function setupPgDbFull() {
     } catch (e) {
       console.log('[PG DB] Migration order columns skipped:', e.message);
     }
+
+    // Demandes reçues par le collecteur mail : source, message d'origine et
+    // document original (.eml) pour la visionneuse.
+    try {
+      await client.query(`
+        ALTER TABLE hub_consommables.consumable_requests
+          ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'web',
+          ADD COLUMN IF NOT EXISTS mail_subject TEXT,
+          ADD COLUMN IF NOT EXISTS mail_from TEXT,
+          ADD COLUMN IF NOT EXISTS mail_received_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS source_document_id INTEGER;
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration colonnes mail consumable_requests skipped:', e.message);
+    }
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.request_email_mapping (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_requests(id) ON DELETE CASCADE,
+        email_message_id TEXT UNIQUE NOT NULL,
+        email_from TEXT,
+        email_subject TEXT,
+        email_received_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_request_email_req ON hub_consommables.request_email_mapping(request_id)');
 
     // Indices
     await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_user ON hub_consommables.consumable_requests(user_id)');
@@ -7917,6 +7960,16 @@ async function setupPgDbFull() {
         )
       `);
 
+      // Textes de l'aide et du tutoriel réécrits par les administrateurs (sinon texte d'origine du code)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.help_contents (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          data TEXT NOT NULL,
+          updated_by TEXT,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_entretiens.settings (
           id SERIAL PRIMARY KEY,

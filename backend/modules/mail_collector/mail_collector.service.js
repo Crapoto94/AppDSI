@@ -831,7 +831,9 @@ class MailCollectorService {
           ? await this.collectTasksMailbox(collector, token, o365Settings, axiosOpts)
           : collector.module === 'entretiens'
             ? await require('../entretiens/crep-mail.service').collect(collector, token, axiosOpts)
-            : await this.collectMailbox(collector, token, o365Settings, axiosOpts);
+            : collector.module === 'consommables'
+              ? await require('../consommables/consommables_mail.service').collect(collector, token, axiosOpts)
+              : await this.collectMailbox(collector, token, o365Settings, axiosOpts);
       }
     } catch (err) {
       log.status = 'failed';

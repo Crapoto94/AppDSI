@@ -73,6 +73,7 @@ router.get('/designations/:typeId', authenticateJWT, consommablesController.getD
 router.get('/articles/:typeId', authenticateJWT, consommablesController.getArticles);
 router.get('/requests', authenticateJWT, consommablesController.getRequests);
 router.get('/requests/all', authenticateJWT, consommablesController.getAllRequestsForUsers);
+router.get('/requests/:requestId/documents', authenticateJWT, consommablesController.getRequestDocuments);
 router.post('/requests', authenticateJWT, consommablesController.createRequest);
 
 // Routes admin - Gestion des demandes

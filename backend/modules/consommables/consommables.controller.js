@@ -256,6 +256,11 @@ const controller = {
           cr.is_school,
           cr.user_comment,
           cr.archived,
+          cr.source,
+          cr.mail_subject,
+          cr.mail_from,
+          cr.mail_received_at,
+          cr.source_document_id,
           cr.created_at,
           json_agg(
             json_build_object(
@@ -307,6 +312,11 @@ const controller = {
           cr.is_school,
           cr.user_comment,
           cr.archived,
+          cr.source,
+          cr.mail_subject,
+          cr.mail_from,
+          cr.mail_received_at,
+          cr.source_document_id,
           cr.created_at,
           json_agg(
             json_build_object(
@@ -715,6 +725,11 @@ const controller = {
           cr.user_comment,
           cr.created_at,
           cr.archived,
+          cr.source,
+          cr.mail_subject,
+          cr.mail_from,
+          cr.mail_received_at,
+          cr.source_document_id,
           json_agg(
             json_build_object(
               'id', ra.id,
@@ -930,6 +945,32 @@ const controller = {
     } catch (error) {
       console.error('[Consommables] Error bulk adding articles:', error);
       res.status(500).json({ error: 'Erreur lors de l\'ajout des articles', details: error.message });
+    }
+  },
+
+  /**
+   * Documents GED rattachés à une demande (message d'origine .eml + pièces
+   * jointes du collecteur mail). Le frontend ouvre la visionneuse avec l'id.
+   */
+  async getRequestDocuments(req, res) {
+    try {
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
+      const docsService = require('../../shared/documents.service');
+      const docs = await docsService.listByEntity('consommables', 'request', requestId);
+      res.json(docs.map(d => ({
+        id: d.id,
+        title: d.title,
+        filename: d.current_version_row?.filename || null,
+        original_name: d.current_version_row?.original_name || null,
+        mimetype: d.current_version_row?.mimetype || null,
+        size: d.current_version_row?.size || null,
+        kind: (d.metadata && d.metadata.kind) || 'attachment',
+        created_at: d.created_at,
+      })));
+    } catch (error) {
+      console.error('[Consommables] Error getting request documents:', error);
+      res.status(500).json({ error: 'Erreur lors de la récupération des documents', details: error.message });
     }
   },
 };

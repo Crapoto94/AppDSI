@@ -6,11 +6,12 @@ import {
   ChevronRight, Download, X, Plus, Edit2, Trash2, Search, Package,
   AlertCircle, CheckCircle, Clock, BookOpen, ArrowRight, ListChecks, Tag, Image,
   ShoppingCart, Printer, ChevronLeft, ShoppingBag, Trash, User, Calendar, Building2, Phone, Archive,
-  Paperclip
+  Paperclip, Mail
 } from 'lucide-react';
 import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import DocumentViewer from '../components/DocumentViewer';
 import { resolveDesignationImageUrl } from '../utils/designationImages';
 import { getConsumableTypeIcon } from '../utils/consumableTypeIcon';
 
@@ -51,6 +52,11 @@ interface ConsumableRequest {
   is_school?: boolean;
   user_comment?: string;
   archived: boolean;
+  source?: 'web' | 'mail';
+  mail_subject?: string | null;
+  mail_from?: string | null;
+  mail_received_at?: string | null;
+  source_document_id?: number | null;
 }
 
 interface CartItem {
@@ -83,6 +89,8 @@ const ConsommablesManagement: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'requests' | 'catalog' | 'images' | 'recap'>('requests');
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
+  // Visionneuse du fichier original (.eml) des demandes reçues par mail.
+  const [viewerDocId, setViewerDocId] = useState<number | null>(null);
   const [catalogArticles, setCatalogArticles] = useState<ConsumableArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1535,6 +1543,27 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                               <AgentPresenceBadge email={request.email} name={request.nom_referent} size={11} />
                             </p>
                             {request.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{request.email}</p>}
+                            {request.source === 'mail' && (
+                              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 800, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #dbeafe' }}>
+                                  <Mail size={11} /> Reçu par mail
+                                </span>
+                                {request.mail_subject && (
+                                  <span style={{ fontSize: 11.5, color: '#64748b', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={request.mail_subject}>
+                                    Objet : {request.mail_subject}
+                                  </span>
+                                )}
+                                {request.source_document_id && (
+                                  <button
+                                    onClick={() => setViewerDocId(request.source_document_id!)}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                                    title="Ouvrir le message d'origine dans la visionneuse"
+                                  >
+                                    <Paperclip size={12} /> Voir le fichier original
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 8 }}>
@@ -1948,6 +1977,9 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           <ConsommablesRecap token={token!} />
         )}
       </div>
+      {viewerDocId !== null && (
+        <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} canEdit={false} />
+      )}
     </div>
   );
 };

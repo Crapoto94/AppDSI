@@ -61,6 +61,7 @@ const MODULES = [
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
   { value: 'taches',   label: 'Tâches (transformer un mail en tâche personnelle)' },
   { value: 'entretiens', label: 'Entretiens (récupérer les CREP signés reçus en pièce jointe PDF)' },
+  { value: 'consommables', label: 'Consommables (transformer les mails en demandes de consommables)' },
 ];
 
 const DEFAULT_PER_PAGE = 50;
