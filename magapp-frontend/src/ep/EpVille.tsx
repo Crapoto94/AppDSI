@@ -844,6 +844,14 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     return () => window.clearInterval(t);
   }, [me?.isAdmin]);
   const [backlogPending, setBacklogPending] = useState(0);
+  // Pastille du menu « Backlog » : demandes en attente, connues dès l’ouverture du module (administrateurs)
+  useEffect(() => {
+    if (!me?.isAdmin) return;
+    const load = () => axios.get('/api/entretiens/backlog', { headers: api() }).then(r => setBacklogPending((r.data?.demandes || []).filter((x: { statut?: string }) => x.statut === 'demandee').length)).catch(() => {});
+    load();
+    const t = window.setInterval(load, 60000);
+    return () => window.clearInterval(t);
+  }, [me?.isAdmin]);
   const [showBacklog, setShowBacklog] = useState(false);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
