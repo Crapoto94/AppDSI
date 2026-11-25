@@ -66,6 +66,8 @@ router.post('/meetings/:id/link-transcript', authenticateJWT, ctrl.linkTranscrip
 router.delete('/meetings/:id/link-transcript', authenticateJWT, ctrl.unlinkTranscript);
 
 // INTERACTs (sondages lancés depuis une réunion)
+// Catalogue des formats Interact'Ivry (lecture seule — aucun stockage ici)
+router.get('/interact/formats', authenticateJWT, ctrl.getInteractFormats);
 router.post('/meetings/:id/polls', authenticateJWT, ctrl.createPoll);
 router.get('/meetings/:id/polls/current', authenticateJWT, ctrl.getCurrentPoll);
 router.post('/polls/:id/answers', authenticateJWT, ctrl.answerPoll);

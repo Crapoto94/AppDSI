@@ -1305,7 +1305,7 @@ export default function ReunionServiceMeetingView() {
                                 {meeting.status !== 'finished' && (
                                     <button className="rsv-btn" style={{ padding: '.4rem .8rem', fontSize: '.78rem', background: '#7c3aed', color: '#fff' }}
                                         onClick={() => setShowPollComposer(true)}
-                                        title="Lancer un sondage interactif (Interact'Ivry) dans la réunion">
+                                        title="Lancer un INTERACT (sondage) dans la réunion">
                                         <Sparkles size={14} /> Ajouter un INTERACT
                                     </button>
                                 )}

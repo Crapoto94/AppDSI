@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import axios from 'axios';
 import { X, Sparkles, Clock, Send, Upload, Trash2 } from 'lucide-react';
@@ -12,6 +12,8 @@ export interface PollResults {
     texts: string[];
     average: number | null;
     distribution: { value: number; count: number }[];
+    /** 🧩 Classement moyen (sondage `ordering`) : rang 1 = le plus en tête. */
+    ranking?: { label: string; count: number; averageRank: number | null; firstPlaces: number }[];
     responses?: { name: string; answer: unknown }[];
 }
 export interface Poll {
@@ -28,20 +30,55 @@ export interface Poll {
     created_by?: string | null;
     created_by_name?: string | null;
     created_at?: string;
+    /** Format d'origine dans le catalogue Interact'Ivry (affichage). */
+    interact_type?: string | null;
+    interact_label?: string | null;
     interact_code?: string | null;
     results?: PollResults;
     my_answer?: unknown;
 }
 
-const TYPES = [
-    { value: 'single', label: 'Choix unique', group: 'Quiz & connaissances' },
-    { value: 'multiple', label: 'Choix multiples', group: 'Quiz & connaissances' },
-    { value: 'truefalse', label: 'Vrai ou Faux', group: 'Quiz & connaissances' },
-    { value: 'slider', label: 'Curseur (estimation)', group: 'Quiz & connaissances' },
-    { value: 'stars', label: "Échelle d'avis (étoiles)", group: 'Quiz & connaissances' },
-    { value: 'open', label: 'Réponse ouverte', group: 'Contributions libres & avis' },
-    { value: 'wordcloud', label: 'Nuage de mots', group: 'Contributions libres & avis' },
-    { value: 'idea', label: 'Boîte à idées', group: 'Contributions libres & avis' },
+/** Libellés natifs DSIHub (repli + affichage des sondages déjà lancés). */
+const TYPE_LABELS: Record<string, string> = {
+    single: 'Choix unique',
+    multiple: 'Choix multiples',
+    truefalse: 'Vrai ou Faux',
+    ordering: 'Puzzle / classement',
+    slider: 'Curseur (estimation)',
+    stars: "Échelle d'avis (étoiles)",
+    open: 'Réponse ouverte',
+    wordcloud: 'Nuage de mots',
+    idea: 'Boîte à idées',
+};
+
+interface PollTypeOption {
+    /** Identifiant du format Interact'Ivry (clé du sélecteur). */
+    value: string;
+    /** Type natif DSIHub qui porte le rendu (null = non pris en charge). */
+    pollType: string | null;
+    label: string;
+    icon: string;
+    groupId: string;
+    supported: boolean;
+    note?: string;
+}
+interface PollTypeGroup { id: string; label: string; }
+
+/** Repli immédiat si le catalogue Interact'Ivry est injoignable. */
+const TYPE_GROUPS_FALLBACK: PollTypeGroup[] = [
+    { id: 'choix', label: '🎲 Quiz & connaissances' },
+    { id: 'libre', label: '✍️ Contributions libres & avis' },
+];
+const TYPES_FALLBACK: PollTypeOption[] = [
+    { value: 'single', pollType: 'single', label: 'Choix unique', icon: '🎯', groupId: 'choix', supported: true },
+    { value: 'multiple', pollType: 'multiple', label: 'Choix multiples', icon: '☑️', groupId: 'choix', supported: true },
+    { value: 'true_false', pollType: 'truefalse', label: 'Vrai ou Faux', icon: '✅', groupId: 'choix', supported: true },
+    { value: 'ordering', pollType: 'ordering', label: 'Puzzle / classement', icon: '🧩', groupId: 'choix', supported: true },
+    { value: 'slider', pollType: 'slider', label: 'Curseur (estimation)', icon: '🎚️', groupId: 'choix', supported: true },
+    { value: 'scale', pollType: 'stars', label: "Échelle d'avis (étoiles)", icon: '⭐', groupId: 'libre', supported: true },
+    { value: 'text', pollType: 'open', label: 'Réponse ouverte', icon: '💬', groupId: 'libre', supported: true },
+    { value: 'wordcloud', pollType: 'wordcloud', label: 'Nuage de mots', icon: '☁️', groupId: 'libre', supported: true },
+    { value: 'idea', pollType: 'idea', label: 'Boîte à idées', icon: '💡', groupId: 'libre', supported: true },
 ];
 
 function resizeImageFile(file: File, maxDim = 1400, quality = 0.88): Promise<string> {
@@ -69,7 +106,7 @@ function resizeImageFile(file: File, maxDim = 1400, quality = 0.88): Promise<str
     });
 }
 
-const typeLabel = (t: string) => TYPES.find(x => x.value === t)?.label || t;
+const typeLabel = (t: string) => TYPE_LABELS[t] || t;
 
 function formatAnswer(poll: Poll, answer: unknown): string {
     if (answer === null || answer === undefined || answer === '') return '—';
@@ -80,10 +117,15 @@ function formatAnswer(poll: Poll, answer: unknown): string {
             ? answer.map(v => poll.options[Number(v)] ?? String(v)).join(', ')
             : String(answer);
     }
+    if (poll.type === 'ordering') {
+        return Array.isArray(answer)
+            ? answer.map(v => poll.options[Number(v)] ?? String(v)).join(' → ')
+            : String(answer);
+    }
     if (poll.type === 'stars') return `${answer} ★`;
     return String(answer);
 }
-const needsOptions = (t: string) => t === 'single' || t === 'multiple';
+const needsOptions = (t: string) => t === 'single' || t === 'multiple' || t === 'ordering';
 
 export function PollComposerModal({
     token, meetingId, onClose, onCreated,
@@ -101,12 +143,65 @@ export function PollComposerModal({
     const [visibility, setVisibility] = useState<'nominatif' | 'semi_anonyme' | 'totalement_anonyme'>('nominatif');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    // 📚 Catalogue dynamique : DSIHub lit les formats d'Interact'Ivry à
+    // l'ouverture. Un nouveau format y apparaît sans redéploiement de DSIHub.
+    const [types, setTypes] = useState<PollTypeOption[]>(TYPES_FALLBACK);
+    const [typeGroups, setTypeGroups] = useState<PollTypeGroup[]>(TYPE_GROUPS_FALLBACK);
 
     const headers = { headers: { Authorization: `Bearer ${token}` } };
 
+    useEffect(() => {
+        let cancelled = false;
+        axios.get('/api/reunions-service/interact/formats', headers)
+            .then(({ data }) => {
+                if (cancelled || !Array.isArray(data?.types) || data.types.length === 0) return;
+                // Chaque format Interact'Ivry reste VISIBLE et distinct ; sa
+                // `family` est projetée sur un type natif DSIHub pour le
+                // rendu. Les familles inconnues restent désactivées
+                // (mise à jour de DSIHub requise).
+                const options: PollTypeOption[] = [];
+                const seen = new Set<string>();
+                for (const t of data.types) {
+                    if (!t.id || seen.has(t.id)) continue;
+                    seen.add(t.id);
+                    options.push({
+                        value: t.id,
+                        pollType: t.pollType || null,
+                        label: String(t.label || t.id),
+                        icon: String(t.icon || '•'),
+                        groupId: String(t.group || 'choix'),
+                        supported: !!t.supported,
+                        note: t.note,
+                    });
+                }
+                setTypes(options);
+                if (Array.isArray(data.groups) && data.groups.length) {
+                    setTypeGroups(data.groups);
+                }
+                // Le type courant a disparu/est devenu non supporté : on
+                // bascule sur le premier format utilisable.
+                setType(prev => {
+                    if (options.find(o => o.value === prev)?.supported) return prev;
+                    return options.find(o => o.supported)?.value || prev;
+                });
+            })
+            .catch(() => { /* repli local : DSIHub reste utilisable */ });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Format sélectionné dans le catalogue (id Interact) → type natif DSIHub.
+    const selectedType = types.find(t => t.value === type) || null;
+    const selectedPollType = selectedType?.pollType || null;
+    const selectedNeedsOptions = !!selectedPollType && needsOptions(selectedPollType);
+
     const launch = async () => {
         if (!question.trim()) { setError('Énoncé requis.'); return; }
-        if (needsOptions(type) && options.filter(o => o.trim()).length < 2) {
+        if (!selectedType?.supported || !selectedPollType) {
+            setError('Ce format nécessite une mise à jour de DSIHub.');
+            return;
+        }
+        if (selectedNeedsOptions && options.filter(o => o.trim()).length < 2) {
             setError('Ajoutez au moins deux propositions.');
             return;
         }
@@ -115,8 +210,12 @@ export function PollComposerModal({
         try {
             await axios.post(`/api/reunions-service/meetings/${meetingId}/polls`, {
                 question: question.trim(),
-                type,
-                options: needsOptions(type) ? options.map(o => o.trim()).filter(Boolean) : [],
+                // Type natif (rendu DSIHub) + format Interact d'origine :
+                // le libellé exact du catalogue est conservé pour l'affichage.
+                type: selectedPollType,
+                interactType: selectedType.value,
+                interactLabel: selectedType.label,
+                options: selectedNeedsOptions ? options.map(o => o.trim()).filter(Boolean) : [],
                 explanation,
                 image: image || null,
                 visibility,
@@ -155,20 +254,35 @@ export function PollComposerModal({
                     <div>
                         <label style={labelStyle}>Type de question</label>
                         <select value={type} onChange={e => setType(e.target.value)} style={inputStyle} disabled={busy}>
-                            {['Quiz & connaissances', 'Contributions libres & avis'].map(g => (
-                                <optgroup key={g} label={g}>
-                                    {TYPES.filter(t => t.group === g).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                </optgroup>
-                            ))}
+                            {typeGroups.map(g => {
+                                const opts = types.filter(t => t.groupId === g.id);
+                                if (opts.length === 0) return null;
+                                return (
+                                    <optgroup key={g.id} label={g.label}>
+                                        {opts.map(t => (
+                                            <option key={t.value} value={t.value} disabled={!t.supported} title={t.note}>
+                                                {t.icon} {t.label}{t.supported ? '' : ' — mise à jour DSIHub requise'}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                );
+                            })}
                         </select>
+                        {types.some(t => !t.supported) && (
+                            <div style={{ fontSize: '.72rem', color: '#b45309', marginTop: 4 }}>
+                                Certains formats d’Interact’Ivry nécessitent une mise à jour de DSIHub pour être lancés ici.
+                            </div>
+                        )}
                     </div>
                     <div>
                         <label style={labelStyle}>Énoncé / consigne</label>
                         <input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Quelle est la question ?" style={inputStyle} disabled={busy} />
                     </div>
-                    {needsOptions(type) && (
+                    {selectedNeedsOptions && (
                         <div>
-                            <label style={labelStyle}>Propositions</label>
+                            <label style={labelStyle}>
+                                {selectedPollType === 'ordering' ? 'Éléments à classer' : 'Propositions'}
+                            </label>
                             {options.map((o, i) => (
                                 <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                                     <input value={o} onChange={e => setOptions(prev => prev.map((x, j) => j === i ? e.target.value : x))} placeholder={`Proposition ${i + 1}`} style={{ ...inputStyle, flex: 1 }} disabled={busy} />
@@ -239,11 +353,29 @@ export function PollAnswerForm({ poll, onSubmit, busy }: { poll: Poll; onSubmit:
     const [multiple, setMultiple] = useState<number[]>([]);
     const [text, setText] = useState('');
     const [value, setValue] = useState(50);
+    // 🧩 Classement : indices des éléments dans l'ordre choisi.
+    const [order, setOrder] = useState<number[]>(() => poll.options.map((_, i) => i));
+
+    useEffect(() => {
+        setOrder(poll.options.map((_, i) => i));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [poll.id, poll.options.length]);
+
+    const move = (pos: number, delta: number) => {
+        const target = pos + delta;
+        if (target < 0 || target >= order.length) return;
+        setOrder(prev => {
+            const next = [...prev];
+            [next[pos], next[target]] = [next[target], next[pos]];
+            return next;
+        });
+    };
 
     const submit = () => {
         if (poll.type === 'single') { if (single === null) return; onSubmit(single); }
         else if (poll.type === 'multiple') { if (!multiple.length) return; onSubmit(multiple); }
         else if (poll.type === 'truefalse') { if (single === null) return; onSubmit(single === 0); }
+        else if (poll.type === 'ordering') { if (order.length < 2) return; onSubmit(order); }
         else if (poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') { if (!text.trim()) return; onSubmit(text.trim()); }
         else if (poll.type === 'stars') { if (single === null) return; onSubmit(single + 1); }
         else if (poll.type === 'slider') { onSubmit(value); }
@@ -270,6 +402,21 @@ export function PollAnswerForm({ poll, onSubmit, busy }: { poll: Poll; onSubmit:
                     <input type="checkbox" checked={multiple.includes(i)} onChange={e => setMultiple(prev => e.target.checked ? [...prev, i] : prev.filter(x => x !== i))} disabled={busy} /> {label}
                 </label>
             ))}
+            {poll.type === 'ordering' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: '.78rem', color: '#64748b' }}>
+                        Classez du 1ᵉʳ au dernier :
+                    </div>
+                    {order.map((optIdx, pos) => (
+                        <div key={optIdx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '.45rem .6rem', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
+                            <span style={{ width: 22, fontWeight: 800, color: '#0078a4' }}>{pos + 1}</span>
+                            <span style={{ flex: 1, fontSize: '.85rem' }}>{poll.options[optIdx]}</span>
+                            <button type="button" aria-label={`Monter « ${poll.options[optIdx]} »`} disabled={busy || pos === 0} onClick={() => move(pos, -1)} style={iconBtn}>↑</button>
+                            <button type="button" aria-label={`Descendre « ${poll.options[optIdx]} »`} disabled={busy || pos === order.length - 1} onClick={() => move(pos, 1)} style={iconBtn}>↓</button>
+                        </div>
+                    ))}
+                </div>
+            )}
             {(poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') && (
                 <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder="Votre réponse…" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} disabled={busy} />
             )}
@@ -310,6 +457,22 @@ export function PollResultsView({ poll }: { poll: Poll }) {
                     </div>
                 </div>
             ))}
+            {poll.type === 'ordering' && (r.ranking?.length || 0) > 0 && (
+                <div>
+                    <div style={{ fontSize: '.72rem', fontWeight: 800, color: '#64748b', marginBottom: 4 }}>
+                        Classement moyen
+                    </div>
+                    {r.ranking!.map((row, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '.8rem', color: '#334155', padding: '2px 0' }}>
+                            <span><b style={{ color: '#0078a4' }}>#{i + 1}</b> {row.label}</span>
+                            <span>
+                                {row.averageRank !== null ? `rang moyen ${row.averageRank}` : '—'}
+                                {row.firstPlaces ? ` · ${row.firstPlaces}× 1ᵉʳ` : ''}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
             {(poll.type === 'open' || poll.type === 'wordcloud' || poll.type === 'idea') && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {r.texts.map((t, i) => (
@@ -387,8 +550,7 @@ export function PollCard({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '.92rem' }}>{poll.question}</div>
                     <div style={{ fontSize: '.72rem', color: '#94a3b8' }}>
-                        {typeLabel(poll.type)} · lancé par {poll.created_by_name || poll.created_by || '—'}
-                        {poll.interact_code ? ` · code Interact'Ivry ${poll.interact_code}` : ''}
+                        {poll.interact_label || typeLabel(poll.type)} · lancé par {poll.created_by_name || poll.created_by || '—'}
                     </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

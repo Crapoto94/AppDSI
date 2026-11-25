@@ -8314,6 +8314,10 @@ async function setupPgDbFull() {
       try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_quiz_id TEXT`); } catch (e) {}
       try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_session_id TEXT`); } catch (e) {}
       try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_code TEXT`); } catch (e) {}
+      // 📚 Format d'origine lu dans le catalogue Interact'Ivry (aucune copie
+      // d'animation : on conserve seulement le libellé pour l'affichage).
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_type TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_label TEXT`); } catch (e) {}
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.poll_answers (
           id SERIAL PRIMARY KEY,

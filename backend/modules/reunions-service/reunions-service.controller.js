@@ -18,7 +18,7 @@ const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
 const reunionSocket = require('./reunions-service.socket');
 const teamsTranscript = require('../transcriptmanager/teams_transcript.service');
-const interactIvry = require('./interact_ivry');
+const interactCatalog = require('./interact_catalog');
 
 const ATTACHMENT_MODULE = 'reunions-service';
 
@@ -235,6 +235,8 @@ async function computePollResults(poll) {
     let texts = [];
     let average = null;
     let distribution = [];
+    // 🧩 Classement : rang moyen par élément (1 = le plus souvent en tête).
+    let ranking = [];
     if (poll.type === 'single' || poll.type === 'truefalse') {
         const labels = poll.type === 'truefalse' ? ['Vrai', 'Faux'] : options;
         const counts = new Array(labels.length).fill(0);
@@ -254,6 +256,32 @@ async function computePollResults(poll) {
             for (const v of a) { const i = Number(v); if (i >= 0 && i < counts.length) counts[i]++; }
         }
         byOption = options.map((label, i) => ({ label, count: counts[i], percent: pct(counts[i]) }));
+    } else if (poll.type === 'ordering') {
+        const n = options.length;
+        const rankSums = new Array(n).fill(0);
+        const rankCounts = new Array(n).fill(0);
+        const firstPlaces = new Array(n).fill(0);
+        for (const a of answers) {
+            if (!Array.isArray(a)) continue;
+            a.forEach((v, pos) => {
+                const i = Number(v);
+                if (i >= 0 && i < n) {
+                    rankSums[i] += pos + 1;
+                    rankCounts[i] += 1;
+                    if (pos === 0) firstPlaces[i] += 1;
+                }
+            });
+        }
+        ranking = options
+            .map((label, i) => ({
+                label,
+                count: rankCounts[i],
+                averageRank: rankCounts[i]
+                    ? Math.round((rankSums[i] / rankCounts[i]) * 100) / 100
+                    : null,
+                firstPlaces: firstPlaces[i],
+            }))
+            .sort((a, b) => (a.averageRank ?? 99) - (b.averageRank ?? 99));
     } else if (poll.type === 'open' || poll.type === 'wordcloud') {
         texts = answers.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim());
     } else if (poll.type === 'stars' || poll.type === 'slider') {
@@ -268,7 +296,7 @@ async function computePollResults(poll) {
     // maître du temps / admin).
     const visibility = pollVisibility(poll);
     const responses = visibility === 'nominatif' ? parsedRows.map(r => ({ name: r.name, answer: r.answer })) : [];
-    return { total, visibility, anonymous: visibility !== 'nominatif', by_option: byOption, texts: texts.slice(0, 200), average, distribution, responses };
+    return { total, visibility, anonymous: visibility !== 'nominatif', by_option: byOption, texts: texts.slice(0, 200), average, distribution, ranking, responses };
 }
 
 function pollParticipantKey(user) {
@@ -1108,14 +1136,18 @@ const controller = {
         }
     },
 
-    /** Lance un INTERACT (sondage) depuis une réunion. Crée aussi le quiz et la
-     *  session dans Interact'Ivry (si configuré), et une rubrique INTERACT. */
+    /** Lance un INTERACT (sondage) depuis une réunion. L'INTERACT reste
+     *  interne à DSIHub (rubrique INTERACT de la réunion) : aucune copie
+     *  n'est créée dans Interact'Ivry. */
     createPoll: async (req, res) => {
         try {
             const meetingId = toInt(req.params.id);
             const meeting = await pgDb.get('SELECT * FROM reunions_service.meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });
-            const { question, type, options, explanation, image, anonymous, visibility: rawVisibility } = req.body || {};
+            const {
+                question, type, options, explanation, image, anonymous,
+                visibility: rawVisibility, interactType, interactLabel,
+            } = req.body || {};
             const legacyAnonymous = anonymous === true || anonymous === 'true';
             const visibility = ['nominatif', 'semi_anonyme', 'totalement_anonyme'].includes(rawVisibility)
                 ? rawVisibility
@@ -1123,40 +1155,43 @@ const controller = {
             const isAnonymous = visibility !== 'nominatif';
             const cleanQuestion = String(question || '').trim();
             if (!cleanQuestion) return res.status(400).json({ error: 'Question requise' });
-            const allowed = ['single', 'multiple', 'truefalse', 'open', 'wordcloud', 'stars', 'slider', 'idea'];
-            const pollType = allowed.includes(type) ? type : 'single';
+            // Le type demandé doit être un type natif DSIHub (le catalogue
+            // Interact'Ivry est traduit en familles de rendu côté client).
+            const pollType = interactCatalog.isSupportedPollType(type) ? type : 'single';
+            // Format d'origine dans le catalogue Interact'Ivry (libellé seul).
+            const sourceType = String(interactType || '').trim().slice(0, 80) || null;
+            const sourceLabel = String(interactLabel || '').trim().slice(0, 120) || null;
             let cleanOptions = [];
-            if (pollType === 'single' || pollType === 'multiple') {
+            if (pollType === 'single' || pollType === 'multiple' || pollType === 'ordering') {
                 cleanOptions = (Array.isArray(options) ? options : []).map(o => String(o).trim()).filter(Boolean);
-                if (cleanOptions.length < 2) return res.status(400).json({ error: 'Au moins deux propositions sont requises' });
+                if (cleanOptions.length < 2) {
+                    return res.status(400).json({
+                        error: pollType === 'ordering'
+                            ? 'Au moins deux éléments à classer sont requis'
+                            : 'Au moins deux propositions sont requises',
+                    });
+                }
             }
             // Un seul INTERACT ouvert à la fois : on clôt les précédents.
             await pgDb.run(
                 `UPDATE reunions_service.polls SET status = 'closed', closed_at = NOW()
                  WHERE meeting_id = ? AND status = 'open'`, [meetingId]
             );
-            let interact = { ok: false };
-            try {
-                interact = await interactIvry.createInteract({
-                    title: `INTERACT — ${meeting.title}`,
-                    type: pollType,
-                    question: cleanQuestion,
-                    options: cleanOptions,
-                    explanation,
-                    image,
-                    anonymous: isAnonymous,
-                    visibility,
-                });
-            } catch (e) { console.error('[REUNIONS-SERVICE] Interact\'Ivry:', e.message); }
+            // 🔌 Découplage Interact'Ivry : aucune animation/session n'est
+            // créée là-bas. Seul le format choisi dans son catalogue est
+            // mémorisé (interact_type / interact_label) pour l'affichage.
+            const interact = { ok: false, error: null };
             const result = await pgDb.run(
                 `INSERT INTO reunions_service.polls
                     (meeting_id, question, type, options, explanation, image, status, anonymous, visibility,
-                     interact_quiz_id, interact_session_id, interact_code, created_by, created_by_name)
-                 VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+                     interact_quiz_id, interact_session_id, interact_code, interact_type, interact_label,
+                     created_by, created_by_name)
+                 VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     meetingId, cleanQuestion, pollType, JSON.stringify(cleanOptions), explanation || null, image || null,
                     isAnonymous, visibility,
                     interact.quizId || null, interact.sessionId || null, interact.code || null,
+                    sourceType, sourceLabel,
                     userKey(req.user), userName(req.user),
                 ]
             );
@@ -1166,6 +1201,21 @@ const controller = {
             reunionSocket.notifyMeeting(meetingId, 'rs_poll', { poll });
             reunionSocket.notifyContentChanged(meetingId, { sectionId: newSection?.id, reason: 'poll' });
             res.json({ poll, results, interact_created: !!interact.ok, interact_error: interact.ok ? null : interact.error });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /** Catalogue des formats proposés par Interact'Ivry (lecture seule).
+     *  DSIHub s'en sert pour afficher dynamiquement les formats disponibles
+     *  sans jamais créer d'animation dans Interact'Ivry. */
+    getInteractFormats: async (_req, res) => {
+        try {
+            const catalog = await interactCatalog.getCatalog();
+            // Le cache HTTP est géré côté serveur (5 min) : pas de cache
+            // navigateur, l'admin doit voir un nouveau format sans F5 forcé.
+            res.set('Cache-Control', 'no-store');
+            res.json(catalog);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
