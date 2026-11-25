@@ -195,6 +195,9 @@ export interface MeData {
   coherence_mode?: boolean;
   /** Option « PDF formulaire hors ligne » activée. */
   offline_form?: boolean;
+  /** Aide pas à pas et tutoriel interactif proposés (activés par défaut). */
+  help_enabled?: boolean;
+  tuto_enabled?: boolean;
   /** Affichage du module en plein écran (sinon « dans MagApp »). */
   fullscreen?: boolean;
   aiAccess?: AiAccessMap;

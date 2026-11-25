@@ -13,6 +13,7 @@ import AideEp from './AideEp';
 import Formations from './Formations';
 import TutoEp, { tutoMarkSeen, tutoSeen } from './TutoEp';
 import type { TutoRole } from './TutoEp';
+import TutoEditor from './TutoEditor';
 import { STATUTS, PREP_STATUTS, EVAL_STATUTS, crepMeta } from './types';
 import EntretienDetailModal from './EntretienDetailModal';
 import PlanningModal from './PlanningModal';
@@ -846,6 +847,8 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   const [showBacklog, setShowBacklog] = useState(false);
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
+  const [editAide, setEditAide] = useState(false);
+  const [editTuto, setEditTuto] = useState(false);
   // Préférences d'affichage PAR UTILISATEUR (mémorisées sur ce poste) : plein écran et mode sombre.
   // Sans choix de sa part : plein écran = réglage d'administration ; mode sombre = thème de MagApp.
   const readPref = (k: string): boolean | null => { try { const v = localStorage.getItem(k); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } };
@@ -899,9 +902,12 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
       : (dsi?.entretien && dsi?.selfAccess?.allowed) ? 'agent'
         : me.isAdmin ? 'admin' : null;
   const tutoUser = dsi?.actor?.username || '';
+  // Interrupteurs du Paramétrage → Options (activés par défaut). Aide coupée : le bouton « Aide » ouvre le tutoriel.
+  const helpOn = dsi?.help_enabled !== false;
+  const tutoOn = dsi?.tuto_enabled !== false;
   useEffect(() => {
-    if (tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
-  }, [tutoRole, tutoUser]);
+    if (tutoOn && tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
+  }, [tutoOn, tutoRole, tutoUser]);
   const closeTuto = (markSeen = true) => { if (markSeen && tutoRole) tutoMarkSeen(tutoRole, tutoUser); setShowTuto(false); };
 
   const tabs = [
@@ -977,9 +983,11 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
             <button onClick={() => setShowBacklog(true)} title="J’ai une question, une idée ou un bug" aria-label="Question, amélioration ou bug" style={{ border: 'none', background: '#fef3c7', color: '#b45309', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
               <Lightbulb size={17} />
             </button>
-            <button onClick={() => setShowAide(true)} title="Aide" style={{ border: 'none', background: '#eef2ff', color: COLORS.primary, height: 34, borderRadius: 8, cursor: 'pointer', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5 }}>
-              <BookOpen size={16} /> Aide
-            </button>
+            {(helpOn || (tutoOn && tutoRole)) && (
+              <button onClick={() => (helpOn ? setShowAide(true) : setShowTuto(true))} title={helpOn ? 'Aide' : 'Aide : tutoriel interactif'} style={{ border: 'none', background: '#eef2ff', color: COLORS.primary, height: 34, borderRadius: 8, cursor: 'pointer', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12.5 }}>
+                <BookOpen size={16} /> Aide
+              </button>
+            )}
             <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', width: 34, height: 34, borderRadius: 8, cursor: 'pointer' }}><X size={18} /></button>
           </div>
         </div>
@@ -1007,7 +1015,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
               {tab === 'formations' && me.isAdmin && <Formations />}
               {tab === 'reouvertures' && me.isAdmin && !simpleMode && <Reouvertures onChanged={setReopenPending} />}
               {tab === 'backlog' && me.isAdmin && <BacklogAdmin onChanged={setBacklogPending} />}
-              {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} />}
+              {tab === 'parametrage' && me.isAdmin && <Reglages onChanged={loadDsi} onEditAide={() => setEditAide(true)} onEditTuto={() => setEditTuto(true)} />}
               {tab === 'journal' && me.isAdmin && <Journal />}
               {tab === 'agents' && me.isValideur && <MesAgents campaignLabel={me.campaign?.libelle || (me.campaign ? `Campagne ${me.campaign.annee}` : 'Aucune campagne ouverte')} />}
               {tab === 'valideurs' && me.isAdmin && <ValideursAdmin />} {/* ancien onglet, masqué : remplacé par Paramétrage */}
@@ -1017,12 +1025,14 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
         </div>
       </div>
       </div>
-      {showTuto && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={() => setShowAide(true)} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form && !simpleMode} simple={simpleMode} esign={!!dsi?.esignAccess?.enabled} />}
+      {showTuto && tutoOn && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={helpOn ? () => setShowAide(true) : undefined} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form && !simpleMode} simple={simpleMode} esign={!!dsi?.esignAccess?.enabled} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
-      {showAide && (
+      {editTuto && me?.isAdmin && <TutoEditor onClose={() => setEditTuto(false)} />}
+      {((showAide && helpOn) || (editAide && me?.isAdmin)) && (
         <AideEp
-          onClose={() => setShowAide(false)}
-          onTuto={tutoRole ? () => { setShowAide(false); setShowTuto(true); } : undefined}
+          editing={editAide}
+          onClose={() => { setShowAide(false); setEditAide(false); }}
+          onTuto={!editAide && tutoOn && tutoRole ? () => { setShowAide(false); setShowTuto(true); } : undefined}
           isAdmin={!!me?.isAdmin}
           features={{
             prep: !!dsi?.selfAccess?.enabled,

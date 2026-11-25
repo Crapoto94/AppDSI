@@ -12,6 +12,9 @@ async function documentsClosed(row, role) {
     if (role && role.isAdmin) return false;
     try { return (await pgDb.get('SELECT statut FROM hub_entretiens.campaigns WHERE id = ?', [row.campaign_id]))?.statut === 'close'; } catch (e) { return false; }
 }
+/** Clés des textes d'aide modifiables : « aide:<onglet>:<rubrique> » ou « tuto:<étape> ». */
+const HELP_KEY = /^(aide|tuto):[a-z0-9:-]{1,80}$/;
+
 const DG_NOTE_DEFAULT = require('./dg-note.default');
 const { draftComment, reviewCrep } = require('./ai.service');
 const { summarizeCrep, coherenceIssues } = require('./crep.coherence');
@@ -287,6 +290,7 @@ const entretiensController = {
                 scan_reading: await svc.scanReadingOn(),
                 ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
+                ...(await svc.helpFlags()),
                 fullscreen: await svc.fullscreenOn(),
                 aiAccess: {
                     draft: await svc.aiAccessFor(actor, 'draft'),
@@ -828,6 +832,48 @@ const entretiensController = {
         } catch (err) { fail(res, 500, err.message); }
     },
 
+    // Textes de l'aide et du tutoriel : lus par tous, modifiés par les administrateurs du module.
+    // Le HTML est filtré à l'affichage (liste blanche côté navigateur).
+    listHelpContents: async (req, res) => {
+        try {
+            const rows = await pgDb.all('SELECT key, data FROM hub_entretiens.help_contents');
+            const out = {};
+            for (const r of rows) {
+                try { out[r.key] = JSON.parse(r.data); } catch (e) { /* ligne illisible : texte d'origine */ }
+            }
+            res.json(out);
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    saveHelpContent: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            const key = String(req.params.key || '');
+            if (!HELP_KEY.test(key)) return fail(res, 400, 'Rubrique inconnue.');
+            const data = req.body?.data;
+            if (!data || typeof data !== 'object' || Array.isArray(data)) return fail(res, 400, 'Contenu invalide.');
+            const json = JSON.stringify(data);
+            if (json.length > 200000) return fail(res, 400, 'Contenu trop volumineux.');
+            await pgDb.run(
+                `INSERT INTO hub_entretiens.help_contents (key, data, updated_by, updated_at) VALUES (?, ?, ?, NOW())
+                 ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+                [key, json, actor.username || '']
+            );
+            res.json({ message: 'Texte enregistré.' });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
+    deleteHelpContent: async (req, res) => {
+        try {
+            const actor = await svc.getActor(req);
+            if (!(await svc.isEpAdmin(actor))) return fail(res, 403, 'Accès réservé aux administrateurs du module.');
+            if (!HELP_KEY.test(String(req.params.key || ''))) return fail(res, 400, 'Rubrique inconnue.');
+            await pgDb.run('DELETE FROM hub_entretiens.help_contents WHERE key = ?', [req.params.key]);
+            res.json({ message: 'Texte d’origine rétabli.' });
+        } catch (err) { fail(res, 500, err.message); }
+    },
+
     getSettings: async (req, res) => {
         try {
             const actor = await svc.getActor(req);
@@ -840,6 +886,7 @@ const entretiensController = {
                 scan_reading: await svc.scanReadingOn(),
                 ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
+                ...(await svc.helpFlags()),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,
@@ -871,6 +918,10 @@ const entretiensController = {
             }
             if (b.scan_reading !== undefined) {
                 updates.scan_reading = [true, 1, '1', 'true', 'on'].includes(typeof b.scan_reading === 'string' ? b.scan_reading.trim().toLowerCase() : b.scan_reading) ? '1' : '0';
+            }
+
+            for (const key of ['help_enabled', 'tuto_enabled']) {
+                if (b[key] !== undefined) updates[key] = [true, 1, '1', 'true', 'on'].includes(typeof b[key] === 'string' ? b[key].trim().toLowerCase() : b[key]) ? '1' : '0';
             }
 
             if (b.calendar_organizer_email !== undefined) {
@@ -1009,6 +1060,7 @@ const entretiensController = {
                 scan_reading: await svc.scanReadingOn(),
                 ...(await svc.currentCampaignFlags()),
                 offline_form: await svc.offlineFormOn(),
+                ...(await svc.helpFlags()),
                 fullscreen: await svc.fullscreenOn(),
                 calendar_organizer_email: await svc.getSetting('calendar_organizer_email'),
                 dg_note: (await svc.getSetting('dg_note')) || DG_NOTE_DEFAULT,

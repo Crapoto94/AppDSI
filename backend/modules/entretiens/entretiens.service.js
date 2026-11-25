@@ -541,6 +541,12 @@ async function offlineFormOn() {
     return ['1', 'true'].includes(String(await getSetting('offline_form')).trim().toLowerCase());
 }
 
+/** « Aide » pas à pas et tutoriel interactif, activés par défaut (seul un « 0 » enregistré les désactive). */
+async function helpFlags() {
+    const on = async (key) => !['0', 'false'].includes(String(await getSetting(key)).trim().toLowerCase());
+    return { help_enabled: await on('help_enabled'), tuto_enabled: await on('tuto_enabled') };
+}
+
 async function scanReadingOn() {
     return ['1', 'true'].includes(String(await getSetting('scan_reading')).trim().toLowerCase());
 }
@@ -1013,6 +1019,7 @@ module.exports = {
     setSetting,
     scanReadingOn,
     offlineFormOn,
+    helpFlags,
     fullscreenOn,
     getAiEvaluators,
     getAiSettings,

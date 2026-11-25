@@ -67,6 +67,9 @@ router.post('/pilotage-users', authenticateJWT, ctrl.addPilotage);
 router.delete('/pilotage-users/:id', authenticateJWT, ctrl.removePilotage);
 router.get('/settings', authenticateJWT, ctrl.getSettings);
 router.put('/settings', authenticateJWT, ctrl.updateSettings);
+router.get('/help-contents', authenticateJWT, ctrl.listHelpContents);
+router.put('/help-contents/:key', authenticateJWT, ctrl.saveHelpContent);
+router.delete('/help-contents/:key', authenticateJWT, ctrl.deleteHelpContent);
 
 // Recherche d'agents (comptes AppDSI)
 router.get('/users-search', authenticateJWT, ctrl.usersSearch);

@@ -6,6 +6,7 @@ import ScanReadingPanel from './ScanReadingPanel';
 import OfflineFormPanel from './OfflineFormPanel';
 import CampaignOptionsPanel from './CampaignOptionsPanel';
 import DisplayPanel from './DisplayPanel';
+import AideTutoPanel from './AideTutoPanel';
 import axios from 'axios';
 import {
   Settings, CalendarRange, UserCog, Trash2, Save, Loader2, Search,
@@ -201,7 +202,7 @@ function toForm(c: Campaign): CampaignForm {
   };
 }
 
-export default function Reglages({ onChanged }: { onChanged?: () => void }) {
+export default function Reglages({ onChanged, onEditAide, onEditTuto }: { onChanged?: () => void; onEditAide?: () => void; onEditTuto?: () => void }) {
   const { token } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -610,6 +611,8 @@ Cette action est définitive.`)) return;
       <CampaignOptionsPanel />
 
       <DisplayPanel />
+
+      <AideTutoPanel onChanged={onChanged} onEditAide={onEditAide} onEditTuto={onEditTuto} />
 
       <ScanReadingPanel />
 
