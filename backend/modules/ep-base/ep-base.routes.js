@@ -36,6 +36,7 @@ const wrap = (fn) => async (req, res) => {
 // Tout agent connecté : suis-je valideur d'agents de la base ? (affichage de la tuile « Entretiens pro » dans MagApp)
 router.get('/me', authenticateJWT, wrap(async (req, res) => res.json(await svc.meValideur(await ent.getActor(req)))));
 router.get('/equipe', authenticateJWT, wrap(async (req, res) => res.json(await svc.equipeEntretiens(await ent.getActor(req)))));
+router.post('/entretiens/:id/evaluateur-ad', authenticateJWT, wrap(async (req, res) => res.json(await svc.linkEvaluatorAd(await ent.getActor(req), req.params.id, String(req.body?.username || '')))));
 router.get('/pilotage', authenticateJWT, requireAdminOrPilotage, wrap(async (req, res) => res.json(await svc.pilotageEntretiens())));
 router.get('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.listDelegations())));
 router.post('/delegations', authenticateJWT, requireAdmin, wrap(async (req, res) => { await svc.addDelegation(String(req.body?.secretaire_matricule || ''), String(req.body?.directeur_matricule || ''), req.actor); res.json({ ok: true }); }));
@@ -65,5 +66,8 @@ router.post('/entretiens/purge', authenticateJWT, requireAdmin, wrap(async (req,
 }));
 router.post('/ad-refresh', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.startAdRefresh({ all: !!(req.body && req.body.all) }))));
 router.get('/ad-refresh', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ ...svc.adJob })));
+
+// Au démarrage : rend reconnaissables les évaluateurs restés sans identité (best effort, une fois le serveur prêt)
+setTimeout(() => svc.linkValideursAd().catch((e) => console.warn('[ep-base] valideurs :', e.message)), 60000).unref();
 
 module.exports = router;

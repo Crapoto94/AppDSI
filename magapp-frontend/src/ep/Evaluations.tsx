@@ -182,6 +182,8 @@ export default function Evaluations({ onChanged, endpoint = '/api/entretiens/eva
   const [reassignQ, setReassignQ] = useState('');
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [linkFor, setLinkFor] = useState<Entretien | null>(null);
+  // Évaluateur·rice sans adresse : un de ses entretiens et son nom
+  const [linkEval, setLinkEval] = useState<{ e: Entretien; nom: string } | null>(null);
   const [razBusy, setRazBusy] = useState<number | null>(null);
 
   const load = useCallback(() => {
@@ -657,6 +659,12 @@ Motif (obligatoire) :`, '');
                                   Évaluateur·rice sans e-mail : vous gérez ses EP
                                 </span>
                               )}
+                              {!noActions && node.items.length > 0 && node.items.every(sansMailValideur) && (
+                                <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} title="Rattacher le compte AD de l’évaluateur·rice : son adresse e-mail est reprise de l’annuaire"
+                                  onClick={ev => { ev.stopPropagation(); setLinkEval({ e: node.items[0], nom: agent ? nomComplet(agent) : node.name }); }}>
+                                  <Mail size={12} /> Attribuer une adresse e-mail
+                                </button>
+                              )}
                             </div>
                             {(() => {
                               // Fiche de l'évaluateur·rice : son EP s'il est dans la liste, sinon la base des agent·e·s
@@ -899,6 +907,11 @@ Motif (obligatoire) :`, '');
           onLinked={() => { setLinkFor(null); load(); setNotice({ ok: true, text: 'Compte AD rattaché à l’agent·e.' }); }} />
       )}
 
+      {linkEval && (
+        <LinkAdModal entretien={linkEval.e} evaluateur={linkEval.nom} headers={headers} onClose={() => setLinkEval(null)}
+          onLinked={() => { setLinkEval(null); load(); setNotice({ ok: true, text: 'Adresse attribuée à l’évaluateur·rice.' }); }} />
+      )}
+
       {reassignFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', overflowY: 'auto' }}>
           <div style={{ ...card, width: '100%', maxWidth: 620, padding: 18 }}>
@@ -962,8 +975,10 @@ Motif (obligatoire) :`, '');
 }
 
 /** Rattachement d'un compte AD à un agent sans e-mail (même logique que l'ajout d'un administrateur). */
-function LinkAdModal({ entretien, headers, onClose, onLinked }: {
+function LinkAdModal({ entretien, evaluateur, headers, onClose, onLinked }: {
   entretien: Entretien;
+  /** Renseigné : on rattache le compte de l’évaluateur·rice de cet entretien, et non celui de l’agent·e. */
+  evaluateur?: string;
   headers: Record<string, string>;
   onClose: () => void;
   onLinked: () => void;
@@ -990,7 +1005,7 @@ function LinkAdModal({ entretien, headers, onClose, onLinked }: {
   const link = async (u: { username: string; displayName: string; email: string }) => {
     setBusy(true); setError('');
     try {
-      await axios.post(`/api/entretiens/${entretien.id}/link-ad`, { username: u.username }, { headers });
+      await axios.post(evaluateur ? `/api/ep-base/entretiens/${entretien.id}/evaluateur-ad` : `/api/entretiens/${entretien.id}/link-ad`, { username: u.username }, { headers });
       onLinked();
     } catch (e: any) { setError(e.response?.data?.message || 'Rattachement impossible.'); }
     finally { setBusy(false); }
@@ -1003,7 +1018,7 @@ function LinkAdModal({ entretien, headers, onClose, onLinked }: {
           <button style={btnGhost} onClick={onClose}><X size={15} /></button>
         </div>
         <div style={{ fontSize: 12.5, color: COLORS.muted, marginBottom: 10 }}>
-          {nomComplet(entretien)} n’a pas d’adresse e-mail. Recherchez son compte dans l’annuaire pour le rattacher.
+          {evaluateur || nomComplet(entretien)} n’a pas d’adresse e-mail. Recherchez son compte dans l’annuaire pour le rattacher.
         </div>
         <div style={{ position: 'relative', marginBottom: 8 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />

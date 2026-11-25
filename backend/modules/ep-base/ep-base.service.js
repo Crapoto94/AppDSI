@@ -522,6 +522,52 @@ async function startAdRefresh({ all = false } = {}) {
 }
 
 
+// ─── Évaluateurs : identité de connexion ────────────────────────────────────
+
+/**
+ * Un valideur qui n'est pas lui-même à évaluer n'est pas pris par le rapprochement AD des agents : sans identifiant ni e-mail,
+ * il ne verrait pas « EP que je réalise ». On le rapproche ici, uniquement si le nom AD concorde (accès à des documents confidentiels).
+ * `dryRun` : propose les rapprochements sans rien écrire.
+ */
+async function linkValideursAd({ dryRun = false } = {}) {
+    await ensureSchema();
+    const cfg = await adConfig();
+    const rows = cfg ? await pgDb.all(
+        `SELECT b.matricule, b.nom_prenom FROM hub_entretiens.base_agents b
+         WHERE b.ad_status = 'non_verifie' AND COALESCE(b.ad_username, '') = ''
+           AND EXISTS (SELECT 1 FROM hub_entretiens.base_agents a WHERE a.a_conserver AND a.valideur_matricule = b.matricule)`) : [];
+    const found = [];
+    for (const v of rows) {
+        try {
+            const { hit, status } = await matchAd(v, cfg);
+            const sure = hit && sameIdentity(v.nom_prenom, hit.displayName);
+            found.push({ matricule: v.matricule, nom: v.nom_prenom, username: sure ? hit.username : '', status: sure ? status : (hit ? 'ambigu' : status) });
+            if (!dryRun) await pgDb.run(
+                'UPDATE hub_entretiens.base_agents SET ad_status = ?, ad_username = ?, email = ?, email_deduit = ?, ad_checked_at = NOW() WHERE matricule = ?',
+                [sure ? status : (hit ? 'ambigu' : status), sure ? hit.username : '', sure ? emailOf(hit) : '', !!(sure && !text(hit.email)), v.matricule]);
+        } catch (e) { console.warn('[ep-base] rapprochement AD du valideur', v.matricule, ':', e.message); }
+    }
+    if (!dryRun) {
+        if (found.length) invalidateBaseCache();
+        await fillEvaluatorIdentities();
+    }
+    return found;
+}
+
+/**
+ * Complète l'identité (identifiant, e-mail) des évaluateurs qui n'en ont aucune, y compris sur les entretiens déjà commencés :
+ * on ne change pas d'évaluateur (même nom que le valideur de la base), on le rend seulement reconnaissable à la connexion.
+ */
+async function fillEvaluatorIdentities() {
+    await pgDb.run(
+        `UPDATE hub_entretiens.entretiens AS e SET evaluator_username = v.ad_username, evaluator_email = LOWER(v.email), updated_at = NOW()
+         FROM hub_entretiens.base_agents a JOIN hub_entretiens.base_agents v ON v.matricule = a.valideur_matricule
+         WHERE e.agent_matricule = a.matricule AND e.deleted_at IS NULL AND e.source = 'base' AND e.evaluator_manuel IS NOT TRUE
+           AND COALESCE(e.evaluator_username, '') = '' AND COALESCE(e.evaluator_email, '') = ''
+           AND (COALESCE(v.ad_username, '') <> '' OR COALESCE(v.email, '') <> '')
+           AND LOWER(e.evaluator_nom) = LOWER(COALESCE(NULLIF(TRIM(CONCAT(TRIM(v.prenom), ' ', TRIM(v.nom))), ''), TRIM(v.nom_prenom)))`);
+}
+
 // ─── Entretiens : création automatique à partir de la base ──────────────────
 
 const hasProgress = (e) => e.statut !== 'a_planifier' || e.preparation_statut !== 'non_commencee'
@@ -537,6 +583,7 @@ async function syncEntretiens({ matricules, actor } = {}) {
     await ensureSchema();
     const campaign = await require('../entretiens/entretiens.service').getCurrentCampaign();
     if (!campaign) throw Object.assign(new Error('Aucune campagne d’entretiens : créez-en une avant de générer les entretiens.'), { status: 409 });
+    await linkValideursAd().catch((e) => console.warn('[ep-base] valideurs :', e.message));
     const filter = Array.isArray(matricules) && matricules.length ? ` AND a.matricule IN (${matricules.map(m => `'${String(m).replace(/'/g, "''")}'`).join(',')})` : '';
     const rows = await pgDb.all(
         `SELECT a.*, v.nom_prenom AS v_nom_prenom, v.nom AS v_nom, v.prenom AS v_prenom, v.ad_username AS v_username, v.email AS v_email
@@ -894,6 +941,18 @@ async function equipeEntretiens(actor) {
             if (b) evaluateurs[key] = { matricule: b.matricule, nom: b.nom_prenom, poste: b.poste, grade: b.grade, direction: b.direction, service: b.service, email: b.email, valideur_matricule: b.valideur_matricule };
         }
     } catch (e) { /* base des agents indisponible : vue sans fiche */ }
+    // Mêmes libellés que les agents listés (fiche SEDIT RH) : sans cela un évaluateur sans entretien affiche le code de direction du classeur
+    try {
+        const sedit = require('../../shared/sedit-rh');
+        const fiches = Object.values(evaluateurs);
+        if (fiches.length && sedit.configured()) {
+            const rh = await sedit.agentsByMatricule(fiches.map(f => f.matricule));
+            for (const f of fiches) {
+                const r = rh.get(f.matricule);
+                if (r) Object.assign(f, { direction: r.direction || f.direction, service: r.service || f.service, poste: r.poste || r.fonction || f.poste, grade: r.grade || f.grade });
+            }
+        }
+    } catch (e) { console.warn('[ep-base] fiches RH des évaluateurs :', e.message); }
     return { campaign, stats: ent.computeStats(items), items: await attachInfo(enriched), portee: [`${set.size} agent·e·s sous votre responsabilité`], evaluateurs };
 }
 
@@ -936,8 +995,38 @@ async function linkAd(matricule, username) {
     const other = await pgDb.get('SELECT nom_prenom FROM hub_entretiens.base_agents WHERE LOWER(ad_username) = LOWER(?) AND matricule <> ?', [hit.username, matricule]);
     if (other) throw Object.assign(new Error(`Ce compte AD est déjà associé à ${other.nom_prenom}.`), { status: 409 });
     await pgDb.run("UPDATE hub_entretiens.base_agents SET ad_username = ?, email = ?, email_deduit = ?, ad_status = 'manuel', ad_checked_at = NOW() WHERE matricule = ?", [hit.username, hit.email, !hit.email_ad, matricule]);
+    await fillEvaluatorIdentities();
+    invalidateBaseCache();
     syncQuiet([matricule]);
     return { email: hit.email, username: hit.username };
+}
+
+/**
+ * Attribue un compte AD (donc une adresse) à l'évaluateur d'un entretien, évalué ou non. Réservé aux administrateurs et aux
+ * supérieurs ; hors administrateur, le nom du compte doit concorder avec celui de l'évaluateur (documents confidentiels).
+ */
+async function linkEvaluatorAd(actor, entretienId, username) {
+    await ensureSchema();
+    const ent = require('../entretiens/entretiens.service');
+    const fail = (status, message) => Object.assign(new Error(message), { status });
+    const e = await pgDb.get('SELECT * FROM hub_entretiens.entretiens WHERE id = ? AND deleted_at IS NULL', [Number(entretienId)]);
+    if (!e) throw fail(404, 'Entretien introuvable.');
+    const admin = await ent.isEpAdmin(actor);
+    if (!admin && !(await isAboveInBase(actor, e))) throw fail(403, 'Réservé à un administrateur ou au supérieur de cet·te évaluateur·rice.');
+    const v = await pgDb.get(
+        `SELECT v.matricule, v.nom_prenom, v.nom, v.prenom FROM hub_entretiens.base_agents a
+         JOIN hub_entretiens.base_agents v ON v.matricule = a.valideur_matricule WHERE a.matricule = ?`, [e.agent_matricule || '']);
+    if (!v || evalName(v).toLowerCase() !== text(e.evaluator_nom).toLowerCase()) {
+        throw fail(409, 'Cet·te évaluateur·rice n’est pas le valideur de l’agent·e dans la base : choisissez d’abord l’évaluateur·rice.');
+    }
+    if (!text(username)) throw fail(400, 'Choisissez un compte AD.');
+    if (!admin) {
+        const hit = (await searchAd(username)).find(h => h.username.toLowerCase() === text(username).toLowerCase());
+        if (!hit || !sameIdentity(v.nom_prenom, hit.displayName)) throw fail(403, 'Le nom de ce compte ne correspond pas à l’évaluateur·rice : demandez à un administrateur.');
+    }
+    const linked = await linkAd(v.matricule, username);
+    await ent.logAudit({ actor, action: 'evaluateur_ad_lie', entretien: e, details: { evaluateur: e.evaluator_nom, username: linked.username || username, email: linked.email || '' } });
+    return linked;
 }
 
 /** Recherche d'un valideur parmi tous les agents de la base (choix « à la main » par l'admin ; les agents ayant une fonction d'encadrement sont listés d'abord). */
@@ -994,6 +1083,6 @@ async function setValideurAndSync(matricule, valideurMatricule, actor) {
 module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
     loadTemplateCache, modeleOfEntretien, invalidateBaseCache, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule, delegatedIdentities, plannerIdentities, listDelegations, addDelegation, removeDelegation, attachInfo,
-    isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, purgeLegacyEntretiens,
+    isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, linkValideursAd, linkEvaluatorAd, purgeLegacyEntretiens,
     adJob: job,
 };

@@ -168,7 +168,7 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
     if (!filtering) return null;
     const set = new Set<string>();
     for (const n of nodes) {
-      if (!n.a_conserver) continue;
+      if (!n.a_conserver && !children.get(n.matricule)?.length) continue; // les évaluateurs non évalués restent trouvables
       if (ql && !n.nom_prenom.toLowerCase().includes(ql) && !n.matricule.includes(ql) && !(n.service || '').toLowerCase().includes(ql)) continue;
       if (modele && n.modele !== modele) continue;
       if (direction && n.direction !== direction) continue;
@@ -185,7 +185,7 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
       while (cur && !guard.has(cur.matricule)) { set.add(cur.matricule); guard.add(cur.matricule); cur = byId.get(cur.valideur_matricule); }
     }
     return set;
-  }, [filtering, ql, modele, statut, direction, service, grade, categorie, nodes, byId]);
+  }, [filtering, ql, modele, statut, direction, service, grade, categorie, nodes, byId, children]);
 
   const toggle = (id: string) => setOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setOpen(open.size ? new Set() : new Set([...children.keys()]));
@@ -211,7 +211,7 @@ function HierarchyView({ headers, reloadKey, onChoose, onLinked, onError, filter
               {!n.a_conserver && <span style={{ marginLeft: 6, fontSize: 10.5, color: COLORS.muted }}>(non évalué)</span>}
             </div>
             <div style={{ fontSize: 11.5, color: COLORS.muted }}>{n.poste}{n.service ? ` · ${n.service}` : ''}{n.modele ? ` · modèle ${n.modele.replace(/^Template_/i, '')}` : ''}</div>
-            {n.a_conserver && <div style={{ marginTop: 3, fontSize: 11.5 }}><AdCell agent={n} headers={headers} onLinked={onLinked} onError={onError} /></div>}
+            {(n.a_conserver || kids.length > 0) && <div style={{ marginTop: 3, fontSize: 11.5 }}><AdCell agent={n} headers={headers} onLinked={onLinked} onError={onError} /></div>}
           </div>
           {n.a_conserver && <div style={{ minWidth: 230 }}><ValideurCell agent={n} headers={headers} onChoose={m => onChoose(n, m)} /></div>}
         </div>
