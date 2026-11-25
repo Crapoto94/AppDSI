@@ -241,7 +241,12 @@ export default function MailCollector() {
   };
 
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
-  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : v === 'taches' ? '✅ Tâches' : v === 'entretiens' ? '📝 Entretiens (CREP)' : '🎫 Tickets';
+  // Libellé du module d'un collecteur (le module réel vient de la base ; ne
+  // jamais retomber sur « Tickets » pour un module inconnu).
+  const modLabel = (v: string) => {
+    const found = MODULES.find(m => m.value === v);
+    return found ? found.label.split(' (')[0] : (v || '—');
+  };
 
   const statusColor = (s: string) => s === 'success' ? '#10b981' : s === 'partial_error' ? '#f59e0b' : '#ef4444';
   const statusIcon = (s: string) => s === 'success' ? '✓' : s === 'partial_error' ? '⚠' : '✕';
