@@ -1,8 +1,32 @@
 {
   "module": "entretiens",
-  "version": "0.55.0",
+  "version": "0.56.1",
   "date": "2026-11-25",
   "releases": [
+    {
+      "version": "0.56.1",
+      "date": "2026-11-25",
+      "commit": "3aa2365b",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Correction bug : l'avancement par direction compte les entretiens planifiés (réalisés compris) et non les seuls réalisés"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.56.0",
+      "date": "2026-11-25",
+      "commit": "327c5b1d",
+      "groups": {
+        "nouveautes": [
+          "Entretiens de 1 h 30 par défaut et heures de rendez-vous au quart d'heure"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
     {
       "version": "0.55.0",
       "date": "2026-11-25",
