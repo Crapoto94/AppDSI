@@ -8349,25 +8349,32 @@ async function setupPgDbFull() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_poll_answers_poll ON reunions_service.poll_answers(poll_id)`);
 
       // ── Patch one-shot : ENS dans la rubrique « ADMINISTRATIF » des modèles ──
-      // Les engagements non soldés (SEDIT) sont attendus en administratif. On ne
-      // touche qu'aux rubriques encore vierges de KPI, et une seule fois (drapeau).
+      // Les engagements non soldés (SEDIT) sont attendus en administratif. On
+      // FUSIONNE avec les KPI déjà présents (sans les écraser) et une seule fois.
       await client.query(`CREATE TABLE IF NOT EXISTS reunions_service.settings (key TEXT PRIMARY KEY, value TEXT)`);
-      const ensFlag = await client.query(`SELECT 1 FROM reunions_service.settings WHERE key = 'ens_default_admin_v1'`);
+      const ensFlag = await client.query(`SELECT 1 FROM reunions_service.settings WHERE key = 'ens_default_admin_v2'`);
       if (ensFlag.rowCount === 0) {
         const ensKpis = [
           { id: 'kpi_ens_count', key: 'budget.ens_count', name: 'ENS — engagements non soldés', period: null, from: null, to: null, compare: 'none', display: 'number', filters: {} },
           { id: 'kpi_ens_list', key: 'budget.ens_list', name: 'ENS — détail', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
           { id: 'kpi_ens_section', key: 'budget.ens_par_section', name: 'ENS par section', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
         ];
-        await client.query(
-          `UPDATE reunions_service.template_sections
-           SET kpis_config = $1::jsonb
+        const sections = await client.query(
+          `SELECT id, kpis_config FROM reunions_service.template_sections
            WHERE is_meta = FALSE AND COALESCE(is_pause, FALSE) = FALSE
-             AND UPPER(title) LIKE '%ADMINISTRATIF%'
-             AND (kpis_config IS NULL OR kpis_config = '[]'::jsonb)`,
-          [JSON.stringify(ensKpis)]
+             AND UPPER(title) LIKE '%ADMINISTRATIF%'`
         );
-        await client.query(`INSERT INTO reunions_service.settings (key, value) VALUES ('ens_default_admin_v1', '1') ON CONFLICT (key) DO NOTHING`);
+        for (const s of sections.rows) {
+          const list = Array.isArray(s.kpis_config) ? s.kpis_config : [];
+          const keys = new Set(list.map(k => k && k.key).filter(Boolean));
+          const toAdd = ensKpis.filter(k => !keys.has(k.key));
+          if (!toAdd.length) continue;
+          await client.query(
+            `UPDATE reunions_service.template_sections SET kpis_config = $1::jsonb WHERE id = $2`,
+            [JSON.stringify([...list, ...toAdd]), s.id]
+          );
+        }
+        await client.query(`INSERT INTO reunions_service.settings (key, value) VALUES ('ens_default_admin_v2', '1') ON CONFLICT (key) DO NOTHING`);
       }
     } catch (e) {
       console.error('[PG DB] reunions_service schema:', e.message);
