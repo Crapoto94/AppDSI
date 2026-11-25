@@ -122,6 +122,7 @@ interface Row {
   os: string | null; os_version: string | null;
   ad_last_seen: string | null; ad_last_user: string | null;
   last_inventory_update: string | null; last_contact: string | null;
+  is_deleted?: boolean;
 }
 interface AdUser { username: string; displayName: string; email: string; service: string }
 interface AdModal { row: Row; query: string; results: AdUser[] | null; loading: boolean; selected: AdUser | null; applying: boolean }

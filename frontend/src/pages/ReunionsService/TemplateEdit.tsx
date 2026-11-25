@@ -101,7 +101,7 @@ export default function ReunionServiceTemplateEdit() {
                 setName(t.name || '');
                 setDescription(t.description || '');
                 setIsActive(t.is_active !== false);
-                const allSections: { title: string; duration_minutes?: number; is_meta?: boolean; is_pause?: boolean }[] = Array.isArray(t.sections) ? t.sections : [];
+                const allSections: { title: string; duration_minutes?: number; is_meta?: boolean; is_pause?: boolean; kpis_config?: KpiConfig[] }[] = Array.isArray(t.sections) ? t.sections : [];
                 const meta = allSections.find(s => s.is_meta);
                 setMetaDuration(Number(meta?.duration_minutes) || DEFAULT_META_DURATION);
                 const secs = allSections

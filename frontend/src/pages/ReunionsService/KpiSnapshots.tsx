@@ -1,6 +1,6 @@
 import { BarChart3, Clock3, Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import {
-  Area, AreaChart, Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { KpiConfig } from './KpiConfigurator';
