@@ -94,10 +94,11 @@ async function replaceTemplateParticipants(templateId, participants) {
         const email = String(p?.email || '').trim().toLowerCase();
         if (!email.includes('@') || seen.has(email)) continue;
         seen.add(email);
+        const kind = p?.kind === 'info' || p?.info === true ? 'info' : 'present';
         await pgDb.run(
-            `INSERT INTO reunions_service.template_participants (template_id, email, username, name)
-             VALUES (?, ?, ?, ?)`,
-            [templateId, email, p?.username || email.split('@')[0], p?.name || email]
+            `INSERT INTO reunions_service.template_participants (template_id, email, username, name, kind)
+             VALUES (?, ?, ?, ?, ?)`,
+            [templateId, email, p?.username || email.split('@')[0], p?.name || email, kind]
         );
     }
 }
@@ -209,6 +210,43 @@ async function canManageMeeting(user, meeting) {
     if (isAdminLike(user) || await isModuleAdmin(user, 'reunions-service')) return true;
     const key = userKey(user);
     return !!key && String(meeting.time_master_username || '').toLowerCase() === key;
+}
+
+/**
+ * Visibilité des réunions : seuls les « présents possibles » et les « pour info »
+ * (ainsi que l'administrateur du module et le maître du temps) voient la réunion.
+ * Renvoie null pour un admin (aucune restriction), sinon un fragment SQL + params.
+ */
+async function meetingVisibilityFor(user) {
+    if (!user) return { sql: '1 = 0', params: [] };
+    if (isAdminLike(user) || await isModuleAdmin(user, 'reunions-service')) return null;
+    const key = userKey(user);
+    const email = String(user?.email || '').trim().toLowerCase();
+    return {
+        sql: `(LOWER(m.created_by) = ? OR LOWER(m.time_master_username) = ?
+               OR EXISTS (SELECT 1 FROM reunions_service.meeting_participants pv
+                          WHERE pv.meeting_id = m.id
+                            AND (LOWER(pv.username) = ? OR (LOWER(pv.email) = ? AND ? <> ''))))`,
+        params: [key, key, key, email, email],
+    };
+}
+
+async function canSeeMeeting(user, meeting) {
+    if (!meeting) return false;
+    if (isAdminLike(user) || await isModuleAdmin(user, 'reunions-service')) return true;
+    const key = userKey(user);
+    const email = String(user?.email || '').trim().toLowerCase();
+    if (key && String(meeting.created_by || '').toLowerCase() === key) return true;
+    if (key && String(meeting.time_master_username || '').toLowerCase() === key) return true;
+    if (!key && !email) return false;
+    const row = await pgDb.get(
+        `SELECT 1 FROM reunions_service.meeting_participants
+         WHERE meeting_id = ?
+           AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
+         LIMIT 1`,
+        [meeting.id, key, email, email]
+    );
+    return !!row;
 }
 
 // ─── KPI des rubriques ──────────────────────────────────────────────────────
@@ -626,7 +664,8 @@ const controller = {
                         COUNT(*) FILTER (WHERE p.present)::int AS present,
                         COUNT(*) FILTER (WHERE NOT p.present AND p.excused)::int AS excused,
                         COUNT(*) FILTER (WHERE NOT p.present AND NOT p.excused)::int AS absent
-                 FROM reunions_service.meeting_participants p`
+                 FROM reunions_service.meeting_participants p
+                 WHERE COALESCE(p.kind, 'present') <> 'info'`
             );
             const dur = await pgDb.get(
                 `SELECT COUNT(*)::int AS meetings,
@@ -729,7 +768,7 @@ const controller = {
                         COUNT(*) FILTER (WHERE NOT p.present AND NOT p.excused)::int AS absent
                  FROM reunions_service.meeting_participants p
                  JOIN reunions_service.meetings m ON m.id = p.meeting_id
-                 ${where()}`, yParams
+                 WHERE COALESCE(p.kind, 'present') <> 'info'${where() ? ' AND ' + where().replace(/^WHERE /i, '') : ''}`, yParams
             );
             const totals = await pgDb.get(
                 `SELECT COUNT(*)::int AS meetings,
@@ -942,6 +981,10 @@ const controller = {
             if (req.query.from) filterParams.push(req.query.from);
             if (req.query.to) filterParams.push(req.query.to);
 
+            // Visibilité : ne renvoyer que les réunions auxquelles l'utilisateur a accès.
+            const vis = await meetingVisibilityFor(req.user);
+            if (vis) { filters.push(vis.sql); filterParams.push(...vis.params); }
+
             const filterSql = filters.length ? ' AND ' + filters.join(' AND ') : '';
 
             // 1) Items (titre + contenu HTML)
@@ -1073,6 +1116,9 @@ const controller = {
             const { status, template_id, from, to, year, q, mode } = req.query;
             const conditions = [];
             const params = [];
+            // Visibilité : participants (présents possibles / pour info), maître du temps, créateur, admins.
+            const vis = await meetingVisibilityFor(req.user);
+            if (vis) { conditions.push(vis.sql); params.push(...vis.params); }
             if (status) { conditions.push('m.status = ?'); params.push(status); }
             if (template_id) { conditions.push('m.template_id = ?'); params.push(toInt(template_id)); }
             if (from) { conditions.push('m.meeting_date >= ?'); params.push(from); }
@@ -1094,6 +1140,9 @@ const controller = {
             await finalizePastMeetings();
             const meeting = await getMeetingFull(req.params.id);
             if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });
+            if (!(await canSeeMeeting(req.user, meeting))) {
+                return res.status(403).json({ error: "Cette réunion est réservée aux personnes invitées (présents possibles ou pour information)." });
+            }
             // Réponse de l'utilisateur courant au dernier INTERACT (popup).
             try {
                 const latest = meeting.polls?.[0];
@@ -1149,9 +1198,10 @@ const controller = {
                 if (!email.includes('@') || seen.has(email)) continue;
                 seen.add(email);
                 await pgDb.run(
-                    `INSERT INTO reunions_service.meeting_participants (meeting_id, email, username, name, present, excused)
-                     VALUES (?, ?, ?, ?, FALSE, FALSE)`,
-                    [id, email, p?.username || email.split('@')[0], p?.name || email]
+                    `INSERT INTO reunions_service.meeting_participants (meeting_id, email, username, name, present, excused, kind)
+                     VALUES (?, ?, ?, ?, FALSE, FALSE, ?)`,
+                    [id, email, p?.username || email.split('@')[0], p?.name || email,
+                     (p?.kind === 'info' || p?.info === true) ? 'info' : 'present']
                 );
             }
 
@@ -1288,6 +1338,7 @@ const controller = {
                 `SELECT id, present, excused FROM reunions_service.meeting_participants
                  WHERE meeting_id = ?
                    AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
+                   AND COALESCE(kind, 'present') <> 'info'
                  LIMIT 1`,
                 [id, uname, email, email]
             );
@@ -1604,9 +1655,10 @@ const controller = {
                 if (!email.includes('@') || seen.has(email)) continue;
                 seen.add(email);
                 await pgDb.run(
-                    `INSERT INTO reunions_service.meeting_participants (meeting_id, email, username, name, present, excused)
-                     VALUES (?, ?, ?, ?, FALSE, FALSE)`,
-                    [meetingId, email, p?.username || email.split('@')[0], p?.name || email]
+                    `INSERT INTO reunions_service.meeting_participants (meeting_id, email, username, name, present, excused, kind)
+                     VALUES (?, ?, ?, ?, FALSE, FALSE, ?)`,
+                    [meetingId, email, p?.username || email.split('@')[0], p?.name || email,
+                     (p?.kind === 'info' || p?.info === true) ? 'info' : 'present']
                 );
             }
             reunionSocket.notifyContentChanged(meetingId);

@@ -27,6 +27,7 @@ interface MeetingRow {
     meeting_date?: string | null;
     created_at?: string;
     status: 'planned' | 'in_progress' | 'finished';
+    template_id?: number | null;
     template_name?: string | null;
     section_count?: number;
     total_duration?: number;
@@ -159,6 +160,7 @@ export default function ReunionsServiceIndex() {
     const [filterYear, setFilterYear] = useState('');
     const [filterStatus, setFilterStatus] = useState('');
     const [filterMode, setFilterMode] = useState('');
+    const [filterTemplate, setFilterTemplate] = useState('');
     const [search, setSearch] = useState('');
 
     // Création d'une occurrence à partir d'un modèle
@@ -264,16 +266,29 @@ export default function ReunionsServiceIndex() {
         return [...set].sort((a, b) => b.localeCompare(a));
     }, [meetings]);
 
+    // Types de réunion présents dans la liste (dépend du modèle utilisé).
+    const meetingTypes = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const m of meetings) {
+            const label = m.template_name || (m.template_id ? `Modèle #${m.template_id}` : '');
+            if (!label) continue;
+            const key = m.template_id ? String(m.template_id) : label;
+            if (!map.has(key)) map.set(key, label);
+        }
+        return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], 'fr'));
+    }, [meetings]);
+
     const filteredMeetings = useMemo(() => {
         const q = search.trim().toLowerCase();
         return meetings.filter(m => {
+            if (filterTemplate && String(m.template_id ?? m.template_name ?? '') !== filterTemplate) return false;
             if (filterYear && (!m.meeting_date || String(new Date(m.meeting_date).getFullYear()) !== filterYear)) return false;
             if (filterStatus && m.status !== filterStatus) return false;
             if (filterMode && (m.meeting_mode || 'presentiel') !== filterMode) return false;
             if (q && !m.title.toLowerCase().includes(q)) return false;
             return true;
         });
-    }, [meetings, filterYear, filterStatus, filterMode, search]);
+    }, [meetings, filterTemplate, filterYear, filterStatus, filterMode, search]);
 
     const openCreate = () => {
         const active = templates.filter(t => t.is_active !== false);
@@ -571,6 +586,13 @@ export default function ReunionsServiceIndex() {
                             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un titre…" style={{ minWidth: 180 }} />
                         </div>
                         <div className="rsx-filter">
+                            <Presentation size={14} color="#94a3b8" />
+                            <select value={filterTemplate} onChange={e => setFilterTemplate(e.target.value)} title="Type de réunion (modèle utilisé)">
+                                <option value="">Tous les types de réunion</option>
+                                {meetingTypes.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                            </select>
+                        </div>
+                        <div className="rsx-filter">
                             <Calendar size={14} color="#94a3b8" />
                             <select value={filterYear} onChange={e => setFilterYear(e.target.value)}>
                                 <option value="">Toutes les années</option>
@@ -594,7 +616,7 @@ export default function ReunionsServiceIndex() {
                                 <option value="distanciel">Distanciel</option>
                             </select>
                         </div>
-                        <button className="rsx-btn rsx-btn-secondary" style={{ marginLeft: 'auto', padding: '.45rem .8rem' }} onClick={() => { setSearch(''); setFilterYear(''); setFilterStatus(''); setFilterMode(''); }}>
+                        <button className="rsx-btn rsx-btn-secondary" style={{ marginLeft: 'auto', padding: '.45rem .8rem' }} onClick={() => { setSearch(''); setFilterYear(''); setFilterStatus(''); setFilterMode(''); setFilterTemplate(''); }}>
                             Réinitialiser
                         </button>
                     </div>

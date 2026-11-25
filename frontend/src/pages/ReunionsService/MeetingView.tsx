@@ -66,6 +66,7 @@ interface Participant {
     username?: string | null;
     present?: boolean;
     excused?: boolean;
+    kind?: 'present' | 'info';
     service?: string | null;
 }
 
@@ -1408,9 +1409,9 @@ export default function ReunionServiceMeetingView() {
                                 )}
                                 {displayedSection?.is_meta && (
                                     <div style={{ marginBottom: '1rem' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '.9rem', marginBottom: 6 }}>Personnes prévues / présentes</div>
-                                        {meeting.participants.length === 0 && <div className="rsv-empty">Aucun participant enregistré.</div>}
-                                        {groupByService(meeting.participants).map(group => (
+                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '.9rem', marginBottom: 6 }}>Présents possibles / présents</div>
+                                        {meeting.participants.filter(p => (p.kind || 'present') !== 'info').length === 0 && <div className="rsv-empty">Aucun présent enregistré.</div>}
+                                        {groupByService(meeting.participants.filter(p => (p.kind || 'present') !== 'info')).map(group => (
                                             <div key={`meta-svc-${group.service}`} style={{ marginBottom: 8 }}>
                                                 <div className="rsv-svc-head"><span>{group.service}</span><span>{group.items.length}</span></div>
                                                 {group.items.map(p => {
@@ -1443,6 +1444,32 @@ export default function ReunionServiceMeetingView() {
                                         <div style={{ marginTop: 8 }}>
                                             <AgentSearch onSelect={addParticipants} placeholder="Ajouter une personne présente…" compact />
                                         </div>
+
+                                        {meeting.participants.some(p => p.kind === 'info') && (
+                                            <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
+                                                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '.9rem', marginBottom: 4 }}>Pour information</div>
+                                                <div style={{ fontSize: '.76rem', color: '#64748b', marginBottom: 6 }}>
+                                                    Ces personnes voient la réunion et son compte rendu ; elles ne sont pas suivies en présence.
+                                                </div>
+                                                {groupByService(meeting.participants.filter(p => p.kind === 'info')).map(group => (
+                                                    <div key={`meta-info-svc-${group.service}`} style={{ marginBottom: 6 }}>
+                                                        <div className="rsv-svc-head"><span>{group.service}</span><span>{group.items.length}</span></div>
+                                                        {group.items.map(p => (
+                                                            <div className="rsv-part-row" key={`meta-info-${p.id}`} style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, marginBottom: 4 }}>
+                                                                <span style={{ fontSize: '.7rem', fontWeight: 800, color: '#0369a1', background: '#e0f2fe', borderRadius: 10, padding: '2px 8px' }}>Pour info</span>
+                                                                <div className="nm"><b>{p.name}</b><span>{p.email}</span></div>
+                                                                <AgentPresenceBadge email={p.email} name={p.name} />
+                                                                {meeting.status !== 'finished' && (
+                                                                    <button className="rsv-ibtn" style={{ width: 24, height: 24 }} title="Retirer de la réunion" onClick={() => removeParticipant(p)}>
+                                                                        <X size={13} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 

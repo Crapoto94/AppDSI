@@ -8202,6 +8202,8 @@ async function setupPgDbFull() {
         );
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_participants_tpl ON reunions_service.template_participants(template_id)`);
+      // « présent possible » ou « pour information » (accès à la réunion dans les deux cas).
+      try { await client.query(`ALTER TABLE reunions_service.template_participants ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'present'`); } catch (e) {}
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.meetings (
           id SERIAL PRIMARY KEY,
@@ -8271,6 +8273,8 @@ async function setupPgDbFull() {
         );
       `);
       try { await client.query(`ALTER TABLE reunions_service.meeting_participants ADD COLUMN IF NOT EXISTS excused BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // « présent possible » (suivi de présence) ou « pour information » (accès seul).
+      try { await client.query(`ALTER TABLE reunions_service.meeting_participants ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'present'`); } catch (e) {}
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_participants_meeting ON reunions_service.meeting_participants(meeting_id)`);
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.items (

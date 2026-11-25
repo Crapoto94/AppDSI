@@ -159,6 +159,7 @@ function handleConnection(io, socket) {
                         `SELECT id, present, excused FROM reunions_service.meeting_participants
                          WHERE meeting_id = ?
                            AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
+                           AND COALESCE(kind, 'present') <> 'info'
                          LIMIT 1`,
                         [id, uname, email, email]
                     );

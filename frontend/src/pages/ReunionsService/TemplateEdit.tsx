@@ -25,6 +25,7 @@ interface ParticipantDraft {
     email: string;
     name: string;
     username?: string | null;
+    kind?: 'present' | 'info';
 }
 
 interface ApiErrorLike {
@@ -73,7 +74,7 @@ export default function ReunionServiceTemplateEdit() {
     const [description, setDescription] = useState('');
     const [isActive, setIsActive] = useState(true);
     const [metaDuration, setMetaDuration] = useState(DEFAULT_META_DURATION);
-    const [sections, setSections] = useState<SectionDraft[]>(isNew ? REDI_SECTIONS.map(s => ({ ...s })) : []);
+    const [sections, setSections] = useState<SectionDraft[]>([]);
     const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
     const [loading, setLoading] = useState(!isNew);
     const [saving, setSaving] = useState(false);
@@ -108,7 +109,7 @@ export default function ReunionServiceTemplateEdit() {
                     .filter(s => !s.is_meta)
                     .map(s => ({ title: s.title, duration_minutes: Number(s.duration_minutes) || 0, is_pause: !!s.is_pause, kpis: Array.isArray(s.kpis_config) ? s.kpis_config : [] }));
                 setSections(secs.length ? secs : REDI_SECTIONS.map(s => ({ ...s })));
-                setParticipants((Array.isArray(t.participants) ? t.participants : []).map((p: { email: string; name: string; username?: string }) => ({ email: p.email, name: p.name, username: p.username })));
+                setParticipants((Array.isArray(t.participants) ? t.participants : []).map((p: { email: string; name: string; username?: string; kind?: string }) => ({ email: p.email, name: p.name, username: p.username, kind: p.kind === 'info' ? 'info' : 'present' })));
             })
             .catch((e: ApiErrorLike) => setError(e?.response?.data?.error || 'Erreur de chargement'))
             .finally(() => setLoading(false));
@@ -145,18 +146,24 @@ export default function ReunionServiceTemplateEdit() {
         setMetaDuration(DEFAULT_META_DURATION);
     };
 
-    const addParticipant = (a: AgentOption) => {
+    const addParticipant = (a: AgentOption, kind: 'present' | 'info' = 'present') => {
         const email = String(a.email || '').trim().toLowerCase();
         if (!email.includes('@')) { alert("Cet agent n'a pas d'adresse e-mail exploitable."); return; }
-        setParticipants(prev => prev.some(p => p.email.toLowerCase() === email) ? prev : [...prev, { email, name: a.displayName || email, username: a.username }]);
+        setParticipants(prev => prev.some(p => p.email.toLowerCase() === email)
+            ? prev
+            : [...prev, { email, name: a.displayName || email, username: a.username, kind }]);
     };
     const removeParticipant = (email: string) => setParticipants(prev => prev.filter(p => p.email.toLowerCase() !== email.toLowerCase()));
-    const moveParticipant = (idx: number, dir: -1 | 1) => {
+    const moveParticipant = (email: string, dir: -1 | 1) => {
         setParticipants(prev => {
+            const i = prev.findIndex(p => p.email.toLowerCase() === email.toLowerCase());
+            if (i < 0) return prev;
+            const kind = prev[i].kind || 'present';
+            let j = i + dir;
+            while (j >= 0 && j < prev.length && (prev[j].kind || 'present') !== kind) j += dir;
+            if (j < 0 || j >= prev.length) return prev;
             const next = [...prev];
-            const target = idx + dir;
-            if (target < 0 || target >= next.length) return prev;
-            [next[idx], next[target]] = [next[target], next[idx]];
+            [next[i], next[j]] = [next[j], next[i]];
             return next;
         });
     };
@@ -171,7 +178,6 @@ export default function ReunionServiceTemplateEdit() {
                 kpis: s.is_pause ? [] : (s.kpis || []),
             }))
             .filter(s => s.title);
-        if (cleanSections.length === 0) { setError('Ajoutez au moins une rubrique.'); return; }
         setSaving(true);
         setError('');
         try {
@@ -198,11 +204,15 @@ export default function ReunionServiceTemplateEdit() {
         }
     };
 
+    const presentParticipants = useMemo(() => participants.filter(p => (p.kind || 'present') !== 'info'), [participants]);
+    const infoParticipants = useMemo(() => participants.filter(p => p.kind === 'info'), [participants]);
+
     const kpis = useMemo(() => ([
         { label: 'Rubriques', value: rowCount, color: '#0078a4' },
         { label: 'Durée totale', value: fmtTotal(total), color: '#7c3aed' },
-        { label: 'Présents', value: participants.length, color: '#15803d' },
-    ]), [rowCount, total, participants.length]);
+        { label: 'Présents', value: presentParticipants.length, color: '#15803d' },
+        { label: 'Pour info', value: infoParticipants.length, color: '#0891b2' },
+    ]), [rowCount, total, presentParticipants.length, infoParticipants.length]);
 
     if (!isAdmin) {
         return (
@@ -431,26 +441,52 @@ export default function ReunionServiceTemplateEdit() {
                             <div className="rst-card">
                                 <div className="rst-card-head">
                                     <h3><Users size={16} /> Présents possibles</h3>
-                                    <span className="rst-count">{participants.length}</span>
+                                    <span className="rst-count">{presentParticipants.length}</span>
                                 </div>
-                                <AgentSearch onSelect={addParticipant} placeholder="Rechercher un agent (nom, email…)" />
+                                <AgentSearch onSelect={a => addParticipant(a, 'present')} placeholder="Rechercher un agent (nom, email…)" />
                                 <div style={{ marginTop: 12 }}>
-                                    {participants.length === 0 && <div className="rst-empty-mini">Aucun présent pré-enregistré.</div>}
-                                    {participants.map((p, idx) => (
+                                    {presentParticipants.length === 0 && <div className="rst-empty-mini">Aucun présent pré-enregistré.</div>}
+                                    {presentParticipants.map((p, idx) => (
                                         <div className="rst-part" key={p.email}>
                                             <div className="nm">
                                                 <b>{p.name}</b>
                                                 <span>{p.email}</span>
                                             </div>
                                             <AgentPresenceBadge email={p.email} name={p.name} />
-                                            <button className="rst-icon-btn" onClick={() => moveParticipant(idx, -1)} disabled={idx === 0} title="Monter"><ChevronUp size={14} /></button>
-                                            <button className="rst-icon-btn" onClick={() => moveParticipant(idx, 1)} disabled={idx === participants.length - 1} title="Descendre"><ChevronDown size={14} /></button>
+                                            <button className="rst-icon-btn" onClick={() => moveParticipant(p.email, -1)} disabled={idx === 0} title="Monter"><ChevronUp size={14} /></button>
+                                            <button className="rst-icon-btn" onClick={() => moveParticipant(p.email, 1)} disabled={idx === presentParticipants.length - 1} title="Descendre"><ChevronDown size={14} /></button>
+                                            <button className="rst-icon-btn danger" onClick={() => removeParticipant(p.email)} title="Retirer"><X size={14} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div style={{ borderTop: '1px solid #edf2f7', margin: '16px 0 12px' }} />
+
+                                <div className="rst-card-head" style={{ padding: 0, border: 'none', marginBottom: 8 }}>
+                                    <h3 style={{ fontSize: '.95rem' }}><Users size={16} /> Pour information</h3>
+                                    <span className="rst-count">{infoParticipants.length}</span>
+                                </div>
+                                <div style={{ fontSize: '.74rem', color: '#64748b', marginBottom: 8 }}>
+                                    Ces personnes voient la réunion (et son compte rendu) mais ne sont pas suivies en présence.
+                                </div>
+                                <AgentSearch onSelect={a => addParticipant(a, 'info')} placeholder="Ajouter une personne pour info…" />
+                                <div style={{ marginTop: 12 }}>
+                                    {infoParticipants.length === 0 && <div className="rst-empty-mini">Aucune personne pour information.</div>}
+                                    {infoParticipants.map((p, idx) => (
+                                        <div className="rst-part" key={p.email} style={{ background: '#f0f9ff', borderColor: '#bae6fd' }}>
+                                            <div className="nm">
+                                                <b>{p.name}</b>
+                                                <span>{p.email}</span>
+                                            </div>
+                                            <AgentPresenceBadge email={p.email} name={p.name} />
+                                            <button className="rst-icon-btn" onClick={() => moveParticipant(p.email, -1)} disabled={idx === 0} title="Monter"><ChevronUp size={14} /></button>
+                                            <button className="rst-icon-btn" onClick={() => moveParticipant(p.email, 1)} disabled={idx === infoParticipants.length - 1} title="Descendre"><ChevronDown size={14} /></button>
                                             <button className="rst-icon-btn danger" onClick={() => removeParticipant(p.email)} title="Retirer"><X size={14} /></button>
                                         </div>
                                     ))}
                                 </div>
                                 <div style={{ fontSize: '.75rem', color: '#94a3b8', marginTop: 12, lineHeight: 1.5 }}>
-                                    Ces personnes sont recopiées comme participants prévus de chaque réunion créée à partir de ce modèle.
+                                    Présents possibles et personnes « pour info » sont recopiés à chaque réunion créée à partir de ce modèle. Seules ces personnes (et les administrateurs) voient la réunion.
                                 </div>
                             </div>
                         </div>
