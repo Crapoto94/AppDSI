@@ -262,6 +262,11 @@ const controller = {
           cr.mail_received_at,
           cr.source_document_id,
           cr.ticket_id,
+          cr.to_archive,
+          cr.ar_code,
+          cr.ar_sent_at,
+          cr.ar_reply_at,
+          cr.ar_reply_document_id,
           cr.created_at,
           json_agg(
             json_build_object(
@@ -319,6 +324,11 @@ const controller = {
           cr.mail_received_at,
           cr.source_document_id,
           cr.ticket_id,
+          cr.to_archive,
+          cr.ar_code,
+          cr.ar_sent_at,
+          cr.ar_reply_at,
+          cr.ar_reply_document_id,
           cr.created_at,
           COALESCE((
             SELECT json_agg(json_build_object(
@@ -477,11 +487,11 @@ const controller = {
       const result = await pgDb.all(query, [status, order_number || null, tier || null, total_amount_ttc || null, is_school || false, requestId]);
       const updated = result[0];
 
-      // Email si approuvé ou ordonné
-      if (updated && (status === 'approved' || status === 'ordered') && updated.email && sendMailFn) {
+      // Email de validation (l'AR de commande est envoyé séparément ci-dessous).
+      if (updated && status === 'approved' && updated.email && sendMailFn) {
         try {
           const db = getSqlite();
-          const slug = status === 'ordered' ? 'consumable_ordered' : 'consumable_validated';
+          const slug = 'consumable_validated';
           const template = await db.get(
             `SELECT subject, body FROM email_templates WHERE slug = $1`, [slug]
           ) || await db.get(
@@ -532,6 +542,17 @@ const controller = {
           console.log(`[Consommables] ${status} email sent to ${updated.email} for request #${requestId}`);
         } catch (emailError) {
           console.error('[Consommables] Error sending status email:', emailError);
+        }
+      }
+
+      // AR de commande : envoyé automatiquement au passage en « commandée »,
+      // depuis la boîte consommables, avec le code de suivi pour le BL.
+      if (updated && status === 'ordered' && updated.email) {
+        try {
+          const ack = await controller.sendOrderAckForRequest(parseInt(requestId, 10));
+          if (ack?.sent) console.log(`[Consommables] AR commande #${requestId} envoyé (${ack.code})`);
+        } catch (emailError) {
+          console.error('[Consommables] Error sending order ack:', emailError);
         }
       }
 
@@ -672,7 +693,10 @@ const controller = {
   async archiveRequest(req, res) {
     try {
       const { requestId } = req.params;
-      await pgDb.run('UPDATE consumable_requests SET archived = TRUE, updated_at = NOW() WHERE id = $1', [requestId]);
+      await pgDb.run(
+        'UPDATE consumable_requests SET archived = TRUE, to_archive = FALSE, updated_at = NOW() WHERE id = $1',
+        [requestId]
+      );
       res.json({ message: 'Demande archivée' });
     } catch (error) {
       console.error('[Consommables] Error archiving request:', error);
@@ -750,6 +774,11 @@ const controller = {
           cr.mail_received_at,
           cr.source_document_id,
           cr.ticket_id,
+          cr.to_archive,
+          cr.ar_code,
+          cr.ar_sent_at,
+          cr.ar_reply_at,
+          cr.ar_reply_document_id,
           COALESCE((
             SELECT json_agg(json_build_object(
               'id', d.id,
@@ -1040,6 +1069,145 @@ const controller = {
     } catch { /* template indisponible : contenu par défaut */ }
     await sendMailFn(request.email, subject, body);
     return true;
+  },
+
+  /**
+   * Accusé de réception de COMMANDE (statut « ordered ») envoyé depuis la
+   * boîte consommables. Il contient un code de suivi permettant au collecteur
+   * de rattacher la réponse (bordereau de livraison) à la bonne demande.
+   */
+  async sendOrderAckForRequest(requestId, { force = false } = {}) {
+    const request = await pgDb.get(
+      `SELECT cr.*, ct.name AS type_name
+       FROM hub_consommables.consumable_requests cr
+       JOIN hub_consommables.consumable_types ct ON ct.id = cr.type_id
+       WHERE cr.id = $1`,
+      [requestId]
+    );
+    if (!request || !request.email || !sendMailFn) return { sent: false, reason: 'email ou messagerie indisponible' };
+    if (request.ar_sent_at && !force) return { sent: false, already: true, code: request.ar_code };
+
+    const articles = await pgDb.all(
+      `SELECT ra.quantite, cc.article, cc.designation, cc.ref_commande, cc.code_fabricant, cc.prix_ttc
+       FROM hub_consommables.request_articles ra
+       JOIN hub_consommables.consumable_catalog cc ON cc.id = ra.catalog_id
+       WHERE ra.request_id = $1 ORDER BY ra.id`,
+      [requestId]
+    );
+    const code = request.ar_code || `CONSO-${requestId}-${require('crypto').randomBytes(3).toString('hex').toUpperCase()}`;
+    const esc = (v) => String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const rows = articles.length
+      ? articles.map(a => `<tr>
+          <td style="padding:8px;border:1px solid #e2e8f0">${esc(a.article)}</td>
+          <td style="padding:8px;border:1px solid #e2e8f0">${esc(a.designation || '')}</td>
+          <td style="padding:8px;border:1px solid #e2e8f0;text-align:center">${Number(a.quantite) || 0}</td>
+          <td style="padding:8px;border:1px solid #e2e8f0;text-align:right">${a.prix_ttc != null ? Number(a.prix_ttc).toFixed(2) + ' €' : '—'}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="4" style="padding:8px;border:1px solid #e2e8f0;color:#64748b">Aucun article détaillé.</td></tr>';
+    const total = request.total_amount_ttc != null
+      ? `<p style="text-align:right"><b>Total TTC : ${Number(request.total_amount_ttc).toFixed(2)} €</b></p>`
+      : '';
+
+    const subject = `AR Commande consommables n°${requestId} [${code}]`;
+    const body = `
+      <h2>Accusé de réception de votre commande n°${requestId}</h2>
+      <p>Bonjour,</p>
+      <p>Nous accusons réception de votre commande de consommables
+        ${request.nom_referent ? `pour <b>${esc(request.nom_referent)}</b>` : ''}.</p>
+      <table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:720px">
+        <tr style="background:#003366;color:white">
+          <th style="padding:8px;border:1px solid #003366">Article</th>
+          <th style="padding:8px;border:1px solid #003366">Désignation</th>
+          <th style="padding:8px;border:1px solid #003366">Qté</th>
+          <th style="padding:8px;border:1px solid #003366">Prix TTC</th>
+        </tr>
+        ${rows}
+      </table>
+      ${total}
+      <p style="margin-top:20px;padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px">
+        <b>Code de suivi de la commande : ${code}</b>
+      </p>
+      <p>Lorsque le matériel sera livré, <b>répondez à ce mail</b> en conservant ce code dans l'objet
+        et en joignant le <b>bordereau de livraison</b> (PDF, photo ou scan).</p>
+      <p>Le document sera automatiquement rattaché à votre commande et transmis au service pour archivage.</p>
+      <p>Si le document dont vous disposez n'est pas un bordereau de livraison, vous pouvez tout de même
+        répondre à ce mail : votre réponse sera rattachée à la commande et pourra être consultée par le service.</p>
+      <p>Cordialement,<br>Service consommables — Ville d'Ivry-sur-Seine</p>
+    `;
+
+    await sendMailFn(request.email, subject, body, [], 'consommables', {
+      fromEmail: 'consoivry@ivry94.fr',
+      fromName: 'Service consommables - Ville d\'Ivry-sur-Seine',
+      replyTo: { email: 'consoivry@ivry94.fr', name: 'Service consommables' },
+    });
+    await pgDb.run(
+      `UPDATE hub_consommables.consumable_requests
+       SET ar_code = $1, ar_sent_at = NOW(), updated_at = NOW()
+       WHERE id = $2`,
+      [code, requestId]
+    );
+    return { sent: true, code, subject };
+  },
+
+  /** Envoi manuel (ou renvoi) de l'AR de commande. */
+  async sendOrderAck(req, res) {
+    try {
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
+      const result = await controller.sendOrderAckForRequest(requestId, { force: true });
+      if (!result.sent) return res.status(400).json({ error: result.reason || 'Envoi impossible' });
+      res.json(result);
+    } catch (error) {
+      console.error('[Consommables] Error sending order ack:', error);
+      res.status(500).json({ error: 'Erreur lors de l\'envoi de l\'AR', details: error.message });
+    }
+  },
+
+  /** Ajout manuel de pièces jointes (BL, facture, photo…) à une demande commandée. */
+  async uploadRequestAttachments(req, res) {
+    try {
+      const requestId = parseInt(req.params.requestId, 10);
+      if (!requestId) return res.status(400).json({ error: 'Identifiant de demande invalide' });
+      const request = await pgDb.get('SELECT id, email, nom_referent FROM hub_consommables.consumable_requests WHERE id = $1', [requestId]);
+      if (!request) return res.status(404).json({ error: 'Demande introuvable' });
+      const files = req.files || (req.file ? [req.file] : []);
+      if (!files.length) return res.status(400).json({ error: 'Aucun fichier reçu' });
+
+      const storage = require('../../shared/storage');
+      const docsService = require('../../shared/documents.service');
+      const created = [];
+      for (const file of files) {
+        const name = String(file.originalname || 'piece-jointe').replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 120);
+        const saved = await storage.saveFile('consommables', requestId, {
+          buffer: file.buffer, originalname: name, mimetype: file.mimetype,
+        });
+        const reg = await docsService.registerExternalUpload({
+          module: 'consommables', entityType: 'request', entityId: requestId,
+          title: name, filename: saved.filename, originalName: name,
+          mimetype: file.mimetype, size: file.buffer.length, storageRef: saved.dbPath,
+          storageBackend: saved.backend || 'filesystem',
+          uploadedBy: req.user?.username || 'admin',
+          metadata: { kind: 'delivery_note', source: 'upload' },
+        });
+        if (reg?.document?.id) created.push({ id: reg.document.id, name });
+      }
+      if (!created.length) return res.status(500).json({ error: 'Aucun document enregistré' });
+      await pgDb.run(
+        `UPDATE hub_consommables.consumable_requests
+         SET to_archive = TRUE,
+             ar_reply_at = COALESCE(ar_reply_at, NOW()),
+             ar_reply_document_id = COALESCE(ar_reply_document_id, $1),
+             updated_at = NOW()
+         WHERE id = $2`,
+        [created[0].id, requestId]
+      );
+      res.status(201).json({ request_id: requestId, documents: created, to_archive: true });
+    } catch (error) {
+      console.error('[Consommables] Error uploading request attachments:', error);
+      res.status(500).json({ error: 'Erreur lors de l\'ajout des pièces jointes', details: error.message });
+    }
   },
 
   /**

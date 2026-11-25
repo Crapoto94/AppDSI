@@ -4382,10 +4382,23 @@ async function setupPgDbFull() {
           ADD COLUMN IF NOT EXISTS mail_from_name TEXT,
           ADD COLUMN IF NOT EXISTS mail_received_at TIMESTAMPTZ,
           ADD COLUMN IF NOT EXISTS source_document_id INTEGER,
-          ADD COLUMN IF NOT EXISTS ticket_id INTEGER;
+          ADD COLUMN IF NOT EXISTS ticket_id INTEGER,
+          ADD COLUMN IF NOT EXISTS ar_code TEXT,
+          ADD COLUMN IF NOT EXISTS ar_sent_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS ar_reply_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS ar_reply_document_id INTEGER,
+          ADD COLUMN IF NOT EXISTS to_archive BOOLEAN DEFAULT FALSE;
       `);
     } catch (e) {
       console.log('[PG DB] Migration colonnes mail consumable_requests skipped:', e.message);
+    }
+
+    // Prix TTC unitaire du catalogue (utilisé pour les totaux par école / demande).
+    try {
+      await client.query('ALTER TABLE hub_consommables.consumable_catalog ADD COLUMN IF NOT EXISTS prix_ttc NUMERIC');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_ar_code ON hub_consommables.consumable_requests(ar_code)');
+    } catch (e) {
+      console.log('[PG DB] Migration prix_ttc / ar_code skipped:', e.message);
     }
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_consommables.request_email_mapping (

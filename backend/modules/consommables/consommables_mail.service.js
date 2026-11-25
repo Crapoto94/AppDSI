@@ -219,6 +219,111 @@ async function fetchAttachments(mailbox, messageId, token, axiosOpts) {
   }
 }
 
+/**
+ * Réponse à un accusé de réception de commande : le mail contient le code
+ * CONSO-<id>-XXXX. On stocke le message de réponse et ses pièces jointes
+ * (bordereau de livraison) sur la demande, puis on la place « à archiver ».
+ * Retourne true si le mail a été traité comme une réponse AR.
+ */
+async function handleArReply({ collector, email, msgId, subject, bodyText, token, axiosOpts, log }) {
+  const hay = `${subject || ''} ${bodyText || ''}`;
+  const codeMatch = /CONSO-(\d+)-[A-Z0-9]{4,12}/i.exec(hay);
+  const subjectMatch = /AR\s+Commande\s+consommables\s+n[°o]\s*(\d+)/i.exec(subject || '');
+  if (!codeMatch && !subjectMatch) return false;
+
+  const requestId = parseInt(codeMatch ? codeMatch[1] : subjectMatch[1], 10);
+  let request = requestId
+    ? await pgDb.get(
+      `SELECT id, email, nom_referent, ar_code FROM hub_consommables.consumable_requests WHERE id = ?`,
+      [requestId]
+    )
+    : null;
+  if (request && codeMatch && request.ar_code && request.ar_code.toUpperCase() !== codeMatch[0].toUpperCase()) {
+    log.errors.push(`Réponse AR : code ${codeMatch[0]} incohérent pour la demande ${requestId}`);
+  }
+  if (!request && subjectMatch) {
+    request = await pgDb.get(
+      `SELECT id, email, nom_referent, ar_code FROM hub_consommables.consumable_requests
+       WHERE id = ? AND LOWER(COALESCE(email,'')) = LOWER(?)`,
+      [requestId, email.from?.emailAddress?.address || '']
+    );
+  }
+  if (!request) {
+    log.errors.push(`Réponse AR non rattachée : demande ${requestId} introuvable (${subject})`);
+    // On ne crée surtout pas une nouvelle demande de consommables avec un BL.
+    return true;
+  }
+
+  const replyKey = `${msgId}#AR`;
+  const mapping = await pgDb.run(
+    `INSERT INTO hub_consommables.request_email_mapping
+       (request_id, email_message_id, email_from, email_subject, email_received_at)
+     VALUES (?, ?, ?, ?, ?) ON CONFLICT (email_message_id) DO NOTHING`,
+    [request.id, replyKey, email.from?.emailAddress?.address || null, subject || null, new Date().toISOString()]
+  );
+  if (mapping.changes === 0) return true;
+
+  let firstDocId = null;
+  const raw = await fetchRawMessage(collector.mailbox, email.id, token, axiosOpts);
+  if (raw && raw.length) {
+    try {
+      const emlName = `Reponse AR - ${safeFileName(subject || `commande ${request.id}`)}.eml`;
+      const saved = await storage.saveFile('consommables', request.id, {
+        buffer: raw, originalname: emlName, mimetype: 'message/rfc822',
+      });
+      const reg = await docsService.registerExternalUpload({
+        module: 'consommables', entityType: 'request', entityId: request.id,
+        title: emlName, filename: saved.filename, originalName: emlName,
+        mimetype: 'message/rfc822', size: raw.length, storageRef: saved.dbPath,
+        storageBackend: saved.backend || 'filesystem',
+        uploadedBy: 'collecteur-mail',
+        metadata: { kind: 'ar_reply', email_message_id: msgId, ar_code: request.ar_code || null },
+      });
+      if (reg?.document?.id) firstDocId = reg.document.id;
+      log.attachments_processed++;
+    } catch (e) {
+      log.errors.push(`Réponse AR non stockée (demande ${request.id}) : ${e.message}`);
+    }
+  }
+
+  const atts = email.hasAttachments
+    ? await fetchAttachments(collector.mailbox, email.id, token, axiosOpts)
+    : [];
+  for (const att of atts) {
+    try {
+      const name = safeFileName(att.originalName, 'bordereau-livraison');
+      const saved = await storage.saveFile('consommables', request.id, {
+        buffer: att.buffer, originalname: name, mimetype: att.mimetype,
+      });
+      const reg = await docsService.registerExternalUpload({
+        module: 'consommables', entityType: 'request', entityId: request.id,
+        title: name, filename: saved.filename, originalName: name,
+        mimetype: att.mimetype, size: att.buffer.length, storageRef: saved.dbPath,
+        storageBackend: saved.backend || 'filesystem',
+        uploadedBy: 'collecteur-mail',
+        metadata: { kind: 'delivery_note', email_message_id: msgId, ar_code: request.ar_code || null },
+      });
+      if (reg?.document?.id && !firstDocId) firstDocId = reg.document.id;
+      log.attachments_processed++;
+    } catch (e) {
+      log.errors.push(`Pièce jointe AR « ${att.originalName} » non stockée : ${e.message}`);
+    }
+  }
+
+  await pgDb.run(
+    `UPDATE hub_consommables.consumable_requests
+     SET to_archive = TRUE,
+         ar_reply_at = COALESCE(ar_reply_at, NOW()),
+         ar_reply_document_id = COALESCE(ar_reply_document_id, ?),
+         updated_at = NOW()
+     WHERE id = ?`,
+    [firstDocId, request.id]
+  );
+  log.comments_added++;
+  console.log(`[CONSOMMABLES-MAIL] Réponse AR rattachée à la demande ${request.id} (${atts.length} PJ)`);
+  return true;
+}
+
 async function pickTypeId(subject, bodyText) {
   const types = await pgDb.all('SELECT id, name FROM hub_consommables.consumable_types ORDER BY id');
   if (!types.length) return null;
@@ -274,6 +379,14 @@ async function collect(collector, token, axiosOpts) {
         const bodyText = stripHtml(email.body?.content || email.bodyPreview || '');
         const receivedAt = email.receivedDateTime ? new Date(email.receivedDateTime) : new Date();
         const dateCommande = receivedAt.toLocaleString('sv-SE').slice(0, 10);
+
+        // Réponse à un AR de commande (bordereau de livraison) : on la rattache
+        // à la demande via le code CONSO-<id>-XXXX, sans créer de nouvelle demande.
+        if (await handleArReply({
+          collector, email, msgId, subject, bodyText, token, axiosOpts, log,
+        })) {
+          continue;
+        }
 
         // Les expéditeurs @ac-creteil.fr sont des écoles : le demandeur est l'école,
         // et l'e-mail d'origine est conservé.

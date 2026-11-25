@@ -80,8 +80,8 @@ function itemKey(it) {
 /** Lit une feuille et retourne les lignes du tableau + les infos d'en-tête. */
 function parseSheet(rows, catalog) {
   const headerIdx = rows.findIndex(row =>
-    row.some(c => norm(c).includes('MODELE IMPRIMANTE')) &&
-    row.some(c => norm(c).includes('CARTOUCHES'))
+    row.some(c => norm(c).includes('MODELE')) &&
+    (row.some(c => norm(c).includes('CARTOUCHE')) || row.some(c => norm(c).includes('QUANTITE')))
   );
   const result = { items: [], unmatched: [], school: null, director: null, phone: null, date: null };
   if (headerIdx < 0) return result;
@@ -92,20 +92,32 @@ function parseSheet(rows, catalog) {
     return i >= 0 ? i : fallback;
   };
   const cModel = col('MODELE', 0);
-  const cCart = col('CARTOUCHES', 1);
-  const cSupplier = col('FOURNISSEUR', 3);
-  const cQty = col('QUANTITE', 4);
+  // Ancien bon de commande (2024-2025) : deux colonnes de références
+  // (cartouche noire et cartouches couleur) + quantité en colonne I.
+  const cBlack = header.findIndex(h => h.includes('CARTOUCHE NOIRE') || h.includes('CARTOUCHES NOIRE'));
+  const cColor = header.findIndex(h => h.includes('CARTOUCHES COULEUR') || h.includes('CARTOUCHE COULEUR'));
+  const legacy = cBlack >= 0 || cColor >= 0;
+  const cCart = legacy ? -1 : col('CARTOUCHES', 1);
+  const cSupplier = col('FOURNISSEUR', legacy ? 6 : 3);
+  const cQty = col('QUANTITE', legacy ? 8 : 4);
 
   // Infos d'en-tête (école, directeur, téléphone, date)
   for (const row of rows.slice(0, headerIdx)) {
     const idx = row.findIndex(c => norm(c) === 'ECOLE');
     if (idx >= 0) {
       const typeCell = String(row[idx + 1] || '').trim();
-      const name = String(row[idx + 2] || '').trim();
-      const hay = `${typeCell} ${name}`;
+      let name = String(row[idx + 2] || '').trim();
+      // Le libellé de la colonne B est souvent le modèle générique
+      // « Maternelle / Elémentaire * » : il ne faut pas en déduire le type.
+      // On se fie d'abord au nom saisi dans la colonne C.
       let type = '';
-      if (/MATERNELLE/i.test(hay)) type = 'Maternelle';
-      else if (/ELEMENTAIRE/i.test(hay)) type = 'Elémentaire';
+      if (/MATERNELLE/i.test(name)) type = 'Maternelle';
+      else if (/ELEMENTAIRE|PRIMAIRE/i.test(name)) type = 'Elémentaire';
+      else if (/^MATERNELLE$/i.test(typeCell)) type = 'Maternelle';
+      else if (/^(ELEMENTAIRE|ÉLÉMENTAIRE|PRIMAIRE)$/i.test(typeCell)) type = 'Elémentaire';
+      // Le champ peut ne contenir que le type (« maternelle », « Elémentaire ») :
+      // le nom de l'école sera alors déduit de l'expéditeur / du fichier.
+      name = name.replace(/^\s*(maternelle|élémentaire|elementaire|primaire)\s*[\/\-–—:]?\s*/i, '').trim();
       result.school = { type, name };
     }
     const dIdx = row.findIndex(c => norm(c).includes('DIRECTEUR'));
@@ -116,20 +128,12 @@ function parseSheet(rows, catalog) {
     if (dateIdx >= 0 && row[dateIdx + 1]) result.date = toIsoDate(row[dateIdx + 1]);
   }
 
-  // Le modèle d'imprimante n'est saisi que sur la première ligne d'un groupe
-  // (cellules fusionnées) : on le recopie vers le bas pour les lignes suivantes.
-  let lastModel = '';
-  for (const row of rows.slice(headerIdx + 1)) {
-    // Le modèle figure sur la première ligne du groupe, souvent sans quantité :
-    // on le mémorise avant de filtrer sur la quantité.
-    const rowModel = String(row[cModel] || '').trim();
-    if (rowModel) lastModel = rowModel;
-    const qty = toQty(row[cQty]);
-    if (!qty) continue;
-    const model = rowModel || lastModel;
-    const cartridge = String(row[cCart] || '').trim();
-    const supplier = String(row[cSupplier] || '').trim();
-    if (!model && !cartridge && !supplier) continue;
+  const isPageCount = (v) => {
+    const s = String(v || '').trim();
+    return !s || s === "'" || /^\(?\s*\d[\d\s.]*\s*pages?\s*\)?$/i.test(s);
+  };
+  const pushItem = ({ model, cartridge, supplier, qty }) => {
+    if (!model && !cartridge && !supplier) return;
     const match = matchCatalog(catalog, { model, cartridge, supplier });
     if (match) {
       result.items.push({
@@ -156,6 +160,37 @@ function parseSheet(rows, catalog) {
         unmatched: true,
       });
       result.unmatched.push({ model, cartridge, supplier, quantite: qty, type_id });
+    }
+  };
+
+  // Le modèle d'imprimante n'est saisi que sur la première ligne d'un groupe
+  // (cellules fusionnées) : on le recopie vers le bas pour les lignes suivantes.
+  let lastModel = '';
+  for (const row of rows.slice(headerIdx + 1)) {
+    // Le modèle figure sur la première ligne du groupe, souvent sans quantité :
+    // on le mémorise avant de filtrer sur la quantité.
+    const rowModel = String(row[cModel] || '').trim();
+    if (rowModel) lastModel = rowModel;
+    const qty = toQty(row[cQty]);
+    if (!qty) continue;
+    const model = rowModel || lastModel;
+    const supplier = String(row[cSupplier] || '').trim();
+
+    if (legacy) {
+      // Une seule quantité par ligne, mais la référence peut être dans la
+      // colonne « noire » ou dans la colonne « couleur » ; l'autre contient
+      // le nombre de pages imprimées. On retient la ou les vraies références.
+      const refs = [row[cBlack], row[cColor]]
+        .map(v => String(v || '').trim())
+        .filter(v => !isPageCount(v));
+      if (!refs.length) continue;
+      for (const cartridge of refs) {
+        pushItem({ model, cartridge, supplier, qty });
+      }
+    } else {
+      const cartridge = String(row[cCart] || '').trim();
+      if (isPageCount(cartridge)) continue;
+      pushItem({ model, cartridge, supplier, qty });
     }
   }
   return result;

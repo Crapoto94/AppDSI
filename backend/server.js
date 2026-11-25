@@ -6038,9 +6038,13 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         throw new Error('Envoi désactivé globalement (global_enable=0)');
     }
 
-    if (!s.sender_email) {
+    if (!s.sender_email && !(options && options.fromEmail)) {
         throw new Error("L'adresse email de l'expéditeur n'est pas configurée (Paramètres > Mail)");
     }
+    // Certains modules (ex. consommables) doivent écrire depuis leur propre
+    // boîte fonctionnelle : on autorise une surcharge ponctuelle de l'expéditeur.
+    const fromEmail = (options && options.fromEmail) || s.sender_email;
+    const fromName = (options && options.fromName) || s.sender_name || 'DSI Hub';
 
     let html;
     if (options && options.rawHtml) {
@@ -6122,7 +6126,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const apiUrl = s.api_url || 'https://api.brevo.com/v3/smtp/email';
         
         const payload = {
-            sender: { name: (options && options.fromName) || s.sender_name || 'DSI Hub', email: s.sender_email },
+            sender: { name: fromName, email: fromEmail },
             to: (Array.isArray(to) ? to : [to]).map(email => ({ email })),
             ...(options && options.cc && options.cc.length ? { cc: options.cc.map(email => ({ email })) } : {}),
             ...(options && options.replyTo ? { replyTo: options.replyTo } : {}),
@@ -6183,7 +6187,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const transporter = nodemailer.createTransport(transporterOptions);
 
         const mailOptions = {
-            from: `"${(options && options.fromName) || s.sender_name}" <${s.sender_email}>`,
+            from: `"${fromName}" <${fromEmail}>`,
             to,
             ...(options && options.cc && options.cc.length ? { cc: options.cc } : {}),
             ...(options && options.replyTo ? { replyTo: `"${options.replyTo.name || ''}" <${options.replyTo.email}>` } : {}),

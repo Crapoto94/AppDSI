@@ -21,6 +21,13 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
 });
 
+// Pièces jointes de commande (BL, factures, photos, scans…) : tous types utiles,
+// 20 Mo par fichier, 10 fichiers max.
+const uploadDocs = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 10 },
+});
+
 // Admin: Import des données depuis Excel
 router.post('/import', authenticateConsommablesAdmin, consommablesController.importFromExcel);
 
@@ -80,6 +87,8 @@ router.post('/requests', authenticateJWT, consommablesController.createRequest);
 router.get('/admin/all', authenticateJWT, consommablesController.getAllRequests);
 router.get('/admin/:requestId/ticket-draft', authenticateConsommablesAdmin, consommablesController.getTicketDraft);
 router.post('/admin/:requestId/create-ticket', authenticateConsommablesAdmin, consommablesController.createTicketFromRequest);
+router.post('/admin/:requestId/send-ar', authenticateConsommablesAdmin, consommablesController.sendOrderAck);
+router.post('/admin/:requestId/attachments', authenticateConsommablesAdmin, uploadDocs.array('files', 10), consommablesController.uploadRequestAttachments);
 router.put('/admin/:requestId/info', authenticateConsommablesAdmin, consommablesController.updateRequestInfo);
 router.put('/admin/:requestId/status', authenticateConsommablesAdmin, consommablesController.updateRequestStatus);
 router.delete('/admin/:requestId', authenticateConsommablesAdmin, consommablesController.deleteRequest);

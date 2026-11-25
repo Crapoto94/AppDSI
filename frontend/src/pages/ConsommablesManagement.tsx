@@ -1,12 +1,12 @@
 import { formatOrgName } from '../utils/orgName';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import {
   ChevronRight, Download, X, Plus, Edit2, Trash2, Search, Package,
   AlertCircle, CheckCircle, Clock, BookOpen, ArrowRight, ListChecks, Tag, Image,
   ShoppingCart, Printer, ChevronLeft, ShoppingBag, Trash, User, Calendar, Building2, Phone, Archive,
-  Paperclip, Mail, Ticket
+  Paperclip, Mail, Ticket, FolderArchive
 } from 'lucide-react';
 import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
@@ -59,6 +59,11 @@ interface ConsumableRequest {
   mail_received_at?: string | null;
   source_document_id?: number | null;
   ticket_id?: number | null;
+  to_archive?: boolean;
+  ar_code?: string | null;
+  ar_sent_at?: string | null;
+  ar_reply_at?: string | null;
+  ar_reply_document_id?: number | null;
   documents?: {
     id: number;
     title: string;
@@ -147,7 +152,10 @@ const ConsommablesManagement: React.FC = () => {
   const [catalogImageUploading, setCatalogImageUploading] = useState(false);
   const [designations, setDesignations] = useState<string[]>([]);
   const [designationImages, setDesignationImages] = useState<Record<string, { image_path: string }>>({});
-const [adminTab, setAdminTab] = useState<'demandes' | 'commander' | 'commandees' | 'archivees'>('demandes');
+const [adminTab, setAdminTab] = useState<'demandes' | 'commander' | 'commandees' | 'a_archiver' | 'archivees'>('demandes');
+  const [uploadingFor, setUploadingFor] = useState<number | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [uploadTargetId, setUploadTargetId] = useState<number | null>(null);
 const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(CART_STORAGE_KEY);
@@ -283,7 +291,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
   };
 
   const openRequestDocument = (doc: NonNullable<ConsumableRequest['documents']>[number]) => {
-    if (doc.kind === 'email') {
+    if (doc.kind === 'email' || doc.kind === 'ar_reply') {
       setViewerDocId(doc.id);
       return;
     }
@@ -293,6 +301,45 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
       name: doc.original_name || doc.title,
       mime: doc.mimetype || undefined,
     });
+  };
+
+  const pickAttachmentsFor = (requestId: number) => {
+    setUploadTargetId(requestId);
+    uploadInputRef.current?.click();
+  };
+
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length || !uploadTargetId) return;
+    const requestId = uploadTargetId;
+    setUploadingFor(requestId);
+    try {
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+      await axios.post(`/api/consumable/admin/${requestId}/attachments`, fd, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+      });
+      await loadRequests();
+      setAdminTab('a_archiver');
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Impossible d\'ajouter les pièces jointes');
+    } finally {
+      setUploadingFor(null);
+      setUploadTargetId(null);
+    }
+  };
+
+  const handleSendAr = async (request: ConsumableRequest) => {
+    try {
+      const res = await axios.post(`/api/consumable/admin/${request.id}/send-ar`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      alert(`AR envoyé à ${request.email || 'l\'école'}.\nCode de suivi : ${res.data?.code || '—'}`);
+      await loadRequests();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Impossible d\'envoyer l\'AR');
+    }
   };
 
   const loadTypes = async () => {
@@ -907,7 +954,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         {isAdminForConsommables && (() => {
           const demandesCount = requests.filter(r => !r.archived && r.status === 'pending').length;
           const aCommanderCount = requests.filter(r => !r.archived && r.status === 'approved').length;
-          const commandeesCount = requests.filter(r => !r.archived && r.status === 'ordered').length;
+          const commandeesCount = requests.filter(r => !r.archived && r.status === 'ordered' && !r.to_archive).length;
+          const aArchiverCount = requests.filter(r => !r.archived && r.to_archive).length;
           const archiveesCount = requests.filter(r => r.archived).length;
 
           return (
@@ -975,6 +1023,28 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                     borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
                   }}>
                     {commandeesCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setActiveTab('requests'); setShowForm(false); setAdminTab('a_archiver'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'requests' && adminTab === 'a_archiver' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'requests' && adminTab === 'a_archiver' ? 'white' : '#64748b',
+                  position: 'relative'
+                }}
+              >
+                <FolderArchive size={16} /> À archiver
+                {aArchiverCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--primary-color)', color: 'white',
+                    borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
+                  }}>
+                    {aArchiverCount}
                   </span>
                 )}
               </button>
@@ -1597,6 +1667,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                     {adminTab === 'demandes' && 'Demandes à Valider'}
                     {adminTab === 'commander' && 'Demandes à Commander'}
                     {adminTab === 'commandees' && 'Demandes Commandées'}
+                    {adminTab === 'a_archiver' && 'Demandes à Archiver'}
                     {adminTab === 'archivees' && 'Demandes Archivées'}
                   </h3>
                 </div>
@@ -1621,7 +1692,9 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                         } else if (adminTab === 'commander') {
                           return !r.archived && r.status === 'approved';
                         } else if (adminTab === 'commandees') {
-                          return !r.archived && r.status === 'ordered';
+                          return !r.archived && r.status === 'ordered' && !r.to_archive;
+                        } else if (adminTab === 'a_archiver') {
+                          return !r.archived && !!r.to_archive;
                         } else if (adminTab === 'archivees') {
                           return r.archived;
                         }
@@ -1681,6 +1754,16 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                               {request.archived && (
                                 <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
                                   Archivé
+                                </span>
+                              )}
+                              {!request.archived && request.to_archive && (
+                                <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 800, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                  À archiver
+                                </span>
+                              )}
+                              {request.ar_code && (
+                                <span title="Code de suivi AR" style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #dbeafe', fontFamily: 'ui-monospace, monospace' }}>
+                                  {request.ar_code}
                                 </span>
                               )}
                               <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, ...getStatusStyle(request.status) }}>
@@ -1791,6 +1874,20 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                                     <ShoppingCart size={14} /> Passer la commande
                                   </button>
+                                )}
+                                {request.status === 'ordered' && (
+                                  <>
+                                    <button onClick={() => pickAttachmentsFor(request.id)} disabled={uploadingFor === request.id}
+                                      title="Ajouter un bordereau de livraison, une facture ou une photo à cette commande"
+                                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: uploadingFor === request.id ? 'default' : 'pointer', opacity: uploadingFor === request.id ? 0.6 : 1 }}>
+                                      <Paperclip size={14} /> {uploadingFor === request.id ? 'Envoi…' : 'Ajouter une PJ'}
+                                    </button>
+                                    <button onClick={() => handleSendAr(request)}
+                                      title={request.ar_sent_at ? `Renvoyer l'AR (code ${request.ar_code || '—'})` : "Envoyer l'accusé de réception de commande"}
+                                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                                      <Mail size={14} /> {request.ar_sent_at ? 'Renvoyer l\'AR' : 'Envoyer l\'AR'}
+                                    </button>
+                                  </>
                                 )}
                                 <button onClick={() => handleArchiveRequest(request.id)}
                                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -2207,6 +2304,14 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         </div>
       )}
 
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.docx,.eml,.msg,application/pdf,image/*"
+        onChange={handleAttachmentUpload}
+      />
       {viewerDocId !== null && (
         <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} canEdit={false} />
       )}
@@ -2577,8 +2682,14 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [expandedRequests, setExpandedRequests] = useState<number[]>([]);
   const [expandedDirections, setExpandedDirections] = useState<string[]>([]);
-  const [recapMode, setRecapMode] = useState<'details' | 'global'>('details');
+  const [expandedSchools, setExpandedSchools] = useState<string[]>([]);
+  const [recapMode, setRecapMode] = useState<'details' | 'global' | 'ecoles'>('details');
   const [amountMode, setAmountMode] = useState<'month' | 'annual'>('month');
+  const now = new Date();
+  const currentSchoolYear = now.getMonth() + 1 >= 8
+    ? `${now.getFullYear()}/${now.getFullYear() + 1}`
+    : `${now.getFullYear() - 1}/${now.getFullYear()}`;
+  const [selectedSchoolYear, setSelectedSchoolYear] = useState(currentSchoolYear);
 
   useEffect(() => {
     loadRequests();
@@ -2645,12 +2756,67 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
   const availableYears = (Array.from(new Set(availableMonths.map(m => m.split('-')[0]))) as string[])
     .sort((a, b) => b.localeCompare(a));
 
+  // Année scolaire (août → juillet) : 2026/2027, etc.
+  const getSchoolYear = (dateVal: any) => {
+    if (!dateVal) return '';
+    const d = new Date(dateVal);
+    if (Number.isNaN(d.getTime())) return '';
+    // Date métier en heure de Paris (les DATE PostgreSQL ressortent en UTC).
+    const parts = d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' }).split('-');
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    return m >= 8 ? `${y}/${y + 1}` : `${y - 1}/${y}`;
+  };
+  const availableSchoolYears = (Array.from(new Set(requests.map(r => getSchoolYear(r.date_commande)))) as string[])
+    .filter(Boolean).sort((a, b) => b.localeCompare(a));
+  const schoolYearOptions = Array.from(new Set([currentSchoolYear, ...availableSchoolYears])).sort((a, b) => b.localeCompare(a));
+  const previousSchoolYear = (() => {
+    const [a, b] = selectedSchoolYear.split('/').map(Number);
+    return Number.isFinite(a) && Number.isFinite(b) ? `${a - 1}/${b - 1}` : '';
+  })();
+  const schoolRequests = requests.filter(r => r.is_school);
+  const schoolRecap = (() => {
+    const map = new Map<string, {
+      school: string; direction: string; current: number; previous: number;
+      currentCount: number; previousCount: number;
+      currentRequests: ConsumableRequest[]; previousRequests: ConsumableRequest[];
+    }>();
+    for (const r of schoolRequests) {
+      const key = (r.service || r.nom_referent || 'École inconnue').trim();
+      const schoolYear = getSchoolYear(r.date_commande);
+      if (schoolYear !== selectedSchoolYear && schoolYear !== previousSchoolYear) continue;
+      const row = map.get(key) || {
+        school: key, direction: r.direction || '', current: 0, previous: 0,
+        currentCount: 0, previousCount: 0, currentRequests: [], previousRequests: [],
+      };
+      const amt = Number(r.total_amount_ttc) || 0;
+      if (schoolYear === selectedSchoolYear) {
+        row.current += amt; row.currentCount++; row.currentRequests.push(r);
+      } else {
+        row.previous += amt; row.previousCount++; row.previousRequests.push(r);
+      }
+      if (!row.direction && r.direction) row.direction = r.direction;
+      map.set(key, row);
+    }
+    for (const row of map.values()) {
+      row.currentRequests.sort((a, b) => String(a.date_commande).localeCompare(String(b.date_commande)));
+      row.previousRequests.sort((a, b) => String(a.date_commande).localeCompare(String(b.date_commande)));
+    }
+    return [...map.values()].sort((a, b) => b.current - a.current || a.school.localeCompare(b.school));
+  })();
+  const schoolCurrentTotal = schoolRecap.reduce((s, r) => s + r.current, 0);
+  const schoolPreviousTotal = schoolRecap.reduce((s, r) => s + r.previous, 0);
+
   const toggleRequest = (id: number) => {
     setExpandedRequests(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const toggleDirection = (dir: string) => {
     setExpandedDirections(prev => prev.includes(dir) ? prev.filter(x => x !== dir) : [...prev, dir]);
+  };
+
+  const toggleSchool = (school: string) => {
+    setExpandedSchools(prev => prev.includes(school) ? prev.filter(x => x !== school) : [...prev, school]);
   };
 
   // Grouping logic for global view
@@ -2683,45 +2849,87 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
               <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
                 <button onClick={() => setRecapMode('details')} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 700, color: recapMode === 'details' ? 'var(--primary-color)' : '#94a3b8', cursor: 'pointer', textDecoration: recapMode === 'details' ? 'underline' : 'none' }}>Vue Détails</button>
                 <button onClick={() => setRecapMode('global')} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 700, color: recapMode === 'global' ? 'var(--primary-color)' : '#94a3b8', cursor: 'pointer', textDecoration: recapMode === 'global' ? 'underline' : 'none' }}>Vue Globale</button>
+                <button onClick={() => setRecapMode('ecoles')} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, fontWeight: 700, color: recapMode === 'ecoles' ? 'var(--primary-color)' : '#94a3b8', cursor: 'pointer', textDecoration: recapMode === 'ecoles' ? 'underline' : 'none' }}>Vue Écoles</button>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <div style={{ display: 'flex', background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
-              <button onClick={() => setAmountMode('month')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'month' ? 'white' : 'transparent', color: amountMode === 'month' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'month' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Mois</button>
-              <button onClick={() => setAmountMode('annual')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'annual' ? 'white' : 'transparent', color: amountMode === 'annual' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'annual' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Cumulé An</button>
-            </div>
-
-            {amountMode === 'month' ? (
+            {recapMode === 'ecoles' ? (
               <select
-                value={selectedMonth}
-                onChange={e => setSelectedMonth(e.target.value)}
-                style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', outline: 'none', fontWeight: 600, color: '#1e293b' }}
+                value={selectedSchoolYear}
+                onChange={e => setSelectedSchoolYear(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #3b82f6', outline: 'none', fontWeight: 700, color: '#1e3a8a', background: '#eff6ff' }}
               >
-                {availableMonths.map(m => (
-                  <option key={m} value={m}>
-                    {new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
-                  </option>
+                {schoolYearOptions.map(y => (
+                  <option key={y} value={y}>Année scolaire {y}</option>
                 ))}
               </select>
             ) : (
-              <select
-                value={selectedYear}
-                onChange={e => setSelectedYear(e.target.value)}
-                style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #3b82f6', outline: 'none', fontWeight: 700, color: '#1e3a8a', background: '#eff6ff' }}
-              >
-                {availableYears.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
+              <>
+                <div style={{ display: 'flex', background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
+                  <button onClick={() => setAmountMode('month')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'month' ? 'white' : 'transparent', color: amountMode === 'month' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'month' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Mois</button>
+                  <button onClick={() => setAmountMode('annual')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'annual' ? 'white' : 'transparent', color: amountMode === 'annual' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'annual' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Cumulé An</button>
+                </div>
+
+                {amountMode === 'month' ? (
+                  <select
+                    value={selectedMonth}
+                    onChange={e => setSelectedMonth(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', outline: 'none', fontWeight: 600, color: '#1e293b' }}
+                  >
+                    {availableMonths.map(m => (
+                      <option key={m} value={m}>
+                        {new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={selectedYear}
+                    onChange={e => setSelectedYear(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #3b82f6', outline: 'none', fontWeight: 700, color: '#1e3a8a', background: '#eff6ff' }}
+                  >
+                    {availableYears.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                )}
+              </>
             )}
           </div>
         </div>
 
         {/* TOP STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 32 }}>
-          {amountMode === 'month' ? (
+          {recapMode === 'ecoles' ? (
+            <>
+              <div style={{ background: '#eff6ff', border: '2px solid #3b82f6', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
+                  Total écoles — Année scolaire {selectedSchoolYear}
+                </p>
+                <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#1d4ed8' }}>
+                  {schoolCurrentTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: '#60a5fa' }}>
+                  {schoolRecap.filter(r => r.current > 0).length} école(s) — {schoolRecap.reduce((s, r) => s + r.currentCount, 0)} commande(s)
+                </p>
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Comparaison — Année scolaire {previousSchoolYear || 'N-1'}
+                </p>
+                <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#475569' }}>
+                  {schoolPreviousTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: schoolCurrentTotal >= schoolPreviousTotal ? '#dc2626' : '#16a34a', fontWeight: 700 }}>
+                  {schoolPreviousTotal > 0
+                    ? `${schoolCurrentTotal >= schoolPreviousTotal ? '+' : ''}${(((schoolCurrentTotal - schoolPreviousTotal) / schoolPreviousTotal) * 100).toFixed(1)} %`
+                    : 'Pas d\'historique N-1'}
+                </p>
+              </div>
+            </>
+          ) : amountMode === 'month' ? (
             <>
               <div style={{ background: '#f0fdf4', border: '2px solid #bbf7d0', borderRadius: 12, padding: 20 }}>
                 <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
@@ -2773,7 +2981,117 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
 
         {/* MAIN DATA TABLE / LIST */}
         <div style={{ border: '1px solid #f1f5f9', borderRadius: 12, overflow: 'hidden' }}>
-          {recapMode === 'details' ? (
+          {recapMode === 'ecoles' ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                  <th style={{ padding: '14px 16px', textAlign: 'left', color: '#475569', fontWeight: 700 }}>École</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'left', color: '#475569', fontWeight: 700 }}>Direction</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'right', color: '#475569', fontWeight: 700 }}>{selectedSchoolYear}</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'right', color: '#475569', fontWeight: 700 }}>{previousSchoolYear || 'N-1'}</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'right', color: '#475569', fontWeight: 700 }}>Écart</th>
+                  <th style={{ padding: '14px 16px', textAlign: 'right', color: '#475569', fontWeight: 700 }}>Évolution</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schoolRecap.length === 0 ? (
+                  <tr><td colSpan={6} style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>Aucune commande école sur cette année scolaire</td></tr>
+                ) : schoolRecap.map(row => {
+                  const diff = row.current - row.previous;
+                  const pct = row.previous > 0 ? (diff / row.previous) * 100 : null;
+                  const open = expandedSchools.includes(row.school);
+                  const ordersTable = (orders: ConsumableRequest[], label: string) => (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                        {label} ({orders.length} commande{orders.length > 1 ? 's' : ''})
+                      </div>
+                      {orders.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 0' }}>Aucune commande</div>
+                      ) : (
+                        <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+                              <th style={{ textAlign: 'left', padding: '5px 8px', fontWeight: 700 }}>Date</th>
+                              <th style={{ textAlign: 'left', padding: '5px 8px', fontWeight: 700 }}>N° commande</th>
+                              <th style={{ textAlign: 'left', padding: '5px 8px', fontWeight: 700 }}>Articles</th>
+                              <th style={{ textAlign: 'right', padding: '5px 8px', fontWeight: 700 }}>Montant</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orders.map(o => (
+                              <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '5px 8px', color: '#334155', whiteSpace: 'nowrap' }}>
+                                  {new Date(o.date_commande).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
+                                </td>
+                                <td style={{ padding: '5px 8px', color: '#3b82f6', fontWeight: 600 }}>{o.order_number || `#${o.id}`}</td>
+                                <td style={{ padding: '5px 8px', color: '#64748b' }}>
+                                  {(o.articles || []).map(a => `${a.article} ×${a.quantite}`).join(' · ') || '—'}
+                                </td>
+                                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap' }}>
+                                  {Number(o.total_amount_ttc || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                  return (
+                    <React.Fragment key={row.school}>
+                      <tr
+                        onClick={() => toggleSchool(row.school)}
+                        style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: open ? '#f8fafc' : 'white' }}
+                      >
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1e293b' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                            <ChevronRight size={16} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: '0.15s' }} />
+                            {row.school}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12.5 }}>{formatOrgName(row.direction) || '—'}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#1e293b' }}>
+                          {row.current.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                          <div style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8' }}>{row.currentCount} cmd</div>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', color: '#64748b' }}>
+                          {row.previous.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{row.previousCount} cmd</div>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: diff > 0 ? '#b91c1c' : diff < 0 ? '#15803d' : '#64748b' }}>
+                          {diff > 0 ? '+' : ''}{diff.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: pct == null ? '#94a3b8' : pct > 0 ? '#b91c1c' : pct < 0 ? '#15803d' : '#64748b' }}>
+                          {pct == null ? '—' : `${pct > 0 ? '+' : ''}${pct.toFixed(1)} %`}
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '12px 20px 14px 44px', background: '#fcfdff', borderBottom: '1px solid #e2e8f0' }}>
+                            {ordersTable(row.currentRequests, `Commandes ${selectedSchoolYear}`)}
+                            {ordersTable(row.previousRequests, `Commandes ${previousSchoolYear || 'N-1'}`)}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                {schoolRecap.length > 0 && (
+                  <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0', fontWeight: 800 }}>
+                    <td style={{ padding: '14px 16px', color: '#0f172a' }} colSpan={2}>Total écoles</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', color: '#0f172a' }}>{schoolCurrentTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', color: '#475569' }}>{schoolPreviousTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', color: schoolCurrentTotal > schoolPreviousTotal ? '#b91c1c' : '#15803d' }}>
+                      {schoolCurrentTotal - schoolPreviousTotal > 0 ? '+' : ''}{(schoolCurrentTotal - schoolPreviousTotal).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                    </td>
+                    <td style={{ padding: '14px 16px', textAlign: 'right', color: schoolPreviousTotal > 0 && schoolCurrentTotal > schoolPreviousTotal ? '#b91c1c' : '#15803d' }}>
+                      {schoolPreviousTotal > 0 ? `${schoolCurrentTotal >= schoolPreviousTotal ? '+' : ''}${(((schoolCurrentTotal - schoolPreviousTotal) / schoolPreviousTotal) * 100).toFixed(1)} %` : '—'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : recapMode === 'details' ? (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
