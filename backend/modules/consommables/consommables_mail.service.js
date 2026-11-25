@@ -16,6 +16,7 @@ const axios = require('axios');
 const { pgDb, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
+const { parseWorkbook } = require('./consumables_excel');
 
 const SUBJECT_PREFIX = /^\s*((re|ré|rep|rép|tr|fw|fwd|réf|ref)\s*:\s*)+/i;
 const MAX_MESSAGES = 1000;
@@ -214,6 +215,10 @@ async function collect(collector, token, axiosOpts) {
     log.emails_received = emails.length;
     const schoolCtx = await loadSchoolContext();
     const orgTable = schoolCtx.orgTable;
+    const catalog = await pgDb.all(
+      `SELECT id, type_id, designation, article, code_fabricant, ref_commande
+       FROM hub_consommables.consumable_catalog`
+    ).catch(() => []);
 
     for (const email of emails) {
       const msgId = email.internetMessageId || email.id;
@@ -273,9 +278,6 @@ async function collect(collector, token, axiosOpts) {
           } catch { /* organigramme indisponible */ }
         }
 
-        const typeId = await pickTypeId(subject, bodyText);
-        if (!typeId) { log.emails_failed++; log.errors.push('Aucun type de consommable configuré'); continue; }
-
         // Règle métier : un mail sans fichier joint n'est PAS une demande de
         // consommables (les messages d'information, accusés, newsletters sont ignorés).
         const atts = email.hasAttachments
@@ -286,8 +288,42 @@ async function collect(collector, token, axiosOpts) {
           continue;
         }
 
+        // Interprétation des bons de commande Excel joints : seules les lignes
+        // avec une quantité > 0 deviennent des articles de la demande.
+        const bulk = { items: [], unmatched: [], school: null, director: null, phone: null, date: null };
+        for (const att of atts) {
+          const isExcel = /\.(xlsx|xls|csv)$/i.test(att.originalName || '')
+            || /spreadsheet|excel|csv/i.test(att.mimetype || '');
+          if (!isExcel) continue;
+          try {
+            const parsed = parseWorkbook(att.buffer, catalog);
+            for (const it of parsed.items) {
+              const prev = bulk.items.find(x => x.catalog_id === it.catalog_id);
+              if (prev) prev.quantite += it.quantite;
+              else bulk.items.push({ ...it });
+            }
+            bulk.unmatched.push(...parsed.unmatched);
+            bulk.school = bulk.school || parsed.school;
+            bulk.director = bulk.director || parsed.director;
+            bulk.phone = bulk.phone || parsed.phone;
+            bulk.date = bulk.date || parsed.date;
+          } catch (e) {
+            log.errors.push(`Lecture Excel « ${att.originalName} » impossible : ${e.message}`);
+          }
+        }
+
+        let typeId = bulk.items.length ? bulk.items[0].type_id : await pickTypeId(subject, bodyText);
+        if (!typeId) { log.emails_failed++; log.errors.push('Aucun type de consommable configuré'); continue; }
+
+        const excelInfo = [];
+        if (bulk.school) excelInfo.push(`École (bon de commande) : ${[bulk.school.type, bulk.school.name].filter(Boolean).join(' — ')}`);
+        if (bulk.director) excelInfo.push(`Directeur/Directrice : ${bulk.director}`);
+        if (bulk.phone) excelInfo.push(`Téléphone : ${bulk.phone}`);
+        if (bulk.unmatched.length) excelInfo.push(`Lignes non reconnues : ${bulk.unmatched.map(u => `${u.cartridge || u.model} (qté ${u.quantite})`).join(' ; ')}`);
+
         const comment = [
           `Reçu par mail le ${receivedAt.toLocaleDateString('fr-FR')} — Objet : ${subject || '(sans objet)'}`,
+          excelInfo.length ? `\n${excelInfo.join('\n')}` : '',
           bodyText ? `\n\n${bodyText}` : '',
         ].join('').slice(0, 4000);
 
@@ -315,6 +351,38 @@ async function collect(collector, token, axiosOpts) {
           await pgDb.run('DELETE FROM hub_consommables.consumable_requests WHERE id = ?', [requestId]);
           log.emails_skipped++;
           continue;
+        }
+
+        // Articles issus du bon de commande Excel (quantités > 0).
+        for (const it of bulk.items) {
+          await pgDb.run(
+            'INSERT INTO hub_consommables.request_articles (request_id, catalog_id, quantite) VALUES (?, ?, ?)',
+            [requestId, it.catalog_id, it.quantite]
+          );
+        }
+        if (bulk.date || bulk.phone) {
+          await pgDb.run(
+            `UPDATE hub_consommables.consumable_requests
+             SET date_commande = COALESCE(?, date_commande),
+                 tel_complet = CASE WHEN ? <> '' THEN ? ELSE tel_complet END,
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [bulk.date, bulk.phone || '', bulk.phone || '', requestId]
+          );
+        }
+        // Repli : si le nom de l'expéditeur n'a pas permis de trouver l'école,
+        // on utilise le champ ECOLE du bon de commande.
+        if (!school && bulk.school) {
+          const fallback = resolveSchool(`${bulk.school.type || ''} ${bulk.school.name || ''}`, schoolCtx.schools);
+          if (fallback) {
+            const dir = await directionForSchool(fallback.nom, orgTable, schoolCtx.direction);
+            await pgDb.run(
+              `UPDATE hub_consommables.consumable_requests
+               SET nom_referent = ?, direction = ?, service = ?, is_school = TRUE, updated_at = NOW()
+               WHERE id = ?`,
+              [fallback.nom, dir, fallback.nom, requestId]
+            );
+          }
         }
 
         // Fichier original (.eml) → GED + visionneuse.
