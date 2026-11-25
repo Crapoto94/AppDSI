@@ -24,6 +24,8 @@ const uniteService = (e: Entretien) => ((e.service || '').trim() && foldTxt(e.se
 // ─── Pilotage : découpage par direction \ service \ secteur (chemin de publication) ─────────────────
 const segs = (e: Entretien) => String(e.chemin || '').split('\\').map(x => x.trim()).filter(Boolean);
 const isDone = (e: Entretien) => ['realise', 'cloture'].includes(e.statut);
+/** Planifié au sens de l'avancement : un rendez-vous est fixé, ou l'entretien a déjà eu lieu. */
+const isPlanned = (e: Entretien) => isDone(e) || !!e.date_entretien;
 const nowIso = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 
 /** Les mêmes indicateurs que ceux du serveur, recalculés sur la sélection (direction, service, secteur). */
@@ -43,24 +45,25 @@ function localStats(rows: Entretien[]): Stats {
   return { total: rows.length, planifies, realises, a_venir_7j: aVenir, en_retard: retard, taux_realisation: rows.length ? Math.round((realises / rows.length) * 100) : 0 } as unknown as Stats;
 }
 
-interface PNode { key: string; label: string; total: number; done: number; children: Map<string, PNode> }
+interface PNode { key: string; label: string; total: number; planned: number; done: number; children: Map<string, PNode> }
 function buildTree(rows: Entretien[]): PNode {
-  const root: PNode = { key: '', label: 'Ville', total: 0, done: 0, children: new Map() };
+  const root: PNode = { key: '', label: 'Ville', total: 0, planned: 0, done: 0, children: new Map() };
+  const count = (n: PNode, e: Entretien) => { n.total++; if (isPlanned(e)) n.planned++; if (isDone(e)) n.done++; };
   for (const e of rows) {
     const path = segs(e).slice(0, 3);
-    let node = root; node.total++; if (isDone(e)) node.done++;
+    let node = root; count(node, e);
     for (let i = 0; i < path.length; i++) {
       const key = path.slice(0, i + 1).join('\\');
       let child = node.children.get(key);
-      if (!child) { child = { key, label: path[i], total: 0, done: 0, children: new Map() }; node.children.set(key, child); }
-      child.total++; if (isDone(e)) child.done++;
+      if (!child) { child = { key, label: path[i], total: 0, planned: 0, done: 0, children: new Map() }; node.children.set(key, child); }
+      count(child, e);
       node = child;
     }
   }
   return root;
 }
 
-/** Avancement des entretiens (% réalisés) par direction, déroulable par service puis par secteur. */
+/** Avancement des entretiens (% planifiés, réalisés compris) par direction, déroulable par service puis par secteur. */
 function ProgressTree({ rows }: { rows: Entretien[] }) {
   const root = useMemo(() => buildTree(rows), [rows]);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -73,7 +76,8 @@ function ProgressTree({ rows }: { rows: Entretien[] }) {
   }, [root]);
   const toggle = (k: string) => setOpen(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const render = (n: PNode, depth: number): React.ReactNode => {
-    const pct = n.total ? Math.round((n.done / n.total) * 100) : 0;
+    const pct = n.total ? Math.round((n.planned / n.total) * 100) : 0;
+    const pctDone = n.total ? Math.round((n.done / n.total) * 100) : 0;
     const kids = [...n.children.values()].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
     const isOpen = open.has(n.key);
     return (
@@ -81,8 +85,13 @@ function ProgressTree({ rows }: { rows: Entretien[] }) {
         <div onClick={() => kids.length && toggle(n.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', paddingLeft: 10 + depth * 22, borderBottom: `1px solid ${COLORS.border}`, cursor: kids.length ? 'pointer' : 'default' }}>
           <span style={{ width: 14, color: COLORS.muted, fontSize: 12 }}>{kids.length ? (isOpen ? '▾' : '▸') : ''}</span>
           <div style={{ flex: '0 1 340px', minWidth: 160, fontSize: depth === 0 ? 13.5 : 12.5, fontWeight: depth < 2 ? 800 : 600 }}>{n.label}</div>
-          <div style={{ flex: 1, minWidth: 100 }}><div style={{ height: 8, background: '#e2e8f0', borderRadius: 999 }}><div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? COLORS.success : COLORS.primary, borderRadius: 999 }} /></div></div>
-          <div style={{ width: 120, textAlign: 'right', fontSize: 12, color: '#475569' }}><b>{pct} %</b> <span style={{ color: '#94a3b8' }}>({n.done}/{n.total})</span></div>
+          <div style={{ flex: 1, minWidth: 100 }} title={`${n.planned} planifié(s) sur ${n.total}, dont ${n.done} réalisé(s)`}>
+            <div style={{ height: 8, background: '#e2e8f0', borderRadius: 999, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${pct}%`, background: '#a5b4fc' }} />
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${pctDone}%`, background: pctDone === 100 ? COLORS.success : COLORS.primary }} />
+            </div>
+          </div>
+          <div style={{ width: 190, textAlign: 'right', fontSize: 12, color: '#475569' }}><b>{pct} %</b> <span style={{ color: '#94a3b8' }}>({n.planned}/{n.total}{n.done > 0 && `, ${n.done} réalisé${n.done > 1 ? 's' : ''}`})</span></div>
         </div>
         {isOpen && kids.map(c => render(c, depth + 1))}
       </div>
@@ -91,7 +100,7 @@ function ProgressTree({ rows }: { rows: Entretien[] }) {
   const dirs = [...root.children.values()].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
   return (
     <div style={{ ...card, marginBottom: 14, overflow: 'hidden' }}>
-      <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 800, color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` }}>Avancement par direction <span style={{ fontWeight: 500, color: COLORS.muted, fontSize: 12 }}>(entretiens réalisés, cliquez pour dérouler les services et secteurs)</span></div>
+      <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 800, color: COLORS.text, borderBottom: `1px solid ${COLORS.border}` }}>Avancement par direction <span style={{ fontWeight: 500, color: COLORS.muted, fontSize: 12 }}>(entretiens planifiés, réalisés compris et en foncé ; cliquez pour dérouler les services et secteurs)</span></div>
       {render({ ...root, label: 'Ensemble', key: '' }, 0)}
       {dirs.length === 0 && <div style={{ padding: 14, color: COLORS.muted, fontSize: 12.5 }}>Aucune donnée.</div>}
     </div>
