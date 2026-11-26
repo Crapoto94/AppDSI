@@ -10,7 +10,7 @@ interface Candidat { matricule: string; nom: string; fonction?: string; poste?: 
 const faisantFonction = (a: { categorie?: string; modele?: string }) => a.categorie === 'C' && /A&B/i.test(a.modele || '');
 const FfPill = () => <span title="Catégorie C évalué sur un modèle A et B" style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: '#92400e', background: '#fef3c7', borderRadius: 999, padding: '1px 8px' }}>Faisant fonction</span>;
 
-interface BaseAgent {
+export interface BaseAgent {
   matricule: string; nom_prenom: string; modele: string; direction: string; service: string; poste: string; grade: string;
   chemin: string; unit_code: string; categorie?: string; email: string; email_deduit?: boolean; ad_username: string; ad_status: string;
   valideur_candidats: Candidat[]; valideur_matricule: string; valideur_source: string; valideur_nom: string;
@@ -29,7 +29,7 @@ const AD_LABEL: Record<string, string> = {
 };
 
 /** Valideur d'un agent : propositions automatiques, ou choix « à la main » parmi tous les agents (recherche). */
-function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers: Record<string, string>; onChoose: (matricule: string) => void }) {
+export function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers: Record<string, string>; onChoose: (matricule: string) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Array<{ matricule: string; nom: string; fonction?: string; poste?: string }>>([]);
@@ -77,7 +77,7 @@ function ValideurCell({ agent, headers, onChoose }: { agent: BaseAgent; headers:
 }
 
 /** E-mail / compte AD d'un agent, avec recherche dans l'AD et association manuelle (agent introuvable ou mal rapproché). */
-function AdCell({ agent, headers, onLinked, onError }: { agent: BaseAgent; headers: Record<string, string>; onLinked: () => void; onError: (t: string) => void }) {
+export function AdCell({ agent, headers, onLinked, onError }: { agent: Pick<BaseAgent, 'matricule' | 'nom_prenom' | 'email' | 'email_deduit' | 'ad_status' | 'ad_username'>; headers: Record<string, string>; onLinked: () => void; onError: (t: string) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Array<{ username: string; displayName: string; email: string; service: string }>>([]);
@@ -98,6 +98,11 @@ function AdCell({ agent, headers, onLinked, onError }: { agent: BaseAgent; heade
     catch (e: any) { onError(e?.response?.data?.message || 'Association impossible.'); }
   };
   const found = !!agent.email;
+  const [saisie, setSaisie] = useState<string | null>(null);
+  const saveEmail = async () => {
+    try { await axios.put(`/api/ep-base/agents/${encodeURIComponent(agent.matricule)}/email`, { email: saisie }, { headers }); setSaisie(null); onLinked(); }
+    catch (e: any) { onError(e?.response?.data?.message || 'Enregistrement impossible.'); }
+  };
   return (
     <div>
       {found
@@ -107,7 +112,15 @@ function AdCell({ agent, headers, onLinked, onError }: { agent: BaseAgent; heade
         <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }}
           onClick={() => { setOpen(o => !o); if (!open && !q) setQ(agent.nom_prenom.split(' ')[0] || ''); }}>{open ? 'Fermer' : found ? 'Changer (AD)' : 'Rechercher dans l’AD'}</button>
         {found && <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => link('')}>Enlever l’adresse e-mail</button>}
+        {!found && <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} onClick={() => setSaisie(v => (v === null ? '' : null))}>{saisie === null ? 'Saisir une adresse' : 'Annuler la saisie'}</button>}
       </div>
+      {!found && saisie !== null && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, maxWidth: 360 }}>
+          <input autoFocus type="email" aria-label="Adresse e-mail" style={{ ...input, padding: '5px 8px', fontSize: 12 }} placeholder="prenom.nom@ivry94.fr" value={saisie}
+            onChange={e => setSaisie(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEmail(); }} />
+          <button style={{ ...btnGhost, padding: '3px 8px', fontSize: 11.5 }} disabled={!saisie.trim()} onClick={saveEmail}>Enregistrer</button>
+        </div>
+      )}
       {open && (
         <div style={{ marginTop: 6, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 8, background: '#fff', maxWidth: 360 }}>
           <input autoFocus style={{ ...input, padding: '5px 8px', fontSize: 12 }} placeholder="Nom, prénom, identifiant ou e-mail dans l’AD…" value={q} onChange={e => setQ(e.target.value)} />

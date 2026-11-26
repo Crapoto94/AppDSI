@@ -834,7 +834,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'moi' | 'evaluations' | 'equipe' | 'agents' | 'valideurs' | 'pilotage' | 'retours' | 'formations' | 'reouvertures' | 'backlog' | 'parametrage' | 'journal' | null>(null);
   const [reopenPending, setReopenPending] = useState(0);
-  // CREP retournés à examiner (collecteur de mails et téléversements) : pastille du menu « Suivi des retours »
+  // CREP retournés à examiner (collecteur de mails et téléversements) : pastille du menu « Suivi »
   const [retoursPending, setRetoursPending] = useState(0);
   useEffect(() => {
     if (!me?.isAdmin) return;
@@ -924,7 +924,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     { key: 'equipe' as const, label: 'EP de mon équipe', icon: <Users size={15} />, visible: !!base?.isValideur },
     { key: 'agents' as const, label: 'Mes agent·e·s', icon: <Users size={15} />, visible: false },
     { key: 'pilotage' as const, label: 'Pilotage', icon: <TrendingUp size={15} />, visible: !!(me?.isAdmin || me?.isPilotage) },
-    { key: 'retours' as const, label: 'Suivi des retours', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: retoursPending },
+    { key: 'retours' as const, label: 'Suivi', icon: <ScanLine size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: retoursPending },
     { key: 'reouvertures' as const, label: 'Demandes de réouverture', icon: <Unlock size={15} />, visible: !!me?.isAdmin && !simpleMode, adminOnly: true, badge: reopenPending },
     { key: 'backlog' as const, label: 'Backlog', icon: <Lightbulb size={15} />, visible: !!me?.isAdmin, adminOnly: true, badge: backlogPending },
     { key: 'formations' as const, label: 'Demandes de formation', icon: <GraduationCap size={15} />, visible: !!me?.isAdmin, adminOnly: true },

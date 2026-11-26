@@ -1001,6 +1001,23 @@ async function linkAd(matricule, username) {
     return { email: hit.email, username: hit.username };
 }
 
+/** Adresse saisie à la main (personne sans compte retrouvé dans l'annuaire) : domaine de la Ville seulement, jamais en double. */
+async function setEmail(matricule, email) {
+    await ensureSchema();
+    const fail = (status, message) => Object.assign(new Error(message), { status });
+    const mail = text(email).toLowerCase();
+    if (!/^[a-z0-9._%+-]+@/.test(mail) || mail.split('@')[1] !== String(adHelper.EMAIL_DOMAIN).toLowerCase()) throw fail(400, `Saisissez une adresse en @${adHelper.EMAIL_DOMAIN}.`);
+    const a = await pgDb.get('SELECT matricule FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
+    if (!a) throw fail(404, 'Agent introuvable.');
+    const other = await pgDb.get('SELECT nom_prenom FROM hub_entretiens.base_agents WHERE LOWER(email) = ? AND matricule <> ?', [mail, matricule]);
+    if (other) throw fail(409, `Cette adresse est déjà celle de ${other.nom_prenom}.`);
+    await pgDb.run("UPDATE hub_entretiens.base_agents SET ad_username = '', email = ?, email_deduit = FALSE, ad_status = 'manuel', ad_checked_at = NOW() WHERE matricule = ?", [mail, matricule]);
+    await fillEvaluatorIdentities();
+    invalidateBaseCache();
+    syncQuiet([matricule]);
+    return { email: mail };
+}
+
 /**
  * Attribue un compte AD (donc une adresse) à l'évaluateur d'un entretien, évalué ou non. Réservé aux administrateurs et aux
  * supérieurs ; hors administrateur, le nom du compte doit concorder avec celui de l'évaluateur (documents confidentiels).
@@ -1083,6 +1100,6 @@ async function setValideurAndSync(matricule, valideurMatricule, actor) {
 module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
     loadTemplateCache, modeleOfEntretien, invalidateBaseCache, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule, delegatedIdentities, plannerIdentities, listDelegations, addDelegation, removeDelegation, attachInfo,
-    isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, linkValideursAd, linkEvaluatorAd, purgeLegacyEntretiens,
+    isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, linkValideursAd, linkEvaluatorAd, setEmail, purgeLegacyEntretiens,
     adJob: job,
 };

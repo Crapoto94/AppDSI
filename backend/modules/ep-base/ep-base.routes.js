@@ -57,6 +57,7 @@ router.put('/agents/:matricule/valideur', authenticateJWT, requireAdmin, wrap(as
     await svc.setValideur(req.params.matricule, String((req.body && req.body.valideur_matricule) || ''));
     res.json({ ok: true });
 }));
+router.put('/agents/:matricule/email', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.setEmail(req.params.matricule, String(req.body?.email || '')))));
 router.get('/ad/search', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ users: await svc.searchAd(req.query.q) })));
 router.put('/agents/:matricule/ad', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.linkAd(req.params.matricule, String((req.body && req.body.username) || '')))));
 router.post('/entretiens/sync', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await svc.syncEntretiens({ actor: req.actor }))));

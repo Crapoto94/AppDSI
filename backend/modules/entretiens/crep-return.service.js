@@ -1,5 +1,5 @@
 /**
- * Suivi des retours de CREP et numérisation en lot.
+ * Suivi de CREP et numérisation en lot.
  *
  * Les administrateurs numérisent d'un seul fichier PDF les CREP signés de plusieurs agents (pages éventuellement mélangées,
  * d'un CREP à l'autre comme à l'intérieur d'un CREP). Chaque page imprimée porte en haut à gauche un QR code signé
@@ -320,7 +320,7 @@ async function listBatches(campaignId) {
     return out;
 }
 
-/** Nombre de CREP retournés à examiner, tous lots confondus, dont ceux venant du collecteur de mails (pastille du menu « Suivi des retours »). */
+/** Nombre de CREP retournés à examiner, tous lots confondus, dont ceux venant du collecteur de mails (pastille du menu « Suivi »). */
 async function pendingCounts() {
     const list = await listBatches(0);
     const sum = (f) => list.filter(f).reduce((n, b) => n + (b.a_examiner || 0), 0);
@@ -565,16 +565,51 @@ async function summary(campaignId) {
         return { ...r, programme, realise, retourne, en_retard, transmis_simple: !!r.simple_sent_at, signatures, signatures_detail: sg ? { agent: !!sg.agent, evaluateur: !!sg.evaluateur } : null, crep_signe_dispo: !!(r.crep_signed_path || r.parapheur_status === 'termine') };
     });
     const count = (f) => out.filter(f).length;
+    // Tous les EP prévus au classeur : les agents à évaluer restés sans entretien (sans évaluateur) sont listés et comptés
+    let base = [];
+    try { base = await pgDb.all('SELECT matricule, nom_prenom, nom, prenom, direction, service, email, email_deduit, ad_status, ad_username, valideur_matricule, valideur_source, valideur_candidats, a_conserver FROM hub_entretiens.base_agents'); }
+    catch { /* base des agents absente : entretiens seuls */ }
+    const fiche = new Map(base.map(a => [a.matricule, a]));
+    // De quoi associer une adresse depuis le tableau
+    const ficheAd = (a) => (a ? { matricule: a.matricule, nom_prenom: a.nom_prenom, email: a.email || '', email_deduit: !!a.email_deduit, ad_status: a.ad_status, ad_username: a.ad_username || '',
+        valideur_matricule: a.valideur_matricule || '', valideur_source: a.valideur_source || '', valideur_nom: fiche.get(a.valideur_matricule)?.nom_prenom || '',
+        valideur_candidats: typeof a.valideur_candidats === 'string' ? JSON.parse(a.valideur_candidats || '[]') : (a.valideur_candidats || []) } : null);
+    const evaluateurs = new Map(); // matricule de l’évaluateur·rice -> nombre d’agents à évaluer
+    for (const a of base) if (a.a_conserver && a.valideur_matricule) evaluateurs.set(a.valideur_matricule, (evaluateurs.get(a.valideur_matricule) || 0) + 1);
+    const ids = await pgDb.all('SELECT id, agent_matricule, agent_email, evaluator_email, evaluator_username FROM hub_entretiens.entretiens WHERE campaign_id = ? AND deleted_at IS NULL', [campaignId]);
+    const identite = new Map(ids.map(i => [i.id, i]));
+    const avecEntretien = new Set(ids.map(i => i.agent_matricule).filter(Boolean));
+    const liste = out.map(r => {
+        const i = identite.get(r.id) || {};
+        const a = fiche.get(i.agent_matricule);
+        return {
+            ...r,
+            sans_email: !(i.agent_email || a?.email),
+            sans_evaluateur: !(r.evaluator_nom || i.evaluator_email || i.evaluator_username),
+            est_evaluateur: evaluateurs.has(i.agent_matricule),
+            nb_evalues: evaluateurs.get(i.agent_matricule) || 0,
+            fiche: ficheAd(a),
+        };
+    });
+    for (const a of base) {
+        if (!a.a_conserver || avecEntretien.has(a.matricule)) continue;
+        liste.push({
+            id: -(liste.length + 1), hors_ep: true, agent_nom: a.nom || a.nom_prenom, agent_prenom: a.prenom || '', direction: a.direction, service: a.service,
+            evaluator_nom: fiche.get(a.valideur_matricule)?.nom_prenom || '', date_entretien: null, statut: 'sans_entretien', programme: false, realise: false, retourne: false, en_retard: false, transmis_simple: false,
+            sans_email: !a.email, sans_evaluateur: !a.valideur_matricule, est_evaluateur: evaluateurs.has(a.matricule), nb_evalues: evaluateurs.get(a.matricule) || 0, fiche: ficheAd(a),
+        });
+    }
+    liste.sort((x, y) => `${x.agent_nom} ${x.agent_prenom}`.localeCompare(`${y.agent_nom} ${y.agent_prenom}`, 'fr'));
     return {
         kpis: {
-            total: out.length,
+            total: liste.length,
             programmes: count(r => r.programme),
             realises: count(r => r.realise),
             en_retard: count(r => r.en_retard),
             retournes: count(r => r.retourne),
             en_attente_numerisation: count(r => r.transmis_simple && !r.retourne),
         },
-        rows: out,
+        rows: liste,
     };
 }
 

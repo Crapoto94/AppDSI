@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { FileText, Eye, ClipboardCheck, Loader2, Upload, CheckCircle2, AlertTriangle, RotateCw, X, FileSearch, Trash2, ScanLine } from 'lucide-react';
+import { FileText, Eye, ClipboardCheck, Loader2, Upload, CheckCircle2, AlertTriangle, RotateCw, X, FileSearch, Trash2, ScanLine, CalendarDays, PenLine } from 'lucide-react';
+import CalendrierEp from './CalendrierEp';
+import { AdCell, ValideurCell } from './BaseAgents';
 import { useAuth } from './useAuth';
 import type { Campaign, Entretien } from './types';
 import CrepForm from './CrepForm';
@@ -9,6 +11,8 @@ import { COLORS, EmptyState, KpiCard, Th, Td, btnGhost, btnPrimary, card, input,
 
 interface Row {
   signatures?: 'ok' | 'manque' | null; signatures_detail?: { agent: boolean; evaluateur: boolean } | null; crep_signe_dispo?: boolean;
+  sans_email?: boolean; sans_evaluateur?: boolean; est_evaluateur?: boolean; hors_ep?: boolean; nb_evalues?: number;
+  fiche?: { matricule: string; nom_prenom: string; email: string; email_deduit: boolean; ad_status: string; ad_username: string; valideur_matricule: string; valideur_source: string; valideur_nom: string; valideur_candidats: Array<{ matricule: string; nom: string; poste?: string }> } | null;
   id: number; evaluation_statut?: string; crep_signed_path?: string | null; agent_nom: string; agent_prenom: string; direction: string; service: string; evaluator_nom: string;
   date_entretien: string | null; statut: string; programme: boolean; realise: boolean; retourne: boolean; en_retard: boolean;
   transmis_simple: boolean; simple_sent_at: string | null; crep_canal?: string | null; crep_canal_detail?: string | null; crep_signed_at: string | null; drh_received_at: string | null; lecture_statut: string | null;
@@ -376,8 +380,22 @@ function BatchReview({ batchId, people, headers, onClose, onDone }: { batchId: n
   );
 }
 
-/** Menu administrateur « Suivi des retours » : avancement des EP et numérisation en lot des CREP signés. */
+/** Menu administrateur « Suivi » : avancement des EP et numérisation en lot des CREP signés. */
+/** « Suivi » : le tableau de tous les EP prévus, ou leur calendrier. */
 export default function Retours({ onPending }: { onPending?: (n: number) => void } = {}) {
+  const [vue, setVue] = useState<'tableau' | 'calendrier'>('tableau');
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        <button style={vue === 'tableau' ? btnPrimary : btnGhost} onClick={() => setVue('tableau')}><ScanLine size={14} /> Suivi</button>
+        <button style={vue === 'calendrier' ? btnPrimary : btnGhost} onClick={() => setVue('calendrier')}><CalendarDays size={14} /> Calendrier des EP</button>
+      </div>
+      {vue === 'calendrier' ? <CalendrierEp /> : <RetoursCrep onPending={onPending} />}
+    </>
+  );
+}
+
+function RetoursCrep({ onPending }: { onPending?: (n: number) => void }) {
   const { token } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [confirm, confirmDialog] = useConfirm();
@@ -394,6 +412,10 @@ export default function Retours({ onPending }: { onPending?: (n: number) => void
   const [fDir, setFDir] = useState(''); const [fSvc, setFSvc] = useState(''); const [fEval, setFEval] = useState('');
   const [fState, setFState] = useState<'' | 'programme' | 'realise' | 'en_retard' | 'retourne' | 'a_retourner' | 'attente_num'>('');
   const [q, setQ] = useState('');
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(50);
+  const [editing, setEditing] = useState<number | null>(null); // ligne dont on change l'évaluateur ou l'adresse
+  const [fPop, setFPop] = useState<Array<'sans_email' | 'sans_evaluateur' | 'est_evaluateur'>>([]);
 
   useEffect(() => {
     axios.get('/api/entretiens/campaigns', { headers }).then(r => {
@@ -465,9 +487,11 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
     catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Suppression impossible.' }); }
   };
 
+  useEffect(() => { setPage(0); }, [q, fPop, fDir, fSvc, fEval, fState, campaignId]);
   const rows = data?.rows || [];
   const uniq = (k: keyof Row) => [...new Set(rows.map(r => String(r[k] || '')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
   const shown = rows.filter(r => {
+    if (fPop.some(k => !r[k])) return false;
     if (fDir && r.direction !== fDir) return false;
     if (fSvc && r.service !== fSvc) return false;
     if (fEval && r.evaluator_nom !== fEval) return false;
@@ -477,9 +501,21 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
     if (fState === 'retourne' && !r.retourne) return false;
     if (fState === 'a_retourner' && (!r.realise || r.retourne)) return false;
     if (fState === 'attente_num' && !(r.transmis_simple && !r.retourne)) return false;
-    if (q && !`${r.agent_nom} ${r.agent_prenom}`.toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && !`${r.agent_nom} ${r.agent_prenom} ${r.fiche?.matricule || ''} ${r.fiche?.email || ''}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
+  const chooseEvaluator = async (r: Row, valideur_matricule: string) => {
+    if (!r.fiche) return;
+    setMsg(null);
+    try {
+      await axios.put(`/api/ep-base/agents/${encodeURIComponent(r.fiche.matricule)}/valideur`, { valideur_matricule }, { headers });
+      setMsg({ ok: true, text: `Évaluateur·rice de ${r.agent_nom} ${r.agent_prenom} enregistré·e.${r.sans_evaluateur ? '' : ' Un entretien déjà commencé garde le sien (le changer depuis « Pilotage »).'}` });
+      await load();
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Affectation impossible.' }); }
+  };
+  const nbPages = Math.max(1, Math.ceil(shown.length / perPage));
+  const current = Math.min(page, nbPages - 1);
+  const pageRows = shown.slice(current * perPage, (current + 1) * perPage);
   const k = data?.kpis;
   const pct = (n: number) => { if (!k || !k.total) return ""; const v = (100 * n) / k.total; return `${v > 0 && v < 1 ? v.toFixed(1).replace(".", ",") : Math.round(v)} %`; };
 
@@ -487,7 +523,7 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
     <div>
       {confirmDialog}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, fontWeight: 800, color: COLORS.text }}><ClipboardCheck size={18} color={COLORS.primary} /> Suivi des retours</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, fontWeight: 800, color: COLORS.text }}><ClipboardCheck size={18} color={COLORS.primary} /> Suivi</div>
         <select style={{ ...input, width: 'auto' }} value={campaignId} onChange={e => setCampaignId(Number(e.target.value))}>
           {campaigns.map(c => <option key={c.id} value={c.id}>{c.libelle || `Campagne ${c.annee}`}</option>)}
         </select>
@@ -504,7 +540,7 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
       {!data ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}><Loader2 size={22} className="spin" /></div> : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-            <KpiCard label="Entretiens" value={k!.total} color={COLORS.primary} onClick={() => setFState('')} active={fState === ''} />
+            <KpiCard label="EP prévus" value={k!.total} color={COLORS.primary} onClick={() => setFState('')} active={fState === ''} />
             <KpiCard label="Programmés" value={k!.programmes} sub={pct(k!.programmes)} color="#0369a1" onClick={() => setFState('programme')} active={fState === 'programme'} />
             <KpiCard label="Réalisés" value={k!.realises} sub={pct(k!.realises)} color={COLORS.success} onClick={() => setFState('realise')} active={fState === 'realise'} />
             <KpiCard label="En retard (date dépassée)" value={k!.en_retard} color={COLORS.danger} onClick={() => setFState('en_retard')} active={fState === 'en_retard'} />
@@ -547,7 +583,12 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
           )}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            <input style={{ ...input, width: 170 }} placeholder="Rechercher un agent…" value={q} onChange={e => setQ(e.target.value)} />
+            <input style={{ ...input, width: 170 }} placeholder="Nom, matricule, e-mail…" value={q} onChange={e => setQ(e.target.value)} />
+            {([['sans_email', 'Sans e-mail'], ['sans_evaluateur', 'Sans évaluateur·rice'], ['est_evaluateur', 'Évaluateurs·rices']] as const).map(([k, l]) => (
+              <button key={k} style={fPop.includes(k) ? btnPrimary : btnGhost} aria-pressed={fPop.includes(k)} title="Les filtres se cumulent"
+                onClick={() => setFPop(p => (p.includes(k) ? p.filter(x => x !== k) : [...p, k]))}>{l} ({rows.filter(r => r[k]).length})</button>
+            ))}
+            {fPop.length > 0 && <span style={{ alignSelf: 'center', fontSize: 12, fontWeight: 700, color: COLORS.muted }}>{shown.length} résultat{shown.length > 1 ? 's' : ''}</span>}
             <select style={{ ...input, width: 'auto' }} value={fDir} onChange={e => setFDir(e.target.value)}><option value="">Toutes les directions</option>{uniq('direction').map(v => <option key={v}>{v}</option>)}</select>
             <select style={{ ...input, width: 'auto' }} value={fSvc} onChange={e => setFSvc(e.target.value)}><option value="">Tous les services</option>{uniq('service').map(v => <option key={v}>{v}</option>)}</select>
             <select style={{ ...input, width: 'auto' }} value={fEval} onChange={e => setFEval(e.target.value)}><option value="">Tous les évaluateurs</option>{uniq('evaluator_nom').map(v => <option key={v}>{v}</option>)}</select>
@@ -564,11 +605,20 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
                   <Th>Agent</Th><Th>Direction / Service</Th><Th>Évaluateur</Th><Th>Date de l’EP</Th><Th>Réalisation</Th>{campaign?.mode_simple && <Th>Transmis DRH</Th>}<Th>CREP retourné</Th><Th>Canal</Th><Th>CREP papier</Th><Th>CREP numérique</Th><Th>Lecture IA</Th>
                 </tr></thead>
                 <tbody>
-                  {shown.map(r => (
+                  {pageRows.map(r => (
                     <tr key={r.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
-                      <Td><strong>{r.agent_nom}</strong> {r.agent_prenom}</Td>
+                      <Td><strong>{r.agent_nom}</strong> {r.agent_prenom}
+                        {r.est_evaluateur && <span style={{ marginLeft: 6 }} title={`Évalue ${r.nb_evalues || 'd’autres'} agent·e·s`}><Chip text={`Évaluateur·rice${r.nb_evalues ? ` · ${r.nb_evalues}` : ''}`} color="#5b21b6" bg="#ede9fe" /></span>}
+                        {r.sans_email && <span style={{ marginLeft: 6 }}><Chip text="Sans e-mail" color="#92400e" bg="#fef3c7" /></span>}
+                        {r.fiche && <button style={{ ...btnGhost, padding: '1px 6px', marginLeft: 6, fontSize: 11 }} aria-pressed={editing === r.id} title="Changer l’évaluateur·rice ou l’adresse e-mail"
+                          onClick={() => setEditing(editing === r.id ? null : r.id)}><PenLine size={11} /> {editing === r.id ? 'Fermer' : 'Modifier'}</button>}
+                        {(r.sans_email || editing === r.id) && r.fiche && <div style={{ marginTop: 4 }}><AdCell agent={r.fiche} headers={headers} onLinked={() => { setMsg({ ok: true, text: `Adresse associée à ${r.agent_nom} ${r.agent_prenom}.` }); load(); }} onError={text => setMsg({ ok: false, text })} /></div>}</Td>
                       <Td>{[r.direction, r.service].filter(Boolean).join(' / ')}</Td>
-                      <Td>{r.evaluator_nom}</Td>
+                      <Td>{r.sans_evaluateur || editing === r.id
+                        ? (r.fiche
+                          ? <ValideurCell agent={r.fiche as unknown as Parameters<typeof ValideurCell>[0]['agent']} headers={headers} onChoose={m => chooseEvaluator(r, m)} />
+                          : <Chip text="Sans évaluateur·rice" color="#991b1b" bg="#fee2e2" />)
+                        : r.evaluator_nom}</Td>
                       <Td>{r.programme ? fmtDate(r.date_entretien) : <span style={{ color: '#94a3b8' }}>Non programmé</span>}</Td>
                       <Td>{r.realise ? <Chip text="Réalisé" color="#166534" bg="#dcfce7" /> : r.en_retard ? <Chip text="En retard" color="#991b1b" bg="#fee2e2" /> : r.programme ? <Chip text="Programmé" color="#075985" bg="#e0f2fe" /> : <Chip text="À planifier" color="#475569" bg="#f1f5f9" />}</Td>
                       {campaign?.mode_simple && <Td>{r.transmis_simple ? <Chip text={fmtDay(r.simple_sent_at) || 'Oui'} color="#92400e" bg="#fef3c7" /> : <span style={{ color: '#94a3b8' }}>—</span>}</Td>}
@@ -591,9 +641,22 @@ Le CREP signé numérisé est effacé, la réception par la DRH est retirée${r.
               </table>
             </div>
           )}
+          {shown.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 10, fontSize: 12.5, color: COLORS.muted }}>
+              <span style={{ marginRight: 'auto' }}>{current * perPage + 1}–{current * perPage + pageRows.length} sur {shown.length}</span>
+              <select style={{ ...input, width: 'auto' }} aria-label="Lignes par page" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(0); }}>
+                {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n} par page</option>)}
+              </select>
+              <button style={btnGhost} disabled={current === 0} onClick={() => setPage(0)} aria-label="Première page">«</button>
+              <button style={btnGhost} disabled={current === 0} onClick={() => setPage(current - 1)}>Précédent</button>
+              <span style={{ fontWeight: 700, color: COLORS.text }}>Page {current + 1} / {nbPages}</span>
+              <button style={btnGhost} disabled={current >= nbPages - 1} onClick={() => setPage(current + 1)}>Suivant</button>
+              <button style={btnGhost} disabled={current >= nbPages - 1} onClick={() => setPage(nbPages - 1)} aria-label="Dernière page">»</button>
+            </div>
+          )}
         </>
       )}
-      {review !== null && <BatchReview batchId={review} people={rows} headers={headers} onClose={() => { setReview(null); load(); }} onDone={(m) => { load(); if (m) { setReview(null); setMsg({ ok: true, text: m }); } }} />}
+      {review !== null && <BatchReview batchId={review} people={rows.filter(r => !r.hors_ep)} headers={headers} onClose={() => { setReview(null); load(); }} onDone={(m) => { load(); if (m) { setReview(null); setMsg({ ok: true, text: m }); } }} />}
       {digital && <DigitalCrepModal entretienId={digital.id} label={`${digital.agent_nom} ${digital.agent_prenom}`} headers={headers} onClose={() => setDigital(null)} />}
       {reading && <ReadingModal entretienId={reading.id} label={`${reading.agent_nom} ${reading.agent_prenom}`} headers={headers} onClose={() => setReading(null)} />}
     </div>

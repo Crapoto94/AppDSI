@@ -1,7 +1,7 @@
 /**
  * Moisson d'une boîte mail pour les CREP signés (collecteur de module « entretiens », configuré dans l'administration du DSI Hub).
  *
- * Chaque PDF reçu en pièce jointe devient un lot « à vérifier » dans Suivi des retours, avec le canal d'entrée « mail »
+ * Chaque PDF reçu en pièce jointe devient un lot « à vérifier » dans Suivi, avec le canal d'entrée « mail »
  * (expéditeur, objet, date de réception conservés). Le lot passe par la même chaîne que la numérisation DRH :
  * reconnaissance des pages par QR code, regroupement par agent, vérification et validation par un administrateur.
  * Un PDF où aucun QR code de CREP n'est reconnu (signature, facture…) est rangé en « Aucun CREP reconnu » sans solliciter l'administrateur.

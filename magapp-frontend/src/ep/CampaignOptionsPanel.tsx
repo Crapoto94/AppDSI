@@ -22,7 +22,7 @@ const OPTIONS: Opt[] = [
   },
   {
     key: 'mode_simple', title: 'Mode simple', icon: <ClipboardCheck size={17} color={COLORS.primary} />, defaultOn: false,
-    on: <>Les évaluateurs <strong>ne téléversent pas le CREP signé</strong> : ils le réalisent (dans l’outil ou sur papier), l’envoient à la DRH puis signalent l’envoi. Le CREP signé est numérisé par les administrateurs (menu « Suivi des retours »), puis l’entretien est clôturé et l’agent·e et l’évaluateur sont notifiés. Pas de demande de réouverture.</>,
+    on: <>Les évaluateurs <strong>ne téléversent pas le CREP signé</strong> : ils le réalisent (dans l’outil ou sur papier), l’envoient à la DRH puis signalent l’envoi. Le CREP signé est numérisé par les administrateurs (menu « Suivi »), puis l’entretien est clôturé et l’agent·e et l’évaluateur sont notifiés. Pas de demande de réouverture.</>,
     off: <>Les évaluateurs téléversent le CREP signé (scan ou photos) et clôturent eux-mêmes l’entretien. <em>(par défaut)</em></>,
   },
 ];

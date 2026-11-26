@@ -43,7 +43,7 @@ router.post('/:id/reopen-request', authenticateJWT, ctrl.reopenRequestCreate);
 router.post('/campaigns/:id/close', authenticateJWT, ctrl.closeCampaign);
 router.post('/:id/crep/unvalidate', authenticateJWT, ctrl.crepUnvalidate);
 router.post('/drh-reception', authenticateJWT, ctrl.drhReception);
-// Suivi des retours de CREP + numérisation en lot (administrateurs) — avant les routes /:id
+// Suivi de CREP + numérisation en lot (administrateurs) — avant les routes /:id
 router.get('/returns/summary', authenticateJWT, ctrl.returnsSummary);
 router.get('/returns/pending', authenticateJWT, ctrl.returnsPending);
 router.get('/returns/batches', authenticateJWT, ctrl.returnsList);
