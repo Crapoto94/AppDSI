@@ -4,7 +4,7 @@ const historyRepo = require('../repositories/history.repository');
 const notificationService = require('./notification.service');
 
 module.exports = {
-    async assign(ticketId, { technician_id, technician_username, group_id, keepGroup }, user) {
+    async assign(ticketId, { technician_id, technician_username, group_id, keepGroup, skipNotification }, user) {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
@@ -80,7 +80,9 @@ module.exports = {
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
 
-            await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedTechId });
+            if (!skipNotification) {
+                await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedTechId });
+            }
         } else if (resolvedGroupId && ticket.status === 1) {
             // Affectation groupe sans technicien : Nouveau → En cours
             await ticketRepo.update(ticketId, { status: 2 });

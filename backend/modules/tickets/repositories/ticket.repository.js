@@ -58,7 +58,7 @@ days AS (
     FROM params p
 ),
 tk AS (
-    SELECT glpi_id, status, priority, type, is_vip, date_creation, date_solved, date_closed, total_waiting_seconds
+    SELECT glpi_id, status, priority, type, is_vip, date_creation, date_solved, date_closed, total_waiting_seconds, time_spent_seconds
     FROM hub_tickets.tickets
     WHERE status <> 8
 ),
@@ -161,7 +161,8 @@ closed_day AS (
 ),
 resolved_week AS (
     SELECT date_trunc('week', date_solved::date) AS wk,
-           COALESCE(AVG(EXTRACT(EPOCH FROM (date_solved - date_creation)) - COALESCE(total_waiting_seconds, 0)), 0)::int AS avg_active,
+           COALESCE(AVG(COALESCE(NULLIF(time_spent_seconds, 0),
+                                 EXTRACT(EPOCH FROM (date_solved - date_creation)) - COALESCE(total_waiting_seconds, 0))), 0)::int AS avg_active,
            COUNT(*)::int AS n
     FROM tk WHERE date_solved IS NOT NULL GROUP BY 1
 ),
@@ -694,7 +695,9 @@ module.exports = {
         // Check for duplicate: same title + requester within 2 minutes
         // date_creation est naïf en heure de Paris : comparer à NOW() (UTC) élargissait
         // la fenêtre de 1 h en hiver / 2 h en été et provoquait de faux doublons.
-        if (data.title && data.requester_email) {
+        // Un ticket « déjà résolu » est souvent créé après coup (parfois en série pour
+        // documentation) : la détection de doublon à 2 minutes ne s'applique pas.
+        if (!data.already_resolved && data.title && data.requester_email) {
             const dup = await pgDb.get(
                 `SELECT glpi_id FROM hub_tickets.tickets WHERE title = $1 AND requester_email_22 = $2 AND date_creation > $3::timestamp - INTERVAL '2 minutes' LIMIT 1`,
                 [data.title, data.requester_email, toParisSql()]
@@ -712,11 +715,11 @@ module.exports = {
         await pgDb.run(`
             INSERT INTO hub_tickets.tickets
                 (glpi_id, title, content, status, priority, urgency, impact,
-                 type, category, date_creation, date_mod, source,
+                 type, category, date_creation, date_mod, date_solved, source,
                  requester_name, requester_email_22, location, solution, is_vip,
                  resolution_method, knowledge_article, category_id, subcategory_id, software_id,
-                 requester_phone)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                 requester_phone, time_spent_seconds)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $23, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $24)
         `, [
             id, data.title, data.content || '', data.status || 1,
             data.priority || 3, data.urgency || 3, data.impact || 2,
@@ -726,7 +729,9 @@ module.exports = {
             data.location || '', data.solution || '', !!data.is_vip,
             data.resolution_method || null, data.knowledge_article || null,
             data.category_id || null, data.subcategory_id || null, data.software_id || null,
-            data.requester_phone || null
+            data.requester_phone || null,
+            data.date_solved ? toDbParisTimestamp(data.date_solved) : null,
+            data.time_spent_seconds != null ? data.time_spent_seconds : null
         ]);
 
         return id;
@@ -737,7 +742,7 @@ module.exports = {
         const params = [];
         let idx = 1;
 
-        for (const key of ['title', 'content', 'priority', 'urgency', 'impact', 'type', 'category', 'location', 'solution', 'is_vip', 'resolution_method', 'knowledge_article', 'category_id', 'subcategory_id', 'software_id', 'requester_name', 'requester_email_22', 'email_alt', 'requester_phone']) {
+        for (const key of ['title', 'content', 'priority', 'urgency', 'impact', 'type', 'category', 'location', 'solution', 'is_vip', 'resolution_method', 'knowledge_article', 'category_id', 'subcategory_id', 'software_id', 'requester_name', 'requester_email_22', 'email_alt', 'requester_phone', 'time_spent_seconds']) {
             if (data[key] !== undefined) {
                 fields.push(`${key} = $${idx++}`);
                 params.push(data[key]);
@@ -1019,10 +1024,13 @@ module.exports = {
                                    AND w.wait_s IS NOT NULL), 0)::integer as avg_waiting_seconds_active,
                 COALESCE(
                     AVG(
-                        EXTRACT(EPOCH FROM (
-                            COALESCE(t.date_solved, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
-                            - t.date_creation
-                        )) - COALESCE(t.total_waiting_seconds, 0)
+                        COALESCE(
+                            NULLIF(t.time_spent_seconds, 0),
+                            EXTRACT(EPOCH FROM (
+                                COALESCE(t.date_solved, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
+                                - t.date_creation
+                            )) - COALESCE(t.total_waiting_seconds, 0)
+                        )
                     ) FILTER (WHERE t.date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_resolved_week,
                 COALESCE(
@@ -1042,10 +1050,13 @@ module.exports = {
                 COUNT(*) as resolved_count,
                 COALESCE(
                     AVG(
-                        EXTRACT(EPOCH FROM (
-                            COALESCE(date_solved, date_closed, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
-                            - date_creation
-                        )) - COALESCE(total_waiting_seconds, 0)
+                        COALESCE(
+                            NULLIF(time_spent_seconds, 0),
+                            EXTRACT(EPOCH FROM (
+                                COALESCE(date_solved, date_closed, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris'))
+                                - date_creation
+                            )) - COALESCE(total_waiting_seconds, 0)
+                        )
                     ) FILTER (WHERE date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_week
             FROM hub_tickets.tickets

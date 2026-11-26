@@ -324,6 +324,8 @@ async function setupPgDbFull() {
     try { await client.query('ALTER TABLE hub_tickets.assignment_rules ADD COLUMN IF NOT EXISTS assign_to_value VARCHAR(255)'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS requester_phone VARCHAR(30)"); } catch (e) {}
+    // Temps de travail déclaré à la création d'un ticket « déjà résolu » (secondes).
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS time_spent_seconds INTEGER'); } catch (e) {}
     
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
     try { await client.query('ALTER TABLE hub_tickets.ticket_history DROP CONSTRAINT IF EXISTS ticket_history_user_id_fkey'); } catch (e) {}
