@@ -3372,8 +3372,7 @@ export default function TicketDetail() {
       )}
 
       {showAssignModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowAssignModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, width: 440, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
             onClick={e => e.stopPropagation()}
             onKeyDown={e => { if (e.key === 'Escape') setShowAssignModal(false); if (e.key === 'Enter' && technicians.length > 0) assignTechnician(technicians[0].user_id); }}>
@@ -3577,8 +3576,7 @@ export default function TicketDetail() {
 
       {/* ── Confirmation affectation à un agent absent ──────────────────── */}
       {pendingAssign && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}
-          onClick={() => setPendingAssign(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 22 }}>⚠️</span>
@@ -3603,8 +3601,7 @@ export default function TicketDetail() {
 
       {/* ── Waiting Reason Modal ─────────────────────────────────────────── */}
       {showWaitingModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowWaitingModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 460 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 600 }}>Mettre en attente</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
@@ -3632,8 +3629,7 @@ export default function TicketDetail() {
 
       {/* ── Solution Modal ──────────────────────────────────────────────── */}
       {showSolutionModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowSolutionModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 460 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 600 }}>Résoudre le ticket</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
@@ -3661,8 +3657,7 @@ export default function TicketDetail() {
 
       {/* ── Scission Modal ──────────────────────────────────────────────── */}
       {showSplitModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => { if (!splitLoading) setShowSplitModal(false); }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 500, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 6px 0', fontSize: 17, fontWeight: 700, color: '#1e1b4b' }}>✂️ Scinder le ticket</h3>
             <p style={{ margin: '0 0 20px 0', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
@@ -3740,8 +3735,7 @@ export default function TicketDetail() {
 
       {/* ── Arbitrage Modal ─────────────────────────────────────────────── */}
       {showArbitrageModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowArbitrageModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 460 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 17, fontWeight: 700 }}>⚖️ Demander un arbitrage</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
@@ -3809,8 +3803,7 @@ export default function TicketDetail() {
 
       {/* ── Cascade Resolution Modal ────────────────────────────────────── */}
       {showCascadeModal && (ticketGroup || linkedTickets.length > 0) && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500 }}
-          onClick={() => setShowCascadeModal(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 500 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 17, fontWeight: 700 }}>✅ Résolution en cascade</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
@@ -3873,7 +3866,7 @@ export default function TicketDetail() {
           ['Dernière modif.',     s.date_mod],
         ];
         return (
-          <div onClick={() => setEquipDetail(null)}
+          <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(24,24,27,.35)', zIndex: 3000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '48px 16px', overflowY: 'auto' }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#fafaf9', borderRadius: 12, width: '100%', maxWidth: 560, boxShadow: '0 8px 32px rgba(0,0,0,.12)', border: '1px solid #e4e4e7', overflow: 'hidden' }}>

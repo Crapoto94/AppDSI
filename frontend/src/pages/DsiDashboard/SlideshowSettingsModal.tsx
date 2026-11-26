@@ -32,7 +32,7 @@ export default function SlideshowSettingsModal({ dashboardName, current, existin
     <div style={{
       position: 'fixed', inset: 0, zIndex: 500,
       background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    }}>
       <div style={{
         background: 'white', borderRadius: 14, padding: 28, width: 440,
         boxShadow: '0 20px 60px rgba(0,0,0,.2)',

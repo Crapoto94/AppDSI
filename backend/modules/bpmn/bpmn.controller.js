@@ -205,7 +205,7 @@ async function seedTemplates() {
             const title = decode((xml.match(/<bpmn:participant[^>]*\bname="([^"]+)"/) || [])[1]) || file.replace(/\.bpmn$/, '');
             const description = decode((xml.match(/<bpmn:documentation id="Doc_Process">([\s\S]*?)<\/bpmn:documentation>/) || [])[1]) || null;
             // Étiquettes : « modèle », plus le nom de l'application pour les processus d'ODP Manager (odp-*.bpmn) et de VibeDélib (vibedelib-*.bpmn)
-            const tags = JSON.stringify(file.startsWith('odp-') ? ['modèle', 'ODP'] : file.startsWith('vibedelib-') ? ['modèle', 'VibeDélib'] : ['modèle']);
+            const tags = JSON.stringify(file.startsWith('odp-') ? ['modèle', 'ODP'] : file.startsWith('vibedelib-') ? ['modèle', 'VibeDélib'] : file.startsWith('entretiens-') ? ['modèle', 'Entretiens professionnels'] : ['modèle']);
             const { rows } = await pool.query('SELECT id, xml, created_by, updated_by FROM hub.bpmn_diagrams WHERE title = $1', [title]);
             if (rows.length > 0) {
                 // Modèle jamais modifié par un utilisateur : on le met à jour quand le fichier livré évolue

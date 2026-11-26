@@ -44,7 +44,7 @@ export default function AssociateProblemModal({ ticketId, onClose, onAssociated 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 500, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: 17, fontWeight: 700 }}>Associer à un problème existant</h3>
         {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 10 }}>{error}</div>}

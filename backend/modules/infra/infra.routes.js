@@ -28,4 +28,9 @@ router.post('/rh-studio/onboarding',        ctrl.createOnboarding);
 router.get('/rh-studio/futurs-agents',      ctrl.listFutursAgents);
 router.get('/rh-studio/agents/search',      ctrl.searchStudioAgents);
 
+// ── Consultation Studio IRS (lecture seule, administrateurs : données de sécurité) ──
+router.get('/studio-irs/browse/:group',           authenticateAdmin, ctrl.browseStudioIrs);
+router.get('/studio-irs/browse/:group/:name',     authenticateAdmin, ctrl.browseStudioIrs);
+router.get('/studio-irs/desktops/:id/:detail', authenticateAdmin, ctrl.browseStudioIrs);
+
 module.exports = router;

@@ -41,7 +41,6 @@ const label: React.CSSProperties = { display: 'block', fontSize: '0.8rem', fontW
 
 const Overlay: React.FC<{ onClose: () => void; width?: number; title: string; icon: React.ReactNode; children: React.ReactNode }> = ({ onClose, width = 560, title, icon, children }) => (
   <div
-    onClick={onClose}
     style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
   >
     <div

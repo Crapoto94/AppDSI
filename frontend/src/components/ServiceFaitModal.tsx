@@ -56,6 +56,20 @@ function pick(row: any, columns: MappingColumn[], field: string): any {
   return undefined;
 }
 
+// Champs d'une facture (ligne de la rubrique Factures) attendus par les workflows de service fait — réutilisé par le traitement par lot
+export function extractInvoice(row: any, columns: MappingColumn[]) {
+  const invoice_ref = String(row[columns.find(c => c.expression === 'FACTURE_FACTURE')?.name || ''] || '').trim() || String(row['FACTURE_FACTURE'] || '').trim() || '';
+  const amount = pick(row, columns, 'invoice_amount');
+  return {
+    invoice_ref,
+    invoice_number: String(pick(row, columns, 'invoice_number') || invoice_ref),
+    invoice_label: String(pick(row, columns, 'invoice_label') || ''),
+    invoice_supplier: String(pick(row, columns, 'invoice_supplier') || ''),
+    invoice_amount: amount != null ? String(amount) : '',
+    invoice_section: String(pick(row, columns, 'invoice_section') || ''),
+  };
+}
+
 export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromTelecom = false, onClose, onCreated }: ServiceFaitModalProps) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };

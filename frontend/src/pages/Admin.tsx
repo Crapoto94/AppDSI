@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Trash2, X, UserPlus, Users, Edit2, Edit3, 
   ChevronUp, ChevronDown, 
@@ -52,7 +52,7 @@ interface AdminProps {
 
 const FENCE = '```';
 const DEFAULT_PROMPT_TEMPLATE_CONST = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
-Ta mission est de produire un compte-rendu clair, structuré et professionnel Ã  partir de la transcription fournie.
+Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
 
 REUNION : {REUNION}
 
@@ -63,19 +63,19 @@ TRANSCRIPTION :
 
 STRUCTURE DU COMPTE-RENDU (MARKDOWN) :
 ## Résumé exécutif
-(3 Ã  5 phrases résumant l'essentiel de la réunion)
+(3 à 5 phrases résumant l'essentiel de la réunion)
 
 ## Points abordés
 (liste des sujets discutés avec une brève description)
 
 ## Décisions prises
-(liste des décisions actées, ou Â« Aucune décision formelle Â» si applicable)
+(liste des décisions actées, ou « Aucune décision formelle » si applicable)
 
 ---
 
 INSTRUCTIONS CRITIQUES :
 1. Ne rédige PAS de section "Plan d'action" ou "Tâches" dans le texte Markdown.
-2. Ne fais AUCUNE mention du bloc JSON Ã  la fin.
+2. Ne fais AUCUNE mention du bloc JSON à la fin.
 3. Ajoute ENSUITE un bloc JSON délimité par ${FENCE}json contenant la liste des tâches.
 
 FORMAT DU JSON :
@@ -84,6 +84,23 @@ ${FENCE}json
   {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Échéance", "ts": "HH:MM:SS"}
 ]
 ${FENCE}`;
+
+// Consigne spécifique aux réunions tenues en présentiel (transcript mono-
+// locuteur). Repli local du texte par défaut renvoyé par le backend
+// (transcriptmanager.controller.js → __defaultPrompts.physical), pour que
+// l'admin puisse toujours l'afficher même si l'API ne le fournit pas encore.
+const DEFAULT_PHYSICAL_PROMPT_TEMPLATE_CONST = `CONSIGNE SPÉCIALE — RÉUNION TENUE EN PRÉSENTIEL (ET NON EN VISIOCONFÉRENCE) :
+Cette réunion n'a PAS été tenue en distanciel. L'enregistrement Teams provient d'UNE SEULE personne physiquement présente dans la salle (l'organisateur / demandeur) : son micro a capté l'ensemble des échanges. Il faut donc analyser cette réunion sous l'angle d'une réunion où PLUSIEURS PERSONNES étaient présentes. En conséquence :
+- NE considère PAS que le locuteur unique identifié dans la transcription est la seule personne de la réunion, et N'ATTRIBUE PAS indistinctement toutes les paroles à ce compte Teams.
+- Il est IMPOSSIBLE d'identifier de façon fiable chaque locuteur à partir des étiquettes de la transcription : ne fabrique jamais de nom de locuteur. En cas d'incertitude, écris « un participant », « un interlocuteur » ou « l'assemblée ».
+- Efforce-toi de déterminer les personnes présentes en croisant plusieurs indices : (1) les noms explicitement cités dans les échanges, (2) les fonctions et rôles évoqués (directeur, directeur général, responsable de service…), (3) la liste des participants connus fournie ci-dessous. Sois prudent et distingue clairement les présences certaines des présences probables.
+- Rédige le compte-rendu en te concentrant sur le FOND (sujets, arguments, positions, décisions, engagements, actions) plutôt que sur « qui a dit quoi ».
+- Ajoute, juste après le « ## Résumé exécutif », une section « ## Participants probables » : liste les personnes que tu penses présentes, avec pour chacune une justification courte (nom cité dans les échanges, rôle évoqué, ou présence dans la liste des participants). Si le doute subsiste, précise « présence à confirmer ».
+
+PARTICIPANTS CONNUS OU AJOUTÉS POUR CETTE RÉUNION :
+{PARTICIPANTS}
+
+`;
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const { token, user: currentUser } = useAuth();
@@ -98,7 +115,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [originalLinks, setOriginalLinks] = useState<any[]>([]);
   const [newLink, setNewLink] = useState<Partial<TileLink>>({ label: '', url: '', is_internal: 0 });
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] as number[] });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editingUserPassword, setEditingUserPassword] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -125,6 +142,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     custom_prompt: '',
     max_chars_context: '',
     ai_reformulate_prompt: '',
+    physical_prompt: '',
     ai_summary_source: 'apm',
     transcript_apm_default_model: '',
     transcript_ai_restrict_local: '',
@@ -135,6 +153,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     contrat_analyse_ai_source: 'apm',
     contrat_analyse_apm_model: ''
   });
+  // Prompts par défaut fournis par le backend (lecture seule) : affichés quand
+  // le réglage correspondant est vide, pour ne pas dupliquer leur texte ici.
+  const [transcriptDefaults, setTranscriptDefaults] = useState({ custom: '', physical: '' });
   const [apmModelsList, setApmModelsList] = useState<string[]>([]);
   const [apmModelsError, setApmModelsError] = useState('');
   const [apmModelsLoading, setApmModelsLoading] = useState(false);
@@ -216,7 +237,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   
   const [oracleConfigs, setOracleConfigs] = useState<any[]>([
     { type: 'FINANCES', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
-    { type: 'RH', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
     { type: 'DELIB', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
     { type: 'ASTECH', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
     { type: 'CONCERTO', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 }
@@ -251,7 +271,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [dateFields, setDateFields] = useState<Record<string, string[]>>({});
   const [joinPreviewResult, setJoinPreviewResult] = useState<string | null>(null);
   const [oracleActiveTab, setOracleActiveTab] = useState<'configuration' | 'automatisation' | 'logs'>('configuration');
-  const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, RH: { enabled: false, frequency: 'daily' }, DELIB: { enabled: false, frequency: 'daily' }, ASTECH: { enabled: false, frequency: 'daily' }, CONCERTO: { enabled: false, frequency: 'daily' } });
+  const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, DELIB: { enabled: false, frequency: 'daily' }, ASTECH: { enabled: false, frequency: 'daily' }, CONCERTO: { enabled: false, frequency: 'daily' } });
   const [isSavingAutomation, setIsSavingAutomation] = useState<Record<string, boolean>>({});
   const [isTestingAutomation, setIsTestingAutomation] = useState<Record<string, boolean>>({});
   const [oracleSyncLogs, setOracleSyncLogs] = useState<any[]>([]);
@@ -529,7 +549,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           base_dn: data.base_dn || '',
           required_group: data.required_group || '',
           bind_dn: data.bind_dn || '',
-          // Si un mot de passe est déjÃ  enregistré, on affiche un masque
+          // Si un mot de passe est déjà enregistré, on affiche un masque
           // Le backend préserve le mdp existant si on renvoie '••••••••'
           bind_password: data.bind_password ? '••••••••' : ''
         });
@@ -577,6 +597,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       });
       if (response.ok) {
         const data = await response.json();
+        setTranscriptDefaults({
+          custom: data.default_custom_prompt || '',
+          physical: data.default_physical_prompt || '',
+        });
         setTranscriptConfig({
           groq_api_key: data.groq_api_key ? '••••••••' : '',
           default_model: data.default_model || 'llama-3.3-70b-versatile',
@@ -589,6 +613,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           custom_prompt: data.custom_prompt || '',
           max_chars_context: data.max_chars_context || '',
           ai_reformulate_prompt: data.ai_reformulate_prompt || '',
+          physical_prompt: data.physical_prompt || '',
           ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm',
           transcript_apm_default_model: data.transcript_apm_default_model || '',
           transcript_ai_restrict_local: data.transcript_ai_restrict_local === 'true' ? 'true' : '',
@@ -634,7 +659,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     // If time has passed but is within 1 minute, show "À peu près maintenant"
     if (diff <= 0 && diff > -60000) return 'À peu près maintenant';
     // If time is significantly in the past, return "Dépassé"
-    if (diff < -60000) return 'Dépassé - en attente de mise Ã  jour';
+    if (diff < -60000) return 'Dépassé - en attente de mise à jour';
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -735,7 +760,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const res = await fetch('/api/oracle-settings', { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        const types = ['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'];
+        const types = ['FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'];
         const syncedData = types.map(t => {
           const existing = data.find((d: any) => d.type === t);
           return existing || { type: t, host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 };
@@ -1062,7 +1087,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/sync-cancel', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('Annulation demandée. La synchronisation s\'arrÃªtera bientôt.');
+      alert('Annulation demandée. La synchronisation s\'arrêtera bientôt.');
     } catch (e) {
       console.error('Erreur lors de l\'annulation:', e);
     }
@@ -1106,7 +1131,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/sync-observers-cancel', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('Annulation demandée. La synchronisation s\'arrÃªtera bientôt.');
+      alert('Annulation demandée. La synchronisation s\'arrêtera bientôt.');
     } catch (e) {
       console.error('Erreur lors de l\'annulation:', e);
     }
@@ -1819,7 +1844,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
+      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] });
       setIsAddingUser(false);
       fetchUsers();
     }
@@ -1844,8 +1869,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setEditingUserPassword('');
       fetchUsers();
     } catch (error: any) {
-      console.error('Erreur mise Ã  jour utilisateur:', error?.response?.data || error);
-      alert(`Erreur lors de la mise Ã  jour : ${error?.response?.data?.message || error?.message || 'Erreur inconnue'}`);
+      console.error('Erreur mise à jour utilisateur:', error?.response?.data || error);
+      alert(`Erreur lors de la mise à jour : ${error?.response?.data?.message || error?.message || 'Erreur inconnue'}`);
     }
   };
 
@@ -2319,7 +2344,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
 
              {(isAddingUser || editingUser) && (
-               <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); setEditingUserPassword(''); }}>
+               <div className="modal-overlay">
                  <div className="modal-container" style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                   <div className="form-header flex justify-between items-center">
                     <h3 className="flex items-center gap-3">
@@ -2375,27 +2400,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <label>Complément Service</label>
                         <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
                       </div>
-                      {editingUser && (
+                      {(editingUser || isAddingUser) && (
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                           <label>Tuiles Autorisées & Permissions</label>
                           <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
                             {tiles.filter(t => t.is_public !== 1).map(tile => {
-                              const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
+                              const currentTiles = editingUser ? (editingUser.authorized_tiles || []) : (newUser.authorized_tiles || []);
+                              const isAuth = currentTiles.includes(tile.id);
                               return (
                                 <label key={tile.id} className={`tile-checkbox-card ${isAuth ? 'selected' : ''}`}>
                                   <input 
                                     type="checkbox" 
                                     checked={!!isAuth}
                                     onChange={(e) => {
-                                      if (!editingUser) return;
-                                      const currentTiles = editingUser.authorized_tiles || [];
-                                      console.log('[DEBUG ADMIN] Tile toggle:', tile.id, tile.title, 'checked:', e.target.checked, 'currentTiles:', JSON.stringify(currentTiles));
-                                      if (e.target.checked) {
-                                        setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
+                                      const nextTiles = e.target.checked
+                                        ? [...currentTiles, tile.id]
+                                        : currentTiles.filter(id => id !== tile.id);
+                                      if (editingUser) {
+                                        setEditingUser({ ...editingUser, authorized_tiles: nextTiles });
                                       } else {
-                                        const newTiles = currentTiles.filter(id => id !== tile.id);
-                                        console.log('[DEBUG ADMIN] New authorized_tiles:', JSON.stringify(newTiles));
-                                        setEditingUser({...editingUser, authorized_tiles: newTiles});
+                                        setNewUser({ ...newUser, authorized_tiles: nextTiles });
                                       }
                                     }}
                                   />
@@ -3032,7 +3056,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     {/* Limite de caractères */}
                     <div className="form-field full-width" style={{ marginTop: '0.5rem' }}>
                       <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>ðŸ“</span> Limite de contexte envoyée Ã  l'IA (caractères)
+                        <span>📏</span> Limite de contexte envoyée à l'IA (caractères)
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <input
@@ -3066,7 +3090,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     {/* Éditeur de prompt */}
                     <div className="form-field full-width" style={{ marginTop: '1rem' }}>
                       <label className="field-label">
-                        ðŸ“ Prompt d'instruction envoyé Ã  l'IA
+                        📝 Prompt d'instruction envoyé à l'IA
                       </label>
                       <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
                         Utilisez <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{REUNION}'}</code> pour le titre et <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{TRANSCRIPTION}'}</code> pour le contenu. Laissez vide pour utiliser le prompt par défaut.
@@ -3075,7 +3099,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         className="admin-input"
                         rows={18}
                         style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5 }}
-                        value={transcriptConfig.custom_prompt || DEFAULT_PROMPT_TEMPLATE}
+                        value={transcriptConfig.custom_prompt || transcriptDefaults.custom || DEFAULT_PROMPT_TEMPLATE}
                         onChange={e => setTranscriptConfig({ ...transcriptConfig, custom_prompt: e.target.value })}
                         spellCheck={false}
                       />
@@ -3086,6 +3110,40 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           onClick={() => setTranscriptConfig({ ...transcriptConfig, custom_prompt: '' })}
                         >
                           Réinitialiser au prompt par défaut
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Prompt spécifique aux réunions tenues en PRÉSENTIEL (transcript
+                        mono-locuteur) : consigne ajoutée automatiquement en tête du
+                        prompt d'analyse dans ce cas de figure. */}
+                    <div className="form-field full-width" style={{ marginTop: '1rem', padding: '12px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10 }}>
+                      <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        🏛️ Prompt IA — réunions tenues en présentiel (transcript mono-locuteur)
+                      </label>
+                      <p style={{ fontSize: '0.78rem', color: '#92400e', marginBottom: '0.5rem', lineHeight: 1.5 }}>
+                        Appliqué <strong>automatiquement</strong> aux réunions dont la transcription ne comporte
+                        qu'un seul locuteur (enregistrement Teams lancé par une personne présente dans la salle) :
+                        l'IA considère alors que plusieurs personnes étaient présentes, ne s'appuie pas sur les
+                        étiquettes de locuteur et cherche à identifier l'assistance.
+                        Le marqueur <code style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: '3px' }}>{'{PARTICIPANTS}'}</code> est
+                        remplacé par la liste des personnes présentes/ajoutées. Laissez vide pour utiliser la consigne par défaut.
+                      </p>
+                      <textarea
+                        className="admin-input"
+                        rows={16}
+                        style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5, background: 'white' }}
+                        value={transcriptConfig.physical_prompt || transcriptDefaults.physical || DEFAULT_PHYSICAL_PROMPT_TEMPLATE_CONST}
+                        onChange={e => setTranscriptConfig({ ...transcriptConfig, physical_prompt: e.target.value })}
+                        spellCheck={false}
+                      />
+                      {transcriptConfig.physical_prompt && (
+                        <button
+                          type="button"
+                          style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#92400e', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setTranscriptConfig({ ...transcriptConfig, physical_prompt: '' })}
+                        >
+                          Réinitialiser à la consigne par défaut
                         </button>
                       )}
                     </div>
@@ -3273,7 +3331,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
               <div className="header-content">
                 <h2>Synchronisation Oracle</h2>
-                <p>Paramétrez les flux de données entre les bases Oracle RH/FINANCES/DELIB/ASTECH/CONCERTO et la base locale.</p>
+                <p>Paramétrez les flux de données entre les bases Oracle FINANCES/DELIB/ASTECH/CONCERTO et la base locale. Le référentiel RH est lu via l'API SEDIT RH.</p>
               </div>
             </div>
 
@@ -3315,7 +3373,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             {/* Contenu Configuration */}
             {oracleActiveTab === 'configuration' && (
             <div className="oracle-grid">
-              {['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => {
+              {['FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => {
                 const config = oracleConfigs.find(c => c.type === type) || { type, host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 };
                 const result = oracleTestResults[type];
                 const testing = isTestingOracle[type];
@@ -3518,7 +3576,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       {result && result.details && result.details.length > 0 && (
                       <div className="oracle-tables-selector mt-4">
                         <div className="selector-header flex justify-between items-center mb-4">
-                          <h4 className="selector-title mb-0">Sélection des objets (tables/vues) Ã  synchroniser :</h4>
+                          <h4 className="selector-title mb-0">Sélection des objets (tables/vues) à synchroniser :</h4>
                           <div className="search-mini">
                             <Search size={14} />
                             <input 
@@ -3688,7 +3746,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 </div>
 
                 <div className="oracle-grid">
-                  {['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => (
+                  {['FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => (
                     <div key={type} className="oracle-card glass-card">
                       <div className="card-header">
                         <div className="header-info">
@@ -4576,7 +4634,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <input type="date" value={syncLogFilters.dateFrom} onChange={e => setSyncLogFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Du" />
                     <input type="date" value={syncLogFilters.dateTo} onChange={e => setSyncLogFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Au" />
                     {(syncLogFilters.type || syncLogFilters.status || syncLogFilters.dateFrom || syncLogFilters.dateTo) && (
-                        <button onClick={() => setSyncLogFilters({ type: '', status: '', dateFrom: '', dateTo: '' })} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>âœ• Réinitialiser</button>
+                        <button onClick={() => setSyncLogFilters({ type: '', status: '', dateFrom: '', dateTo: '' })} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>✕ Réinitialiser</button>
                     )}
                 </div>
                 
@@ -4694,7 +4752,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </p>
                 </div>
                 <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', borderRadius: 999, padding: '6px 12px' }}>
-                  Les administrateurs voient tous les modules
+                  Un module décoché est masqué pour tout le monde
                 </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
@@ -4722,7 +4780,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             <TilesAuthorizationPanel />
 
             {showTileModal && (
-              <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}>
+              <div className="modal-overlay">
                 <div className="modal-container" onClick={(e) => e.stopPropagation()}>
                   <div className="modal-header">
                     <div className="modal-header-info">
@@ -4906,7 +4964,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           />
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0c4a6e' }}>Tuile publique</span>
-                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible Ã  tous les utilisateurs identifiés (pas besoin d'autorisation individuelle)</span>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible à tous les utilisateurs identifiés (pas besoin d'autorisation individuelle)</span>
                           </div>
                         </label>
                       </div>
@@ -4953,7 +5011,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                     <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px', marginTop: '20px' }}>
                       <h3 style={{ fontSize: '1rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Liens associés à  cette tuile</span>
+                        <span>Liens associés à  cette tuile</span>
                         <span style={{ fontSize: '0.85rem', background: '#dbeafe', color: '#1e40af', padding: '4px 8px', borderRadius: '4px', fontWeight: '600' }}>{editingLinks.length} lien{editingLinks.length !== 1 ? 's' : ''}</span>
                       </h3>
 
@@ -5126,7 +5184,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           disabled={!newLink.label || !newLink.url}
                         >
                           <Plus size={18} />
-                          Ajouter ce lien Ã  la tuile
+                          Ajouter ce lien à la tuile
                         </button>
 
                         {(!newLink.label || !newLink.url) && (
@@ -5152,7 +5210,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       className="btn btn-primary"
                       style={{ background: '#2563eb', color: 'white', border: 'none', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontWeight: '700' }}
                     >
-                      {editingTile ? 'Mettre Ã  jour' : 'Créer'}
+                      {editingTile ? 'Mettre à jour' : 'Créer'}
                     </button>
                   </div>
                 </div>

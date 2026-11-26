@@ -32,6 +32,7 @@ const FILE_PATTERNS: RegExp[] = [
     /\/api\/.*\/attachments?\//,
     /\/api\/.*\/file(\/|$)/,
     /\/api\/documents\/\d+\/versions\/\d+\/content/,
+    /\/api\/documents\/\d+\/versions\/\d+\/msg\/attachments\//,
     /\/api\/vols\/\d+\/documents\//,
     /\/api\/uploads\//,
     /\/download$/,
@@ -359,7 +360,7 @@ function Viewer({ items, startIndex, onClose }: { items: ViewerItem[]; startInde
     const SideIcon = ({ n }: { n: string }) => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(n) ? <ImageIcon size={14} /> : /\.pdf$/i.test(n) ? <FileText size={14} /> : <FileIcon size={14} />;
 
     return (
-        <div style={S.backdrop} onClick={onClose}>
+        <div style={S.backdrop}>
             <div style={S.modal} onClick={e => e.stopPropagation()}>
                 <div style={S.header}>
                     <FileText size={18} color="#6366f1" />

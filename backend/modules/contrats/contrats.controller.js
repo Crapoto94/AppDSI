@@ -4,7 +4,7 @@ const xlsx = require('xlsx');
 const axios = require('axios');
 const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
-const { readEngagementRows } = require('../finance/sedit-engagements.service');
+const { readEngagementRows } = require('../finance/sedit-source.service');
 const ocrService = require('../../shared/ocr');
 const apmAi = require('../../shared/apm_ai');
 const { saveAnalyseAsDocument: saveAnalyseAsGedDocument, persistAnalyseResult } = require('../../shared/contrat_analyse');
@@ -597,7 +597,8 @@ module.exports = {
             const minF = parseFloat(montantMin);
             const maxF = parseFloat(montantMax);
             const groups = new Map();
-            for (const l of await readEngagementRows(ex)) {
+            const eng = await readEngagementRows(ex);
+            for (const l of eng.rows) {
                 if (q && !lower(l['Code mouvement']).includes(lower(q)) && !lower(`${l['Libellé mouvement']} ${l['Libellé']}`).includes(lower(q))) continue;
                 if (tiers && !lower(l['Nom tiers']).includes(lower(tiers))) continue;
                 if (montantMin && !isNaN(minF) && l['Montant TTC'] < minF) continue;

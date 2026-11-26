@@ -187,7 +187,7 @@ const DxfImportDialog: React.FC<Props> = ({ onClose, onImported }) => {
   const wide = step === 'place';
 
   return (
-    <div onClick={onClose}
+    <div
       style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div onClick={e => e.stopPropagation()}
         style={{ background: '#fff', borderRadius: 14, maxWidth: wide ? 1040 : 560, width: '94%', maxHeight: '92vh', overflow: 'auto', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>

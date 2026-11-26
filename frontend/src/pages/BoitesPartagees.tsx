@@ -327,7 +327,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{initial ? 'Modifier la boîte' : 'Nouvelle boîte mail partagée'}</h3>
@@ -396,8 +396,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
               setForm({ ...form, membres: v });
             }} />
             {confirmRemove && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                onClick={() => !removing && setConfirmRemove(null)}>
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 460, maxWidth: '92vw', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
                   <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <AlertTriangle size={18} /> {confirmRemove.op === 'add' ? "Ajouter la délégation dans l'AD ?" : "Supprimer la délégation dans l'AD ?"}

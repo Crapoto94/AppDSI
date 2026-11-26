@@ -21,6 +21,27 @@ interface OsFamily { family: string; total: number; isServer: boolean; versions:
 interface HistoryPoint { date: string; family: string; total: number }
 type ViewTarget = { family: string; version?: string } | null;
 
+// Couleur d'une puce d'état GLPI (En service, Perdu ou volé, Mis au rebut…).
+const glpiStateStyle = (state?: string | null) => {
+  const s = String(state || '').toLowerCase();
+  if (!s) return { color: '#94a3b8', bg: '#f8fafc' };
+  if (/perdu|vol|rebut|cass|panne|\bhs\b|corbeille|fichier manquant/.test(s)) return { color: '#b91c1c', bg: '#fef2f2' };
+  if (/stock|attente|prêt|pret|réparation|reparation/.test(s)) return { color: '#b45309', bg: '#fffbeb' };
+  if (/service|affect|utilis/.test(s)) return { color: '#047857', bg: '#ecfdf5' };
+  return { color: '#475569', bg: '#f1f5f9' };
+};
+
+const GlpiStateBadge: React.FC<{ state?: string | null; deleted?: boolean }> = ({ state, deleted }) => {
+  if (!state) return <span style={{ color: '#cbd5e1' }} title="Poste absent du parc GLPI">—</span>;
+  const st = glpiStateStyle(state);
+  return (
+    <span title={deleted ? `État GLPI : ${state} (fiche en corbeille)` : `État GLPI : ${state}`}
+      style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle', background: st.bg, color: st.color, border: `1px solid ${st.color}22`, padding: '1px 7px', borderRadius: 6, fontSize: '.72rem', fontWeight: 700 }}>
+      {state}
+    </span>
+  );
+};
+
 // Puce de statut de support (Windows : date de fin de support Microsoft ; macOS :
 // politique Apple des 3 dernières versions). null = statut non déterminé (pas affiché).
 const SupportBadge: React.FC<{ support?: OsSupport | null }> = ({ support }) => {
@@ -36,10 +57,11 @@ const SupportBadge: React.FC<{ support?: OsSupport | null }> = ({ support }) => 
 };
 
 // ── Sous-tableau "Voir" : postes appartenant à une famille (ou version) d'OS ──
-type MachineSortKey = 'name' | 'os_version_label' | 'ipaddress' | 'usager' | 'lastlogonuser' | 'lastlogon' | 'enabled';
+type MachineSortKey = 'name' | 'os_version_label' | 'ipaddress' | 'usager' | 'lastlogonuser' | 'lastlogon' | 'glpi_state' | 'enabled';
 
-const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }; token: string | null; onClose: () => void; onOpenDevice: (name: string) => void }> = ({ target, token, onClose, onOpenDevice }) => {
+const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }; token: string | null; adBase: string; onClose: () => void; onOpenDevice: (name: string) => void }> = ({ target, token, adBase, onClose, onOpenDevice }) => {
   const [rows, setRows] = useState<any[]>([]);
+  const [excludedRebut, setExcludedRebut] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<MachineSortKey>('name');
@@ -50,16 +72,19 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
     (async () => {
       setLoading(true); setError(null);
       try {
-        const r = await axios.get('/api/parc/ad/computers-by-os', {
+        const r = await axios.get(`${adBase}/computers-by-os`, {
           params: { family: target.family, ...(target.version ? { version: target.version } : {}) },
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (!cancelled) setRows(r.data.rows || []);
+        if (!cancelled) {
+          setRows(r.data.rows || []);
+          setExcludedRebut(r.data.excluded_rebut || 0);
+        }
       } catch (e: any) { if (!cancelled) setError(e.response?.data?.message || e.message); }
       finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [target.family, target.version, token]);
+  }, [target.family, target.version, token, adBase]);
 
   const fmtDate = (d: string | null) => {
     if (!d) return '—';
@@ -87,38 +112,58 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
     return 0;
   });
 
-  const sortTh: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' };
+  const sortTh: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'normal', lineHeight: 1.15 };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1500, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1500, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 16px) 12px 16px' }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#fff', borderRadius: 14, width: 'min(1180px, 96vw)',
+        maxHeight: 'calc(100vh - var(--header-height, 80px) - 32px)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 25px 60px rgba(0,0,0,.3)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <Laptop size={18} color={C.blue} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: '.95rem', color: C.text }}>{target.family}{target.version ? ` — ${target.version}` : ''}</div>
-            <div style={{ fontSize: '.78rem', color: C.slate }}>{loading ? 'Chargement…' : `${rows.length} poste${rows.length > 1 ? 's' : ''}`}</div>
+            <div style={{ fontSize: '.78rem', color: C.slate }}>
+              {loading ? 'Chargement…' : `${rows.length} poste${rows.length > 1 ? 's' : ''}`}
+              {!loading && excludedRebut > 0 && <span style={{ color: '#b45309' }}> · {excludedRebut} au rebut masqué{excludedRebut > 1 ? 's' : ''}</span>}
+            </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '12px 20px 20px', maxHeight: '65vh', overflowY: 'auto' }}>
+        <div style={{ padding: '6px 14px 10px', overflow: 'auto', flex: 1 }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 30, color: C.slate }}><RefreshCw size={20} className="spin" /></div>
           ) : error ? (
             <div style={{ color: C.red, fontSize: '.85rem' }}>{error}</div>
           ) : rows.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 30, color: C.slate, fontSize: '.85rem' }}>Aucun poste.</div>
+            <div style={{ textAlign: 'center', padding: 30, color: C.slate, fontSize: '.85rem' }}>Aucun poste actif pour cette version.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.78rem', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '7%' }} />
+              </colgroup>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.slate }}>
                   <th style={sortTh} onClick={() => toggleSort('name')}>Nom{sortArrow('name')}</th>
                   <th style={sortTh} onClick={() => toggleSort('os_version_label')}>Version{sortArrow('os_version_label')}</th>
                   <th style={{ ...sortTh, cursor: 'default' }}>Support</th>
                   <th style={sortTh} onClick={() => toggleSort('ipaddress')}>IP{sortArrow('ipaddress')}</th>
-                  <th style={sortTh} onClick={() => toggleSort('usager')}>Usager (parc){sortArrow('usager')}</th>
-                  <th style={sortTh} onClick={() => toggleSort('lastlogonuser')}>Dernier utilisateur AD{sortArrow('lastlogonuser')}</th>
-                  <th style={sortTh} onClick={() => toggleSort('lastlogon')}>Dernière connexion{sortArrow('lastlogon')}</th>
-                  <th style={sortTh} onClick={() => toggleSort('enabled')}>État{sortArrow('enabled')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('usager')} title="Usager (parc)">Usager{sortArrow('usager')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('lastlogonuser')} title="Dernier utilisateur AD">Dern. utilisateur AD{sortArrow('lastlogonuser')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('lastlogon')} title="Dernière connexion">Dern. connexion{sortArrow('lastlogon')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('glpi_state')}>État GLPI{sortArrow('glpi_state')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('enabled')}>AD{sortArrow('enabled')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,22 +172,23 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
                     style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
                     onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafbfc')}>
-                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.blue }}>{r.name || '—'}</td>
-                    <td style={{ padding: '7px 8px', color: C.slate }}>{r.os_version_label || '—'}</td>
-                    <td style={{ padding: '7px 8px' }}><SupportBadge support={r.os_support} /></td>
-                    <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: '.78rem' }}>{r.ipaddress || '—'}</td>
-                    <td style={{ padding: '7px 8px' }}>{r.usager || '—'}</td>
-                    <td style={{ padding: '7px 8px' }}>{r.lastlogonuser || '—'}</td>
-                    <td style={{ padding: '7px 8px', color: C.slate }}>{fmtDate(r.lastlogon)}</td>
-                    <td style={{ padding: '7px 8px' }}>
-                      {r.enabled ? <span style={{ color: '#059669', fontWeight: 700, fontSize: '.75rem' }}>Actif</span> : <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '.75rem' }}>Désactivé</span>}
+                    <td style={{ padding: '6px 8px', fontWeight: 600, color: C.blue, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name || ''}>{r.name || '—'}</td>
+                    <td style={{ padding: '6px 8px', color: C.slate }}>{r.os_version_label || '—'}</td>
+                    <td style={{ padding: '6px 8px' }}><SupportBadge support={r.os_support} /></td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: '.75rem' }}>{r.ipaddress || '—'}</td>
+                    <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.usager || ''}>{r.usager || '—'}</td>
+                    <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.lastlogonuser || ''}>{r.lastlogonuser || '—'}</td>
+                    <td style={{ padding: '6px 8px', color: C.slate }}>{fmtDate(r.lastlogon)}</td>
+                    <td style={{ padding: '6px 8px', overflow: 'hidden' }}><GlpiStateBadge state={r.glpi_state} deleted={r.glpi_is_deleted} /></td>
+                    <td style={{ padding: '6px 8px' }}>
+                      {r.enabled ? <span style={{ color: '#059669', fontWeight: 700, fontSize: '.72rem' }}>Actif</span> : <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '.72rem' }}>Désactivé</span>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          <div style={{ marginTop: 10, fontSize: '.72rem', color: C.slate }}>Cliquez sur un poste pour afficher sa fiche complète.</div>
+          <div style={{ marginTop: 8, fontSize: '.72rem', color: C.slate }}>Cliquez sur un poste pour afficher sa fiche complète. Les machines mises au rebut ne sont pas listées.</div>
         </div>
       </div>
     </div>
@@ -222,7 +268,7 @@ const OsFamilyPanel: React.FC<{ title: string; families: OsFamily[]; onView: (t:
 };
 
 // ── Bloc "Statistiques OS" : répartition postes/serveurs (drill-down par version) + évolution ──
-const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token: string | null; onOpenDevice: (name: string) => void }> = ({ families, history, token, onOpenDevice }) => {
+const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token: string | null; adBase: string; isLive?: boolean; onOpenDevice: (name: string) => void }> = ({ families, history, token, adBase, isLive, onOpenDevice }) => {
   const [viewTarget, setViewTarget] = useState<ViewTarget>(null);
 
   const workstations = useMemo(() => families.filter(f => !f.isServer), [families]);
@@ -255,6 +301,12 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token
       </div>
 
       {/* Évolution des OS (une valeur par jour de synchronisation AD) */}
+      {isLive && (
+        <div style={{ background: '#f8fafc', border: `1px dashed ${C.border}`, borderRadius: 10, padding: '10px 14px', fontSize: '.8rem', color: C.slate }}>
+          <TrendingUp size={13} style={{ verticalAlign: -2, marginRight: 6 }} />
+          Évolution des OS : l'historique est construit à partir des synchros enregistrées dans le HUB. En mode Live, la répartition ci-dessus est calculée à l'instant à partir de l'annuaire.
+        </div>
+      )}
       {evolutionSeries.length > 1 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontWeight: 700, fontSize: '.9rem', color: C.text, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -278,7 +330,7 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token
       )}
 
       {viewTarget && (
-        <AdOsMachinesModal target={viewTarget} token={token} onClose={() => setViewTarget(null)} onOpenDevice={onOpenDevice} />
+        <AdOsMachinesModal target={viewTarget} token={token} adBase={adBase} onClose={() => setViewTarget(null)} onOpenDevice={onOpenDevice} />
       )}
     </div>
   );
@@ -291,12 +343,20 @@ interface ColFilters {
 const EMPTY_FILTERS: ColFilters = { name: '', sam: '', ip: '', os: '', usager: '', user: '', ou: '', enabled: '' };
 
 interface AdViewProps {
-  // Ouvre la fiche détail complète (parc/hub) d'un poste à partir de son nom AD (ex: "PO22038").
+  // Ouvre la fiche détail complète (parc GLPI / HUB) d'un poste à partir de son nom AD (ex: "PO22038").
   onOpenDevice?: (name: string) => void;
+  // Source de vérité : Live = interrogation LDAP directe, HUB = copie locale importée.
+  source: 'live' | 'hub';
+  // Change de valeur quand l'utilisateur clique sur « Actualiser » (rechargement forcé).
+  reloadKey?: number;
 }
 
-const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
+const AdView: React.FC<AdViewProps> = ({ onOpenDevice, source, reloadKey = 0 }) => {
   const { token } = useAuth();
+  // En Live, l'onglet AD interroge l'annuaire directement (aucune copie locale) ;
+  // en HUB il lit la dernière synchronisation AD enregistrée en base.
+  const adBase = source === 'hub' ? '/api/parc/ad' : '/api/parc/live/ad';
+  const isLive = source === 'live';
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -314,6 +374,8 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
   const [osFamilies, setOsFamilies] = useState<OsFamily[]>([]);
   const [osHistory, setOsHistory] = useState<HistoryPoint[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsErr, setStatsErr] = useState<string | null>(null);
+  const [listErr, setListErr] = useState<string | null>(null);
 
   const limit = 50;
   const handleOpenDevice = onOpenDevice || (() => {});
@@ -322,23 +384,34 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
     let cancelled = false;
     (async () => {
       setStatsLoading(true);
+      const force = reloadKey > 0;
       try {
+        setStatsErr(null);
         const [statsRes, histRes] = await Promise.all([
-          axios.get('/api/parc/ad/stats', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('/api/parc/ad/stats/history', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${adBase}/stats`, { params: force ? { refresh: 1 } : {}, headers: { Authorization: `Bearer ${token}` } }),
+          isLive
+            // L'évolution par OS est un historique : elle n'existe que dans le HUB
+            // (instantanés enregistrés au fil des synchros). En Live, AD est interrogé
+            // à l'instant, donc pas de courbe d'évolution.
+            ? Promise.resolve({ data: [] as HistoryPoint[] })
+            : axios.get(`${adBase}/stats/history`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
         if (cancelled) return;
         setGlobalStats({ total: statsRes.data.total, enabled: statsRes.data.enabled, disabled: statsRes.data.disabled, last_sync: statsRes.data.last_sync });
         setOsFamilies(statsRes.data.by_os_family || []);
         setOsHistory(histRes.data || []);
-      } catch (e) { console.error('Erreur chargement stats AD:', e); }
+      } catch (e: any) {
+        if (!cancelled) setStatsErr(e.response?.data?.message || e.message);
+        console.error('Erreur chargement stats AD:', e);
+      }
       finally { if (!cancelled) setStatsLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [token, statsRefreshKey]);
+  }, [token, adBase, isLive, statsRefreshKey, reloadKey]);
 
   const loadData = useCallback(async (p?: number, f?: ColFilters, col?: string, dir?: string) => {
     setLoading(true);
+    setListErr(null);
     try {
       const pg = p ?? page;
       const flt = f ?? filters;
@@ -351,18 +424,20 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
       if (flt.user) params.f_user = flt.user;
       if (flt.ou) params.f_ou = flt.ou;
       if (flt.enabled) params.enabled = flt.enabled;
-      const r = await axios.get('/api/parc/ad/computers', {
-        params,
+      const r = await axios.get(`${adBase}/computers`, {
+        params: { ...params, ...(reloadKey > 0 ? { refresh: 1 } : {}) },
         headers: { Authorization: `Bearer ${token}` }
       });
       setRows(r.data.rows);
       setTotal(r.data.total);
     } catch (e: any) {
+      setListErr(e.response?.data?.message || e.message);
       console.error('Erreur chargement AD computers:', e);
     } finally { setLoading(false); }
-  }, [filters, page, sortCol, sortDir, token]);
+  }, [filters, page, sortCol, sortDir, token, adBase, reloadKey]);
 
-  useEffect(() => { loadData(1); }, []);
+  // Changement de source (Live/HUB) ou clic sur « Actualiser » → rechargement forcé.
+  useEffect(() => { loadData(1); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [adBase, reloadKey]);
 
   // Filtres par colonne : rechargement débouncé (400ms) à chaque frappe.
   const isFirstFilterRun = useRef(true);
@@ -432,15 +507,26 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
     <div>
       {/* Barre d'actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' as const }}>
-        <button onClick={startImport} disabled={importing}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 18px',
-            background: importing ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none',
-            borderRadius: 9, fontWeight: 700, fontSize: '.88rem', cursor: importing ? 'not-allowed' : 'pointer'
-          }}>
-          <RefreshCw size={16} className={importing ? 'spin' : ''} />
-          {importing ? 'Import en cours…' : 'Importer AD'}
-        </button>
+        {isLive ? (
+          <>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 14px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 9, fontWeight: 700, fontSize: '.85rem' }}>
+              <RefreshCw size={15} /> AD interrogé en direct (LDAP)
+            </span>
+            <span style={{ fontSize: '.8rem', color: C.slate }}>
+              Seules les machines actuellement présentes dans l'annuaire sont listées.
+            </span>
+          </>
+        ) : (
+          <button onClick={startImport} disabled={importing}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 18px',
+              background: importing ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none',
+              borderRadius: 9, fontWeight: 700, fontSize: '.88rem', cursor: importing ? 'not-allowed' : 'pointer'
+            }}>
+            <RefreshCw size={16} className={importing ? 'spin' : ''} />
+            {importing ? 'Import en cours…' : 'Importer AD'}
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         {hasActiveFilters && (
           <button onClick={clearFilters}
@@ -450,25 +536,48 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
         )}
       </div>
 
-      {/* Cartes de synthèse */}
+      {/* Cartes de synthèse — cliquables : elles filtrent la liste AD (Actif / Désactivé) */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, marginBottom: 16 }}>
         {[
-          { label: 'Ordinateurs', val: globalStats?.total ?? '—', color: C.blue },
-          { label: 'Actifs', val: globalStats?.enabled ?? '—', color: C.green },
-          { label: 'Désactivés', val: globalStats?.disabled ?? '—', color: C.red },
-        ].map(s => (
-          <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 120 }}>
-            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color }}>{s.val}</div>
-            <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>{s.label}</div>
-          </div>
-        ))}
+          { label: 'Ordinateurs', val: globalStats?.total ?? '—', color: C.blue, enabled: '' as ColFilters['enabled'] },
+          { label: 'Actifs', val: globalStats?.enabled ?? '—', color: C.green, enabled: 'true' as ColFilters['enabled'] },
+          { label: 'Désactivés', val: globalStats?.disabled ?? '—', color: C.red, enabled: 'false' as ColFilters['enabled'] },
+        ].map(s => {
+          const active = filters.enabled === s.enabled;
+          return (
+            <div key={s.label} role="button" tabIndex={0}
+              onClick={() => {
+                setFilters(prev => ({ ...prev, enabled: s.enabled }));
+                setPage(1);
+                loadData(1, { ...filters, enabled: s.enabled });
+              }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setFilters(prev => ({ ...prev, enabled: s.enabled })); setPage(1); loadData(1, { ...filters, enabled: s.enabled }); } }}
+              title={s.enabled === '' ? 'Afficher tous les ordinateurs' : s.enabled === 'true' ? 'Filtrer sur les comptes AD actifs' : 'Filtrer sur les comptes AD désactivés'}
+              style={{
+                background: C.card, border: `1px solid ${active ? s.color : C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 120,
+                cursor: 'pointer', boxShadow: active ? `0 0 0 2px ${s.color}22` : 'none',
+              }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color }}>{s.val}</div>
+              <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>{s.label}</div>
+            </div>
+          );
+        })}
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 180 }}>
           <div style={{ fontSize: '.9rem', fontWeight: 700, color: C.text }}>
             {globalStats?.last_sync ? new Date(globalStats.last_sync).toLocaleString('fr-FR') : 'Jamais'}
           </div>
-          <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>Dernière synchro</div>
+          <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            {isLive ? 'Interrogation AD' : 'Dernière synchro'}
+          </div>
         </div>
       </div>
+
+      {/* Erreurs de connexion (AD injoignable, droits LDAP…) */}
+      {(statsErr || listErr) && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', marginBottom: 16, color: '#b91c1c', fontSize: '.84rem' }}>
+          {statsErr || listErr}
+        </div>
+      )}
 
       {/* Barre de progression */}
       {progress && (progress.running || progress.error) && (
@@ -503,7 +612,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
       {statsLoading ? (
         <div style={{ padding: 24, textAlign: 'center', color: C.slate }}><RefreshCw size={20} className="spin" /></div>
       ) : (
-        <AdOsStats families={osFamilies} history={osHistory} token={token} onOpenDevice={handleOpenDevice} />
+        <AdOsStats families={osFamilies} history={osHistory} token={token} adBase={adBase} isLive={isLive} onOpenDevice={handleOpenDevice} />
       )}
 
       {/* Tableau */}
@@ -515,7 +624,9 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
       ) : total === 0 && !hasActiveFilters ? (
         <div style={{ textAlign: 'center', padding: 40, color: C.slate, fontSize: '.9rem' }}>
           <Server size={40} style={{ marginBottom: 12, opacity: .3 }} />
-          <div>Aucun ordinateur importé. Cliquez sur <b>Importer AD</b> pour synchroniser l'Active Directory.</div>
+          {isLive
+            ? <div>Aucun ordinateur remonté par l'Active Directory (vérifiez la configuration AD et les droits de lecture).</div>
+            : <div>Aucun ordinateur dans la dernière synchro AD. Cliquez sur <b>Importer AD</b> pour synchroniser l'Active Directory.</div>}
         </div>
       ) : (
         <>
@@ -534,7 +645,8 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                   <th style={{ ...th, cursor: 'default' }}>Usager (parc)</th>
                   <th style={{ ...th, cursor: 'default' }}>Dernier utilisateur AD</th>
                   <th style={{ ...th, cursor: 'default' }}>OU</th>
-                  <th style={th} onClick={() => toggleSort('enabled')}>État{sortArrow('enabled')}</th>
+                  <th style={{ ...th, cursor: 'default' }}>État GLPI</th>
+                  <th style={th} onClick={() => toggleSort('enabled')}>AD{sortArrow('enabled')}</th>
                 </tr>
                 <tr>
                   <th style={filterTh}><input style={filterInput} value={filters.name} onChange={e => setFilter('name', e.target.value)} placeholder="Filtrer…" /></th>
@@ -545,6 +657,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                   <th style={filterTh}><input style={filterInput} value={filters.usager} onChange={e => setFilter('usager', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}><input style={filterInput} value={filters.user} onChange={e => setFilter('user', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}><input style={filterInput} value={filters.ou} onChange={e => setFilter('ou', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh} />
                   <th style={filterTh}>
                     <select style={filterInput} value={filters.enabled} onChange={e => setFilter('enabled', e.target.value as ColFilters['enabled'])}>
                       <option value="">Tous</option>
@@ -556,7 +669,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
                 ) : rows.map((row, i) => (
                   <tr key={row.id} onClick={() => handleOpenDevice(row.name)}
                     style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: onOpenDevice ? 'pointer' : 'default' }}
@@ -582,6 +695,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                     <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>{row.usager || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>{row.lastlogonuser || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.75rem', color: C.slate, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.ou || ''}>{row.ou || '—'}</td>
+                    <td style={{ padding: '8px 10px' }}><GlpiStateBadge state={row.glpi_state} deleted={row.glpi_is_deleted} /></td>
                     <td style={{ padding: '8px 10px' }}>
                       {row.enabled ? (
                         <span style={{ color: '#059669', fontWeight: 700, fontSize: '.75rem' }}>Actif</span>

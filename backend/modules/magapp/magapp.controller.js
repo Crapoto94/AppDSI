@@ -101,7 +101,7 @@ async function serviceCodesByLabel() {
 
 // Fonctionnalités (colonnes magapp.settings.show_*) pouvant être réservées à quelques agents
 const FEATURE_KEYS = ['tickets', 'subscriptions', 'health_check', 'create_buttons', 'ideas', 'rencontres', 'library', 'consommables', 'chat_live',
-    'transcript_manager', 'parapheur', 'pdf_tools', 'tool_incident', 'tool_demande', 'tasks', 'notes', 'reunions', 'agent_search'];
+    'transcript_manager', 'parapheur', 'pdf_tools', 'tool_incident', 'tool_demande', 'tasks', 'notes', 'reunions', 'agent_search', 'virement_credits', 'mes_factures', 'entretiens_pro'];
 
 const MagAppController = {
     // GET /api/magapp/agent-search?q= — BETA « Recherche d'agent » : annuaire RH Studio (lecture seule).
@@ -904,6 +904,9 @@ const MagAppController = {
                 result.show_notes_original = result.show_notes;
                 result.show_reunions_original = result.show_reunions;
                 result.show_agent_search_original = result.show_agent_search;
+                result.show_virement_credits_original = result.show_virement_credits;
+                result.show_mes_factures_original = result.show_mes_factures;
+                result.show_entretiens_pro_original = result.show_entretiens_pro;
 
                 result.show_tickets = true;
                 result.show_subscriptions = true;
@@ -929,6 +932,9 @@ const MagAppController = {
                 result.show_notes = true;
                 result.show_reunions = true;
                 result.show_agent_search = true;
+                result.show_virement_credits = true;
+                result.show_mes_factures = true;
+                result.show_entretiens_pro = true;
                 // Chat : le toggle admin l'active pour TOUT LE MONDE ; désactivé, il reste visible pour les
                 // beta testeurs (show_chat_live_original conserve la valeur publiée, pour le badge BETA).
                 result.show_chat_live = true;
@@ -951,6 +957,9 @@ const MagAppController = {
                 result.show_notes_original = result.show_notes;
                 result.show_reunions_original = result.show_reunions;
                 result.show_agent_search_original = result.show_agent_search;
+                result.show_virement_credits_original = result.show_virement_credits;
+                result.show_mes_factures_original = result.show_mes_factures;
+                result.show_entretiens_pro_original = result.show_entretiens_pro;
 
                 // Fonctionnalités BETA attribuées nommément à cet agent (/admin/magapp, « Accès par fonctionnalité ») :
                 // non publiées pour tous (show_X_original = false) mais visibles pour lui, avec le badge BETA.
@@ -1033,10 +1042,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande, show_tasks, show_notes, show_reunions, show_agent_search } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande, show_tasks, show_notes, show_reunions, show_agent_search, show_virement_credits, show_mes_factures, show_entretiens_pro } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ?, show_tasks = ?, show_notes = ?, show_reunions = ?, show_agent_search = ? WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande, !!show_tasks, !!show_notes, !!show_reunions, !!show_agent_search]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ?, show_tasks = ?, show_notes = ?, show_reunions = ?, show_agent_search = ?, show_virement_credits = ?, show_mes_factures = ?, show_entretiens_pro = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande, !!show_tasks, !!show_notes, !!show_reunions, !!show_agent_search, !!show_virement_credits, !!show_mes_factures, !!show_entretiens_pro]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);

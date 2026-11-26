@@ -173,3 +173,7 @@ L'onglet **Préparation** pilote la phase amont de co-construction du budget pr�
 - 💡 **Règle d'or de l'engagement préalable** : Aucun matériel ne doit être commandé verbalement à un fournisseur sans qu'un bon de commande officiel SEDIT n'ait été préalablement validé et signé.
 - 💡 **Rythme d'engagement** : Visez un taux d'engagement de **50% fin mai** et de **80% fin septembre** pour éviter l'engorgement des services comptables lors de la clôture annuelle de novembre/décembre.
 - ⚠️ **Service Fait rapide** : Visez un délai de visa du Service Fait inférieur à **4 jours** suivant la livraison pour respecter le délai global de paiement légal (30 jours) et éviter les intérêts moratoires.
+
+## Service fait par lot (Factures)
+
+Sur la page **Factures**, une case à cocher apparaît à côté des boutons *Lancer* / *Faire* des factures dont le service fait n'est pas encore fait. Cochez au moins deux factures **du même fournisseur** : une barre en bas de page propose **Lancer par lot** (un même vérificateur, directeur informé ou avec visa en option) et **Faire par lot** (une même déclaration avec commentaire et/ou pièces). Chaque facture est traitée séparément ; un récapitulatif indique celles qui ont été refusées (par exemple un circuit déjà en cours).

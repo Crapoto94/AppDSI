@@ -1,4 +1,4 @@
-const ExcelJS = require('exceljs');
+const ExcelJS = require('../../shared/lazy').lazy('exceljs');
 const { pgDb } = require('../../shared/database');
 
 module.exports = {

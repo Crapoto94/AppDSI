@@ -17,11 +17,12 @@ const { SECRET_KEY } = require('../../shared/config');
 const forge = require('node-forge');
 const axios = require('axios');
 const QRCode = require('qrcode');
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require('../../shared/lazy').lazy('pdf-lib');
 const archiver = require('archiver');
 const { SignPdf } = require('@signpdf/signpdf');
 const { P12Signer } = require('@signpdf/signer-p12');
 const rgs = require('./rgs-signing');
+const { TimestampingSigner } = require('./timestamp');
 const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
 const emailTemplates = require('./parapheur-email');
 const apmMail = require('../../shared/apm_mail');
@@ -88,19 +89,29 @@ const setSendMail = (fn) => { sendMailFn = fn; };
  * @param {string} to
  * @param {{ subject:string, content?:string, html?:string }} tpl
  */
-async function sendParapheurEmail(to, tpl) {
+async function sendParapheurEmail(to, tpl, parapheurId, attachments = []) {
     if (!to || !tpl) return;
+    // Parapheur issu d'une fonctionnalité en BETA (mail_scope) : pas de mail vers un agent hors BETA.
+    if (parapheurId) {
+        try {
+            const p = await pgDb.get('SELECT mail_scope FROM hub_parapheur.parapheurs WHERE id = ?', [parapheurId]);
+            if (p && p.mail_scope === 'entretiens_pro' && !(await require('../../shared/ep-beta-mail').allowed(to))) {
+                console.log(`[EP BETA] mail du parapheur ${parapheurId} non envoyé à ${to} : fonctionnalité en BETA, destinataire hors BETA.`);
+                return;
+            }
+        } catch (e) { console.error('[PARAPHEUR] garde BETA:', e.message); return; }
+    }
     const { subject, content, html } = tpl;
     let apmErr = null;
     try {
-        await apmMail.sendMail({ to, subject, content: content || html });
+        await apmMail.sendMail({ to, subject, content: content || html, attachments });
         return;
     } catch (e) {
         apmErr = e;
         console.warn('[PARAPHEUR] API Ville indisponible, repli mailer local:', e.message);
     }
     if (!sendMailFn) throw apmErr || new Error("Aucun service d'envoi d'e-mails disponible.");
-    await sendMailFn(to, subject, html, [], 'parapheur');
+    await sendMailFn(to, subject, html, attachments.map(a => ({ ...a, encoding: a.encoding || 'base64' })), 'parapheur');
 }
 
 /**
@@ -162,7 +173,13 @@ async function estCompteInterne(email) {
  */
 async function getSignatureBaseUrl() {
     const s = await getParapheurSettings();
-    const base = s.effective_base_url || await getAppBaseUrl();
+    let base = s.effective_base_url || await getAppBaseUrl();
+    // Le parapheur est en DMZ : un lien de signature doit être joignable depuis l'extérieur (signature depuis une adresse e-mail externe).
+    // Une adresse interne (*.local, sans domaine public) est donc remplacée par l'adresse externe par défaut.
+    if (/^https?:\/\/[^/]*\.(local|lan|intra|internal)(:|\/|$)/i.test(base) || !/^https?:\/\/[^/]*\./.test(base)) {
+        base = cleanBaseUrl(process.env.PARAPHEUR_PUBLIC_URL || DEFAULT_PARAPHEUR_PUBLIC_URL);
+    }
+    base = cleanBaseUrl(base);
     // URL localhost = aucune URL publique valable sur CETTE instance : un lien de signature
     // en localhost est inutilisable pour le destinataire. On refuse d'envoyer (les signataires
     // restent « à notifier » et le mail part dès que l'URL est renseignée) plutôt que d'envoyer un lien cassé.
@@ -173,11 +190,19 @@ async function getSignatureBaseUrl() {
     return base;
 }
 
-const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
+/** Nettoie une URL de base : espaces, « / » et « . » parasites en fin (un point après le TLD fait planter le lien). */
+function cleanBaseUrl(v) {
+    return String(v || '').trim().replace(/[\/.\s]+$/, '');
+}
+
+const PUBLIC_BASE_URL_KEY ='parapheur.public_base_url';
+const DEFAULT_PARAPHEUR_PUBLIC_URL = 'https://parapheur.ivry94.fr';
 const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
 const BULK_SIGN_MENTION_KEY = 'parapheur.bulk_sign_mention';
 const NOTIFY_INTERVAL_KEY = 'parapheur.notify_interval_minutes';
 const VERIFY_PATH = '/parapheur/verification';
+// Horodatage RFC 3161 des signatures (autorité d'horodatage paramétrable)
+const TSA_KEYS = { enabled: 'parapheur.tsa_enabled', url: 'parapheur.tsa_url', login: 'parapheur.tsa_login', password: 'parapheur.tsa_password', policy: 'parapheur.tsa_policy_oid', required: 'parapheur.tsa_required' };
 
 /**
  * Formule juridique affichée avant une signature « en masse » (sans lecture
@@ -203,11 +228,12 @@ async function getParapheurSettings() {
     let sealEnabled = true;
     let bulkSignMention = '';
     let notifyIntervalMinutes = 2;
+    let tsa = { enabled: false, url: '', login: '', has_password: false, policy_oid: '', required: false };
     try {
         const db = getSqlite();
         if (db) {
             const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [PUBLIC_BASE_URL_KEY]);
-            publicBaseUrl = (row && row.setting_value) ? String(row.setting_value).trim() : '';
+            publicBaseUrl = (row && row.setting_value) ? cleanBaseUrl(row.setting_value) : '';
             const sealRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [SEAL_ENABLED_KEY]);
             if (sealRow && sealRow.setting_value != null) sealEnabled = String(sealRow.setting_value) !== 'false';
             const bulkRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [BULK_SIGN_MENTION_KEY]);
@@ -215,33 +241,53 @@ async function getParapheurSettings() {
             const notifyRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [NOTIFY_INTERVAL_KEY]);
             const notifyVal = notifyRow && notifyRow.setting_value != null ? Number(notifyRow.setting_value) : NaN;
             if (Number.isFinite(notifyVal) && notifyVal > 0) notifyIntervalMinutes = Math.min(240, Math.round(notifyVal));
+            const tv = async (k) => { const r = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]); return r && r.setting_value != null ? String(r.setting_value) : ''; };
+            tsa = {
+                enabled: (await tv(TSA_KEYS.enabled)) === 'true', url: await tv(TSA_KEYS.url), login: await tv(TSA_KEYS.login),
+                has_password: !!(await tv(TSA_KEYS.password)), policy_oid: await tv(TSA_KEYS.policy), required: (await tv(TSA_KEYS.required)) === 'true',
+            };
         }
     } catch { /* configuration non initialisée */ }
     // Repli par variable d'environnement : un déploiement ou une base restaurée sans réglage
     // ne doit jamais retomber silencieusement sur `http://localhost:5173` dans les liens de
     // signature/QR (ils doivent pointer sur le domaine public du parapheur, ex. parapheur.ivry94.fr).
-    if (!publicBaseUrl) publicBaseUrl = String(process.env.PARAPHEUR_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+    if (!publicBaseUrl) publicBaseUrl = cleanBaseUrl(process.env.PARAPHEUR_PUBLIC_URL);
     const internal = await getAppBaseUrl();
     return {
         public_base_url: publicBaseUrl,
         internal_base_url: internal,
-        effective_base_url: String(publicBaseUrl || internal || '').replace(/\/+$/, ''),
+        effective_base_url: cleanBaseUrl(publicBaseUrl || internal),
         verify_path: VERIFY_PATH,
         seal_enabled: sealEnabled,
         bulk_sign_mention: bulkSignMention || DEFAULT_BULK_SIGN_MENTION,
         notify_interval_minutes: notifyIntervalMinutes,
+        tsa,
     };
 }
 
-async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMention, notifyIntervalMinutes } = {}) {
+/** Configuration d'horodatage utilisable (mot de passe déchiffré), ou null si l'horodatage est désactivé / sans URL. */
+async function getTsaConfig() {
+    const db = getSqlite();
+    if (!db) return null;
+    const tv = async (k) => { const r = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]); return r && r.setting_value != null ? String(r.setting_value) : ''; };
+    if ((await tv(TSA_KEYS.enabled)) !== 'true') return null;
+    const url = (await tv(TSA_KEYS.url)).trim();
+    if (!url) return null;
+    let password = '';
+    const enc = await tv(TSA_KEYS.password);
+    if (enc) { try { password = decryptBuffer(Buffer.from(enc, 'base64')).toString('utf8'); } catch { password = ''; } }
+    return { url, login: await tv(TSA_KEYS.login), password, policy_oid: (await tv(TSA_KEYS.policy)).trim(), required: (await tv(TSA_KEYS.required)) === 'true', timeout_s: 15 };
+}
+
+async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMention, notifyIntervalMinutes, tsa } = {}) {
     const db = getSqlite();
     if (!db) throw { status: 503, message: 'Configuration indisponible (base non initialisée).' };
     const upsert = `INSERT INTO app_settings (setting_key, setting_value, description)
         VALUES (?, ?, ?)
         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`;
     if (publicBaseUrl !== undefined) {
-        const value = String(publicBaseUrl || '').trim().replace(/\/+$/, '');
-        if (value && !/^https?:\/\//i.test(value)) {
+        const value = cleanBaseUrl(publicBaseUrl);
+        if (value &&!/^https?:\/\//i.test(value)) {
             throw { status: 400, message: "L'URL publique doit commencer par http:// ou https://." };
         }
         await db.run(upsert, [PUBLIC_BASE_URL_KEY, value, 'URL publique externe du parapheur (lien de vérification du QR code)']);
@@ -258,7 +304,45 @@ async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMenti
         const value = Number.isFinite(n) && n > 0 ? String(Math.min(240, Math.round(n))) : '2';
         await db.run(upsert, [NOTIFY_INTERVAL_KEY, value, "Intervalle d'envoi des e-mails de signature (minutes)"]);
     }
+    if (tsa && typeof tsa === 'object') {
+        const put = (k, v, d) => db.run(upsert, [k, v, d]);
+        if (tsa.url !== undefined) {
+            const url = String(tsa.url || '').trim();
+            if (url && !/^https?:\/\//i.test(url)) throw { status: 400, message: 'L’adresse de l’autorité d’horodatage doit commencer par http:// ou https://.' };
+            await put(TSA_KEYS.url, url, 'Autorité d’horodatage RFC 3161 : URL');
+        }
+        if (tsa.enabled !== undefined) await put(TSA_KEYS.enabled, tsa.enabled === true ? 'true' : 'false', 'Horodatage des signatures activé');
+        if (tsa.required !== undefined) await put(TSA_KEYS.required, tsa.required === true ? 'true' : 'false', 'Horodatage obligatoire (sinon la signature se fait sans horodatage si la TSA est indisponible)');
+        if (tsa.login !== undefined) await put(TSA_KEYS.login, String(tsa.login || '').trim().slice(0, 200), 'Autorité d’horodatage : identifiant');
+        if (tsa.policy_oid !== undefined) {
+            const p = String(tsa.policy_oid || '').trim();
+            if (p && !/^\d+(\.\d+)+$/.test(p)) throw { status: 400, message: 'L’OID de politique doit être de la forme 1.2.3.4.' };
+            await put(TSA_KEYS.policy, p, 'Autorité d’horodatage : OID de politique (facultatif)');
+        }
+        if (tsa.clear_password === true) await put(TSA_KEYS.password, '', 'Autorité d’horodatage : mot de passe (chiffré)');
+        else if (tsa.password) await put(TSA_KEYS.password, encryptBuffer(Buffer.from(String(tsa.password), 'utf8')).toString('base64'), 'Autorité d’horodatage : mot de passe (chiffré)');
+    }
     return getParapheurSettings();
+}
+
+/** Test complet : signature d'un PDF de test horodatée (renvoie le rapport et le PDF en base64). */
+async function testTsaSignature(override) {
+    let cfg = await getTsaConfig();
+    if (override && override.url) cfg = { ...(cfg || {}), url: String(override.url).trim(), login: override.login ?? cfg?.login ?? '', password: override.password || cfg?.password || '', policy_oid: override.policy_oid ?? cfg?.policy_oid ?? '', timeout_s: 15 };
+    if (!cfg) throw { status: 400, message: 'Renseignez l’adresse de l’autorité d’horodatage.' };
+    try {
+        const r = await require('./timestamp').testSignedPdf(cfg);
+        return { ok: true, genTime: r.genTime, ms: r.ms, signature_bytes: r.signature_bytes, placeholder_bytes: r.placeholder_bytes, pdf_base64: r.pdf.toString('base64'), verification: r.verification };
+    } catch (e) { throw { status: 502, message: e.message }; }
+}
+
+/** Teste une autorité d'horodatage (celle enregistrée, ou celle du formulaire si fournie) avec une empreinte factice. */
+async function testTsa(override) {
+    let cfg = await getTsaConfig();
+    if (override && override.url) cfg = { ...(cfg || {}), url: String(override.url).trim(), login: override.login ?? cfg?.login ?? '', password: override.password || cfg?.password || '', policy_oid: override.policy_oid ?? cfg?.policy_oid ?? '', timeout_s: 15 };
+    if (!cfg) throw { status: 400, message: 'Renseignez l’adresse de l’autorité d’horodatage.' };
+    try { return await require('./timestamp').testTsa(cfg); }
+    catch (e) { throw { status: 502, message: e.message }; }
 }
 
 async function getVerifyBaseUrl() {
@@ -460,7 +544,7 @@ async function requestEmailOtp(token) {
             code,
             title: parapheur.title,
         });
-        await sendParapheurEmail(signataire.email, tpl);
+        await sendParapheurEmail(signataire.email, tpl, signataire.parapheur_id);
     } catch (e) {
         console.error('[PARAPHEUR] envoi code e-mail échoué:', e.message);
         throw { status: 502, message: "L'envoi du code par e-mail a échoué. Réessayez." };
@@ -757,10 +841,13 @@ async function listSecurity() {
 async function listCertificates() {
     const rows = await pgDb.all(`SELECT * FROM hub_parapheur.agent_certificates ORDER BY updated_at DESC`);
     const now = Date.now();
+    // Lectures du stockage (partage réseau) en parallèle : la liste était lente avec beaucoup de certificats
+    const decryptables = await Promise.all(rows.map(async (r) => {
+        try { const enc = await readStorageFile(r.p12_path); decryptBuffer(enc); return true; } catch (e) { return false; }
+    }));
     const out = [];
-    for (const r of rows) {
-        let decryptable = false;
-        try { const enc = await readStorageFile(r.p12_path); decryptBuffer(enc); decryptable = true; } catch (e) { decryptable = false; }
+    for (const [i, r] of rows.entries()) {
+        const decryptable = decryptables[i];
 
         let validity = 'unknown';
         if (r.valid_to) {
@@ -852,6 +939,8 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
     const y1 = height - cyTop - h / 2;
     const widgetRect = [x1, y1, x1 + w, y1 + h];
 
+    let tsaCfg = null, tsaResult = null;
+    try { tsaCfg = await getTsaConfig(); } catch { tsaCfg = null; }
     pdflibAddPlaceholder({
         pdfDoc,
         pdfPage,
@@ -859,13 +948,15 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
         contactInfo: '',
         name: name || '',
         location: '',
-        signatureLength: 16384,
+        signatureLength: tsaCfg ? 32768 : 16384,   // le jeton d'horodatage (avec la chaîne de la TSA) alourdit la signature
         widgetRect,
         appName: 'DSI Hub - Parapheur électronique',
     });
     const withPlaceholder = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
     // customSigner : signature par une clé matérielle située sur le poste du signataire (voir rgs-signing.js)
-    const signer = customSigner || new P12Signer(p12Buffer, { passphrase: password });
+    let signer = customSigner || new P12Signer(p12Buffer, { passphrase: password });
+    // Horodatage RFC 3161 (PAdES-T) si une autorité d'horodatage est activée
+    if (tsaCfg) signer = new TimestampingSigner(signer, tsaCfg, (r) => { tsaResult = r; });
     const signed = Buffer.from(await new SignPdf().sign(withPlaceholder, signer));
 
     // Vérifie que la signature a bien été inscrite.
@@ -1483,7 +1574,7 @@ async function sendSignerMail(parapheur, signataire) {
             mode: parapheur.mode,
             frontUrl: base,
         });
-        await sendParapheurEmail(signataire.email, tpl);
+        await sendParapheurEmail(signataire.email, tpl, parapheur.id);
     } catch (e) {
         console.warn('[PARAPHEUR] envoi mail signataire échoué:', e.message);
     }
@@ -1526,8 +1617,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     const publicToken = generateToken();
     const pRes = await pgDb.run(
     `INSERT INTO hub_parapheur.parapheurs
-    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service)
-    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service, no_qr, mail_scope)
+    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
     title,
     payload.message || '',
@@ -1539,6 +1630,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     createdByName || null,
     user.email || null,
     payload.service ? String(payload.service).trim().slice(0, 200) : null,
+    payload.no_qr === true || payload.no_qr === 'true',
+    payload.mail_scope ? String(payload.mail_scope).slice(0, 50) : null,
     ]
     );
     const parapheurId = pRes.lastID;
@@ -2013,7 +2106,8 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
     // authentification) accessible à toute personne disposant du lien.
     let qrImage = null;
     const qrBase = ctx.verifyBaseUrl || ctx.appBaseUrl;
-    if (qrBase && ctx.publicToken) {
+    // ctx.noQr : certains documents (ex. compte-rendu d'entretien professionnel) sont signés sans QR code.
+    if (!ctx.noQr && qrBase && ctx.publicToken) {
         try {
             const url = `${String(qrBase).replace(/\/+$/, '')}${VERIFY_PATH}/${ctx.publicToken}`;
             const qrBuf = await QRCode.toBuffer(url, { type: 'png', width: 260, margin: 1 });
@@ -2183,6 +2277,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
     const documents = await pgDb.all(`SELECT * FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [parapheurId]);
     const publicToken = await ensurePublicToken(parapheurId);
     const verifyBaseUrl = await getVerifyBaseUrl();
+    const noQr = !!(await pgDb.get(`SELECT no_qr FROM hub_parapheur.parapheurs WHERE id = ?`, [parapheurId]))?.no_qr;
     for (const doc of documents) {
         // Ne jamais écraser un PDF déjà porteur d'une signature cryptographique.
         if (doc.has_pades) continue;
@@ -2201,7 +2296,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
         );
         if (sigs.length === 0) continue;
 
-        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), verifyBaseUrl, parapheurId, publicToken });
+        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), verifyBaseUrl, parapheurId, publicToken, noQr });
         let hasPades = false;
         if (secureContext) {
             try {
@@ -2252,7 +2347,7 @@ async function notifyRequester(parapheur, signataireNom, done) {
             mode: parapheur.mode,
             link: `${base}/parapheur/${parapheur.id}`,
         });
-        await sendParapheurEmail(parapheur.created_by_email, tpl);
+        await sendParapheurEmail(parapheur.created_by_email, tpl, parapheur.id);
     } catch (e) {
         console.warn('[PARAPHEUR] notification demandeur échouée:', e.message);
     }
@@ -2321,7 +2416,7 @@ async function notifySignersCompleted(parapheur, signataires) {
                 mode: parapheur.mode,
                 link,
             });
-            await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') });
+            await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') }, parapheur.id);
         }
     } catch (e) {
         console.warn('[PARAPHEUR] notification signataires terminé échouée:', e.message);
@@ -2814,7 +2909,7 @@ async function rejectWithToken(token, { comment, delegation, req }) {
                 comment: cleanComment,
                 link: `${base}/parapheur/${parapheur.id}`,
             });
-            await sendParapheurEmail(parapheur.created_by_email, tpl);
+            await sendParapheurEmail(parapheur.created_by_email, tpl, parapheur.id);
         } catch (e) {
             console.warn('[PARAPHEUR] notification refus échouée:', e.message);
         }
@@ -2848,7 +2943,7 @@ async function relance(parapheurId, { manual, req }) {
                 link: `${base}/signature/${s.token}`,
                 deadline: parapheur.deadline,
             });
-            await sendParapheurEmail(s.email, tpl);
+            await sendParapheurEmail(s.email, tpl, parapheur.id);
             // La relance réinitialise la validité : extérieur 7 jours, interne 30 jours,
             // et relance la fenêtre d'accès direct (1re heure).
         const ms = (await isExternalSigner(s))
@@ -3416,7 +3511,7 @@ async function runReminders() {
                 link: `${base}/signature/${s.token}`,
                 deadline: s.deadline,
             });
-            await sendParapheurEmail(s.email, tpl);
+            await sendParapheurEmail(s.email, tpl, s.p_id);
             await pgDb.run(`UPDATE hub_parapheur.signataires SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = ?`, [s.id]);
             sent++;
         } catch (e) {
@@ -3448,8 +3543,8 @@ async function runSignatureDigest({ force } = {}) {
     let rows;
     try {
         rows = await pgDb.all(
-            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id,
-                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service
+            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id, sg.signature_title,
+                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service, p.mail_scope
              FROM hub_parapheur.signataires sg
              JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
              WHERE sg.status = 'en_cours'
@@ -3464,18 +3559,31 @@ async function runSignatureDigest({ force } = {}) {
     }
     if (!rows.length) return { sent: 0 };
 
+    // Un e-mail par destinataire (regroupant ses parapheurs). Quand la même personne figure plusieurs fois dans un même
+    // parapheur (ex. un compte rendu d'entretien cosigné par un agent qui est aussi son évaluateur), chaque signature
+    // fait l'objet de son propre e-mail.
     const byEmail = new Map();
     for (const r of rows) {
         const email = String(r.email || '').toLowerCase();
         if (!email) continue;
+        if (r.mail_scope === 'entretiens_pro' && !(await require('../../shared/ep-beta-mail').allowed(email))) continue;
         if (!byEmail.has(email)) byEmail.set(email, []);
         byEmail.get(email).push(r);
+    }
+    const batches = [];
+    for (const [email, list] of byEmail) {
+        const groups = [];
+        for (const r of list) {
+            const g = groups.find(x => !x.some(y => y.parapheur_id === r.parapheur_id));
+            if (g) g.push(r); else groups.push([r]);
+        }
+        for (const items of groups) batches.push([email, items]);
     }
 
     const base = await getSignatureBaseUrl();
     const appBase = await getAppBaseUrl();
     let sent = 0;
-    for (const [email, items] of byEmail) {
+    for (const [email, items] of batches) {
         // Nombre total de parapheurs en attente pour ce signataire.
         let totalPending = items.length;
         try {
@@ -3502,7 +3610,7 @@ async function runSignatureDigest({ force } = {}) {
                 internal: !isExternal,
                 globalLink: isExternal ? null : `${appBase}/parapheur`,
                 parapheurs: items.map(i => ({
-                    title: i.title,
+                    title: i.signature_title ? `${i.title} — signature : ${i.signature_title}` : i.title,
                     reference: i.reference,
                     requester: i.created_by_name || i.created_by_username,
                     deadline: i.deadline,
@@ -3525,6 +3633,7 @@ async function runSignatureDigest({ force } = {}) {
 }
 
 module.exports = {
+    sendParapheurEmail,
     MODULE,
     setSendMail,
     createParapheur,
@@ -3579,6 +3688,8 @@ module.exports = {
     getAgentTitre,
     getParapheurSettings,
     saveParapheurSettings,
+    testTsa,
+    testTsaSignature,
     getEvidenceArchive,
     getEvidenceArchiveByToken,
     getPlatformCa,

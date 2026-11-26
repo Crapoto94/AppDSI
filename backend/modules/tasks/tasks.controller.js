@@ -219,7 +219,10 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
     let prefMap = {};
     try {
         const prefRows = await pool.query(
-            'SELECT LOWER(username) AS un, task_assign_alert FROM hub.user_prefs WHERE LOWER(username) = ANY($1)',
+            `SELECT DISTINCT ON (LOWER(username)) LOWER(username) AS un, task_assign_alert
+               FROM hub.user_prefs
+              WHERE LOWER(username) = ANY($1)
+              ORDER BY LOWER(username), updated_at DESC NULLS LAST`,
             [recipients.map(u => u.toLowerCase())]
         );
         for (const row of prefRows.rows) prefMap[row.un] = row.task_assign_alert === true;

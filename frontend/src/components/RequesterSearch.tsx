@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import AgentPresenceBadge from './AgentPresenceBadge';
+import AgentSearch from './AgentSearch';
 
 interface Props {
   value: string;
@@ -10,47 +10,17 @@ interface Props {
 }
 
 export default function RequesterSearch({ value, onChange, initialEmail, initialName }: Props) {
-  const [query, setQuery] = useState(initialName || '');
-  const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<{ name: string; email: string } | null>(
     initialEmail && initialName ? { name: initialName, email: initialEmail } : null
   );
   const [ticketData, setTicketData] = useState<{ count: number; tickets: any[] } | null>(null);
   const [showTicketList, setShowTicketList] = useState(false);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (selected && selected.email) {
       loadTickets(selected.email);
     }
   }, [selected?.email]);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  function searchAD(q: string) {
-    if (q.length < 2) { setResults([]); return; }
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`/api/ad/search?q=${encodeURIComponent(q)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setResults(res.data);
-        setOpen(true);
-      } catch (e) { console.error(e); }
-    }, 300);
-  }
 
   async function loadTickets(email: string) {
     try {
@@ -62,69 +32,15 @@ export default function RequesterSearch({ value, onChange, initialEmail, initial
     } catch (e) { console.error(e); }
   }
 
-  function selectUser(u: any) {
-    setSelected({ name: u.displayName, email: u.email });
-    setQuery(u.displayName);
-    onChange(u.email, u.displayName);
-    setOpen(false);
-  }
-
-  function clearUser() {
-    setSelected(null);
-    setQuery('');
-    setTicketData(null);
-    onChange('', '');
-  }
-
-  const modalStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-  };
-
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <div style={{ flex: 1, position: 'relative' }}>
-          <input
-            value={query}
-            onChange={e => { setQuery(e.target.value); searchAD(e.target.value); if (selected) clearUser(); }}
-            onFocus={() => { if (results.length && !selected) setOpen(true); }}
-            placeholder="Rechercher un demandeur par nom, email..."
-            style={{
-              width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
-              borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box'
-            }}
-          />
-          {open && results.length > 0 && !selected && (
-            <div style={{
-              position: 'absolute', top: '100%', left: 0, right: 0,
-              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, marginTop: 4,
-              maxHeight: 250, overflow: 'auto'
-            }}>
-              {results.map((u: any) => (
-                <div key={u.username} onClick={() => selectUser(u)}
-                  style={{
-                    padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9',
-                    transition: 'background 0.1s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {selected && <AgentPresenceBadge email={selected.email} name={selected.name} />}
-        {selected && (
-          <button onClick={clearUser} title="Effacer"
-            style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#ef4444', whiteSpace: 'nowrap' }}>
-            ✕
-          </button>
-        )}
-      </div>
+    <div style={{ position: 'relative' }}>
+      <AgentSearch
+        initialName={initialName}
+        initialEmail={initialEmail}
+        placeholder="Rechercher un demandeur par nom, email..."
+        onSelect={(u) => { setSelected({ name: u.displayName, email: u.email }); onChange(u.email, u.displayName); }}
+        onClear={() => { setSelected(null); setTicketData(null); onChange('', ''); }}
+      />
 
       {selected && ticketData && (
         <div style={{ marginTop: 8 }}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { X, Truck, ChevronLeft, ChevronRight, Package, AlertCircle, Building2, User, Calendar, ShoppingCart, Trash2 } from 'lucide-react';
 import { resolveDesignationImageUrl } from '../utils/designationImages';
+import { appAlert } from './AppDialogs';
 
 interface Category { id: number; name: string; display_name: string; }
 interface Equipment {
@@ -118,7 +119,7 @@ const PretRequestModal: React.FC<PretRequestModalProps> = ({ isOpen, onClose, to
         start_date: startDate, end_date: endDate, motif, direction, service, nom_demandeur: nomDemandeur,
       }, { headers: { Authorization: `Bearer ${token}` } });
 
-      alert('Votre demande de prêt a été confirmée. Le retrait se fait auprès de la DSI.');
+      appAlert('Votre demande de prêt a été confirmée. Le retrait se fait auprès de la DSI.');
       onClose();
     } catch (e: any) {
       setError(e.response?.data?.error || 'Erreur lors de la création de la demande');

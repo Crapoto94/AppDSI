@@ -24,6 +24,7 @@ router.post('/:id/envoyee', authenticateJWT, controller.marquerEnvoyee);
 router.post('/:id/documents', authenticateJWT, upload.array('files', 10), controller.addDocuments);
 router.delete('/:id/documents/:pjId', authenticateJWT, controller.removeDocument);
 router.post('/:id/validate', authenticateJWT, controller.validate);
+router.post('/:id/refuse', authenticateJWT, controller.refuse);
 router.get('/:id/commentaires', authenticateJWT, controller.listComments);
 router.post('/:id/commentaires', authenticateJWT, controller.addComment);
 router.put('/:id/commentaires/:cid', authenticateJWT, controller.editComment);

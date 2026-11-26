@@ -2,7 +2,7 @@ const xlsx = require('xlsx');
 const { pool } = require('../../shared/database');
 const telecomController = require('../telecom/telecom.controller');
 const financeController = require('../finance/finance.controller');
-const { readEngagementRows } = require('../finance/sedit-engagements.service');
+const { readEngagementRows } = require('../finance/sedit-source.service');
 
 // Nature comptable des frais de télécommunication : la prévision de cette nature se base sur
 // l'atterrissage annuel de /telecom plutôt que sur hub_contrats.contrats (qui ne recense pas les
@@ -428,7 +428,8 @@ module.exports = {
                 const bySA = new Map(); // clé "service||article" → montant (réalisé) ou engagé (prévision)
                 try {
                     // Lecture directe de Sedit (Oracle FI), DSI uniquement.
-                    const lines = await readEngagementRows(exercice);
+                    const eng = await readEngagementRows(exercice);
+                    const lines = eng.rows;
                     const prefix = yearPrefix(exercice);
                     for (const row of lines) {
                         if (!row['Référence Fonctionnelle']) continue;
@@ -616,7 +617,8 @@ module.exports = {
 
             let engagements = [];
             if (includeEngagements) {
-                const lines = await readEngagementRows(year);
+                const eng = await readEngagementRows(year);
+                const lines = eng.rows;
                 engagements = lines
                     .filter(r => r['Service Gestionnaire'] === service_code && r['Article par nature'] === article_code
                         && r['Référence Fonctionnelle'] && r['Code mouvement'].startsWith(yearPrefix)

@@ -315,7 +315,7 @@ module.exports = {
       // 2. Collecteur (premier trouvé) — sert uniquement à récupérer la mailbox/config,
       // l'activation (propre à chaque instance) n'est pas pertinente pour une réintégration manuelle.
       const collector = await pgDb.get(
-        "SELECT * FROM hub_tickets.mail_collectors WHERE module != 'copieurs' ORDER BY id LIMIT 1"
+        "SELECT * FROM hub_tickets.mail_collectors WHERE module NOT IN ('copieurs', 'entretiens') ORDER BY id LIMIT 1"
       );
       if (!collector) return res.status(400).json({ message: 'Aucun collecteur mail configuré' });
 

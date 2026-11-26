@@ -178,6 +178,22 @@ const controller = {
         } catch (e) { sendError(res, e, 'Erreur paramètres'); }
     },
 
+    // POST /api/parapheur/admin/tsa-test — teste l'autorité d'horodatage (empreinte factice, aucun document envoyé)
+    testTsa: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.testTsa(req.body && req.body.tsa));
+        } catch (e) { sendError(res, e, 'Test impossible'); }
+    },
+
+    // POST /api/parapheur/admin/tsa-test-signature — signe un PDF de test avec horodatage et renvoie le rapport + le PDF
+    testTsaSignature: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.testTsaSignature(req.body && req.body.tsa));
+        } catch (e) { sendError(res, e, 'Test impossible'); }
+    },
+
     saveSettings: async (req, res) => {
         try {
             if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
@@ -185,6 +201,7 @@ const controller = {
                 publicBaseUrl: req.body && req.body.public_base_url,
                 bulkSignMention: req.body && req.body.bulk_sign_mention,
                 notifyIntervalMinutes: req.body && req.body.notify_interval_minutes,
+                tsa: req.body && req.body.tsa,
             });
             res.json(result);
         } catch (e) { sendError(res, e, 'Enregistrement impossible'); }

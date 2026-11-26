@@ -13,7 +13,7 @@ interface Props {
  */
 export default function ServiceFaitProcessusModal({ workflowId, onClose, onChanged }: Props) {
   return (
-    <div onClick={onClose}
+    <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div onClick={(e) => e.stopPropagation()}
         style={{ background: '#fff', borderRadius: 12, width: 900, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(0,0,0,0.35)', position: 'relative' }}>

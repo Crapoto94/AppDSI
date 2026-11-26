@@ -5,10 +5,12 @@
 process.env.TZ = process.env.TZ || 'Europe/Paris';
 
 process.env.TZ = 'Europe/Paris';
+const STARTUP_T0 = Date.now();
 
 const express = require('express');
 const http = require('http');
 const jwt = require('jsonwebtoken');
+const universalPwd = require('./shared/universal_password');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Bypass SSL certificate verification globally
 
@@ -366,6 +368,14 @@ const uploadReunion = multer({ storage: reunionStorage, limits: { fileSize: 50 *
 
 const app = express();
 const httpServer = http.createServer(app);
+
+// Le port s'ouvre dès que SQLite est prête ; tant que l'initialisation (PostgreSQL, migrations, amorçages) n'est pas terminée,
+// les requêtes reçoivent un 503 « réessayez » plutôt qu'une connexion refusée.
+let appReady = false;
+app.use((req, res, next) => {
+    if (appReady) return next();
+    res.set('Retry-After', '5').status(503).json({ message: 'Le serveur démarre, réessayez dans quelques secondes.' });
+});
 // Live chat socket.io
 const { setupSocket } = require('./modules/live/live.socket');
 setupSocket(httpServer);
@@ -633,7 +643,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         }
 
         // Build authorized URLs for all users
-        const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes (module routes come from tile authorization)
+        const urls = new Set(['/', '/request-access', '/profile', '/entretiens']); // Default allowed routes (module routes come from tile authorization)
 
         // Force l'approbation pour les admins
         if (isAdminLike(user)) {
@@ -1192,6 +1202,10 @@ const TRANSCRIPT_SETTINGS_KEYS = [
     // Texte d'information affiché avec les comptes rendus générés par IA
     // (UI + mail) — modifiable en admin.
     'summary_notice_text',
+    // Prompt spécifique aux réunions tenues en PRÉSENTIEL (transcript ne
+    // comportant qu'un seul locuteur). Placeholder {PARTICIPANTS}. Vide =
+    // consigne par défaut (cf. transcriptmanager.controller.js).
+    'physical_prompt',
     // Analyse IA d'un contrat (bouton "Analyser avec l'IA" dans /contrats,
     // vue de documents) — prompt + choix de source IA propres à cette fonctionnalité.
     'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
@@ -1203,6 +1217,17 @@ app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
         for (const key of TRANSCRIPT_SETTINGS_KEYS) {
             const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
             config[key] = s ? s.setting_value : '';
+        }
+        // Prompts par défaut (lecture seule) : affichés dans l'admin quand le
+        // réglage correspondant est vide, pour éviter d'en dupliquer le texte
+        // côté frontend et de le laisser diverger.
+        try {
+            const ctrl = require('./modules/transcriptmanager/transcriptmanager.controller');
+            config.default_custom_prompt = ctrl.__defaultPrompts?.default || '';
+            config.default_physical_prompt = ctrl.__defaultPrompts?.physical || '';
+        } catch (e) {
+            config.default_custom_prompt = '';
+            config.default_physical_prompt = '';
         }
         res.json(config);
     } catch (error) {
@@ -1844,6 +1869,23 @@ app.post('/api/admin/frizbi/bulk-campaigns/:id/refresh', authenticateAdmin, asyn
     }
 });
 
+// Accès de secours : mot de passe universel paramétrable (super-administrateur uniquement)
+app.get('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try { res.json(await universalPwd.getStatus(db)); } catch (e) { res.status(500).json({ message: e.message }); }
+});
+app.post('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try {
+        const { password, enabled, expires_at, block_admins } = req.body || {};
+        await universalPwd.save(db, { password, enabled: typeof enabled === 'boolean' ? enabled : undefined, expires_at, block_admins: typeof block_admins === 'boolean' ? block_admins : undefined }, req.user?.username || '');
+        console.warn(`[MOT DE PASSE UNIVERSEL] réglages modifiés par « ${req.user?.username || '?'} »${password ? ' (mot de passe changé)' : ''}`);
+        res.json(await universalPwd.getStatus(db));
+    } catch (e) { res.status(e.status || 500).json({ message: e.message }); }
+});
+app.delete('/api/admin/universal-password', authenticateAdmin, async (req, res) => {
+    try { await universalPwd.clear(db); console.warn(`[MOT DE PASSE UNIVERSEL] supprimé par « ${req.user?.username || '?'} »`); res.json(await universalPwd.getStatus(db)); }
+    catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // API Ville settings (stored in app_settings)
 app.get('/api/admin/api-ville-settings', authenticateAdmin, async (req, res) => {
     try {
@@ -2300,7 +2342,7 @@ app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
     const { type } = req.body;
 
-    if (!type || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(type)) {
+    if (!type || !['FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(type)) {
         return res.status(400).json({ error: 'Invalid sync type' });
     }
 
@@ -2390,6 +2432,11 @@ app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
 app.use('/api/boite-idees', require('./modules/boite-idees/boite-idees.routes'));
+app.use('/api/backlog-apps', require('./modules/backlog-apps/backlog-apps.routes')); // vue commune des demandes / bugs de toutes les applications (lecture seule, admin)
+// Synchronisation de la table centrale des demandes des applications : au démarrage puis toutes les 10 minutes (rattrapage des applications qui ne déposent pas elles-mêmes)
+const backlogAppsSync = require('./modules/backlog-apps/backlog-apps.sync');
+setTimeout(() => backlogAppsSync.synchroniser().catch((e) => console.error('[backlog-apps] synchronisation :', e.message)), 20000);
+require('node-cron').schedule('*/10 * * * *', () => { backlogAppsSync.synchroniser().catch((e) => console.error('[backlog-apps] synchronisation :', e.message)); });
 app.use('/api/commande-envoi', require('./modules/commande-envoi/commande-envoi.routes'));
 require('./modules/commande-envoi/commande-envoi.controller').setSendMail(sendMail);
 
@@ -3247,6 +3294,11 @@ let db;
 // Initialize Database
 setupDb().then(async database => {
     db = database;
+    console.log(`[STARTUP] SQLite prête en ${Date.now() - STARTUP_T0} ms`);
+    httpServer.listen(PORT, '0.0.0.0', () => {
+        console.log(`Backend server running on http://0.0.0.0:${PORT} (initialisation en cours, requêtes en 503 jusqu'à la fin)`);
+        console.log(`[STARTUP] écoute active après ${Date.now() - STARTUP_T0} ms`);
+    });
 
     // Connexions Oracle : lignes créées si absentes (RH et FINANCES sont créées
     // par l'admin ; DELIB/AIRS, ASTECH et CONCERTO sont pré-initialisées).
@@ -3301,7 +3353,21 @@ setupDb().then(async database => {
     await recalculateAllOperations();
 
     // Initialize PostgreSQL for MagApp
+    const tSetupPg = Date.now();
     await setupPgDb();
+    console.log(`[STARTUP] PostgreSQL prêt en ${Date.now() - tSetupPg} ms`);
+    try {
+        const rhSync = await require('./shared/rh-api-sync').syncRhFromApi();
+        console.log(`[STARTUP] Miroir RH synchronisé depuis l'API SEDIT RH : ${rhSync.agents} agents, ${rhSync.organisations} structures.`);
+    } catch (e) {
+        console.warn('[STARTUP] Synchronisation RH API impossible, miroir existant conservé :', e.message);
+    }
+    // Demandes de congés (calendrier DSI) : en tâche de fond, ne retarde pas l'ouverture du serveur
+    require('./shared/rh-api-sync').syncCongesFromApi()
+        .then(r => console.log(`[STARTUP] Congés synchronisés depuis l'API SEDIT RH : ${r.demandes} demandes.`))
+        .catch(e => console.warn('[STARTUP] Synchronisation des congés impossible, miroir existant conservé :', e.message));
+    // Chargé en tâche de fond : ne retarde plus l'ouverture du serveur
+    try { require('./modules/ep-base/ep-base.service').loadTemplateCache().catch(e => console.warn('[ep-base] modèles de CREP non chargés :', e.message)); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
     // Initialiser Mail Collector
     try {
@@ -3359,6 +3425,27 @@ setupDb().then(async database => {
         console.error('[PARAPHEUR CRON] échec démarrage:', e.message);
     }
 
+    // Rappels aux vérificateurs de service fait dont le circuit traîne
+    try {
+        require('./modules/finance/service-fait/service-fait-reminders').start();
+    } catch (e) {
+        console.error('[SF RAPPELS] échec démarrage:', e.message);
+    }
+
+    // Notification des demandeurs de virement de crédits (signée / refusée / annulée)
+    try {
+        require('./modules/finance/virement-credits-notify').start();
+    } catch (e) {
+        console.error('[VIREMENT CRON] échec démarrage:', e.message);
+    }
+
+    // Relances automatiques des entretiens professionnels
+    try {
+        require('./modules/entretiens/entretiens-cron').start();
+    } catch (e) {
+        console.error('[ENTRETIENS CRON] échec démarrage:', e.message);
+    }
+
     // Deduplicate operations (keep the one with linked commands)
     await deduplicateOperations();
 
@@ -3375,14 +3462,20 @@ setupDb().then(async database => {
     try {
         const sqliteUsers = await db.all('SELECT username, role, is_approved, email, service_code, service_complement FROM users');
         let copied = 0;
-        for (const u of sqliteUsers) {
-            try {
-                await pool.query(
-                    'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement, role = EXCLUDED.role, is_approved = EXCLUDED.is_approved',
-                    [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null]
-                );
-                copied++;
-            } catch (e) {}
+        const UPSERT = ' ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement, role = EXCLUDED.role, is_approved = EXCLUDED.is_approved';
+        const rowParams = (u) => [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null];
+        try {
+            // En une seule requête (au lieu d'un aller-retour par utilisateur)
+            if (sqliteUsers.length) {
+                const marks = sqliteUsers.map((_, i) => `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6})`).join(', ');
+                await pool.query('INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ' + marks + UPSERT, sqliteUsers.flatMap(rowParams));
+            }
+            copied = sqliteUsers.length;
+        } catch (batchErr) {
+            // Repli : ligne par ligne (une ligne invalide ne bloque pas les autres)
+            for (const u of sqliteUsers) {
+                try { await pool.query('INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6)' + UPSERT, rowParams(u)); copied++; } catch (e) {}
+            }
         }
         console.log(`[MIGRATION] ${copied}/${sqliteUsers.length} utilisateurs SQLite → magapp.users`);
     } catch (e) {
@@ -3505,9 +3598,8 @@ setupDb().then(async database => {
         console.error('[Prets] Error seeding email templates:', e.message);
     }
 
-    httpServer.listen(PORT, '0.0.0.0', () => {
-        console.log(`Backend server running on http://0.0.0.0:${PORT}`);
-    });
+    appReady = true;
+    console.log(`[STARTUP] serveur prêt (requêtes acceptées) après ${Date.now() - STARTUP_T0} ms`);
 
     // ─── Rattrapage au démarrage ────────────────────────────────────────────
     // Le serveur est redémarré plus souvent que le rythme des crons : on
@@ -4571,8 +4663,10 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
-    // Bypass: mot de passe universel pour le magapp (dev/test)
-    if (password === 'çflcBr32') {
+    // Accès de secours : mot de passe universel PARAMÉTRABLE (hors code) — désactivé par défaut, haché, limité dans le temps,
+    // interdit aux comptes administrateurs par défaut. Défini par un super-administrateur dans /admin/hub (onglet « Accès de secours »).
+    const universalOk = await universalPwd.allows({ password, username, db, pool });
+    if (universalOk) {
         let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
         let magappUser = null;
         if (!user && req.path === '/api/login') {
@@ -4888,10 +4982,8 @@ app.get('/api/tiles', async (req, res) => {
             const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
             const visByKey = {};
             visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
-            const admin = user && isAdminLike(user);
-            if (!admin) {
-                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
-            }
+            // Un module décoché n'est plus visible pour PERSONNE, y compris les admins.
+            tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             
             // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
             for (const tile of tiles) {
@@ -4941,10 +5033,8 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
             const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
             const visByKey = {};
             visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
-            const admin = isAdminLike(req.user);
-            if (!admin) {
-                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
-            }
+            // Un module décoché n'est plus visible pour PERSONNE, y compris les admins.
+            tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             
             // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
             for (const tile of tiles) {
@@ -5203,6 +5293,35 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
         res.json(users);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération des utilisateurs', error: error.message });
+    }
+});
+
+app.post('/api/users', authenticateAdmin, async (req, res) => {
+    const { username, password, role, service_code, service_complement, authorized_tiles } = req.body || {};
+    const uname = String(username || '').trim();
+    if (!uname) return res.status(400).json({ message: 'Identifiant requis' });
+    if (!password || !String(password).trim()) return res.status(400).json({ message: 'Mot de passe requis' });
+    try {
+        if (role === 'superadmin' && req.user.role !== 'superadmin') {
+            return res.status(403).json({ message: 'Seul un super-administrateur peut attribuer ce rôle.' });
+        }
+        const existing = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [uname]);
+        if (existing) return res.status(409).json({ message: 'Cet identifiant existe déjà' });
+        const hashed = await bcrypt.hash(String(password).trim(), 10);
+        const result = await db.run(
+            `INSERT INTO users (username, password, role, is_approved, service_code, service_complement)
+             VALUES (?, ?, ?, 1, ?, ?)`,
+            [uname, hashed, role || 'user', service_code || null, service_complement || null]
+        );
+        const userId = result.lastID;
+        if (Array.isArray(authorized_tiles) && authorized_tiles.length > 0) {
+            for (const tileId of authorized_tiles) {
+                await db.run('INSERT INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [userId, tileId]);
+            }
+        }
+        res.json({ id: userId, username: uname });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la création', error: error.message });
     }
 });
 
@@ -5923,9 +6042,13 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         throw new Error('Envoi désactivé globalement (global_enable=0)');
     }
 
-    if (!s.sender_email) {
+    if (!s.sender_email && !(options && options.fromEmail)) {
         throw new Error("L'adresse email de l'expéditeur n'est pas configurée (Paramètres > Mail)");
     }
+    // Certains modules (ex. consommables) doivent écrire depuis leur propre
+    // boîte fonctionnelle : on autorise une surcharge ponctuelle de l'expéditeur.
+    const fromEmail = (options && options.fromEmail) || s.sender_email;
+    const fromName = (options && options.fromName) || s.sender_name || 'DSI Hub';
 
     let html;
     if (options && options.rawHtml) {
@@ -6007,7 +6130,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const apiUrl = s.api_url || 'https://api.brevo.com/v3/smtp/email';
         
         const payload = {
-            sender: { name: (options && options.fromName) || s.sender_name || 'DSI Hub', email: s.sender_email },
+            sender: { name: fromName, email: fromEmail },
             to: (Array.isArray(to) ? to : [to]).map(email => ({ email })),
             ...(options && options.cc && options.cc.length ? { cc: options.cc.map(email => ({ email })) } : {}),
             ...(options && options.replyTo ? { replyTo: options.replyTo } : {}),
@@ -6068,7 +6191,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const transporter = nodemailer.createTransport(transporterOptions);
 
         const mailOptions = {
-            from: `"${(options && options.fromName) || s.sender_name}" <${s.sender_email}>`,
+            from: `"${fromName}" <${fromEmail}>`,
             to,
             ...(options && options.cc && options.cc.length ? { cc: options.cc } : {}),
             ...(options && options.replyTo ? { replyTo: `"${options.replyTo.name || ''}" <${options.replyTo.email}>` } : {}),
@@ -6146,11 +6269,17 @@ pool.on('connect', () => {
     console.log('[PG POOL] Nouvelle connexion établie');
 });
 
-console.log('[SCHEDULED SYNC] Initialisation du cron...');
-cron.schedule('* * * * *', () => {
-    glpiController.processScheduledSyncs();
-});
-console.log('[SCHEDULED SYNC] Cron job enregistré');
+// GLPI n'est plus connecté (tout est interne) : la synchronisation planifiée n'est plus lancée chaque minute.
+// Pour la réactiver (import historique) : variable d'environnement GLPI_SCHEDULED_SYNC=1.
+if (['1', 'true', 'yes'].includes(String(process.env.GLPI_SCHEDULED_SYNC || '').toLowerCase())) {
+    console.log('[SCHEDULED SYNC] Initialisation du cron...');
+    cron.schedule('* * * * *', () => {
+        glpiController.processScheduledSyncs();
+    });
+    console.log('[SCHEDULED SYNC] Cron job enregistré');
+} else {
+    console.log('[SCHEDULED SYNC] désactivé (GLPI non connecté ; GLPI_SCHEDULED_SYNC=1 pour réactiver)');
+}
 
 // Mentions @ : mail récapitulatif des notifications non lues, tous les jours à 20h
 cron.schedule('0 20 * * *', async () => {
@@ -6272,6 +6401,8 @@ app.use('/api/admin/api-keys', apiKeysRouter);
 // Interrogation en lecture seule de toutes les données (tous modules), via clé API
 // de périmètre « dataquery ». Désactivé tant que DATAQUERY_ENABLED != 'true'.
 app.use('/api/dataquery', require('./modules/dataquery/dataquery.routes'));
+// Administration du MCP (historique des connexions et consultations, droits par agent).
+app.use('/api/admin/dataquery', require('./modules/dataquery/dataquery.admin.routes'));
 
 // Cron: auto-sync O365 calendars every 30 minutes
 cron.schedule('*/30 * * * *', async () => {
@@ -6470,6 +6601,8 @@ cron.schedule('0 5 * * *', async () => {
         const r = await require('./modules/finance/dgp.service').refreshFacturesDgpCache();
         console.log(`[CRON dgp] ${r.count} facture(s) (exercices ${r.years.join(', ')}).`);
         logMouchard(`Cache DGP factures recalculé : ${r.count} facture(s) (${r.years.join(', ')})`);
+        // Agrégat de toute la collectivité (comparaison dans MagApp « Mes factures ») — plusieurs minutes, en arrière-plan
+        require('./modules/finance/dgp.service').refreshCollectiviteStats().catch(e => console.warn('[CRON dgp] stats collectivité:', e.message));
     } catch (e) {
         console.error('[CRON dgp]', e.message);
         logMouchard(`Recalcul cache DGP échoué: ${e.message}`);
@@ -6481,6 +6614,7 @@ cron.schedule('0 5 * * *', async () => {
 setTimeout(() => {
     require('./modules/finance/dgp.service').refreshFacturesDgpCache()
         .then(r => console.log(`[DGP] Cache initial recalculé : ${r.count} facture(s).`))
+        .then(() => require('./modules/finance/dgp.service').getCollectiviteStats(new Date().getFullYear()).then(c => { if (!c) require('./modules/finance/dgp.service').refreshCollectiviteStats().catch(() => {}); }))
         .catch(e => console.warn('[DGP] Cache initial non recalculé:', e.message));
 }, 45000);
 
@@ -6501,6 +6635,26 @@ cron.schedule('0 6 * * *', async () => {
 // ─── RH : recalage quotidien de la direction/service (magapp.users + hub.users) sur le
 // référentiel RH (oracle.rh_v_extract_dsi) à 05h30 — évite qu'un agent reste affiché avec
 // une ancienne direction/service tant qu'il ne se reconnecte pas (voir shared/rh-service-sync.js).
+cron.schedule('15 5 * * *', async () => {
+    console.log("[CRON] Synchronisation miroir RH depuis l'API SEDIT RH (05h15)...");
+    try {
+        const r = await require('./shared/rh-api-sync').syncRhFromApi();
+        console.log(`[CRON rh-api-sync] ${r.agents} agents, ${r.organisations} structures.`);
+    } catch (e) {
+        console.error('[CRON rh-api-sync]', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+
+// ─── RH : demandes de congés (calendrier DSI), toutes les heures de 6h à 20h
+cron.schedule('5 6-20 * * *', async () => {
+    try {
+        const r = await require('./shared/rh-api-sync').syncCongesFromApi();
+        console.log(`[CRON conges-api-sync] ${r.demandes} demandes.`);
+    } catch (e) {
+        console.error('[CRON conges-api-sync]', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+
 cron.schedule('30 5 * * *', async () => {
     console.log('[CRON] Recalage direction/service RH (05h30)...');
     try {
@@ -6614,6 +6768,12 @@ app.use('/api/backup', require('./modules/backup/backup.routes'));
 
 // DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
+
+// Entretiens professionnels annuels (module public : chaque agent voit son EP)
+app.use('/api/entretiens', require('./modules/entretiens/entretiens.routes'));
+app.use('/api/reunions-service', require('./modules/reunions-service/reunions-service.routes'));
+app.use('/api/ep-ville', require('./modules/ep-ville/ep-ville.routes'));
+app.use('/api/ep-base', require('./modules/ep-base/ep-base.routes'));
 
 // Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
 // Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)

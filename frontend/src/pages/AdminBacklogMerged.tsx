@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
-import { Inbox, Lightbulb, Sparkles } from 'lucide-react';
+import { Inbox, Layers, Lightbulb, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AdminBacklog from './AdminBacklog';
 import AdminIdeas from './AdminIdeas';
 import AdminWhatsNew from './AdminWhatsNew';
+import BacklogApps from './BacklogApps';
 import BacklogRecipients from '../components/BacklogRecipients';
 
-type BacklogTab = 'backlog' | 'magapp' | 'whatsnew';
+type BacklogTab = 'backlog' | 'magapp' | 'apps' | 'whatsnew';
 
 const TABS: { id: BacklogTab; label: string; Icon: React.ElementType }[] = [
   { id: 'backlog',  label: 'BackLog DSIHUB', Icon: Inbox      },
   { id: 'magapp',   label: 'BackLog Magapp',  Icon: Lightbulb  },
+  { id: 'apps',     label: 'Toutes les applications', Icon: Layers },
   { id: 'whatsnew', label: "What's New",      Icon: Sparkles   },
 ];
 
 const AdminBacklogMerged: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const initial: BacklogTab = searchParams.get('tab') === 'magapp' ? 'magapp' : (searchParams.get('tab') === 'whatsnew' ? 'whatsnew' : 'backlog');
+  const t = searchParams.get('tab');
+  const initial: BacklogTab = t === 'magapp' || t === 'whatsnew' || t === 'apps' ? t : 'backlog';
   const [tab, setTab] = useState<BacklogTab>(initial);
 
   return (
@@ -27,7 +30,7 @@ const AdminBacklogMerged: React.FC = () => {
         </span>
         <div>
           <h1 className="abm-title">Backlog &amp; Idées</h1>
-          <p className="abm-desc">Demandes de fonctionnalités et idées d'améliorations DSI Hub et MagApp</p>
+          <p className="abm-desc">Demandes de fonctionnalités, idées et bugs : DSI Hub, MagApp et l'ensemble des applications</p>
         </div>
       </div>
 
@@ -49,6 +52,7 @@ const AdminBacklogMerged: React.FC = () => {
       <div className="abm-body">
         {tab === 'backlog' && <AdminBacklog />}
         {tab === 'magapp'  && <AdminIdeas />}
+        {tab === 'apps' && <BacklogApps />}
         {tab === 'whatsnew' && <AdminWhatsNew />}
       </div>
 

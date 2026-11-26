@@ -4,6 +4,7 @@ const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware'
 const { pgDb } = require('../../shared/database');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
 
 const mdUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -16,26 +17,9 @@ async function getMarkedParse() {
     return _markedParse;
 }
 
-// GET /api/page-help — liste toutes les entrées d'aide
-router.get('/', authenticateJWT, async (req, res) => {
-    try {
-        const rows = await pgDb.all('SELECT * FROM hub.page_help ORDER BY page_path');
-        res.json(rows);
-    } catch (e) { res.status(500).json({ message: e.message }); }
-});
 
-// GET /api/page-help/:page — retourne l'aide pour une page : d'abord hub.page_help
-// (source éditable depuis /admin/aides), puis en repli les guides Markdown
-// historiques livrés avec le dépôt (docs/*.md) pour les pages non encore migrées.
-router.get('/:page', async (req, res) => {
-    try {
-        const page = decodeURIComponent(req.params.page);
-
-        const row = await pgDb.get('SELECT page_path, content, content_html FROM hub.page_help WHERE page_path = $1', [page]);
-        if (row) return res.json(row);
-
-        // Mappage page -> fichier (repli pour les pages non migrées vers hub.page_help)
-        const MAP = {
+// Page d'aide -> guide Markdown livré avec le dépôt (docs/*.md). Sert de repli ET de source d'alimentation de hub.page_help (voir seedGuides).
+const GUIDE_FILES = {
             '/tickets':                'GUIDE-TECHNICIEN-TICKETS.md',
             '/tickets/stats':          'GUIDE-STATISTIQUES-TICKETS.md',
             '/tickets/admin':          'GUIDE-ADMIN-TICKETS.md',
@@ -70,18 +54,91 @@ router.get('/:page', async (req, res) => {
             '/admin/param-ville':      'GUIDE-PARAM-VILLE.md',
             '/boites-partagees':       'GUIDE-BOITES-PARTAGEES.md',
             '/parapheur':              'GUIDE-PARAPHEUR.md',
+            '/magapp/virement-credits': 'GUIDE-VIREMENT-CREDITS.md',
+            '/magapp/mes-factures':     'GUIDE-MES-FACTURES.md',
         };
+GUIDE_FILES['/magapp/mes-factures'] = 'GUIDE-MES-FACTURES.md';
+GUIDE_FILES['/magapp/virement-credits'] = 'GUIDE-VIREMENT-CREDITS.md';
+GUIDE_FILES['/service-fait'] = 'GUIDE-SERVICE-FAIT.md';
+
+// Dossier docs/ : sur le poste `<repo>/docs` (3 niveaux au-dessus de ce fichier) ; en Docker le backend est copié dans /app et docs/ est monté en
+// /app/docs (docker-compose) — l'ancien calcul unique `../../../docs` visait `/docs` dans le conteneur : les aides « fichier » n'y étaient
+// jamais trouvées. On teste donc plusieurs emplacements.
+function docsDirs() {
+    return [
+        path.join(__dirname, '..', '..', '..', 'docs'),
+        path.join(__dirname, '..', '..', 'docs'),
+        path.join(process.cwd(), 'docs'),
+        path.join(process.cwd(), '..', 'docs'),
+        '/app/docs',
+    ];
+}
+function readGuide(fileName) {
+    for (const d of docsDirs()) {
+        const f = path.join(d, fileName);
+        try { if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8'); } catch { /* suivant */ }
+    }
+    return null;
+}
+
+/**
+ * SANCTUARISATION des aides : au démarrage, tout guide livré (docs/*.md) dont la page n'a PAS de ligne dans hub.page_help y est inséré.
+ * Une ligne existante (modifiée depuis /admin/aides) n'est jamais écrasée ; un guide supprimé en base redevient disponible via le fichier.
+ * Un journal liste les guides introuvables (fichier absent du conteneur) pour ne plus perdre une aide en silence.
+ */
+async function seedGuides() {
+    const missing = [];
+    let seeded = 0;
+    for (const [page, file] of Object.entries(GUIDE_FILES)) {
+        try {
+            const md = readGuide(file);
+            if (md == null) { missing.push(`${page} (${file})`); continue; }
+            const row = await pgDb.get('SELECT 1 AS ok FROM hub.page_help WHERE page_path = $1', [page]);
+            if (row) continue;
+            const parse = await getMarkedParse();
+            await pgDb.run(`INSERT INTO hub.page_help (page_path, content, content_html, created_by, updated_at)
+                            VALUES ($1, $2, $3, 'guides-livres', CURRENT_TIMESTAMP) ON CONFLICT (page_path) DO NOTHING`, [page, md, parse(md)]);
+            seeded++;
+        } catch (e) { console.warn(`[PAGE-HELP] seed ${page}:`, e.message); }
+    }
+    if (seeded) console.log(`[PAGE-HELP] ${seeded} aide(s) alimentée(s) depuis docs/`);
+    if (missing.length) console.warn(`[PAGE-HELP] guides introuvables (docs/ non monté ?) : ${missing.join(', ')}`);
+}
+setTimeout(() => { seedGuides().catch(() => {}); }, 30000);
+
+// GET /api/page-help?page=/magapp/mes-factures — aide d'une page, chemin passé en PARAMÈTRE DE REQUÊTE (un « %2F » dans le chemin d'URL est
+// décodé en « / » par certains proxys, ce qui cassait l'aide de MagApp) ; sans paramètre : liste de toutes les aides (JWT)
+router.get('/', async (req, res, next) => {
+    if (!req.query.page) return next();
+    req.params.page = String(req.query.page);
+    return getPageHelp(req, res);
+});
+
+// GET /api/page-help — liste toutes les entrées d'aide
+router.get('/', authenticateJWT, async (req, res) => {
+    try {
+        const rows = await pgDb.all('SELECT * FROM hub.page_help ORDER BY page_path');
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/page-help/:page — retourne l'aide pour une page : d'abord hub.page_help
+// (source éditable depuis /admin/aides), puis en repli les guides Markdown
+// historiques livrés avec le dépôt (docs/*.md) pour les pages non encore migrées.
+async function getPageHelp(req, res) {
+    try {
+        const page = decodeURIComponent(req.params.page);
+
+        const row = await pgDb.get('SELECT page_path, content, content_html FROM hub.page_help WHERE page_path = $1', [page]);
+        if (row) return res.json(row);
+
+        const MAP = GUIDE_FILES;
 
         const fileName = MAP[page];
         if (!fileName) return res.json(null);
 
-        const path = require('path');
-        const docsDir = path.join(__dirname, '..', '..', '..', 'docs');
-        const filePath = path.join(docsDir, fileName);
-
-        if (!fs.existsSync(filePath)) return res.json(null);
-
-        const content = fs.readFileSync(filePath, 'utf8');
+        const content = readGuide(fileName);
+        if (content == null) return res.json(null);
 
         const mdParse = await getMarkedParse();
         const contentHtml = mdParse(content);
@@ -92,7 +149,8 @@ router.get('/:page', async (req, res) => {
             content_html: contentHtml
         });
     } catch (e) { res.status(500).json({ message: e.message }); }
-});
+}
+router.get('/:page', getPageHelp);
 
 // PUT /api/page-help/:page — créer/mettre à jour (texte ou fichier MD)
 router.put('/:page', authenticateJWT, authenticateAdmin, mdUpload.single('file'), async (req, res) => {

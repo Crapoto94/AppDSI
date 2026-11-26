@@ -1,0 +1,1157 @@
+{
+  "module": "entretiens",
+  "version": "0.59.0",
+  "date": "2026-11-26",
+  "releases": [
+    {
+      "version": "0.59.0",
+      "date": "2026-11-26",
+      "commit": "64301668",
+      "groups": {
+        "nouveautes": [
+          "Désactiver un agent (départ en retraite) et le réactiver",
+          "« Afficher en tant que » pour les administrateurs",
+          "Ajouter un agent depuis la base RH"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.58.0",
+      "date": "2026-11-26",
+      "commit": "8f2fc292",
+      "groups": {
+        "nouveautes": [
+          "« Suivi » liste tous les EP prévus avec filtres cumulables (sans e-mail, sans évaluateur, évaluateurs), affectation d'un évaluateur et d'une adresse sur la ligne, pagination",
+          "Calendrier des EP"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.57.1",
+      "date": "2026-11-26",
+      "commit": "55c0e67e",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "La remise à zéro efface les lots numérisés, les CREP reçus par mail et le canal d'entrée resté sur les entretiens"
+        ]
+      }
+    },
+    {
+      "version": "0.57.0",
+      "date": "2026-11-25",
+      "commit": "b196aa11",
+      "groups": {
+        "nouveautes": [
+          "Pastille du nombre de demandes en attente sur le menu Backlog dès l'ouverture (administrateurs)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.56.2",
+      "date": "2026-11-25",
+      "commit": "f8326969",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Les évaluateurs non évalués voient les entretiens qu'ils réalisent (rattachement AD automatique)",
+          "Bouton pour attribuer une adresse à un évaluateur",
+          "Libellé de direction identique à celui des agents"
+        ]
+      }
+    },
+    {
+      "version": "0.56.1",
+      "date": "2026-11-25",
+      "commit": "3aa2365b",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "L'avancement par direction compte les entretiens planifiés (réalisés compris) et non les seuls réalisés"
+        ]
+      }
+    },
+    {
+      "version": "0.56.0",
+      "date": "2026-11-25",
+      "commit": "327c5b1d",
+      "groups": {
+        "nouveautes": [
+          "Entretiens de 1 h 30 par défaut et heures de rendez-vous au quart d'heure"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.55.0",
+      "date": "2026-11-25",
+      "commit": "52c15b1d",
+      "groups": {
+        "nouveautes": [
+          "Aide et tutoriel activables et modifiables par les administrateurs"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.54.0",
+      "date": "2026-11-23",
+      "commit": "48b0c73d",
+      "groups": {
+        "nouveautes": [
+          "Analyse de cohérence, QR code et mode simple déplacés dans Paramétrage → Options (bloc « Options de la campagne », enregistrement immédiat)",
+          "En mode simple, le menu « Demandes de réouverture » n'est plus affiché"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.53.0",
+      "date": "2026-11-23",
+      "commit": "adc7cf22",
+      "groups": {
+        "nouveautes": [
+          "Import de la base des agents sans perte (copie de sécurité avant remplacement, fichier vide refusé, matricules comparés sans zéros de tête, agents absents du classeur conservés avec leurs rapprochements AD, évaluateur choisi à la main sur un entretien jamais écrasé ni retiré)",
+          "Évaluateur proposé d'abord dans l'unité d'affectation de l'agent (équipes dont le chemin s'arrête au niveau direction : 279 agents sans évaluateur en obtiennent un)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.52.0",
+      "date": "2026-11-23",
+      "commit": "492792f0",
+      "groups": {
+        "nouveautes": [
+          "QR code des CREP imprimés en option de campagne (décoché : aucun QR code)",
+          "Numérisation et moisson de mails sans QR code : lecture IA du nom de l'agent et du titre de chaque page, pages remises dans l'ordre d'après les titres du modèle, agent proposé avec un taux de certitude et affectation possible à un autre agent (candidats probables en tête)",
+          "Un rapprochement sous 80 % n'est pas coché d'office"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.51.1",
+      "date": "2026-11-23",
+      "commit": "bc76071e",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Lots de CREP reçus par mail ou numérisés : le QR code est reconnu même s'il est signé par une autre instance, lecture plus robuste (plusieurs résolutions, contraste inversé), lot sans CREP reconnu consultable avec classement manuel des pages et relance de l'analyse, vignettes expliquant un fichier introuvable, fichiers des lots déposés dans la GED (lisibles depuis tous les serveurs)"
+        ]
+      }
+    },
+    {
+      "version": "0.51.0",
+      "date": "2026-11-23",
+      "commit": "8b2b4f47",
+      "groups": {
+        "nouveautes": [
+          "Mode simple sans PDF formulaire hors ligne pour les évaluateurs (option masquée, import réservé aux administrateurs)",
+          "Aide et tutoriel entièrement relus et adaptés au mode simple (la DRH notifie à réception du CREP papier signé, plus d'étape de désignation des évaluateurs, parapheur seulement si la signature électronique est activée)",
+          "Le mode simple et la cohérence sont lus dans les campagnes",
+          "Ampoule illustrée dans le tutoriel"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.50.0",
+      "date": "2026-11-23",
+      "commit": "65104435",
+      "groups": {
+        "nouveautes": [
+          "Option de cohérence par campagne (sinon simple complétude : obligatoires bloquants, facultatifs en alerte)",
+          "Mode simple par campagne (aucun téléversement du CREP signé par l'évaluateur, bouton « J'ai envoyé le CREP à la DRH », pas de réouverture)",
+          "QR code signé en haut à gauche de chaque page du CREP imprimé",
+          "Menu administrateur « Suivi des retours » (EP programmés, réalisés, en retard, retournés, filtres) avec numérisation en lot de plusieurs CREP (pages mélangées reconnues par QR code, contrôle des 4 pages, vérification et correction par l'administrateur, détection des 2 signatures, lecture IA en parallèle, clôture automatique de l'entretien et e-mail de remerciement à l'agent et à son évaluateur)",
+          "Collecteur de boîte mail « Entretiens » (CREP reçus en pièce jointe proposés automatiquement, canal d'entrée mail ou téléversement DRH conservé)",
+          "Colonnes CREP papier et CREP numérique (formulaire en lecture seule avec badges « Lu par l'IA », « Saisi », « Lecture incertaine »)",
+          "Suppression d'un retour de CREP par un administrateur",
+          "Durées d'entretien limitées à 60, 90, 120 ou 150 minutes",
+          "Cases de la grille sans couleur",
+          "Bouton « Faire l'EP »",
+          "EP clôturé : seuls CREP papier et CREP saisi sont proposés",
+          "« EP de mon équipe » liste les évaluateurs sous soi sans s'afficher soi-même",
+          "Impression en masse des CREP d'un évaluateur",
+          "Sélection limitée aux EP affichés",
+          "RAZ complet (signalement DRH et dossier des PDF)",
+          "Tutoriel (ampoule, passer avec rappel) et aide conditionnelle mis à jour pour le mode simple"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.49.0",
+      "date": "2026-11-22",
+      "commit": "196247bb",
+      "groups": {
+        "nouveautes": [
+          "Rôle pilotage paramétrable dans Paramétrage > Administrateurs",
+          "Avancement du Pilotage : seules les directions sont affichées par défaut, services et secteurs repliés"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.48.0",
+      "date": "2026-11-22",
+      "commit": "1c172f09",
+      "groups": {
+        "nouveautes": [
+          "Rôle « pilotage » (agents qui voient le menu Pilotage en lecture seule, sans accès aux CREP ni aux actions), badge ADMIN sur les menus réservés aux administrateurs, avancement par direction déroulé par défaut"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.47.0",
+      "date": "2026-11-22",
+      "commit": "59792b04",
+      "groups": {
+        "nouveautes": [
+          "Le PDF formulaire hors ligne indique que les cadres de l'agent·e, les signatures et le visa ne sont pas remplissables, avec une page d'information en fin de document (ne pas imprimer)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.46.2",
+      "date": "2026-11-22",
+      "commit": "b96eef24",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Plein écran sans double barre de défilement et ouverture de l'adresse dédiée /ep",
+          "Titre distinct pour l'option PDF formulaire hors ligne dans Paramétrage"
+        ]
+      }
+    },
+    {
+      "version": "0.46.1",
+      "date": "2026-11-22",
+      "commit": "cadedd24",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Ajout du panneau de réglage de l'option PDF formulaire hors ligne, oublié au commit précédent"
+        ]
+      }
+    },
+    {
+      "version": "0.46.0",
+      "date": "2026-11-22",
+      "commit": "d1a1165d",
+      "groups": {
+        "nouveautes": [
+          "Le PDF formulaire hors ligne devient une option (Paramétrage > Options, désactivée par défaut) : 3e mode de saisie entre manuscrit et outil, avec ses étapes à 2 téléversements",
+          "Aide et tutoriel adaptés seulement si l'option est activée"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.45.1",
+      "date": "2026-11-22",
+      "commit": "f5b1ac10",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Correction du formulaire PDF hors ligne qui empêchait la compilation de l'application"
+        ]
+      }
+    },
+    {
+      "version": "0.45.0",
+      "date": "2026-11-22",
+      "commit": "01d39186",
+      "groups": {
+        "nouveautes": [
+          "PDF formulaire à remplir hors ligne (au modèle de l'agent) et réimport de la saisie par l'évaluateur, avant validation, impression et signatures"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.44.0",
+      "date": "2026-11-22",
+      "commit": "2da4c866",
+      "groups": {
+        "nouveautes": [
+          "Plein écran et mode sombre au choix de chaque utilisateur, en-tête et onglets fixes en plein écran, adresse dédiée /ep (liens des e-mails compris)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.43.0",
+      "date": "2026-11-22",
+      "commit": "6be56a9f",
+      "groups": {
+        "nouveautes": [
+          "Versions plus granulaires : chaque commit est une version 0.x.y (nouveauté = 0.x.0, correction ou amélioration = 0.x.y)",
+          "Liste des nouveautés repliable avec le commit de chaque version"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.42.0",
+      "date": "2026-11-22",
+      "commit": "33e9404c",
+      "groups": {
+        "nouveautes": [
+          "Numéro de version du module et nouveautés pour les administrateurs (historique généré depuis les commits git)",
+          "Réglage d'affichage plein écran ou dans MagApp"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.41.0",
+      "date": "2026-11-22",
+      "commit": "e26f1702",
+      "groups": {
+        "nouveautes": [
+          "Modèles d'e-mails modifiables (Paramétrage), e-mails adaptés à l'accès « Mon entretien », libellé « EP que je réalise »"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.40.0",
+      "date": "2026-11-22",
+      "commit": "98842b69",
+      "groups": {
+        "nouveautes": [
+          "Vue équipe hiérarchique à tous niveaux (nombre d'évalué·e·s par personne et total), backlog (e-mail de commentaire, tuto), BPMN (réception DRH, lecture activée ou non)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.39.0",
+      "date": "2026-11-22",
+      "commit": "19afde90",
+      "groups": {
+        "nouveautes": [
+          "Backlog (ampoule : questions, améliorations, bugs ; commentaires, pièces jointes, suppression, traitement admin), logo embarqué, en-têtes inclusifs, aide et note DG"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.38.0",
+      "date": "2026-11-22",
+      "commit": "a0649589",
+      "groups": {
+        "nouveautes": [
+          "Réception DRH + KPI, compteurs-filtres, aperçu CREP numérisé/reconstruit, grille en cases, vue équipe hiérarchique, aide/tuto selon la lecture, écriture inclusive, logo, perfs des listes"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.37.3",
+      "date": "2026-11-21",
+      "commit": "9c795751",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Clôture : rappel de transmettre le CREP signé à la DRH",
+          "Rechargement de l'entretien après clôture"
+        ]
+      }
+    },
+    {
+      "version": "0.37.2",
+      "date": "2026-11-21",
+      "commit": "eb66463d",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Bandeau du CREP manuscrit adapté quand la lecture des entretiens numérisés est désactivée"
+        ]
+      }
+    },
+    {
+      "version": "0.37.1",
+      "date": "2026-11-21",
+      "commit": "45b4d07e",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Corrige l'aide (fragment JSX) et le calcul de scanOn pour le build Docker"
+        ]
+      }
+    },
+    {
+      "version": "0.37.0",
+      "date": "2026-11-21",
+      "commit": "8357d009",
+      "groups": {
+        "nouveautes": [
+          "Paramétrage en sous-menus (Général, Agents à évaluer, Administrateurs, Options, IA)",
+          "Options regroupées dont la lecture des entretiens numérisés"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.36.0",
+      "date": "2026-11-21",
+      "commit": "a771f0a2",
+      "groups": {
+        "nouveautes": [
+          "Réglage « Lecture des entretiens numérisés » (lecture silencieuse, version numérique réservée aux administrateurs, pastille et filtre au Pilotage)",
+          "Entretien clôturé = 3 actions seulement, demandes de réouverture justifiées (mail + menu administrateur)",
+          "Listes de bénéficiaires repliées par défaut"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.35.1",
+      "date": "2026-11-21",
+      "commit": "9f1f63d7",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Suppression de la boîte « Vérification ligne par ligne »"
+        ]
+      }
+    },
+    {
+      "version": "0.35.0",
+      "date": "2026-11-21",
+      "commit": "8bec05bd",
+      "groups": {
+        "nouveautes": [
+          "« Visualiser le CREP saisi », seul le dernier document est proposé, « CREP original » avec icône d'aperçu"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.34.0",
+      "date": "2026-11-21",
+      "commit": "921b52f3",
+      "groups": {
+        "nouveautes": [
+          "Enregistrement automatique du CREP",
+          "Pilotage (évaluateurs présentés comme les évalués, RAZ/dévalider pour tous, recherche qui déplie)",
+          "Plus de fermeture des modales au clic à côté (DSI Hub et MagApp)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.33.0",
+      "date": "2026-11-21",
+      "commit": "03ec3295",
+      "groups": {
+        "nouveautes": [
+          "Visionneuse intégrée pour tous les documents, parcours manuscrit affiné (retour à la vérification, validation tolérée avec rubriques non renseignées, CREP saisi déroulable en lecture seule à la clôture), détection des signatures renforcée, panneau du parcours toujours visible"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.32.0",
+      "date": "2026-11-21",
+      "commit": "356be251",
+      "groups": {
+        "nouveautes": [
+          "Chaque étape du parcours n'affiche que ce qui lui sert (téléversement en grand à l'étape dédiée, clôture seule en fin, retour à l'étape précédente)",
+          "Contrôle de complétude après l'import"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.31.0",
+      "date": "2026-11-21",
+      "commit": "0445c84f",
+      "groups": {
+        "nouveautes": [
+          "Lecture seule après validation, rappel original à la RH, clore la campagne, dévalider (admin), RAZ à l'étape zéro",
+          "Modèle BPMN du parcours complet d'un CREP",
+          "Aide et note DG à jour"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.30.0",
+      "date": "2026-11-21",
+      "commit": "94d925f1",
+      "groups": {
+        "nouveautes": [
+          "Parcours guidé du CREP (mode manuscrit ou outil, fil d'Ariane, vérification des 2 signatures, clôture)",
+          "Voir le document téléversé",
+          "Rubriques manquantes en boîte de dialogue",
+          "Visa de l'autorité jamais proposé"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.29.0",
+      "date": "2026-11-21",
+      "commit": "b9d8f929",
+      "groups": {
+        "nouveautes": [
+          "Confirmation explicite quand le scan est celui d'un autre agent ou d'une autre catégorie de CREP",
+          "Grille de relecture présentée comme le CREP (cases S / AS / I)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.28.5",
+      "date": "2026-11-21",
+      "commit": "3cf2b949",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "E-mails avec « Prénom Nom » (plus d'identifiant)",
+          "Lien « Relire la proposition » ouvre directement l'entretien et la proposition"
+        ]
+      }
+    },
+    {
+      "version": "0.28.4",
+      "date": "2026-11-21",
+      "commit": "b8b9c016",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Aide valideur entièrement conditionnée aux fonctions activées, parcours en 10 étapes, pastilles « activable » côté admin",
+          "Fix(ep): la RAZ supprime aussi les scans originaux et analyses"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.28.3",
+      "date": "2026-11-21",
+      "commit": "2e774520",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Cases cochées reprises par correspondance de libellés quand le papier n'est pas le formulaire de l'agent"
+        ]
+      }
+    },
+    {
+      "version": "0.28.2",
+      "date": "2026-11-21",
+      "commit": "b1ef06b4",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Workflow en 10 étapes dans l'aide",
+          "Avertissement précis quand le papier ne correspond pas au modèle de CREP de l'agent"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.28.1",
+      "date": "2026-11-21",
+      "commit": "d5f5aacb",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Relecture du CREP manuscrit dans l'ordre des pages",
+          "Tableau détecté même si le nombre de lignes diffère du modèle (sens de lecture conservé), grille IA uniforme écartée"
+        ]
+      }
+    },
+    {
+      "version": "0.28.0",
+      "date": "2026-11-21",
+      "commit": "4e9a1ffb",
+      "groups": {
+        "nouveautes": [
+          "Icônes de chargement animées partout",
+          "Lecture des textes (sans mention d'IA) pour le CREP manuscrit"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.27.4",
+      "date": "2026-11-21",
+      "commit": "9ae7fbf4",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Aide sans captures d'écran",
+          "CREP manuscrit à téléverser (scan/photos) pour être validé"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.27.3",
+      "date": "2026-11-21",
+      "commit": "855c83dc",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Démarrage accéléré (schéma PG sauté si inchangé, migration documents en 1 requête, recalcul/copie users en lot, écoute précoce, libs lourdes paresseuses, cron GLPI désactivée)",
+          "Fix(ep): page blanche en fin de tutoriel, ton administratif (étapes), RDV facultatif"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.27.2",
+      "date": "2026-11-21",
+      "commit": "598e1882",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Analyse formations plus rapide (regroupement plafonné, 6 catégories en parallèle)"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.27.1",
+      "date": "2026-11-21",
+      "commit": "5478d55a",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Classement des formations par lignes numéro:clé (fiable), lots de 30 en parallèle, réparation du JSON tronqué"
+        ]
+      }
+    },
+    {
+      "version": "0.27.0",
+      "date": "2026-11-21",
+      "commit": "37646a1a",
+      "groups": {
+        "nouveautes": [
+          "Analyse des formations par catégories en parallèle avec progression et bouton résultat",
+          "Onglet IA (prompts modifiables)",
+          "Note DG : évolutions possibles"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.26.0",
+      "date": "2026-11-21",
+      "commit": "7f98db6d",
+      "groups": {
+        "nouveautes": [
+          "Demandes de formation fictives réalistes (formulations libres, fautes, CNFPT)",
+          "Échantillon régulier pour l'analyse IA"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.25.0",
+      "date": "2026-11-21",
+      "commit": "35681974",
+      "groups": {
+        "nouveautes": [
+          "Mode simulation admin (RAZ rendez-vous/entretiens, valideurs et lien AD conservés, demandes de formation fictives)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.24.1",
+      "date": "2026-11-21",
+      "commit": "711aea61",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Retire des fichiers parasites ajoutés par erreur au commit précédent (restent en local, non versionnés)"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.24.0",
+      "date": "2026-11-21",
+      "commit": "1b99a431",
+      "groups": {
+        "nouveautes": [
+          "CREP manuscrit — page 4 complète, filigrane non contractuel, scan et version IA conservés, vérification ligne par ligne, mode commentaires agent, demandes de formation avec analyse IA"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.23.0",
+      "date": "2026-11-21",
+      "commit": "1dea7708",
+      "groups": {
+        "nouveautes": [
+          "Analyse IA du CREP manuscrit en tâche de fond (e-mail de fin), lecture ciblée par page, double lecture, cohérence, pages en parallèle"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.22.0",
+      "date": "2026-11-21",
+      "commit": "1a3308f7",
+      "groups": {
+        "nouveautes": [
+          "Import de CREP manuscrit multi-photos avec lecture des cases cochées (traitement d'image) et grille proposée"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.21.0",
+      "date": "2026-11-21",
+      "commit": "a1e4d371",
+      "groups": {
+        "nouveautes": [
+          "N+1 agit pour un valideur sans e-mail, statut de signature dans la liste, scans jusqu'à 30 Mo"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.20.0",
+      "date": "2026-11-21",
+      "commit": "f292a6aa",
+      "groups": {
+        "nouveautes": [
+          "Tutoriel interactif de première connexion, captures dans l'aide, notifications après changement d'évaluateur / lien AD"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.19.2",
+      "date": "2026-11-21",
+      "commit": "3020d146",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Aide — principe du rapprochement RH/AD pour les agents sans e-mail"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.19.1",
+      "date": "2026-11-21",
+      "commit": "0bb18a24",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [
+          "Aide — modes opératoires d'ajout d'agent et de changement de valideur par le valideur"
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.19.0",
+      "date": "2026-11-21",
+      "commit": "5b667781",
+      "groups": {
+        "nouveautes": [
+          "Aide complète tous cas (RDV, EP, papier/électronique), note DG stratégique et éditeur WYSIWYG Markdown"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.18.0",
+      "date": "2026-11-21",
+      "commit": "dfb8a0f5",
+      "groups": {
+        "nouveautes": [
+          "RAZ, refus motivé, aide détaillée et note DG"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.17.2",
+      "date": "2026-11-20",
+      "commit": "3e1dd176",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Colonne Valideur fixée à droite (dernières lignes accessibles)"
+        ]
+      }
+    },
+    {
+      "version": "0.17.1",
+      "date": "2026-11-20",
+      "commit": "b20896ac",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Rapprochement AD prioritaire par nom (évite les homonymes/matricules erronés)"
+        ]
+      }
+    },
+    {
+      "version": "0.17.0",
+      "date": "2026-11-20",
+      "commit": "cbaed16e",
+      "groups": {
+        "nouveautes": [
+          "Arborescence multi-niveaux, tout déplier et fonction des agents sans valideur"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.16.0",
+      "date": "2026-11-20",
+      "commit": "151b52d0",
+      "groups": {
+        "nouveautes": [
+          "Éditeur WYSIWYG, arborescence équipe, liste d'évaluateurs et rattachement AD"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.15.3",
+      "date": "2026-11-20",
+      "commit": "ace4b949",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Ajout d'agents par direction, changement d'évaluateur élargi et rattachement AD"
+        ]
+      }
+    },
+    {
+      "version": "0.15.2",
+      "date": "2026-11-20",
+      "commit": "16e25e39",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "PlannerIdentities en production, paramétrage complet dans MagApp et aide conditionnelle"
+        ]
+      }
+    },
+    {
+      "version": "0.15.1",
+      "date": "2026-11-20",
+      "commit": "3e059841",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Ajoute l'import de compte rendu scanné dans MagApp"
+        ]
+      }
+    },
+    {
+      "version": "0.15.0",
+      "date": "2026-11-20",
+      "commit": "c985af6e",
+      "groups": {
+        "nouveautes": [
+          "KPI planifiés, journal filtrable/paginé, pagination du pilotage et aide enrichie"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.14.0",
+      "date": "2026-11-20",
+      "commit": "b7e4e5c4",
+      "groups": {
+        "nouveautes": [
+          "Impression CREP en masse, ajout/changement d'évaluateur, journal d'audit et aide"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.13.0",
+      "date": "2026-11-20",
+      "commit": "6813f680",
+      "groups": {
+        "nouveautes": [
+          "Base agents MagApp, pilotage/équipe via ep-base et préparation conditionnelle"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.12.2",
+      "date": "2026-11-20",
+      "commit": "68d2aaa3",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Retrait des attitudes du tableau de bord et de « Sans préparateur » hors mode préparation"
+        ]
+      }
+    },
+    {
+      "version": "0.12.1",
+      "date": "2026-11-20",
+      "commit": "c6326f9a",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Conserver le valideur choisi manuellement lors d'un réimport"
+        ]
+      }
+    },
+    {
+      "version": "0.12.0",
+      "date": "2026-11-20",
+      "commit": "3a5b7293",
+      "groups": {
+        "nouveautes": [
+          "Base des agents à évaluer, modèles CREP et rattachement des valideurs"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.11.0",
+      "date": "2026-11-20",
+      "commit": "d26bd2c0",
+      "groups": {
+        "nouveautes": [
+          "Réactivation pour tous et administrateurs choisis dans l'annuaire agent"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.10.0",
+      "date": "2026-11-20",
+      "commit": "c58b2c6f",
+      "groups": {
+        "nouveautes": [
+          "Signature électronique du CREP désactivée par défaut et ouverte à des agents choisis"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-11-20",
+      "commit": "fddc123d",
+      "groups": {
+        "nouveautes": [
+          "Accès « Mon entretien » fermé par défaut et ouvert à des agents choisis"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.8.0",
+      "date": "2026-11-20",
+      "commit": "b757a218",
+      "groups": {
+        "nouveautes": [
+          "IA désactivable et réservée à des évaluateurs choisis (rédaction et évaluation des compétences)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.7.1",
+      "date": "2026-11-20",
+      "commit": "38ccec43",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Nettoyage du point final de l'URL publique",
+          "Suppression en cascade d'un agent valideur et de ses agents evalues (+ suppression d'un agent evalue)"
+        ]
+      }
+    },
+    {
+      "version": "0.7.0",
+      "date": "2026-11-19",
+      "commit": "42f05c1c",
+      "groups": {
+        "nouveautes": [
+          "Creation de tickets/taches/reunions par le MCP",
+          "Boites de dialogue dans l'application",
+          "Mail de relecture du CREP detaille"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.6.0",
+      "date": "2026-11-19",
+      "commit": "7d19bee7",
+      "groups": {
+        "nouveautes": [
+          "Entretiens professionnels - arbre des valideurs, rattachement AD, CREP signe (parapheur ou papier), liens MagApp"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-11-19",
+      "commit": "613d0ac9",
+      "groups": {
+        "nouveautes": [
+          "Entretiens professionnels pour toute la Ville (valideurs designes par les admins, agents issus de SEDIT RH avec grade, saisie a la volee, un seul valideur par agent)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.4.1",
+      "date": "2026-11-18",
+      "commit": "5effffc3",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "Vérification de cohérence visible, appréciation générale IA fidèle à la grille"
+        ]
+      }
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-11-18",
+      "commit": "4b1d106f",
+      "groups": {
+        "nouveautes": [
+          "IA via l'API Ville (mistral RGPD++), relances automatiques, export Excel, brouillon agent, rappel du compte rendu"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-11-18",
+      "commit": "a449f73e",
+      "groups": {
+        "nouveautes": [
+          "Vérification de cohérence du CREP, appréciation générale IA sur l'ensemble, objectifs repris visibles côté évaluateur"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-11-18",
+      "commit": "a0213774",
+      "groups": {
+        "nouveautes": [
+          "Reprise des EP de l'année précédente (missions, objectifs du service, objectifs)"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-11-18",
+      "commit": "cb78bae9",
+      "groups": {
+        "nouveautes": [
+          "Module Entretiens professionnels, CREP dématérialisé et circuit de signature"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import EmojiPicker from './EmojiPicker';
 import AfterHoursPanel from './AfterHoursPanel';
+import { appAlert } from './AppDialogs';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'rating' | 'ended';
 
@@ -277,7 +278,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, se
         pending.forEach(p => URL.revokeObjectURL(p.url));
         setPending([]);
       } catch (err: any) {
-        alert(err.response?.data?.message || 'Erreur lors de l\'envoi de l\'image');
+        appAlert(err.response?.data?.message || 'Erreur lors de l\'envoi de l\'image');
         setUploading(false);
         return;
       }
@@ -300,7 +301,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, se
     try {
       await uploadFile(file);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erreur lors de l\'envoi du fichier');
+      appAlert(err.response?.data?.message || 'Erreur lors de l\'envoi du fichier');
     } finally {
       setUploading(false);
     }
@@ -324,7 +325,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, se
 
   // Capture d'écran avec sélection d'une zone : le navigateur demande quel écran / fenêtre / onglet partager (obligatoire, pour la sécurité)
   const startScreenCapture = async () => {
-    if (!navigator.mediaDevices || !(navigator.mediaDevices as any).getDisplayMedia) { alert("La capture d'écran n'est pas disponible sur ce navigateur : collez une image avec Ctrl+V."); return; }
+    if (!navigator.mediaDevices || !(navigator.mediaDevices as any).getDisplayMedia) { appAlert("La capture d'écran n'est pas disponible sur ce navigateur : collez une image avec Ctrl+V."); return; }
     let stream: MediaStream;
     try {
       stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
@@ -339,7 +340,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, se
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       canvas.getContext('2d')!.drawImage(video, 0, 0);
       openCapture(canvas.toDataURL('image/png'), (blob) => stageImage(blob));
-    } catch { alert('La capture a échoué.'); }
+    } catch { appAlert('La capture a échoué.'); }
     finally { stream.getTracks().forEach(t => t.stop()); setHidden(false); }
   };
 
@@ -350,7 +351,7 @@ function ChatWidgetCore({ liveEnabled, beta = false, rightOffset = 0, hidden, se
       return;
     }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return; }
+    if (!SR) { appAlert('Dictée vocale non supportée par ce navigateur'); return; }
     const rec = new SR();
     rec.lang = 'fr-FR';
     rec.continuous = true;

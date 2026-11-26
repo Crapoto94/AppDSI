@@ -6,7 +6,22 @@ const financeShareController = require('../finance-share.controller');
 const { getFacsuiviStatus: getSeditFacsuiviStatus } = financeShareController;
 const seditPj = require('./sedit-pj.service');
 const encadrantsController = require('../../rh/encadrants.controller');
-const { getAppBaseUrl } = require('../../../shared/app_url');
+const { getAppBaseUrl, getMagappBaseUrl } = require('../../../shared/app_url');
+
+// Domaine des liens de validation : workflows lancés depuis MagApp (origin = 'magapp') -> magapp.ivry.local, sinon le DSI Hub.
+const linkBaseFor = (origin) => (origin === 'magapp' ? getMagappBaseUrl() : getAppBaseUrl());
+
+/**
+ * Lien de validation envoyé au vérificateur / au directeur.
+ * - circuit lancé depuis MagApp : lien SANS TOKEN vers MagApp (`<URL MagApp>/?sf=<id>`) — l'identification est celle de MagApp ; si l'appareil
+ *   n'a pas de session MagApp, l'agent s'identifie puis est redirigé vers la validation (POST /api/magapp/service-fait/:id/open). L'URL de base
+ *   est un paramètre (SQLite `magapp_base_url`, /admin/magapp), pas une valeur codée en dur ;
+ * - circuit lancé depuis le DSI Hub : lien public à token, comme avant.
+ */
+async function sfLink(origin, id, kind, token) {
+    if (origin === 'magapp') return `${await getMagappBaseUrl()}/?sf=${id}`;
+    return `${await getAppBaseUrl()}/service-fait-${kind}/${token}`;
+}
 
 const DECISION_LABELS = {
     valide: 'Validé',
@@ -142,7 +157,20 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
 const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 let sendMailFn = null;
-const setSendMail = (fn) => { sendMailFn = fn; };
+/**
+ * Envoi d'un mail de service fait. Circuit lancé depuis MagApp (origin = 'magapp') : mail envoyé par l'API Ville (APM), donc avec le template
+ * global de la Ville (logo Ville) et non le template DSI du Hub. Repli sur le mail du Hub si l'API Ville est indisponible.
+ */
+async function sendSfMail(origin, to, subject, html) {
+    if (origin === 'magapp') {
+        try { return await require('../../../shared/apm_mail').sendMail({ to, subject, content: html }); }
+        catch (e) { console.warn('[ServiceFait] API Ville indisponible, repli sur le mail du Hub :', e.message); }
+    }
+    if (!sendMailFn) return undefined;
+    return sendMailFn(to, subject, html);
+}
+
+const setSendMail = (fn) => { sendMailFn = fn; try { require('./service-fait-reminders').setSendMail(fn); } catch { /* rappels optionnels */ } };
 
 function makeToken(workflowId, verifierEmail) {
     const ts = Date.now();
@@ -349,10 +377,14 @@ const controller = {
                 'SELECT username, nom, email FROM hub_calendrier.agents_dsi WHERE username = $1',
                 [verifier_username]
             );
-            if (agentRes.rowCount === 0) {
+            let agent = agentRes.rows[0];
+            if (!agent && req.magappVerifier && req.magappVerifier.email) {
+                // MagApp : le vérificateur peut être n'importe quel agent de la Ville (hors liste DSI), identifié par son e-mail interne
+                agent = { username: verifier_username, nom: req.magappVerifier.name || verifier_username, email: req.magappVerifier.email };
+            }
+            if (!agent) {
                 return res.status(400).json({ message: 'Agent vérificateur non trouvé dans la liste DSI' });
             }
-            const agent = agentRes.rows[0];
 
             const existing = await pool.query(
                 `SELECT id, status FROM finance.service_fait_workflows
@@ -371,8 +403,8 @@ const controller = {
                  (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
                   status, requested_by, verifier_username, verifier_name, verifier_email,
                   entity_code, entity_label, director_mode, director_username, director_name, director_email,
-                  service_fait_date)
-                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                  service_fait_date, origin)
+                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                  RETURNING id`,
                 [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
                  invoice_amount || null, invoice_section || '', req.user.username,
@@ -380,7 +412,7 @@ const controller = {
                  entity_code || 'DSI', director ? director.entity_label || '' : '',
                  directorMode, director ? director.director_username : null,
                  director ? director.director_name : '', director ? director.director_email : '',
-                 normalizeServiceFaitDate(service_fait_date)]
+                 normalizeServiceFaitDate(service_fait_date), req.magappVerifier ? 'magapp' : null]
             );
             const workflowId = insResult.rows[0].id;
 
@@ -404,8 +436,7 @@ const controller = {
                 [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`, getClientIp(req), req.headers['user-agent'] || '']
             );
 
-            const appUrl = await getAppBaseUrl();
-            const verifierUrl = `${appUrl}/service-fait-verifier/${token}`;
+            const verifierUrl = await sfLink(req.magappVerifier ? 'magapp' : null, workflowId, 'verifier', token);
 
             if (sendMailFn && agent.email) {
                 const html = `
@@ -423,7 +454,7 @@ const controller = {
                     <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
-                    await sendMailFn(agent.email, 'Demande de validation du service fait', html);
+                    await sendSfMail(req.magappVerifier ? 'magapp' : null, agent.email, 'Demande de validation du service fait', html);
                 } catch (e) {
                     console.error('[ServiceFait] Email send error:', e.message);
                 }
@@ -660,8 +691,7 @@ const controller = {
             const wf = wfRes.rows[0];
             // Lien public de validation à transmettre au vérificateur (identifie au lien
             // envoyé par e-mail, pour pouvoir le rediffuser depuis la modale de suivi).
-            const appUrl = await getAppBaseUrl();
-            const verifierUrl = wf.token ? `${appUrl}/service-fait-verifier/${wf.token}` : null;
+            const verifierUrl = wf.token ? await sfLink(wf.origin, wf.id, 'verifier', wf.token) : null;
 
             res.json({
                 ...wf,
@@ -814,7 +844,7 @@ const controller = {
     submitDecision: async (req, res) => {
         try {
             const { token } = req.params;
-            const { decision, comment, transfer_to_username, pj_files } = req.body;
+            const { decision, comment, transfer_to_username, pj_files, service_fait_date: decisionSfDate } = req.body;
 
             const decoded = verifyToken(token);
             if (!decoded) return res.status(400).json({ message: 'Lien invalide ou expiré' });
@@ -906,6 +936,15 @@ const controller = {
                 [newStatus, comment || '', newVerifierUsername, newVerifierName, newVerifierEmail, newToken, wf.id]
             );
 
+            // Date de service fait : saisie par le VERIFICATEUR à sa décision positive (elle prime sur celle éventuellement proposée au lancement).
+            if (['valide', 'valide_avec_reserves'].includes(decision) && decisionSfDate) {
+                const sfDate = normalizeServiceFaitDate(decisionSfDate);
+                if (sfDate) {
+                    await pool.query('UPDATE finance.service_fait_workflows SET service_fait_date = $1 WHERE id = $2', [sfDate, wf.id]);
+                    wf.service_fait_date = sfDate;
+                }
+            }
+
             await pool.query(
                 `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -933,12 +972,11 @@ const controller = {
                     [directorToken, dirExpires, wf.id]
                 );
                 newStatus = 'en_attente_visa';
-                directorVisaUrl = `${await getAppBaseUrl()}/service-fait-visa/${directorToken}`;
+                directorVisaUrl = await sfLink(wf.origin, wf.id, 'visa', directorToken);
             } else if (isPositive) {
                 seditSync = await syncServiceFaitToSedit({ wf, decision, comment });
             }
 
-            const appUrl = await getAppBaseUrl();
             const subjectMap = {
                 'valide': 'Service fait validé',
                 'valide_avec_reserves': 'Service fait validé avec réserves',
@@ -949,7 +987,7 @@ const controller = {
             };
 
             if (decision === 'transfere' && newToken && sendMailFn && newVerifierEmail) {
-                const verifierUrl = `${appUrl}/service-fait-verifier/${newToken}`;
+                const verifierUrl = await sfLink(wf.origin, wf.id, 'verifier', newToken);
                 const html = `
                     <p>Bonjour ${newVerifierName},</p>
                     <p>La demande de validation du service fait pour la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> vous a été transférée par ${wf.verifier_name}.</p>
@@ -964,7 +1002,7 @@ const controller = {
                     <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
-                    await sendMailFn(newVerifierEmail, subjectMap[decision], html);
+                    await sendSfMail(wf.origin, newVerifierEmail, subjectMap[decision], html);
                 } catch (e) {
                     console.error('[ServiceFait] Transfer email error:', e.message);
                 }
@@ -986,9 +1024,10 @@ const controller = {
                         <p style="font-size:16px;font-weight:600;margin:12px 0">${statusLabels[decision] || decision}</p>
                         ${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}
                         <p style="font-size:12px;color:#94a3b8">Répondu par ${wf.verifier_name}</p>
+                        ${wf.origin === 'magapp' ? `<p><a href="${await getMagappBaseUrl()}/">Ouvrir MagApp › Mes factures</a></p>` : ''}
                     `;
                     try {
-                        await sendMailFn(requesterEmail, subjectMap[decision], html);
+                        await sendSfMail(wf.origin, requesterEmail, subjectMap[decision], html);
                     } catch (e) {
                         console.error('[ServiceFait] Notification email error:', e.message);
                     }
@@ -1012,7 +1051,7 @@ const controller = {
                             </p>
                             <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${directorVisaUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${directorVisaUrl}</a></p>
                         `;
-                        await sendMailFn(wf.director_email, 'Visa du service fait requis', html);
+                        await sendSfMail(wf.origin, wf.director_email, 'Visa du service fait requis', html);
                     } else if (wf.director_mode === 'informe') {
                         const statusLabels = {
                             'valide': '✅ Validé', 'valide_avec_reserves': '⚠️ Validé avec réserves',
@@ -1026,7 +1065,7 @@ const controller = {
                             ${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}
                             <p style="font-size:12px;color:#94a3b8">Décision de ${wf.verifier_name || wf.verifier_username}</p>
                         `;
-                        await sendMailFn(wf.director_email, `${subjectMap[decision]} — information`, html);
+                        await sendSfMail(wf.origin, wf.director_email, `${subjectMap[decision]} — information`, html);
                     }
                 } catch (e) {
                     console.error('[ServiceFait] Director email error:', e.message);
@@ -1073,7 +1112,7 @@ const controller = {
                         ${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}
                     `;
                     try {
-                        await sendMailFn(requesterEmail, 'Processus de validation du service fait annulé', html);
+                        await sendSfMail(wf.origin, requesterEmail, 'Processus de validation du service fait annulé', html);
                     } catch (e) {
                         console.error('[ServiceFait] Cancel notification email error:', e.message);
                     }
@@ -1210,7 +1249,7 @@ const controller = {
                         ? `<p>Bonjour ${wf.requested_by},</p><p>Le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été visé par le directeur ${actorName} et certifié dans Sedit.</p>${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}`
                         : `<p>Bonjour ${wf.requested_by},</p><p>Le directeur ${actorName} n'a pas visé le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong>.</p>${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}`;
                     try {
-                        await sendMailFn(requesterEmail, decision === 'valide' ? 'Service fait visé par le directeur' : 'Service fait non visé par le directeur', html);
+                        await sendSfMail(wf.origin, requesterEmail, decision === 'valide' ? 'Service fait visé par le directeur' : 'Service fait non visé par le directeur', html);
                     } catch (e) { console.error('[ServiceFait] director decision requester email:', e.message); }
                 }
             }
@@ -1252,5 +1291,26 @@ const controller = {
 // Exposé pour permettre le rattrapage manuel d'une synchro Sedit (ex. décision déjà
 // enregistrée mais écriture Sedit échouée) — cf. scripts/sedit_sf_apply.js.
 controller.syncServiceFaitToSedit = syncServiceFaitToSedit;
+
+/**
+ * Traitement PAR LOT : applique createWorkflow (circuit) ou createSelfWorkflow (déclaration directe) à chaque facture, une par une, avec
+ * les mêmes paramètres communs (vérificateur / directeur, commentaire, pièces, date). Un échec n'arrête pas le lot : le résultat liste
+ * chaque facture. `items` = [{ invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section }].
+ */
+controller.runBatch = async function runBatch(req, items, mode, common = {}) {
+    const results = [];
+    for (const it of items) {
+        const fakeReq = Object.create(req);
+        fakeReq.body = { ...common, ...it };
+        let status = 200, body = null;
+        const fakeRes = { status(c) { status = c; return this; }, json(d) { body = d; return this; } };
+        try {
+            if (mode === 'self') await controller.createSelfWorkflow(fakeReq, fakeRes);
+            else await controller.createWorkflow(fakeReq, fakeRes);
+        } catch (e) { status = 500; body = { message: e.message }; }
+        results.push({ invoice_ref: it.invoice_ref, ok: status < 300, message: status < 300 ? '' : ((body && body.message) || 'Erreur') });
+    }
+    return results;
+};
 
 module.exports = controller;

@@ -10,6 +10,8 @@ import {
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import TaskValidationModal from '../../components/TaskValidationModal';
 import type { DsiAgent } from '../../components/TaskValidationModal';
+import PhysicalMeetingParticipantsModal from '../../components/PhysicalMeetingParticipantsModal';
+import type { MeetingParticipantInput } from '../../components/PhysicalMeetingParticipantsModal';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -145,6 +147,9 @@ interface Meeting {
     summary_notice?: string;
     summary_amendments?: Amendment[];
     summary_amended_markdown?: string | null;
+    // 'physique' | 'distanciel' — réunion en présentiel détectée quand le
+    // transcript ne comporte qu'un seul locuteur (compte Teams unique).
+    meeting_mode?: 'physique' | 'distanciel' | null;
 }
 
 interface AmendmentRecipient {
@@ -320,6 +325,12 @@ const MeetingDetail: React.FC = () => {
     // Confirmation avant de régénérer un résumé IA déjà existant — la régénération repart de
     // zéro (amendements + tâches déjà réalisés supprimés côté serveur), cf. runGenerateSummary.
     const [showRegenerateConfirmModal, setShowRegenerateConfirmModal] = useState(false);
+    // Réunion détectée « présentiel » (un seul locuteur dans le transcript) : avant
+    // l'analyse IA, on propose d'ajouter les personnes présentes (recherche agent ou
+    // par groupe) pour que l'IA puisse tenter d'identifier l'assistance.
+    const [showPhysicalParticipants, setShowPhysicalParticipants] = useState(false);
+    const [physicalParticipants, setPhysicalParticipants] = useState<MeetingParticipantInput[]>([]);
+    const [physicalLaunching, setPhysicalLaunching] = useState(false);
 
     // Sharing state
     const [orgDirections, setOrgDirections] = useState<{ code: string; label: string }[]>([]);
@@ -569,6 +580,65 @@ const MeetingDetail: React.FC = () => {
         if (!selectedModel) {
             alert("Choisissez un modèle IA avant de générer le résumé.");
             return;
+        }
+        // Réunion en présentiel : on propose D'ABORD d'ajouter les participants
+        // (recherche agent ou par groupe) — l'IA ne peut pas identifier les
+        // locuteurs d'un transcript mono-locuteur sans cette liste.
+        if (meeting?.meeting_mode === 'physique') {
+            openPhysicalParticipants();
+            return;
+        }
+        if (meeting?.summary) {
+            setShowRegenerateConfirmModal(true);
+            return;
+        }
+        runGenerateSummary();
+    };
+
+    // Ouvre la modale « participants » d'une réunion en présentiel, en partant
+    // des participants déjà connus (invités Teams + intervenants).
+    const openPhysicalParticipants = async () => {
+        if (!id || !token) return;
+        let list: MeetingParticipantInput[] = [];
+        try {
+            const res = await axios.get(`/api/transcriptmanager/meeting/${id}/participants`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            list = (Array.isArray(res.data) ? res.data : []).map((p: { email: string; name?: string; fonction?: string | null; direction?: string | null; service?: string | null }) => ({
+                email: p.email, name: p.name || p.email, fonction: p.fonction, direction: p.direction, service: p.service,
+            }));
+        } catch { /* on ouvre quand même, avec la liste vide */ }
+        setPhysicalParticipants(list);
+        setShowPhysicalParticipants(true);
+    };
+
+    // Lancer l'analyse sans ajouter les participants (l'utilisateur choisit de
+    // ne pas préciser l'assistance) — le prompt « présentiel » reste appliqué.
+    const skipPhysicalParticipants = () => {
+        setShowPhysicalParticipants(false);
+        if (meeting?.summary) {
+            setShowRegenerateConfirmModal(true);
+            return;
+        }
+        runGenerateSummary();
+    };
+
+    // Validation de la modale présentiel : on enregistre les participants (pour
+    // qu'ils figurent aussi dans l'envoi par mail), puis on enchaîne sur la
+    // génération IA (ou la confirmation de régénération si un résumé existe).
+    const launchAfterPhysicalParticipants = async (list: MeetingParticipantInput[]) => {
+        if (!id || !token) return;
+        setPhysicalLaunching(true);
+        try {
+            await axios.post(`/api/transcriptmanager/meeting/${id}/participants`,
+                { participants: list },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setPhysicalLaunching(false);
+            setShowPhysicalParticipants(false);
         }
         if (meeting?.summary) {
             setShowRegenerateConfirmModal(true);
@@ -1116,6 +1186,16 @@ const MeetingDetail: React.FC = () => {
                                 <span className="meta-item"><Calendar size={14} /> {fmtDate(meeting.meeting_date || meeting.created_at)}</span>
                                 <span className="meta-item"><Clock size={14} /> {formatTime(meeting.cues?.[(meeting.cues?.length || 1) - 1]?.start_seconds || 0)}</span>
                                 <span className="meta-item"><Users size={14} /> {speakers.length} Intervenants</span>
+                                {meeting.meeting_mode === 'physique' && (
+                                    <button
+                                        type="button"
+                                        onClick={openPhysicalParticipants}
+                                        title="Réunion tenue en présentiel (un seul compte Teams a enregistré la salle) — cliquer pour ajouter/préciser les personnes présentes"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 999, padding: '2px 10px', cursor: 'pointer' }}
+                                    >
+                                        <Building2 size={13} /> Présentiel — participants à préciser
+                                    </button>
+                                )}
                             </div>
                         </>
                     )}
@@ -1698,6 +1778,17 @@ const MeetingDetail: React.FC = () => {
                     </div>
                 );
             })()}
+
+            {showPhysicalParticipants && meeting && token && (
+                <PhysicalMeetingParticipantsModal
+                    token={token}
+                    participants={physicalParticipants}
+                    launching={physicalLaunching}
+                    onClose={() => setShowPhysicalParticipants(false)}
+                    onLaunch={launchAfterPhysicalParticipants}
+                    onSkip={skipPhysicalParticipants}
+                />
+            )}
 
             {showTaskValidation && meeting && (
                 <TaskValidationModal

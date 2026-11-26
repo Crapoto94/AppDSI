@@ -286,7 +286,7 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
       )}
 
       {viewer && (
-        <div onClick={() => setViewer(null)}
+        <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 12, width: 980, maxWidth: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>

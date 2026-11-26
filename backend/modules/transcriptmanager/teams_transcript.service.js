@@ -141,6 +141,66 @@ function graphAccessHint(graphMessage = '', code = '') {
 /** Date ISO UTC (format requis par calendarView / getAllTranscripts). */
 const toIsoUtc = (d) => d.toISOString().replace('.000Z', 'Z');
 
+// Graph renvoie souvent les heures en UTC (dateTime sans suffixe + timeZone
+// "UTC"). Les interpréter comme heure locale décalait les réunions d'une heure
+// (ex. REDI 09:30 affichée 08:30). On normalise en ISO avec fuseau.
+const WINDOWS_TIMEZONES = {
+    'Romance Standard Time': 'Europe/Paris',
+    'W. Europe Standard Time': 'Europe/Berlin',
+    'Central Europe Standard Time': 'Europe/Budapest',
+    'GMT Standard Time': 'Europe/London',
+    'UTC': 'UTC',
+};
+
+function graphTimezoneToIana(tz) {
+    const raw = String(tz || '').trim();
+    if (!raw) return 'Europe/Paris';
+    if (WINDOWS_TIMEZONES[raw]) return WINDOWS_TIMEZONES[raw];
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: raw });
+        return raw;
+    } catch {
+        return 'Europe/Paris';
+    }
+}
+
+function tzOffsetMs(utcMs, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const parts = {};
+    for (const p of dtf.formatToParts(new Date(utcMs))) {
+        if (p.type !== 'literal') parts[p.type] = p.value;
+    }
+    const hour = parts.hour === '24' ? '00' : parts.hour;
+    const asUtc = Date.UTC(
+        Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+        Number(hour), Number(parts.minute), Number(parts.second)
+    );
+    return asUtc - utcMs;
+}
+
+function normalizeGraphDateTime(raw, tz) {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    // Heure déjà absolue (Z ou décalage explicite) : on la garde.
+    if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+        const cleaned = s.replace(/(\.\d{3})\d+/, '$1');
+        const d = new Date(cleaned);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    if (!m) return null;
+    const naiveUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    const timeZone = graphTimezoneToIana(tz);
+    let utc = naiveUtc - tzOffsetMs(naiveUtc, timeZone);
+    // Seconde passe pour les transitions d'heure d'été/hiver.
+    utc = naiveUtc - tzOffsetMs(utc, timeZone);
+    return new Date(utc).toISOString();
+}
+
 // Cache process des IDs AAD (évite un GET /users par appel).
 const aadIdCache = new Map();
 
@@ -251,7 +311,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 
     const baseFromEvent = (ev) => ({
         subject: ev.subject || 'Réunion Teams',
-        startDateTime: ev.start?.dateTime || null,
+        startDateTime: normalizeGraphDateTime(ev.start?.dateTime, ev.start?.timeZone),
         organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
         participants: (ev.attendees || [])
             .map(a => a.emailAddress?.name || a.emailAddress?.address || '')
@@ -431,8 +491,109 @@ async function listTeamsTranscripts(userEmail, days = 30) {
  *        (getAllTranscripts) — permet d'éviter de reconstruire l'URL.
  * @returns {Promise<string>} contenu brut du transcript
  */
-async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl) {
-    const settings = await getGraphSettings();
+/**
+ * Recherche les réunions Exchange/O365 du calendrier de l'utilisateur pour une
+ * DATE donnée (et non seulement les derniers jours), afin d'associer une
+ * occurrence DSIHub à son occurrence Exchange/Teams. Pour chaque réunion en
+ * ligne, on résout l'onlineMeetingId et, si disponible, le transcriptId.
+ *
+ * @param {string} userEmail
+ * @param {string} dateIso  AAAA-MM-JJ
+ * @returns {Promise<{ok:boolean, meetings:Array, warnings:string[], error?:string}>}
+ */
+async function listCalendarMeetingsForDate(userEmail, dateIso) {
+    const warnings = [];
+    let settings, axiosOpts, token;
+    try {
+        settings = await getGraphSettings();
+        axiosOpts = getAxiosOpts();
+        token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
+    } catch (e) {
+        const net = isNetworkError(e)
+            ? ` (${e.code || 'connexion interrompue'})`
+            : ` : ${e.message || e}`;
+        return { ok: false, meetings: [], warnings, error: `Connexion à Microsoft impossible${net}` };
+    }
+    const headers = { Authorization: `Bearer ${token}` };
+    const startDate = new Date(`${dateIso}T00:00:00`);
+    const endDate = new Date(`${dateIso}T23:59:59`);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return { ok: false, meetings: [], warnings, error: 'Date invalide' };
+    }
+    const aadId = await resolveUserAadId(userEmail, axiosOpts, headers);
+    const userKey = aadId || userEmail;
+
+    let events = [];
+    try {
+        let pageUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
+            + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
+            + `&$select=id,subject,start,end,onlineMeeting,organizer,attendees,location,isOnlineMeeting&$top=50`;
+        for (let page = 0; page < 10 && pageUrl; page++) {
+            const res = await retryNetwork(() => axios.get(pageUrl, { ...axiosOpts, headers }));
+            events.push(...(res.data.value || []));
+            pageUrl = res.data['@odata.nextLink'] || null;
+        }
+    } catch (e) {
+        const code = e.response?.data?.error?.code || 'Erreur';
+        const msg = e.response?.data?.error?.message || e.message;
+        return { ok: false, meetings: [], warnings, error: `Accès au calendrier impossible (${code}) : ${msg}` };
+    }
+
+    // Résolution de l'ID de réunion en ligne par joinUrl.
+    const meetingIdByUrl = new Map();
+    const withJoinUrl = events.filter(ev => ev.onlineMeeting?.joinUrl);
+    await Promise.all(withJoinUrl.map(async (ev) => {
+        const joinUrl = ev.onlineMeeting.joinUrl;
+        try {
+            const filter = `JoinWebUrl eq '${escapeODataString(joinUrl)}'`;
+            const r = await axios.get(
+                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings?$filter=${encodeURIComponent(filter)}`,
+                { ...axiosOpts, headers }
+            );
+            const m = (r.data.value || [])[0];
+            if (m?.id) meetingIdByUrl.set(joinUrl, m.id);
+        } catch (e) {
+            // Pas d'accès aux onlineMeetings : la réunion Exchange reste listée.
+        }
+    }));
+
+    // Transcripts disponibles par onlineMeetingId (best effort).
+    const transcriptByMeetingId = new Map();
+    await Promise.all([...meetingIdByUrl.values()].map(async (mid) => {
+        try {
+            const r = await axios.get(
+                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(mid)}/transcripts`,
+                { ...axiosOpts, headers }
+            );
+            const t = (r.data.value || [])[0];
+            if (t?.id) transcriptByMeetingId.set(mid, t.id);
+        } catch (e) { /* pas de transcript accessible */ }
+    }));
+
+    const meetings = events.map(ev => {
+        const joinUrl = ev.onlineMeeting?.joinUrl || null;
+        const onlineMeetingId = joinUrl ? (meetingIdByUrl.get(joinUrl) || null) : null;
+        const transcriptId = onlineMeetingId ? (transcriptByMeetingId.get(onlineMeetingId) || null) : null;
+        return {
+            eventId: ev.id,
+            subject: ev.subject || 'Réunion',
+            startDateTime: normalizeGraphDateTime(ev.start?.dateTime, ev.start?.timeZone),
+            endDateTime: normalizeGraphDateTime(ev.end?.dateTime, ev.end?.timeZone),
+            organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
+            location: ev.location?.displayName || null,
+            isOnline: !!ev.isOnlineMeeting || !!joinUrl,
+            joinUrl,
+            meetingId: onlineMeetingId,
+            transcriptId,
+            participants: (ev.attendees || []).map(a => a.emailAddress?.name || a.emailAddress?.address || '').filter(Boolean),
+            participantEmails: (ev.attendees || []).map(a => (a.emailAddress?.address || '').toLowerCase()).filter(e => e.includes('@')),
+        };
+    }).sort((a, b) => String(a.startDateTime).localeCompare(String(b.startDateTime)));
+
+    return { ok: true, meetings, warnings };
+}
+
+async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl) {    const settings = await getGraphSettings();
     const axiosOpts = getAxiosOpts();
     const token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
     const headers = { Authorization: `Bearer ${token}` };
@@ -462,4 +623,4 @@ async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transc
     }
 }
 
-module.exports = { listTeamsTranscripts, fetchTranscriptContent };
+module.exports = { listTeamsTranscripts, listCalendarMeetingsForDate, fetchTranscriptContent };

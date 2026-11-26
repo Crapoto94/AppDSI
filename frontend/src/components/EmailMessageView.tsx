@@ -89,7 +89,7 @@ export default function EmailMessageView({ data, attachmentHref, onAttachmentCli
               <Paperclip size={12} /> {a.fileName} <span style={{ color: '#9ca3af' }}>({formatSize(a.contentLength)})</span>
             </button>
           ) : (
-            <a key={a.index} href={attachmentHref ? attachmentHref(a.index) : '#'} style={S.attachmentChip}>
+            <a key={a.index} href={attachmentHref ? attachmentHref(a.index) : '#'} target="_blank" rel="noopener noreferrer" style={S.attachmentChip}>
               <Paperclip size={12} /> {a.fileName} <span style={{ color: '#9ca3af' }}>({formatSize(a.contentLength)})</span>
             </a>
           ))}

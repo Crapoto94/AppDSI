@@ -3,6 +3,7 @@ import axios from 'axios';
 import { X, ShoppingCart, ChevronLeft, ChevronRight, Package, Printer, AlertCircle, Building2, User } from 'lucide-react';
 import { resolveDesignationImageUrl } from '../utils/designationImages';
 import { getConsumableTypeIcon } from '../utils/consumableTypeIcon';
+import { appAlert } from './AppDialogs';
 
 interface ConsumableType {
   id: number;
@@ -230,7 +231,7 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      alert('Votre demande a été envoyée avec succès');
+      appAlert('Votre demande a été envoyée avec succès');
       onClose();
     } catch (error: any) {
       setError(error.response?.data?.error || 'Erreur lors de la création de la demande');

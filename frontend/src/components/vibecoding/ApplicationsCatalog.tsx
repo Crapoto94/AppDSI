@@ -362,7 +362,7 @@ const ApplicationsCatalog: React.FC = () => {
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)',
           display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000, padding: '20px'
-        }} onClick={() => setDetail(null)}>
+        }}>
           <div onClick={e => e.stopPropagation()} style={{
             background: 'white', borderRadius: '16px', width: '100%', maxWidth: '720px', maxHeight: '88vh',
             display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'

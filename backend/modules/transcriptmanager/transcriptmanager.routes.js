@@ -53,6 +53,13 @@ router.get('/teams-transcripts', authenticateJWT, transcriptController.listTeams
 router.post('/teams-import', authenticateJWT, blockTranscriptGuest, transcriptController.importTeamsTranscript);
 router.post('/meeting/:id/summarize', authenticateJWT, blockTranscriptGuest, transcriptController.summarizeMeeting);
 router.get('/meeting/:id/participants', authenticateJWT, transcriptController.getMeetingParticipants);
+router.post('/meeting/:id/participants', authenticateJWT, blockTranscriptGuest, transcriptController.addMeetingParticipants);
+// Groupes proposés pour ajouter des participants à une réunion en présentiel
+// (rôles issus de /admin/ville › Encadrants, groupes particuliers, groupes AD).
+// Déclarés AVANT toute route paramétrique /:id équivalente pour l'ordre Express.
+router.get('/participant-groups/members', authenticateJWT, transcriptController.getParticipantGroupMembers);
+router.get('/participant-groups', authenticateJWT, transcriptController.getParticipantGroups);
+router.get('/participant-ad-groups', authenticateJWT, transcriptController.getParticipantAdGroups);
 router.post('/meeting/:id/send-summary', authenticateJWT, blockTranscriptGuest, transcriptController.sendMeetingSummary);
 router.get('/ai/models', authenticateJWT, transcriptController.getAiModels);
 router.get('/share-link', authenticateJWT, transcriptController.getShareLink);

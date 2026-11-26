@@ -1,4 +1,5 @@
-const { pgDb } = require('../../shared/database');
+const sedit = require('../../shared/sedit-rh');
+const { pool } = require('../../shared/database');
 
 // ─── Organigramme : résolution des responsables (skill « organigramme ») ──────
 
@@ -27,33 +28,21 @@ function _overlap(aKeys, bKeys) {
 }
 
 /**
- * Indexe, depuis l'extraction Oracle (PostgreSQL), les responsables actifs par niveau.
- * Tolérant : renvoie un index vide si la lecture échoue (la page ne casse jamais).
+ * Indexe les responsables actifs par niveau depuis l'API SEDIT RH.
+ * Tolérant : renvoie un index vide si l'API échoue (la page ne casse jamais).
  */
 async function resolveManagerIndex() {
     const empty = { ok: false, directorsByDir: new Map(), serviceBySvc: new Map(), secteurBySvc: new Map() };
     try {
-        // Source : oracle.rh_v_extract_dsi (PostgreSQL)
-        // POSITION_L : "Activité*" et "Temps partiel*" = agent en poste
-        // DATE_DEPART : stocké en DD/MM/YYYY (texte) → on se fie à POSITION_L uniquement
-        const rows = await pgDb.all(`
-            SELECT "NOM", "PRENOM", "DIRECTION", "SERVICE", "POSTE_L"
-            FROM oracle.rh_v_extract_dsi
-            WHERE ("POSITION_L" LIKE 'Activité%' OR "POSITION_L" LIKE 'Temps partiel%')
-              AND (
-                "POSTE_L" LIKE 'DIRECTEUR%'
-                OR "POSTE_L" LIKE 'RESPONSABLE DU SERVICE%'
-                OR "POSTE_L" LIKE 'RESPONSABLE DU SECTEUR%'
-              )
-        `);
-
+        const agents = (await sedit.allAgents()).map(sedit.summary);
         const directorsByDir = new Map();
         const serviceBySvc = new Map();
         const secteurBySvc = new Map();
         const push = (map, key, val) => { if (!key) return; if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
 
-        for (const r of rows) {
-            const poste = (r.POSTE_L || '').toUpperCase();
+        for (const a of agents) {
+            const poste = String(a.poste || '').toUpperCase();
+            const r = { NOM: a.nom, PRENOM: a.prenom, DIRECTION: a.direction_code, SERVICE: a.service_code, SECTEUR: a.secteur, POSTE_L: a.poste };
             if (poste.startsWith('DIRECTEUR')) push(directorsByDir, r.DIRECTION, r);
             else if (poste.startsWith('RESPONSABLE DU SERVICE')) push(serviceBySvc, r.SERVICE, r);
             else if (poste.startsWith('RESPONSABLE DU SECTEUR')) push(secteurBySvc, r.SERVICE, r);
@@ -138,122 +127,74 @@ function pickSecteurResp(mgr, svcCode, secteurLabel) {
 }
 
 const rhController = {
+    // Agents partis sur une période — source : Studio RH (schéma StudioRH.REF_AGENTS).
+    // Alimente le KPI « agents partis depuis la dernière réunion » et le widget
+    // du tableau de bord. Les dates sentinelles (2099) ne sont pas des départs.
+    getDeparts: async (req, res) => {
+        const isoDate = (s) => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) ? s : null;
+        const today = new Date().toISOString().slice(0, 10);
+        const to = isoDate(req.query.to) || today;
+        const since = isoDate(req.query.since) || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        try {
+            const r = await pool.query(
+                `SELECT "matricule", "nom", "prenom",
+                        to_char("date_depart"::date, 'YYYY-MM-DD') AS date_depart,
+                        to_char("date_depart"::date, 'DD/MM/YYYY') AS date_depart_fr,
+                        COALESCE(NULLIF("fonction_l", ''), "poste_l") AS fonction,
+                        "nom_direction" AS direction, "nom_service" AS service, "mail"
+                 FROM "StudioRH"."REF_AGENTS"
+                 WHERE "date_depart" IS NOT NULL
+                   AND "date_depart"::date >= $1::date
+                   AND "date_depart"::date <= $2::date
+                   AND "date_depart"::date < DATE '2099-01-01'
+                 ORDER BY "date_depart"::date DESC, "nom", "prenom"`,
+                [since, to]
+            );
+            res.json({ source: 'Studio RH', since, to, count: r.rows.length, agents: r.rows });
+        } catch (err) {
+            if (err.code === '42P01' || /relation .* does not exist/i.test(err.message)) {
+                return res.json({ source: 'Studio RH', since, to, count: 0, agents: [], warning: 'Référentiel Studio RH indisponible' });
+            }
+            res.status(500).json({ message: 'Erreur lecture des départs (Studio RH)', error: err.message });
+        }
+    },
+
     // Arborescence Direction -> Services (utilisée pour alimenter des listes
     // déroulantes en cascade ailleurs dans l'app, ex. module certificats).
     getServicesTree: async (req, res) => {
         try {
-            const v2Count = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
-            const orgTable = Number(v2Count.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
-            const rows = await pgDb.all(`
-                SELECT DISTINCT "DIRECTION" AS dcode, "DIRECTION_L" AS dlabel, "SERVICE" AS scode, "SERVICE_L" AS slabel
-                FROM ${orgTable}
-                WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" NOT LIKE '$%' AND "DIRECTION" != ''
-                  AND "SERVICE" IS NOT NULL AND "SERVICE" NOT LIKE '$%' AND "SERVICE" != ''
-            `);
-            const isReal = (v) => v && v.trim() && !v.trim().startsWith('$');
-            const dirMap = new Map();
-            for (const row of rows) {
-                const dCode = (row.dcode || '').trim();
-                const dLabel = (row.dlabel || '').trim() || dCode;
-                const sCode = (row.scode || '').trim();
-                const sLabel = (row.slabel || '').trim() || sCode;
-                if (!isReal(dCode) || !isReal(sCode)) continue;
-                if (!dirMap.has(dCode)) dirMap.set(dCode, { code: dCode, label: dLabel, services: new Map() });
-                dirMap.get(dCode).services.set(sCode, { code: sCode, label: sLabel });
-            }
-            const tree = Array.from(dirMap.values())
-                .map(d => ({
-                    code: d.code,
-                    label: d.label,
-                    services: Array.from(d.services.values()).sort((a, b) => a.label.localeCompare(b.label, 'fr'))
-                }))
-                .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+            const org = await sedit.organisation();
+            const tree = org.map(d => ({
+                code: d.code,
+                label: d.libelle || d.code,
+                services: (d.services || []).map(s => ({ code: s.code, label: s.libelle || s.code })).sort((a, b) => a.label.localeCompare(b.label, 'fr')),
+            })).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
             res.json(tree);
         } catch (err) {
             res.status(500).json({ message: 'Erreur récupération services', error: err.message });
         }
     },
 
-    // Organisation chart depuis oracle.rh_siim_organigramme_v2 (repli sur v1 si vide)
-    getOrganisationChart: async (req, res) => {
-        try {
-            // Détermine la table à utiliser : v2 en priorité, repli sur v1 si vide
-            const v2Count = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
-            const orgTable = Number(v2Count.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
-
-            const rows = await pgDb.all(`
-                SELECT DISTINCT
-                    "DIRECTION"   AS direction_code,
-                    "DIRECTION_L" AS direction_label,
-                    "SERVICE"     AS service_code,
-                    "SERVICE_L"   AS service_label,
-                    "SECTEUR"     AS secteur_code,
-                    "SECTEUR_L"   AS secteur_label
-                FROM ${orgTable}
-                WHERE "DIRECTION" IS NOT NULL
-                  AND "DIRECTION" NOT LIKE '$%'
-                  AND "DIRECTION" != ''
-                  AND "DIRECTION" NOT IN ('AA', 'BZ')
-            `);
-
-            // Build hierarchy: Direction → Service → Secteur
-            // Les valeurs commençant par '$' sont des placeholders SIIM à ignorer.
-            const isReal = (v) => v && v.trim() && !v.trim().startsWith('$');
-            const dirMap = new Map();
-            for (const row of rows) {
-                const dCode = row.direction_code?.trim();
-                const dLabel = row.direction_label?.trim() || dCode;
-                const sCode = row.service_code?.trim();
-                const sLabel = row.service_label?.trim() || sCode;
-                const secCode = row.secteur_code?.trim();
-                const secLabel = row.secteur_label?.trim() || secCode;
-
-                if (!isReal(dCode)) continue;
-
-                if (!dirMap.has(dCode)) {
-                    dirMap.set(dCode, { code: dCode, label: dLabel, services: new Map() });
-                }
-                const dir = dirMap.get(dCode);
-
-                if (isReal(sCode)) {
-                    if (!dir.services.has(sCode)) {
-                        dir.services.set(sCode, { code: sCode, label: sLabel, secteurs: new Map() });
-                    }
-                    const svc = dir.services.get(sCode);
-
-                    if (isReal(secCode)) {
-                        if (!svc.secteurs.has(secCode)) {
-                            svc.secteurs.set(secCode, { code: secCode, label: secLabel });
-                        }
-                    }
-                }
-            }
-
-            // Résolution des responsables par niveau (skill « organigramme »).
-            // Non bloquant : si la table agents est absente/illisible, on rend l'arbre sans responsables.
+    // Organisation chart depuis l'API SEDIT RH (directions > services > secteurs)
+    getOrganisationChart: async (req, res) => {        try {
+            const org = await sedit.organisation();
             const mgr = await resolveManagerIndex();
 
-            const result = Array.from(dirMap.values())
-                .sort((a, b) => a.code.localeCompare(b.code))
-                .map(dir => ({
-                    code: dir.code,
-                    label: dir.label,
-                    ...pickDirector(mgr, dir.code, dir.label),
-                    services: Array.from(dir.services.values())
-                        .sort((a, b) => a.code.localeCompare(b.code))
-                        .map(svc => ({
-                            code: svc.code,
-                            label: svc.label,
-                            ...pickServiceResp(mgr, svc.code, dir.code, dir.label),
-                            secteurs: Array.from(svc.secteurs.values())
-                                .sort((a, b) => a.code.localeCompare(b.code))
-                                .map(sec => ({
-                                    code: sec.code,
-                                    label: sec.label,
-                                    ...pickSecteurResp(mgr, svc.code, sec.label)
-                                }))
-                        }))
-                }));
+            const result = org.map(dir => ({
+                code: dir.code,
+                label: dir.libelle || dir.code,
+                ...pickDirector(mgr, dir.code, dir.libelle || dir.code),
+                services: (dir.services || []).map(svc => ({
+                    code: svc.code,
+                    label: svc.libelle || svc.code,
+                    ...pickServiceResp(mgr, svc.code, dir.code, dir.libelle || dir.code),
+                    secteurs: (svc.secteurs || []).map(sec => ({
+                        code: sec.code,
+                        label: sec.libelle || sec.code,
+                        ...pickSecteurResp(mgr, svc.code, sec.libelle || sec.code),
+                    })),
+                })),
+            }));
 
             res.json(result);
         } catch (err) {

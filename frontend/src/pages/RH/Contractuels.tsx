@@ -402,7 +402,7 @@ export default function Contractuels() {
       </div>
 
       {modal && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>{modal === 'create' ? 'Nouveau contractuel' : 'Modifier le contractuel'}</h3>
             <div className="form-grid">
@@ -450,7 +450,7 @@ export default function Contractuels() {
       )}
 
       {alertModal && (
-        <div className="modal-overlay" onClick={() => setAlertModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>Envoyer une alerte - {alertModal.nom_prenom}</h3>
             <div style={{ marginBottom: 12, padding: 12, background: '#fef3c7', borderRadius: 8, fontSize: 13 }}>
@@ -485,7 +485,7 @@ export default function Contractuels() {
       )}
 
       {importModal && (
-        <div className="modal-overlay" onClick={() => setImportModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3>Importer depuis Excel</h3>
             <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>

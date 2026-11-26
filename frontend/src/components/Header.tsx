@@ -6,6 +6,7 @@ import { isAdminLike } from '../utils/roles';
 import ThemeToggle from './ThemeToggle';
 import NotificationBell from './NotificationBell';
 import axios from 'axios';
+import dsiHubLogo from '../assets/dsi_hub.gif';
 
 interface Todo {
   id: number;
@@ -278,7 +279,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       <div className="container header-content">
         <div className="logo-section">
           <Link to="/" className="logo">
-            <img src="/dsi_hub.gif" alt="DSI Hub" className="logo-icon" />
+            <img src={dsiHubLogo} alt="DSI Hub" className="logo-icon" />
             <span className="logo-ivry">ivry</span>
             <span className="logo-sur-seine">sur-seine</span>
             <span className="logo-dsi"> - Hub DSI</span>
@@ -498,7 +499,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       </div>
 
       {showModal && changelog && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title-tabs">
@@ -688,7 +689,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       )}
 
       {showHelp && helpData && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
             <div className="modal-header">
               <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -1,7 +1,7 @@
 /**
  * Synchronisation direction/service (magapp.users.service_code / service_complement,
  * et hub.users en SQLite) depuis le référentiel RH source de vérité
- * (oracle.rh_v_extract_dsi), au lieu de dépendre des attributs AD (company/department)
+ * (API SEDIT RH), au lieu de dépendre des attributs AD (company/department)
  * recopiés une seule fois au moment de la connexion — cf. investigation Sarah MEDALEL
  * (service affiché obsolète tant que l'agent ne se reconnecte pas, ou si l'attribut AD
  * lui-même n'a pas été mis à jour par l'équipe infra au moment du changement de poste).
@@ -13,8 +13,7 @@
  * mauvaise fiche à quelqu'un.
  */
 const { pool, getSqlite } = require('./database');
-
-const ACTIVE_FILTER = `("POSITION_L" LIKE 'Activité%' OR "POSITION_L" LIKE 'Temps partiel%')`;
+const sedit = require('./sedit-rh');
 
 function normalizeForUsername(s) {
     return String(s || '')
@@ -29,11 +28,12 @@ function titleCaseFr(s) {
 }
 
 async function syncAgentServicesFromRH({ dryRun = false } = {}) {
-    const rhRes = await pool.query(`
-        SELECT "MATRICULE", "NOM", "PRENOM", "DIRECTION_L", "SERVICE_L"
-        FROM oracle.rh_v_extract_dsi
-        WHERE ${ACTIVE_FILTER}
-    `);
+    const rhRes = {
+        rows: (await sedit.allAgents()).map(sedit.summary).map(a => ({
+            MATRICULE: a.matricule, NOM: a.nom, PRENOM: a.prenom,
+            DIRECTION_L: a.direction, SERVICE_L: a.service,
+        })),
+    };
 
     const byUsername = new Map();
     for (const r of rhRes.rows) {

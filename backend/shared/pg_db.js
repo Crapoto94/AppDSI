@@ -10,6 +10,9 @@ const { Pool } = require('pg');
  *  - colonnes dont le NOM évoque un secret → non accordées (droits par colonne) ;
  *  - aucun droit d'écriture, jamais.
  */
+const GLPI_TICKETS_MIGRATION_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.GLPI_TICKETS_MIGRATION || '0').trim().toLowerCase()
+);
 const DATAQUERY_ROLE = process.env.DATAQUERY_PG_USER || 'dq_readonly';
 const DATAQUERY_DENY_TABLES = '(api_keys|kiosk_tokens|otp|settings|config|credential|secret|oauth|dataquery_)';
 const DATAQUERY_DENY_COLUMNS = '(passw|pwd|secret|token|api_?key|apikey|hash|otp|private_?key|credential|pin_code|refresh|cookie|salt)';
@@ -204,7 +207,7 @@ const pgDb = {
     }
 };
 
-async function setupPgDb() {
+async function setupPgDbFull() {
   let client;
   try {
     client = await pool.connect();
@@ -1260,6 +1263,22 @@ async function setupPgDb() {
     `);
     await client.query(`ALTER TABLE hub_tickets.mail_collectors ADD COLUMN IF NOT EXISTS module VARCHAR(50) DEFAULT 'tickets'`);
 
+    // Collecteur « Consommables » : boîte consoivry@ivry94.fr → demandes de
+    // consommables. Créé une seule fois (idempotent) ; l'activation locale reste
+    // gérée par mail_collector/local_enabled.js.
+    try {
+      await client.query(`
+        INSERT INTO hub_tickets.mail_collectors (name, mailbox, module, frequency, is_enabled, success_folder)
+        SELECT 'Consommables', 'consoivry@ivry94.fr', 'consommables', 'every_15_min', true, NULL
+        WHERE NOT EXISTS (
+          SELECT 1 FROM hub_tickets.mail_collectors
+          WHERE module = 'consommables' OR mailbox = 'consoivry@ivry94.fr'
+        )
+      `);
+    } catch (e) {
+      console.log('[PG DB] Création du collecteur Consommables ignorée:', e.message);
+    }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.mail_rules (
         id SERIAL PRIMARY KEY,
@@ -1854,6 +1873,13 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_agent_search BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_virement_credits BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_mes_factures BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_entretiens_pro BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)
@@ -2667,6 +2693,15 @@ async function setupPgDb() {
           -- diff isolé par amendement (cf. transcriptmanager.controller.js).
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='summary_annotated_spans') THEN
             ALTER TABLE transcript.meetings ADD COLUMN summary_annotated_spans TEXT;
+          END IF;
+          -- Mode de tenue de la réunion : 'physique' | 'distanciel'.
+          -- Règle métier : un transcript qui ne contient qu'UN SEUL locuteur
+          -- (celui qui a lancé l'enregistrement Teams) correspond à une réunion
+          -- tenue en présentiel — le micro unique a capté la salle entière.
+          -- Renseigné au traitement des cues et utilisé pour choisir le prompt
+          -- IA d'analyse adapté (cf. transcriptmanager.controller.js).
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='meeting_mode') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN meeting_mode TEXT;
           END IF;
         END $$;
       `);
@@ -3737,6 +3772,12 @@ async function setupPgDb() {
     // « mandaté » de la synthèse mensuelle (contour vert + infobulle date de mandatement).
     await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandate_date DATE;`);
     await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandated BOOLEAN DEFAULT FALSE;`);
+    // Le cache couvre toute la collectivite (MagApp Mes factures) ; in_scope = perimetre de synchro (DSI) utilise par les stats /budget et le widget.
+    await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS in_scope BOOLEAN NOT NULL DEFAULT TRUE;`);
+    // Origine du workflow de service fait ('magapp' : liens de validation sous le domaine MagApp)
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ;`).catch(() => {});
+    await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS reminder_count INTEGER NOT NULL DEFAULT 0;`).catch(() => {});
 
     // ── Service Fait validation workflow ──
     await client.query(`
@@ -3858,6 +3899,8 @@ async function setupPgDb() {
       `modifie_par TEXT`, `modifie_at TIMESTAMPTZ`,
       `service TEXT`, `demandeur_email TEXT`,
       `section TEXT`, // 'F' fonctionnement / 'I' investissement (imputation budgétaire de la demande)
+      `refuse_raison TEXT`, `refuse_par TEXT`, `refuse_fonction TEXT`, `refuse_at TIMESTAMPTZ`,
+      `refuse_mail_sent_at TIMESTAMPTZ`, `refuse_mail_error TEXT`,
     ]) {
       try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
     }
@@ -4329,6 +4372,48 @@ async function setupPgDb() {
     } catch (e) {
       console.log('[PG DB] Migration order columns skipped:', e.message);
     }
+
+    // Demandes reçues par le collecteur mail : source, message d'origine et
+    // document original (.eml) pour la visionneuse.
+    try {
+      await client.query(`
+        ALTER TABLE hub_consommables.consumable_requests
+          ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'web',
+          ADD COLUMN IF NOT EXISTS mail_subject TEXT,
+          ADD COLUMN IF NOT EXISTS mail_from TEXT,
+          ADD COLUMN IF NOT EXISTS mail_from_name TEXT,
+          ADD COLUMN IF NOT EXISTS mail_received_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS source_document_id INTEGER,
+          ADD COLUMN IF NOT EXISTS ticket_id INTEGER,
+          ADD COLUMN IF NOT EXISTS ar_code TEXT,
+          ADD COLUMN IF NOT EXISTS ar_sent_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS ar_reply_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS ar_reply_document_id INTEGER,
+          ADD COLUMN IF NOT EXISTS to_archive BOOLEAN DEFAULT FALSE;
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration colonnes mail consumable_requests skipped:', e.message);
+    }
+
+    // Prix TTC unitaire du catalogue (utilisé pour les totaux par école / demande).
+    try {
+      await client.query('ALTER TABLE hub_consommables.consumable_catalog ADD COLUMN IF NOT EXISTS prix_ttc NUMERIC');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_ar_code ON hub_consommables.consumable_requests(ar_code)');
+    } catch (e) {
+      console.log('[PG DB] Migration prix_ttc / ar_code skipped:', e.message);
+    }
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.request_email_mapping (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_requests(id) ON DELETE CASCADE,
+        email_message_id TEXT UNIQUE NOT NULL,
+        email_from TEXT,
+        email_subject TEXT,
+        email_received_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_request_email_req ON hub_consommables.request_email_mapping(request_id)');
 
     // Indices
     await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_user ON hub_consommables.consumable_requests(user_id)');
@@ -5274,6 +5359,27 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS dashboard_columns SMALLINT DEFAULT 3`); } catch (e) {}
+    // Normalise les préférences sur un username en minuscules. Des lignes « machevalier » et
+    // « MaChevalier » coexistaient : l'interface lisait l'une, la notification l'autre, avec un
+    // résultat différent. On conserve la ligne déjà en minuscules (celle utilisée par l'interface),
+    // sinon la plus récente.
+    try {
+      await client.query(`
+        WITH ranked AS (
+          SELECT ctid,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY LOWER(username)
+                   ORDER BY (username = LOWER(username)) DESC, updated_at DESC NULLS LAST, ctid DESC
+                 ) AS rn
+          FROM hub.user_prefs
+        )
+        DELETE FROM hub.user_prefs p
+        USING ranked r
+        WHERE p.ctid = r.ctid AND r.rn > 1
+      `);
+      await client.query(`UPDATE hub.user_prefs SET username = LOWER(username) WHERE username <> LOWER(username)`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_user_prefs_username_lower ON hub.user_prefs(LOWER(username))`);
+    } catch (e) { console.warn('[PG DB] normalisation user_prefs:', e.message); }
     // Thème visuel (mode sombre) : NULL = valeur par défaut du navigateur.
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS theme VARCHAR(10) DEFAULT NULL`); } catch (e) {}
 
@@ -5443,7 +5549,11 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // ─── Migration GLPI → hub_tickets + seed ─────────────────────
-    try {
+    // Migration GLPI -> hub_tickets : désactivée par défaut (GLPI n'est plus la source des tickets).
+    // Réactivable ponctuellement avec GLPI_TICKETS_MIGRATION=1.
+    if (!GLPI_TICKETS_MIGRATION_ENABLED) {
+        console.log('[PG DB] migration tickets GLPI ignorée (GLPI_TICKETS_MIGRATION=0)');
+    } else try {
         await client.query(`
             INSERT INTO hub_tickets.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22)
             SELECT glpi_id, title, content, status, priority, urgency, impact, category, type,
@@ -6553,6 +6663,14 @@ async function setupPgDb() {
         ON CONFLICT (key) DO NOTHING
       `);
 
+      // Studio IRS : URL et clé laissées vides ici, reprises du .env (STUDIO_IRS_URL /
+      // STUDIO_IRS_KEY) tant qu'elles ne sont pas saisies dans /admin/infra.
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name)
+        VALUES ('studio_irs', 'Studio IRS', '', '/api/external/v1/hosts', '', 'X-API-Key')
+        ON CONFLICT (key) DO NOTHING
+      `);
+
       // ── Seed v2 (version-gated) ────────────────────────────────────
       // DÉSACTIVÉ : le réseau est désormais alimenté par l'API Infra (switchs + liens),
       // pas par le seed statique « DIP 2021 ». On conserve le bloc pour mémoire.
@@ -6951,6 +7069,19 @@ async function setupPgDb() {
           revoked_reason VARCHAR(200)
         )
       `);
+      // Droits par agent (modules interrogeables). Ligne '*' = droits par défaut.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.dataquery_rights (
+          username    VARCHAR(100) PRIMARY KEY,
+          mode        VARCHAR(20) NOT NULL DEFAULT 'all',
+          schemas     TEXT[] NOT NULL DEFAULT '{}',
+          note        TEXT,
+          updated_by  VARCHAR(100),
+          updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Droits d'ÉCRITURE du MCP par agent et par action (tickets | tasks | reunions) ; vide = lecture seule
+      await client.query(`ALTER TABLE hub.dataquery_rights ADD COLUMN IF NOT EXISTS write_actions TEXT[] NOT NULL DEFAULT '{}'`);
       await applyDataqueryGrants(client);
     } catch (e) { console.error('[PG DB] dataquery:', e.message); }
 
@@ -7391,6 +7522,8 @@ async function setupPgDb() {
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_status ON hub_parapheur.parapheurs(status)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
+      // Option « sans QR code de vérification » sur le PDF signé (ex. compte-rendu d'entretien professionnel).
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS no_qr BOOLEAN NOT NULL DEFAULT FALSE`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
       // Durée de validité du lien de signature (minutes). ≤ 60 → accès direct au
@@ -7580,6 +7713,8 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_sig_certs_parapheur ON hub_parapheur.signature_certificates(parapheur_id)`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS seal_serial TEXT`);
+      // Portée BETA des mails (ex. 'entretiens_pro') : tant que la fonctionnalité n'est pas publiée, seuls les agents de la BETA reçoivent les mails.
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS mail_scope TEXT`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.audit_log (
@@ -7794,6 +7929,289 @@ async function setupPgDb() {
       try { await client.query(`UPDATE hub_notes.notebooks SET title = 'Mes notes' WHERE is_inbox = TRUE AND title = 'Boîte de réception'`); } catch (e) {}
     } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
 
+    // ─── hub_entretiens — Entretiens professionnels annuels ──────────────
+    // Campagnes annuelles, entretiens agent / évaluateur, préparation de
+    // l'agent (bilan des objectifs, réalisations, formations, perspectives)
+    // et compte rendu de l'évaluateur. Les dates/heures sont stockées en
+    // texte « YYYY-MM-DDTHH:mm » (heure de Paris) pour éviter toute
+    // conversion de fuseau entre le serveur, PostgreSQL et le navigateur.
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_entretiens;');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.campaigns (
+          id SERIAL PRIMARY KEY,
+          annee INTEGER NOT NULL UNIQUE,
+          libelle TEXT,
+          date_ouverture TEXT,
+          date_cloture TEXT,
+          date_limite_ep TEXT,
+          statut TEXT NOT NULL DEFAULT 'ouverte',
+          instructions TEXT DEFAULT '',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.admins (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT,
+          display_name TEXT,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      // Rôle « pilotage » : voit l'onglet Pilotage (avancement, liste) sans accès aux CREP ni aux actions
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.pilotage_users (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT,
+          display_name TEXT,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      // Textes de l'aide et du tutoriel réécrits par les administrateurs (sinon texte d'origine du code)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.help_contents (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          data TEXT NOT NULL,
+          updated_by TEXT,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.settings (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      // Options par campagne : analyse de cohérence « de fond » (sinon simple complétude) et mode simple (l'évaluateur ne téléverse jamais le CREP signé).
+      await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS analyse_coherence BOOLEAN NOT NULL DEFAULT FALSE`);
+      await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS mode_simple BOOLEAN NOT NULL DEFAULT FALSE`);
+      // QR code imprimé en haut à gauche de chaque page du CREP (rattachement automatique à la numérisation) : activé par défaut
+      await client.query(`ALTER TABLE hub_entretiens.campaigns ADD COLUMN IF NOT EXISTS qr_code BOOLEAN NOT NULL DEFAULT TRUE`);
+      // Évaluateur choisi à la main sur l'entretien (« Ajouter un·e agent·e », « Changer l'évaluateur ») : jamais écrasé par la synchronisation avec la base des agents
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS evaluator_manuel BOOLEAN NOT NULL DEFAULT FALSE`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.entretiens (
+          id SERIAL PRIMARY KEY,
+          campaign_id INTEGER NOT NULL REFERENCES hub_entretiens.campaigns(id) ON DELETE CASCADE,
+          agent_username TEXT DEFAULT '',
+          agent_email TEXT DEFAULT '',
+          agent_nom TEXT NOT NULL DEFAULT '',
+          agent_prenom TEXT DEFAULT '',
+          direction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          poste TEXT DEFAULT '',
+          evaluator_username TEXT DEFAULT '',
+          evaluator_email TEXT DEFAULT '',
+          evaluator_nom TEXT DEFAULT '',
+          date_entretien TEXT,
+          duree_minutes INTEGER DEFAULT 90,
+          lieu TEXT DEFAULT '',
+          statut TEXT NOT NULL DEFAULT 'a_planifier',
+          realisations TEXT DEFAULT '',
+          difficultes TEXT DEFAULT '',
+          pistes_amelioration TEXT DEFAULT '',
+          competences_a_developper TEXT DEFAULT '',
+          perspectives_missions TEXT DEFAULT '',
+          perspectives_responsabilite TEXT DEFAULT '',
+          perspectives_expertise TEXT DEFAULT '',
+          perspectives_projet TEXT DEFAULT '',
+          perspectives_concours TEXT DEFAULT '',
+          commentaire_agent TEXT DEFAULT '',
+          preparation_statut TEXT NOT NULL DEFAULT 'non_commencee',
+          agent_submitted_at TIMESTAMPTZ,
+          synthese TEXT DEFAULT '',
+          appreciation_generale TEXT DEFAULT '',
+          objectifs_suivants TEXT DEFAULT '',
+          avis_agent TEXT DEFAULT '',
+          evaluation_statut TEXT NOT NULL DEFAULT 'non_commencee',
+          evaluator_submitted_at TIMESTAMPTZ,
+          outlook_event_id TEXT,
+          outlook_organizer TEXT,
+          outlook_web_link TEXT,
+          outlook_status TEXT DEFAULT 'non_planifie',
+          outlook_error TEXT,
+          notes_admin TEXT DEFAULT '',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Durée par défaut d'un entretien : 1 h 30 (bases créées avec 2 h)
+      await client.query('ALTER TABLE hub_entretiens.entretiens ALTER COLUMN duree_minutes SET DEFAULT 90');
+      // Compte-rendu officiel (CREP) saisi par l'évaluateur : tous les champs du document papier DRH, en JSON.
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep JSONB`);
+      // Reprise des EP de l'année précédente (missions, objectifs du service, objectifs individuels) : valeurs proposées par défaut.
+      // Alimentée par backend/scripts/import_ep_precedent.js à partir d'un dossier local non versionné (EP/).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.reprise_ep (
+          id SERIAL PRIMARY KEY,
+          nom_key TEXT NOT NULL,
+          nom_famille_key TEXT NOT NULL,
+          nom TEXT NOT NULL,
+          prenom TEXT DEFAULT '',
+          annee_source INTEGER NOT NULL DEFAULT 0,
+          fonction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          missions TEXT DEFAULT '',
+          objectifs_service TEXT DEFAULT '',
+          objectifs JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE (nom_key, annee_source)
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_reprise_famille ON hub_entretiens.reprise_ep(nom_famille_key)`);
+      // Circuit du CREP après l'entretien : non_envoye → envoye_agent → en_signature (parapheur).
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_statut TEXT NOT NULL DEFAULT 'non_envoye'`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_sent_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_agent_validated_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_id INTEGER`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_parapheur_ref TEXT`);
+      // CREP signé hors parapheur (imprimé, signé à la main puis numérisé et téléversé)
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_path TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_name TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep_signed_by TEXT`);
+      // Suppression logique d'un EP (les données saisies par l'agent restent conservées).
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS deleted_by TEXT`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_campaign ON hub_entretiens.entretiens(campaign_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_agent_email ON hub_entretiens.entretiens(LOWER(agent_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_evaluator_email ON hub_entretiens.entretiens(LOWER(evaluator_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_date ON hub_entretiens.entretiens(date_entretien)`);
+      // Un agent ne peut avoir qu'un entretien par campagne (quand son email
+      // est connu : les entretiens saisis « à la main » sans email restent
+      // possibles, mais l'agent ne pourra pas les voir dans son espace).
+      try {
+        await client.query(`DROP INDEX IF EXISTS hub_entretiens.uq_ep_entretiens_campaign_agent`);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_entretiens_campaign_agent_actif
+          ON hub_entretiens.entretiens(campaign_id, LOWER(agent_email))
+          WHERE agent_email IS NOT NULL AND agent_email <> '' AND deleted_at IS NULL`);
+      } catch (e) { console.warn('[PG DB] index unique entretiens:', e.message); }
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.objectifs (
+          id SERIAL PRIMARY KEY,
+          entretien_id INTEGER NOT NULL REFERENCES hub_entretiens.entretiens(id) ON DELETE CASCADE,
+          ordre INTEGER DEFAULT 0,
+          libelle TEXT NOT NULL DEFAULT '',
+          niveau TEXT,
+          resultats TEXT DEFAULT '',
+          difficultes TEXT DEFAULT '',
+          contexte TEXT DEFAULT '',
+          niveau_evaluateur TEXT,
+          commentaire_evaluateur TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_objectifs_entretien ON hub_entretiens.objectifs(entretien_id, ordre)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.formations (
+          id SERIAL PRIMARY KEY,
+          entretien_id INTEGER NOT NULL REFERENCES hub_entretiens.entretiens(id) ON DELETE CASCADE,
+          competence TEXT DEFAULT '',
+          formation TEXT NOT NULL DEFAULT '',
+          benefices TEXT DEFAULT '',
+          reference_cnfpt TEXT DEFAULT '',
+          statut TEXT NOT NULL DEFAULT 'soumise',
+          avis_evaluateur TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_formations_entretien ON hub_entretiens.formations(entretien_id)`);
+
+      // ─── EP Ville (MagApp) : valideurs et rattachement des agents ────────
+      // Valideur = directeur / DGA / DG désigné par un administrateur ; il joue le rôle d'évaluateur des agents qu'il choisit.
+      // `directions` : codes SEDIT RH des directions de son périmètre (proposées en priorité dans sa liste d'agents).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.valideurs (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          email TEXT DEFAULT '',
+          display_name TEXT DEFAULT '',
+          matricule TEXT DEFAULT '',
+          grade TEXT DEFAULT '',
+          niveau TEXT NOT NULL DEFAULT 'direction',
+          direction_code TEXT DEFAULT '',
+          direction_libelle TEXT DEFAULT '',
+          directions JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_valideurs_username ON hub_entretiens.valideurs(LOWER(username))`);
+      // Un agent n'a qu'un seul valideur : unicité du matricule SEDIT RH (les agents saisis à la volée n'ont pas de matricule).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_entretiens.rattachements (
+          id SERIAL PRIMARY KEY,
+          valideur_id INTEGER NOT NULL REFERENCES hub_entretiens.valideurs(id) ON DELETE CASCADE,
+          agent_matricule TEXT DEFAULT '',
+          agent_nom TEXT NOT NULL DEFAULT '',
+          agent_prenom TEXT DEFAULT '',
+          agent_grade TEXT DEFAULT '',
+          agent_email TEXT DEFAULT '',
+          direction TEXT DEFAULT '',
+          service TEXT DEFAULT '',
+          poste TEXT DEFAULT '',
+          saisi_a_la_volee BOOLEAN NOT NULL DEFAULT FALSE,
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_rattachement_matricule ON hub_entretiens.rattachements(agent_matricule) WHERE agent_matricule <> ''`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_rattachement_valideur ON hub_entretiens.rattachements(valideur_id)`);
+      // Compte Active Directory de l'agent (null = agent inconnu de l'AD) et date de la dernière tentative de rapprochement automatique
+      await client.query(`ALTER TABLE hub_entretiens.rattachements ADD COLUMN IF NOT EXISTS agent_username TEXT`);
+      await client.query(`ALTER TABLE hub_entretiens.rattachements ADD COLUMN IF NOT EXISTS ad_checked_at TIMESTAMPTZ`);
+      // Cascade : un valideur désigne des sous-valideurs parmi SES agents (niveau 'sous'). `parent_valideur_id` = qui l'a désigné
+      // (NULL = désigné par un administrateur), `rattachement_id` = la ligne de la liste du parent qui le concerne.
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS parent_valideur_id INTEGER REFERENCES hub_entretiens.valideurs(id)`);
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS rattachement_id INTEGER`);
+      // Libellés des directions couvertes (directeur / DGA / DG) : un directeur voit tous les EP de sa direction, en lecture seule.
+      await client.query(`ALTER TABLE hub_entretiens.valideurs ADD COLUMN IF NOT EXISTS perimetre_libelles JSONB NOT NULL DEFAULT '[]'::jsonb`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_matricule TEXT DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS agent_grade TEXT DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS rattachement_id INTEGER`);
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'hub'`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ep_entretiens_rattachement ON hub_entretiens.entretiens(rattachement_id)`);
+      // Un seul EP actif par agent et par campagne, y compris les agents sans e-mail (identifiés par leur rattachement).
+      try {
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ep_entretiens_campaign_rattachement
+          ON hub_entretiens.entretiens(campaign_id, rattachement_id)
+          WHERE rattachement_id IS NOT NULL AND deleted_at IS NULL`);
+      } catch (e) { console.warn('[PG DB] index unique rattachement entretiens:', e.message); }
+
+      // Campagne par défaut : l'année en cours, pour que le module soit
+      // utilisable immédiatement après le premier démarrage.
+      await client.query(`
+        INSERT INTO hub_entretiens.campaigns (annee, libelle, statut, date_ouverture, date_cloture, date_limite_ep)
+        SELECT EXTRACT(YEAR FROM CURRENT_DATE)::int,
+               'Campagne ' || EXTRACT(YEAR FROM CURRENT_DATE)::int,
+               'ouverte',
+               to_char(CURRENT_DATE, 'YYYY-MM-DD'),
+               EXTRACT(YEAR FROM CURRENT_DATE)::int || '-12-31',
+               EXTRACT(YEAR FROM CURRENT_DATE)::int || '-12-31'
+        WHERE NOT EXISTS (SELECT 1 FROM hub_entretiens.campaigns)
+      `);
+    } catch (e) { console.error('[PG DB] hub_entretiens:', e.message); }
+
     // ─── hub.pdf_edit_projects — fichiers de travail de l'éditeur PDF ────────
     // Conserve le PDF d'origine + le plan des masques/annotations (éditable et
     // re-modifiable), distinct du PDF « aplati » généré à la demande.
@@ -7813,6 +8231,231 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_edit_projects_user ON hub.pdf_edit_projects(username)`);
     } catch (e) { console.error('[PG DB] hub.pdf_edit_projects:', e.message); }
 
+    // ============================================
+    // RÉUNIONS DE SERVICE / DE DIRECTION
+    // Templates (modèles réutilisables) + occurrences (réunions concrètes) +
+    // rubriques, items (contenu riche), participants, pièces jointes.
+    // ============================================
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS reunions_service;');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.templates (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          is_active BOOLEAN DEFAULT TRUE
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.template_sections (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER NOT NULL REFERENCES reunions_service.templates(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          duration_minutes INTEGER DEFAULT 0,
+          position INTEGER DEFAULT 0,
+          is_meta BOOLEAN DEFAULT FALSE
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_sections_tpl ON reunions_service.template_sections(template_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.template_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // KPI associés à la rubrique du modèle (catalogue du tableau de bord).
+      try { await client.query(`ALTER TABLE reunions_service.template_sections ADD COLUMN IF NOT EXISTS kpis_config JSONB DEFAULT '[]'::jsonb`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.template_participants (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER NOT NULL REFERENCES reunions_service.templates(id) ON DELETE CASCADE,
+          email TEXT,
+          username TEXT,
+          name TEXT
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_template_participants_tpl ON reunions_service.template_participants(template_id)`);
+      // « présent possible » ou « pour information » (accès à la réunion dans les deux cas).
+      try { await client.query(`ALTER TABLE reunions_service.template_participants ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'present'`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meetings (
+          id SERIAL PRIMARY KEY,
+          template_id INTEGER REFERENCES reunions_service.templates(id) ON DELETE SET NULL,
+          template_name TEXT,
+          title TEXT NOT NULL,
+          meeting_date TIMESTAMP,
+          status TEXT NOT NULL DEFAULT 'planned',
+          started_at TIMESTAMPTZ,
+          ended_at TIMESTAMPTZ,
+          time_master_username TEXT,
+          time_master_name TEXT,
+          current_section_id INTEGER,
+          current_section_started_at TIMESTAMPTZ,
+          -- Lien vers le compte rendu / transcript (Transcript Manager) et vers
+          -- la réunion Teams d'origine (import automatique du transcript + CR IA).
+          transcript_meeting_id INTEGER,
+          teams_meeting_id TEXT,
+          teams_transcript_id TEXT,
+          teams_subject TEXT,
+          teams_start TIMESTAMP,
+          meeting_mode TEXT DEFAULT 'presentiel',
+          zoom REAL DEFAULT 1,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meetings_date ON reunions_service.meetings(meeting_date DESC)`);
+      // Heure de départ de la rubrique courante — sert au bandeau de gestion du
+      // temps (vert ≤80 %, orange ≤100 %, rouge au-delà).
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS current_section_started_at TIMESTAMPTZ`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS transcript_meeting_id INTEGER`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_meeting_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_transcript_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_subject TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS teams_start TIMESTAMP`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meetings ADD COLUMN IF NOT EXISTS meeting_mode TEXT DEFAULT 'presentiel'`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meeting_sections (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          duration_minutes INTEGER DEFAULT 0,
+          position INTEGER DEFAULT 0,
+          is_meta BOOLEAN DEFAULT FALSE,
+          completed BOOLEAN DEFAULT FALSE
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_sections_meeting ON reunions_service.meeting_sections(meeting_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // KPI de la rubrique : configuration recopiée du modèle, puis instantanés
+      // calculés au lancement et figés dans le compte rendu.
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpis_config JSONB DEFAULT '[]'::jsonb`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpi_snapshots JSONB`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.meeting_sections ADD COLUMN IF NOT EXISTS kpi_computed_at TIMESTAMPTZ`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.meeting_participants (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          email TEXT,
+          username TEXT,
+          name TEXT,
+          present BOOLEAN DEFAULT TRUE,
+          excused BOOLEAN DEFAULT FALSE
+        );
+      `);
+      try { await client.query(`ALTER TABLE reunions_service.meeting_participants ADD COLUMN IF NOT EXISTS excused BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // « présent possible » (suivi de présence) ou « pour information » (accès seul).
+      try { await client.query(`ALTER TABLE reunions_service.meeting_participants ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'present'`); } catch (e) {}
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_meeting_participants_meeting ON reunions_service.meeting_participants(meeting_id)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.items (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          section_id INTEGER NOT NULL REFERENCES reunions_service.meeting_sections(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          content_html TEXT,
+          position INTEGER DEFAULT 0,
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_section ON reunions_service.items(section_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.items ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_meeting ON reunions_service.items(meeting_id)`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.attachments (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          item_id INTEGER REFERENCES reunions_service.items(id) ON DELETE CASCADE,
+          filename TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size INTEGER,
+          uploaded_by TEXT,
+          uploaded_by_name TEXT,
+          file_path TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_attachments_meeting ON reunions_service.attachments(meeting_id)`);
+      // Sondages « à la volée » lancés depuis une occurrence.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.polls (
+          id SERIAL PRIMARY KEY,
+          meeting_id INTEGER NOT NULL REFERENCES reunions_service.meetings(id) ON DELETE CASCADE,
+          question TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'single',
+          options JSONB DEFAULT '[]'::jsonb,
+          explanation TEXT,
+          image TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_by TEXT,
+          created_by_name TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          closed_at TIMESTAMPTZ
+        );
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_polls_meeting ON reunions_service.polls(meeting_id)`);
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS anonymous BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'nominatif'`); } catch (e) {}
+      try { await client.query(`UPDATE reunions_service.polls SET visibility = CASE WHEN anonymous THEN 'semi_anonyme' ELSE 'nominatif' END WHERE visibility IS NULL OR visibility = ''`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_quiz_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_session_id TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_code TEXT`); } catch (e) {}
+      // 📚 Format d'origine lu dans le catalogue Interact'Ivry (aucune copie
+      // d'animation : on conserve seulement le libellé pour l'affichage).
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_type TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE reunions_service.polls ADD COLUMN IF NOT EXISTS interact_label TEXT`); } catch (e) {}
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS reunions_service.poll_answers (
+          id SERIAL PRIMARY KEY,
+          poll_id INTEGER NOT NULL REFERENCES reunions_service.polls(id) ON DELETE CASCADE,
+          participant_key TEXT NOT NULL,
+          participant_username TEXT,
+          participant_email TEXT,
+          participant_name TEXT,
+          answer JSONB,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_rs_poll_answers ON reunions_service.poll_answers(poll_id, participant_key)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_poll_answers_poll ON reunions_service.poll_answers(poll_id)`);
+
+      // ── Patch one-shot : ENS dans la rubrique « ADMINISTRATIF » des modèles ──
+      // Les engagements non soldés (SEDIT) sont attendus en administratif. On
+      // FUSIONNE avec les KPI déjà présents (sans les écraser) et une seule fois.
+      await client.query(`CREATE TABLE IF NOT EXISTS reunions_service.settings (key TEXT PRIMARY KEY, value TEXT)`);
+      const ensFlag = await client.query(`SELECT 1 FROM reunions_service.settings WHERE key = 'ens_default_admin_v2'`);
+      if (ensFlag.rowCount === 0) {
+        const ensKpis = [
+          { id: 'kpi_ens_count', key: 'budget.ens_count', name: 'ENS — engagements non soldés', period: null, from: null, to: null, compare: 'none', display: 'number', filters: {} },
+          { id: 'kpi_ens_list', key: 'budget.ens_list', name: 'ENS — détail', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
+          { id: 'kpi_ens_section', key: 'budget.ens_par_section', name: 'ENS par section', period: null, from: null, to: null, compare: 'none', display: 'list', filters: {} },
+        ];
+        const sections = await client.query(
+          `SELECT id, kpis_config FROM reunions_service.template_sections
+           WHERE is_meta = FALSE AND COALESCE(is_pause, FALSE) = FALSE
+             AND UPPER(title) LIKE '%ADMINISTRATIF%'`
+        );
+        for (const s of sections.rows) {
+          const list = Array.isArray(s.kpis_config) ? s.kpis_config : [];
+          const keys = new Set(list.map(k => k && k.key).filter(Boolean));
+          const toAdd = ensKpis.filter(k => !keys.has(k.key));
+          if (!toAdd.length) continue;
+          await client.query(
+            `UPDATE reunions_service.template_sections SET kpis_config = $1::jsonb WHERE id = $2`,
+            [JSON.stringify([...list, ...toAdd]), s.id]
+          );
+        }
+        await client.query(`INSERT INTO reunions_service.settings (key, value) VALUES ('ens_default_admin_v2', '1') ON CONFLICT (key) DO NOTHING`);
+      }
+    } catch (e) {
+      console.error('[PG DB] reunions_service schema:', e.message);
+    }
+
     // Réaligne les séquences des tables migrées depuis SQLite avec des id explicites
     // (scripts/migrate-non-config-sqlite.js) : l'insertion d'id explicites ne fait pas
     // avancer la séquence, si bien que les INSERT suivants réutilisent des id déjà
@@ -7830,11 +8473,55 @@ async function setupPgDb() {
     }
 
     console.log('[PG DB] Schema and tables initialized successfully');
+    return true;
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
+    return false;
   } finally {
     if (client) client.release();
   }
+}
+
+/**
+ * Initialisation du schéma PostgreSQL — rejouée seulement quand elle peut avoir un effet.
+ *
+ * Les ~1 400 instructions de setupPgDbFull sont idempotentes mais coûtent plus d'une minute à chaque démarrage, même quand rien n'a changé.
+ * On mémorise donc une empreinte (contenu de ce fichier + options d'environnement) dans public.app_schema_state : si elle est identique à celle
+ * du dernier démarrage réussi (et vieille de moins de 7 jours), l'initialisation est sautée. Toute modification de ce fichier, l'option
+ * FORCE_SCHEMA_SYNC=1 ou une empreinte trop ancienne rejoue l'initialisation complète.
+ */
+async function setupPgDb() {
+  const t0 = Date.now();
+  let fingerprint = '';
+  try {
+    const fs = require('fs');
+    fingerprint = require('crypto').createHash('sha1')
+      .update(fs.readFileSync(__filename))
+      .update('|' + String(process.env.GLPI_TICKETS_MIGRATION || '0'))
+      .digest('hex');
+  } catch (e) { /* empreinte impossible : initialisation complète */ }
+  const force = ['1', 'true', 'yes'].includes(String(process.env.FORCE_SCHEMA_SYNC || '').toLowerCase());
+  if (fingerprint && !force) {
+    try {
+      await pool.query("CREATE TABLE IF NOT EXISTS public.app_schema_state (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())");
+      const r = await pool.query("SELECT value, updated_at FROM public.app_schema_state WHERE key = 'pg_setup_fingerprint'");
+      const row = r.rows[0];
+      if (row && row.value === fingerprint && Date.now() - new Date(row.updated_at).getTime() < 7 * 24 * 3600 * 1000) {
+        console.log(`[PG DB] Schéma inchangé (empreinte ${fingerprint.slice(0, 8)}) : initialisation sautée en ${Date.now() - t0} ms`);
+        return true;
+      }
+    } catch (e) { console.warn('[PG DB] lecture de l’empreinte impossible, initialisation complète :', e.message); }
+  }
+  const ok = await setupPgDbFull();
+  if (ok && fingerprint) {
+    try {
+      await pool.query(
+        `INSERT INTO public.app_schema_state (key, value, updated_at) VALUES ('pg_setup_fingerprint', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, [fingerprint]);
+    } catch (e) { console.warn('[PG DB] empreinte non enregistrée :', e.message); }
+  }
+  console.log(`[PG DB] Initialisation complète en ${Date.now() - t0} ms`);
+  return ok;
 }
 
 module.exports = {

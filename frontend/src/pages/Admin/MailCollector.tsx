@@ -60,6 +60,8 @@ const MODULES = [
   { value: 'tickets',  label: 'Tickets (créer des tickets depuis les emails)' },
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
   { value: 'taches',   label: 'Tâches (transformer un mail en tâche personnelle)' },
+  { value: 'entretiens', label: 'Entretiens (récupérer les CREP signés reçus en pièce jointe PDF)' },
+  { value: 'consommables', label: 'Consommables (mails avec pièce jointe → demandes de consommables)' },
 ];
 
 const DEFAULT_PER_PAGE = 50;
@@ -239,7 +241,12 @@ export default function MailCollector() {
   };
 
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
-  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : v === 'taches' ? '✅ Tâches' : '🎫 Tickets';
+  // Libellé du module d'un collecteur (le module réel vient de la base ; ne
+  // jamais retomber sur « Tickets » pour un module inconnu).
+  const modLabel = (v: string) => {
+    const found = MODULES.find(m => m.value === v);
+    return found ? found.label.split(' (')[0] : (v || '—');
+  };
 
   const statusColor = (s: string) => s === 'success' ? '#10b981' : s === 'partial_error' ? '#f59e0b' : '#ef4444';
   const statusIcon = (s: string) => s === 'success' ? '✓' : s === 'partial_error' ? '⚠' : '✕';
@@ -489,8 +496,7 @@ export default function MailCollector() {
 
           {/* Modale création / édition de règle */}
           {showNewRule && (
-            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
-              onClick={e => { if (e.target === e.currentTarget) resetRuleForm(); }}>
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
               <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#111827' }}>

@@ -663,7 +663,7 @@ const BudgetPrepTab: React.FC = () => {
             </div>
 
             {detailTarget && (
-                <div className="detail-modal-overlay" onClick={closeDetail}>
+                <div className="detail-modal-overlay">
                     <div className="detail-modal" onClick={e => e.stopPropagation()}>
                         <div className="detail-modal-header">
                             <h3>

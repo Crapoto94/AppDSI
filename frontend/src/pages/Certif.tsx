@@ -756,7 +756,7 @@ const Certif: React.FC = () => {
         )}
 
         {showUsageManager && (
-          <div className="modal-overlay" onClick={() => setShowUsageManager(false)}>
+          <div className="modal-overlay">
             <div className="modal-box usage-modal-box" onClick={(e) => e.stopPropagation()}>
               <h3>Gérer les usages</h3>
               <p>Valeurs proposées dans la liste déroulante « Usage » des certificats.</p>
@@ -806,7 +806,7 @@ const Certif: React.FC = () => {
         )}
 
         {editingId !== null && editingCertificate && (
-          <div className="modal-overlay" onClick={() => { if (!uploading) { cancelEdit(); setEditFile(null); } }}>
+          <div className="modal-overlay">
             <div className="modal-box cert-edit-modal-box" onClick={(e) => e.stopPropagation()}>
               <h3>Modifier le certificat</h3>
 
@@ -935,7 +935,7 @@ const Certif: React.FC = () => {
         )}
 
         {viewer && (
-          <div className="viewer-overlay" onClick={() => setViewer(null)}>
+          <div className="viewer-overlay">
             <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
               <div className="viewer-header">
                 <span className="viewer-title"><FileText size={16} /> {viewer.title}</span>

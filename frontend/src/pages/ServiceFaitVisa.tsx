@@ -70,7 +70,7 @@ const ServiceFaitVisa: React.FC = () => {
     <div style={page}>
       <div style={{ ...card, maxWidth: 680, textAlign: 'left' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <ShieldCheck size={22} color="#6366f1" />
+          {wf?.origin === 'magapp' ? <img src="/img/Ivry.png" alt="Ville d'Ivry-sur-Seine" style={{ height: 44 }} /> : <ShieldCheck size={22} color="#6366f1" />}
           <h2 style={{ ...h2, margin: 0 }}>Visa du directeur — service fait</h2>
         </div>
         <p style={{ color: '#64748b', marginTop: 0, fontSize: 13 }}>

@@ -981,7 +981,7 @@ ${ligne}` : ligne;
                         {r.statut}{r.statut === 'Validé' && r.annee_validation ? ` ${r.annee_validation}` : ''}
                       </span>
                       {statutTarget?.id === r.id && (
-                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setStatutTarget(null)}>
+                        <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
                           <div style={{ background: 'white', borderRadius: '10px', padding: '20px', width: '420px', maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
                             <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600 }}>Changer le statut</h3>
                             <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#6b7280' }}>{r.titre.substring(0, 80)}</p>
@@ -1050,7 +1050,7 @@ ${ligne}` : ligne;
 
         {/* Modal : créer un projet simple lié à la demande */}
         {projetTarget && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setProjetTarget(null)}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
             <div style={{ background: 'white', borderRadius: '12px', padding: '20px', width: '560px', maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ margin: '0 0 10px' }}>Projet</h3>
               <div style={{ display: 'flex', gap: '16px', marginBottom: '14px', fontSize: '14px' }}>

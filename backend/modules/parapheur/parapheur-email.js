@@ -212,6 +212,9 @@ function signatureOtp({ signataireNom, code, title }) {
 }
 
 module.exports = {
+    render,
+    esc,
+    button,
     signatureRequest,
     signatureProgress,
     signatureRejected,

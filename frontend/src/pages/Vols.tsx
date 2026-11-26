@@ -705,7 +705,7 @@ const Vols: React.FC = () => {
       </main>
 
       {showForm && (
-        <div style={overlayStyle} onClick={() => setShowForm(false)}>
+        <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editingId ? 'Modifier le dossier' : 'Nouveau dossier de vol / perte'}</h2>
@@ -818,7 +818,7 @@ const Vols: React.FC = () => {
       )}
 
       {detailId != null && detail && (
-        <div style={overlayStyle} onClick={() => setDetailId(null)}>
+        <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <button onClick={() => setDetailId(null)} style={iconBtn}><ArrowLeft size={18} /></button>
@@ -928,7 +928,7 @@ const Vols: React.FC = () => {
       )}
 
       {docsPickerTheft && (
-        <div style={overlayStyle} onClick={() => setDocsPickerTheft(null)}>
+        <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxWidth: 520, maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>

@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as trace from './trace.js';
+import { loginPage } from './login-page.js';
 
 const BACKEND_URL = (process.env.BACKEND_URL || '').replace(/\/+$/, '');
 if (!BACKEND_URL) { console.error('BACKEND_URL doit être défini'); process.exit(1); }
@@ -204,6 +205,10 @@ app.get('/mcp/oauth/authorize', (req, res) => {
     res.redirect(302, `/mcp/login?request=${encodeURIComponent(id)}`);
 });
 
+// Page de connexion autonome : utilisée quand le MCP est exposé SANS le front React du chat (ex. interne, derrière le chat interne).
+// Dans le conteneur DMZ, nginx sert /mcp/login par le front React : cette route n'est alors pas atteinte.
+app.get('/mcp/login', loginPage);
+
 // Informations affichées par la page de connexion.
 app.get('/mcp/oauth/request/:id', (req, res) => {
     const p = pending.get(req.params.id);
@@ -310,9 +315,10 @@ function buildServer(req) {
     const server = new McpServer(
         { name: 'appdsi-dataquery', version: '1.0.0' },
         { instructions:
-            'Accès en LECTURE SEULE aux données PostgreSQL de l\'application DSI de la Ville d\'Ivry ' +
-            '(tickets, transcript manager, photocopieurs, contrats, projets, consommables, finance, parc, réseau…). ' +
-            'Démarche : 1) dsi_catalog pour trouver le module (schéma) et les tables ; 2) dsi_describe_table pour les colonnes ; ' +
+            'Lecture des données PostgreSQL (écriture limitée à la CRÉATION de tickets, tâches et réunions, si la personne y est autorisée) : accès aux données PostgreSQL de l\'application DSI de la Ville d\'Ivry ' +
+            '(tickets, transcript manager, photocopieurs, contrats, projets, consommables, finance, parc, réseau, télécom, boîtes partagées, vols et pertes de matériel…). ' +
+            'Démarche : 0) pour TOUTE analyse de données, appeler dsi_module_guide : sans paramètre (liste), puis le guide du module (tickets, parc, telecom, contrats, boites_partagees, vols_pertes) — il donne les tables, la SIGNIFICATION DES CODES (statuts, priorités…), les définitions (ex. « ticket ouvert ») et des requêtes types ; le guide « methode_analyse » décrit la démarche ; ' +
+            '1) dsi_catalog pour trouver le module (schéma) et les tables ; 2) dsi_describe_table pour les colonnes ; ' +
             '3) dsi_query avec du SQL PostgreSQL (SELECT/WITH uniquement, noms qualifiés schema.table, paramètres $1…). ' +
             'Les colonnes sensibles (mots de passe, jetons…) sont masquées. Toutes les requêtes sont tracées au nom de la personne connectée.' },
     );
@@ -347,6 +353,54 @@ function buildServer(req) {
         },
         annotations: ro,
     }, ({ sql, params, max_rows }) => call('POST', '/query', { sql, params, max_rows }));
+    server.registerTool('dsi_module_guide', {
+        title: 'Guide d\'un module métier',
+        description: 'Guide des modules métier : tickets (statuts GLPI, priorités, demandeurs), parc (matériel, lignes mobiles), telecom (lignes fixes, factures, coûts), contrats (échéances, montants), boites_partagees, vols_pertes (vol et perte de matériel), methode_analyse (démarche d\'analyse de données). ' +
+            'Sans paramètre : liste des modules documentés. Avec module : tables clés et colonnes importantes, SIGNIFICATION DES CODES (statuts, types, priorités), définitions métier (ex. « ticket ouvert »), pièges de typage et REQUÊTES TYPES prêtes à adapter pour dsi_query. ' +
+            'À consulter AVANT d\'écrire du SQL et d\'interpréter des codes numériques.',
+        inputSchema: { module: z.string().max(50).optional().describe('tickets | parc | telecom | contrats | boites_partagees | vols_pertes | methode_analyse. Vide = liste.') },
+        annotations: ro,
+    }, ({ module }) => call('GET', `/guides${module ? `?module=${encodeURIComponent(module)}` : ''}`));
+    // ── Écriture (création uniquement, jamais de suppression ni de modification) ──
+    // Exige une clé API read_write + le droit d'écriture de la personne (admin /admin/mcp) ; créé AU NOM de la personne connectée.
+    const wr = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+    server.registerTool('dsi_create_ticket', {
+        title: 'Créer un ticket',
+        description: "Crée un ticket au nom de la personne connectée (demandeur = elle). Un incident exige requester_phone ; sans téléphone le ticket est créé comme demande. Confirmer le titre et le contenu avec l'utilisateur avant l'appel.",
+        inputSchema: {
+            title: z.string().min(1).max(500).describe('Titre du ticket'),
+            content: z.string().max(20000).optional().describe('Description détaillée'),
+            type: z.enum(['incident', 'demande']).optional().describe('incident (défaut) ou demande'),
+            priority: z.number().int().min(2).max(5).optional().describe('2 (haute) à 5 (très basse), 3 par défaut'),
+            requester_phone: z.string().max(40).optional().describe('Téléphone du demandeur (requis pour un incident)'),
+        },
+        annotations: wr,
+    }, ({ title, content, type, priority, requester_phone }) => call('POST', '/actions/tickets', { title, content, type: type === 'demande' ? 'request' : 'incident', priority, requester_phone }));
+    server.registerTool('dsi_create_task', {
+        title: 'Créer une tâche',
+        description: "Crée une tâche personnelle pour la personne connectée, éventuellement liée à un ticket (ticket_id). Confirmer avec l'utilisateur avant l'appel.",
+        inputSchema: {
+            description: z.string().min(1).max(4000),
+            echeance: z.string().max(30).optional().describe('Échéance ISO, ex. 2026-12-31'),
+            priority: z.enum(['basse', 'normale', 'haute', 'urgente']).optional(),
+            ticket_id: z.number().int().optional().describe('Numéro du ticket auquel rattacher la tâche'),
+        },
+        annotations: wr,
+    }, ({ description, echeance, priority, ticket_id }) => call('POST', '/actions/tasks', { description, echeance, priority, ticket_id }));
+    server.registerTool('dsi_create_reunion', {
+        title: 'Créer une réunion',
+        description: "Crée une réunion (sans invitation Outlook). La personne connectée en est l'organisatrice et participante. Confirmer avec l'utilisateur avant l'appel.",
+        inputSchema: {
+            titre: z.string().min(1).max(300),
+            date_reunion: z.string().min(10).max(40).describe('Date et heure ISO, ex. 2026-12-08T14:00'),
+            lieu: z.string().max(200).optional(),
+            description: z.string().max(5000).optional(),
+            duree_minutes: z.number().int().min(5).max(600).optional(),
+            ordre_du_jour: z.string().max(5000).optional(),
+            participants: z.array(z.object({ nom: z.string().max(100), prenom: z.string().max(100).optional(), email: z.string().max(200).optional(), service: z.string().max(120).optional() })).max(30).optional(),
+        },
+        annotations: wr,
+    }, (args) => call('POST', '/actions/reunions', args));
     server.registerTool('dsi_whoami', {
         title: 'Session et limites',
         description: 'Personne connectée, clé utilisée, état du module et limites appliquées.',

@@ -513,7 +513,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
 
       {/* ── Assign Modal ─────────────────────────────────────────────────── */}
       {showAssignModal && (
-        <div style={modalOverlay} onClick={() => { setShowAssignModal(false); setPendingAssignTicket(null); }}>
+        <div style={modalOverlay}>
           <div style={modalBox} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>Assigner un technicien</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -547,7 +547,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
 
       {/* ── Confirmation affectation à un agent absent ──────────────────── */}
       {pendingAbsentAssign && (
-        <div style={modalOverlay} onClick={() => setPendingAbsentAssign(null)}>
+        <div style={modalOverlay}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 22 }}>⚠️</span>
@@ -572,7 +572,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
 
       {/* ── Waiting Reason Modal ─────────────────────────────────────────── */}
       {showWaitingModal && (
-        <div style={modalOverlay} onClick={() => { setShowWaitingModal(false); setPendingWaitingTicket(null); }}>
+        <div style={modalOverlay}>
           <div style={modalBox} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 600 }}>Mettre en attente</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
@@ -590,7 +590,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
 
       {/* ── Solution Modal ──────────────────────────────────────────────── */}
       {showSolutionModal && (
-        <div style={modalOverlay} onClick={() => { setShowSolutionModal(false); setPendingSolutionTicket(null); }}>
+        <div style={modalOverlay}>
           <div style={modalBox} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 600 }}>Résoudre le ticket</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>

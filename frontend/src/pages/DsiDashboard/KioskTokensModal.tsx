@@ -74,8 +74,7 @@ export default function KioskTokensModal({ slideshowName, onClose }: Props) {
   const inputStyle: React.CSSProperties = { flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }}
-         onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }}>
       <div style={{ background: 'white', borderRadius: 16, width: 560, maxWidth: '95vw', maxHeight: '85vh', boxShadow: '0 24px 48px rgba(0,0,0,.2)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', color: 'white', padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div>

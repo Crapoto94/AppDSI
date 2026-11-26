@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch, FilePen } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,8 +12,13 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
-import PdfCraftModal from './components/PdfTools/PdfCraftModal';
 import AgentSearch from './components/AgentSearch';
+import VirementCredits from './components/VirementCredits';
+import MesFactures from './components/MesFactures';
+import { HelpButton } from './components/HelpButton';
+import { ArrowLeftRight, Receipt, ClipboardCheck } from 'lucide-react';
+import EpVille from './ep/EpVille';
+import { clearActAs, getActAs } from './ep/actAs';
 import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -151,7 +156,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false, show_entretiens_pro: false, show_entretiens_pro_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -178,8 +183,30 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPdfTools, setShowPdfTools] = useState(false);
-  const [showPdfCraft, setShowPdfCraft] = useState(false);
   const [showAgentSearch, setShowAgentSearch] = useState(false);
+  // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
+  const [showVirement, setShowVirement] = useState(false);
+  const [virementAllowed, setVirementAllowed] = useState(false);
+  // Entretiens professionnels de la Ville : administrateurs (désignation des valideurs) et valideurs désignés
+  const [showEp, setShowEp] = useState(false);
+  const [epAllowed, setEpAllowed] = useState(false);
+  // Lien d'un mail des entretiens professionnels : /?ep=moi | evaluations | auto (mémorisé : le login recharge la page)
+  // Adresse dédiée : /ep ou /ep/<vue> (moi | evaluations | equipe | pilotage | backlog…) ouvre directement le module, en plein écran.
+  const epDedicated = /^\/ep(\/|$)/i.test(window.location.pathname);
+  const [epPending, setEpPending] = useState<string | null>(() => {
+    try {
+      const m = window.location.pathname.match(/^\/ep(?:\/([\w-]+))?\/?$/i);
+      if (m) { const v = m[1] || 'auto'; sessionStorage.setItem('magapp_pending_ep', v); return v; }
+      const fromUrl = new URLSearchParams(window.location.search).get('ep');
+      if (fromUrl !== null) { sessionStorage.setItem('magapp_pending_ep', fromUrl || 'auto'); return fromUrl || 'auto'; }
+      return sessionStorage.getItem('magapp_pending_ep');
+    } catch { return null; }
+  });
+  // BETA « Mes factures » : agents ayant des droits SEDIT (ou un accès partagé)
+  const [showMesFactures, setShowMesFactures] = useState(false);
+  const [mesFacturesAllowed, setMesFacturesAllowed] = useState(false);
+  // Lien de notification : /?virement=ID ouvre directement la demande
+  const [virementDeepLink, setVirementDeepLink] = useState<number | null>(() => { const v = parseInt(new URLSearchParams(window.location.search).get('virement') || '', 10); return Number.isFinite(v) ? v : null; });
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -247,6 +274,59 @@ function App() {
   const setShowForum = (v: boolean) => { setShowForumState(v); lsSet('magapp_forum_open', v); };
   const setForumPinned = (v: boolean) => { setForumPinnedState(v); lsSet('magapp_forum_pinned', v); };
   const [viewportW, setViewportW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    if (!windowLogin) { setMesFacturesAllowed(false); return; }
+    const token = localStorage.getItem('token') || '';
+    axios.get('/api/magapp/mes-factures/access', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setMesFacturesAllowed(!!r.data?.allowed))
+      .catch(() => setMesFacturesAllowed(false));
+  }, [windowLogin]);
+
+  useEffect(() => {
+    if (!windowLogin) { setEpAllowed(false); return; }
+    const token = localStorage.getItem('token') || '';
+    const headers = { Authorization: `Bearer ${token}` };
+    // Administrateur / valideur (Ville), ou agent / évaluateur d'un entretien existant (module DSI : mêmes tables)
+    Promise.all([
+      axios.get('/api/ep-ville/me', { headers }).then(r => !!(r.data?.isAdmin || r.data?.isPilotage || r.data?.isValideur)).catch(() => false),
+      axios.get('/api/entretiens/me', { headers }).then(r => !!(r.data?.entretien || r.data?.isEvaluator)).catch(() => false),
+      // Valideur d'agents dans la base des agents à évaluer (classeur RH) : il a des entretiens à conduire
+      axios.get('/api/ep-base/me', { headers }).then(r => !!r.data?.isValideur).catch(() => false),
+    ]).then(([ville, dsi, base]) => { setEpAllowed(ville || dsi || base); if ((ville || dsi || base || getActAs()) && epPending) setShowEp(true); });
+  }, [windowLogin]);
+
+  // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT
+  useEffect(() => {
+    if (!windowLogin) { setVirementAllowed(false); return; }
+    const token = localStorage.getItem('token') || '';
+    axios.get('/api/magapp/virement-credits/access', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => { setVirementAllowed(!!r.data?.allowed); if (r.data?.allowed && virementDeepLink) setShowVirement(true); })
+      .catch(() => setVirementAllowed(false));
+  }, [windowLogin]);
+
+  // Lien d'un mail de validation de service fait : `/?sf=<id>` (aucun token dans le lien). On mémorise l'id (le login recharge la page, le SSO peut
+  // rediriger) ; une fois identifié par MagApp, le backend vérifie que l'agent est bien le vérificateur désigné et renvoie la page de validation.
+  const [sfPending, setSfPending] = useState<number | null>(() => {
+    try {
+      const fromUrl = parseInt(new URLSearchParams(window.location.search).get('sf') || '', 10);
+      if (Number.isFinite(fromUrl)) { sessionStorage.setItem('magapp_pending_sf', String(fromUrl)); return fromUrl; }
+      const stored = parseInt(sessionStorage.getItem('magapp_pending_sf') || '', 10);
+      return Number.isFinite(stored) ? stored : null;
+    } catch { return null; }
+  });
+  const [sfError, setSfError] = useState('');
+  useEffect(() => {
+    if (!sfPending || !windowLogin) return;
+    const token = localStorage.getItem('token') || '';
+    axios.post(`/api/magapp/service-fait/${sfPending}/open`, {}, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        sessionStorage.removeItem('magapp_pending_sf');
+        if (r.data?.url) window.location.replace(r.data.url);
+      })
+      .catch(e => setSfError(e.response?.data?.message || 'Impossible d’ouvrir cette demande de validation.'));
+  }, [sfPending, windowLogin]);
+  const leaveSf = () => { sessionStorage.removeItem('magapp_pending_sf'); setSfPending(null); setSfError(''); window.history.replaceState(null, '', window.location.pathname); };
+
   useEffect(() => {
     const onResize = () => setViewportW(window.innerWidth);
     window.addEventListener('resize', onResize);
@@ -460,14 +540,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false, show_virement_credits: false, show_virement_credits_original: false, show_mes_factures: false, show_mes_factures_original: false, show_entretiens_pro: false, show_entretiens_pro_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false, show_virement_credits: settingsData.show_virement_credits ?? false, show_virement_credits_original: settingsData.show_virement_credits_original ?? false, show_mes_factures: settingsData.show_mes_factures ?? false, show_mes_factures_original: settingsData.show_mes_factures_original ?? false, show_entretiens_pro: settingsData.show_entretiens_pro ?? false, show_entretiens_pro_original: settingsData.show_entretiens_pro_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -614,6 +694,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    clearActAs();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('magapp_user');
@@ -626,6 +707,23 @@ function App() {
 
   if (!isLoggedIn) {
     return <Login isAutoLogging={isAutoLogging} />;
+  }
+
+  if (sfPending) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', padding: 20 }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: '28px 32px', maxWidth: 460, width: '100%', boxShadow: '0 10px 30px rgba(0,0,0,.08)', textAlign: 'center' }}>
+          <img src={logoDsiHub} alt="DSI" style={{ height: 50, marginBottom: 12 }} />
+          <h2 style={{ margin: '0 0 8px', fontSize: '1.15rem', color: '#1e293b' }}>Validation du service fait</h2>
+          {sfError ? (
+            <>
+              <p style={{ color: '#b91c1c', fontSize: '0.92rem', lineHeight: 1.5 }}>{sfError}</p>
+              <button onClick={leaveSf} style={{ marginTop: 8, padding: '10px 18px', border: 'none', borderRadius: 10, background: '#0078a4', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Aller au Magasin d'Applications</button>
+            </>
+          ) : <p style={{ color: '#64748b', fontSize: '0.92rem' }}>Ouverture de votre demande de validation…</p>}
+        </div>
+      </div>
+    );
   }
 
   if (loading) {
@@ -774,7 +872,7 @@ function App() {
     if (helpContentHtml !== null || helpLoading) return;
     setHelpLoading(true);
     try {
-      const res = await axios.get(`/api/page-help/${encodeURIComponent('/magapp')}`);
+      const res = await axios.get('/api/page-help', { params: { page: '/magapp' } });
       setHelpContentHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
     } catch (error) {
       console.error("Erreur de chargement de l'aide", error);
@@ -1619,21 +1717,7 @@ function App() {
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
-            <button
-              onClick={handleOpenHelp}
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                padding: '10px',
-                borderRadius: '10px',
-                color: '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-              title="Aide"
-            >
-              <HelpCircle size={20} />
-            </button>
+            <HelpButton onClick={handleOpenHelp} title="Aide" />
 
             <button
               onClick={handleLogout}
@@ -1657,7 +1741,7 @@ function App() {
       {/* Modal « Mes outils DSI » */}
       {showTools && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ background: 'white', maxWidth: '660px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="tools-modal" style={{ background: 'white', maxWidth: '1000px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
             <button
               onClick={() => setShowTools(false)}
               style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -1673,7 +1757,15 @@ function App() {
               <p style={{ color: '#64748b', fontSize: '0.95rem', marginTop: '8px' }}>Accédez rapidement à vos services et outils DSI</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+            <style>{`
+              .tools-modal { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+              .tools-modal::-webkit-scrollbar { width: 8px; }
+              .tools-modal::-webkit-scrollbar-track { background: transparent; margin: 18px 0; }
+              .tools-modal::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+              .tools-modal::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+            `}</style>
+            {/* 3 colonnes sur grand écran (2 puis 1 quand la fenêtre se rétrécit) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: '12px' }}>
               {((settings.show_rencontres && (hasRencontresAccess || !settings.show_rencontres_original)) || settings.is_beta_user) && (
                 <ToolCard
                   icon={<BarChart3 size={22} color="#0284c7" />}
@@ -1751,15 +1843,36 @@ function App() {
                 />
               )}
 
-              {(settings.show_pdf_tools || settings.is_beta_user) && (
+              {windowLogin && mesFacturesAllowed && (settings.show_mes_factures || settings.is_beta_user) && (
                 <ToolCard
-                  icon={<FilePen size={22} color="#1d4ed8" />}
+                  icon={<Receipt size={22} color="#0f766e" />}
+                  bg="#ccfbf1"
+                  title="Mes factures"
+                  description="Factures SEDIT de votre périmètre, service fait et DGP"
+                  beta={settings.show_mes_factures && !settings.show_mes_factures_original}
+                  onClick={() => { setShowTools(false); setShowMesFactures(true); }}
+                />
+              )}
+
+              {windowLogin && virementAllowed && (settings.show_virement_credits || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<ArrowLeftRight size={22} color="#2563eb" />}
                   bg="#dbeafe"
-                  title="Modifier un PDF"
-                  description="Éditeur PDF complet (PdfCraft)"
-                  wide
-                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
-                  onClick={() => { setShowTools(false); setShowPdfCraft(true); }}
+                  title="Virement de crédits"
+                  description="Demande de modification budgétaire, signée par votre responsable et votre directeur"
+                  beta={settings.show_virement_credits && !settings.show_virement_credits_original}
+                  onClick={() => { setShowTools(false); setShowVirement(true); }}
+                />
+              )}
+
+              {windowLogin && epAllowed && (settings.show_entretiens_pro || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<ClipboardCheck size={22} color="#4f46e5" />}
+                  bg="#e0e7ff"
+                  title="Entretiens professionnels"
+                  beta={settings.show_entretiens_pro && !settings.show_entretiens_pro_original}
+                  description="Votre entretien, ceux que vous conduisez, et les agents dont vous êtes valideur"
+                  onClick={() => { setShowTools(false); setShowEp(true); }}
                 />
               )}
 
@@ -1814,8 +1927,18 @@ function App() {
         </div>
       )}
 
-      {showPdfCraft && <PdfCraftModal onClose={() => setShowPdfCraft(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} author={displayName !== 'bel.le inconnu.e' ? displayName : undefined} />}
+      {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
+      {showEp && <EpVille initialTab={epPending} dedicated={epDedicated} onClose={() => {
+        setShowEp(false); setEpPending(null);
+        // Fermer le module met fin au « Afficher en tant que » (et recharge les droits réels)
+        if (getActAs()) { clearActAs(); window.location.assign('/'); return; }
+        try { sessionStorage.removeItem('magapp_pending_ep'); } catch { /* ignore */ }
+        // Ouvert par l'adresse dédiée : on revient au portail ; sinon on garde la page en cours
+        if (epDedicated) { window.location.assign('/'); return; }
+        try { window.history.replaceState(null, '', window.location.pathname); } catch { /* ignore */ }
+      }} />}
+      {showVirement && <VirementCredits initialOpenId={virementDeepLink} beta={settings.show_virement_credits && !settings.show_virement_credits_original} userName={displayName || windowLogin} onClose={() => { setShowVirement(false); setVirementDeepLink(null); }} />}
       {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
       {/* Modal Rencontres */}
@@ -2823,7 +2946,6 @@ function App() {
 
       {showFormChooser && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}
-          onClick={() => setShowFormChooser(false)}
         >
           <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '680px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -3411,7 +3533,7 @@ Je confirme l'incident
       )}
       {/* Library Modal */}
       {showLibrary && selectedAppForDocs && (
-        <div className="modal-overlay" onClick={() => setShowLibrary(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

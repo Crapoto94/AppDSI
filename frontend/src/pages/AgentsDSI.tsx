@@ -643,7 +643,7 @@ export default function AgentsDSI() {
 
       {/* Add Agent Modal */}
       {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-body">
               <h2>Ajouter un agent DSI</h2>
@@ -684,12 +684,12 @@ export default function AgentsDSI() {
 
       {/* Matricule Link Modal */}
       {showMatriculeModal && (
-        <div className="modal-overlay" onClick={() => setShowMatriculeModal(false)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-body">
               <h2>🔗 Lier le matricule RH</h2>
               <p style={{ fontSize: '0.82rem', color: '#888', margin: '0 0 14px' }}>
-                Recherchez l'agent dans la table Oracle RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
+                Recherchez l'agent dans l'API SEDIT RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
               </p>
 
               {/* Mode switcher */}
@@ -790,7 +790,7 @@ export default function AgentsDSI() {
 
       {/* Hotline modal */}
       {hlAgent !== null && (
-        <div className="modal-overlay" onClick={() => setHlAgent(null)}>
+        <div className="modal-overlay">
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
             <div className="modal-body">
               <h2>Hotline — {hlAgent}</h2>

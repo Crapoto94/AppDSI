@@ -67,8 +67,7 @@ export default function SubscriptionModal({ dashboardId, dashboardName, onClose 
   const selectStyle: React.CSSProperties = { ...inputStyle, background: 'white' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }}
-         onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }}>
       <div style={{ background: 'white', borderRadius: 16, width: 500, maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,.2)', overflow: 'hidden' }}>
         <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', color: 'white', padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

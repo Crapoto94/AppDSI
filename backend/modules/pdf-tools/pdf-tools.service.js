@@ -15,7 +15,7 @@ const XLSX = require('xlsx');
 const {
     PDFDocument, StandardFonts, rgb, degrees, PDFName, PDFArray, PDFRawStream,
 } = require('pdf-lib');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage } = require('../../shared/lazy').lazy('@napi-rs/canvas');
 
 const A4 = { width: 595.28, height: 841.89 };
 const IMAGE_MIME_RE = /^image\//;

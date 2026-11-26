@@ -259,7 +259,12 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
-.animate-spin {
+.animate-spin,
+.spin,
+svg.lucide-loader-circle,
+svg.lucide-loader-2,
+svg.lucide-loader,
+svg.lucide-loader-pinwheel {
   animation: spin 1s linear infinite;
 }
 

@@ -122,6 +122,7 @@ interface Row {
   os: string | null; os_version: string | null;
   ad_last_seen: string | null; ad_last_user: string | null;
   last_inventory_update: string | null; last_contact: string | null;
+  is_deleted?: boolean;
 }
 interface AdUser { username: string; displayName: string; email: string; service: string }
 interface AdModal { row: Row; query: string; results: AdUser[] | null; loading: boolean; selected: AdUser | null; applying: boolean }
@@ -187,11 +188,13 @@ const ParcInformatiqueContent: React.FC = () => {
   const { token } = useAuth();
   const [source, setSource] = useState<'live' | 'hub'>('live'); // GLPI en direct par défaut (HUB = base synchronisée)
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
-
   const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes' | 'etiquette'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
+  // Incrémenté par le bouton « Actualiser » quand l'onglet AD est actif :
+  // force une nouvelle interrogation (AD direct en Live, copie locale en HUB).
+  const [adRefreshKey, setAdRefreshKey] = useState(0);
   // Modal liste d'ordinateurs concernés (doublons de série / à renouveler)
   const [pcModal, setPcModal] = useState<{ kind: 'dup' | 'renew'; title: string } | null>(null);
   const [pcModalRows, setPcModalRows] = useState<Row[]>([]);
@@ -502,19 +505,19 @@ const ParcInformatiqueContent: React.FC = () => {
   };
 
   // Ouvre la modale de détail équipement à partir d'un nom de poste AD (ex: "PO22038") :
-  // résout d'abord l'id hub_parc.items correspondant (toujours en source 'hub', quel que
-  // soit le toggle live/hub courant, car les postes AD sont synchronisés côté hub).
+  // résout l'id du parc dans la source courante (GLPI en direct si Live, copie
+  // synchronisée si HUB), puis charge la fiche complète.
   const openDeviceByName = async (name: string) => {
     setDetail({ loading: true });
     try {
-      const search = await axios.get('/api/parc/hub/ordinateurs', {
+      const search = await axios.get(`/api/parc/${source}/ordinateurs`, {
         params: { q: name, limit: 5 },
         headers: { Authorization: `Bearer ${token}` }
       });
       const candidates = search.data?.rows || [];
       const match = candidates.find((c: any) => (c.name || '').toLowerCase() === name.toLowerCase()) || candidates[0];
-      if (!match) { setDetail({ error: `Équipement « ${name} » introuvable dans le parc synchronisé.` }); return; }
-      const r = await axios.get(`/api/parc/hub/ordinateurs/${match.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!match) { setDetail({ error: `Équipement « ${name} » introuvable dans le parc ${source === 'live' ? 'GLPI (Live)' : 'synchronisé (HUB)'}.` }); return; }
+      const r = await axios.get(`/api/parc/${source}/ordinateurs/${match.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setDetail(r.data);
     } catch (e: any) {
       setDetail({ error: e.response?.data?.message || e.message });
@@ -547,12 +550,12 @@ const ParcInformatiqueContent: React.FC = () => {
   const loadStock = useCallback(async () => {
     setLoadingStock(true); setStockErr(null);
     try {
-      const r = await axios.get('/api/parc/hub/stock-summary', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await axios.get(`/api/parc/${source}/stock-summary`, { headers: { Authorization: `Bearer ${token}` } });
       setStockGroups(r.data.groups || []);
     } catch (e: any) {
       setStockErr(e.response?.data?.message || e.message); setStockGroups([]);
     } finally { setLoadingStock(false); }
-  }, [token]);
+  }, [token, source]);
 
   useEffect(() => { if (tab === 'usagers') loadUsagers(); }, [tab, source]);
   useEffect(() => { if (tab === 'stock') loadStock(); }, [tab, loadStock]);
@@ -774,7 +777,7 @@ const ParcInformatiqueContent: React.FC = () => {
                 }}><I size={14} /> {l}</button>
               ))}
             </div>
-            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : tab === 'ad' ? null : loadList(true)}
+            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : tab === 'ad' ? setAdRefreshKey(k => k + 1) : loadList(true)}
               style={btn(C.blue)}>
               <RefreshCw size={15} className={loadingKpi || loadingList || loadingUsagers ? 'spin' : ''} /> Actualiser
             </button>
@@ -1147,6 +1150,11 @@ const ParcInformatiqueContent: React.FC = () => {
                             {(type === 'ordinateurs' || (isTous && r.type_key === 'ordinateurs')) &&
                               <AdSeenDot lastContact={r.last_contact} lastUser={r.ad_last_user} />}
                             {v(r.name)}
+                            {r.is_deleted && (
+                              <span title="Fiche mise à la corbeille dans GLPI (état « Mis au rebut »…)" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '1px 6px', borderRadius: 5, fontSize: '.68rem', fontWeight: 700 }}>
+                                Corbeille
+                              </span>
+                            )}
                           </span>
                         </td>
                         {isTous && <td style={{ padding: '10px 14px' }}>{r.itemtype_label ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.itemtype_label}</span> : v(null)}</td>}
@@ -2365,7 +2373,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL FUSION INSTALLATEURS ─── */}
       {instOpen && (
-        <div onClick={() => setInstOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               <Users size={18} color="#d97706" />
@@ -2466,7 +2474,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL LISTE ORDINATEURS (doublons / à renouveler) ─── */}
       {pcModal && (
-        <div onClick={() => setPcModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(900px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               {pcModal.kind === 'dup' ? <AlertTriangle size={18} color={C.amber} /> : <RefreshCw size={18} color={C.amber} />}
@@ -2510,7 +2518,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL TYPES DE DÉPLOIEMENT ─── */}
       {typesOpen && (
-        <div onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
             <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
               <Tag size={18} color="#0891b2" />
@@ -2556,7 +2564,7 @@ const ParcInformatiqueContent: React.FC = () => {
       )}
 
       {/* ─── AD (ACTIVE DIRECTORY) ─── */}
-      {tab === 'ad' && <AdView onOpenDevice={openDeviceByName} />}
+      {tab === 'ad' && <AdView source={source} reloadKey={adRefreshKey} onOpenDevice={openDeviceByName} />}
 
       {/* ─── ÉTIQUETTE ─── */}
       {tab === 'etiquette' && <EtiquetteView />}
@@ -2578,7 +2586,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ─── MODAL DOUBLONS ─── */}
       {doublonOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }} onClick={() => setDoublonOpen(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }}>
           <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 8px 48px rgba(0,0,0,.25)', width: '100%', maxWidth: 960, padding: 28 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2714,8 +2722,7 @@ const ParcInformatiqueContent: React.FC = () => {
 
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        onClick={() => !adModal.applying && setAdModal(null)}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 520, maxWidth: '95vw', boxShadow: '0 24px 64px rgba(0,0,0,.25)' }}
           onClick={e => e.stopPropagation()}>
           <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>Recherche Active Directory</div>
@@ -2954,7 +2961,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
     return String(val);
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1600, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1600, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 760, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         {/* En-tête */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '20px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0', color: '#fff' }}>
@@ -3147,7 +3154,7 @@ const DeployEditModal: React.FC<{ row: any; token: string | null; onClose: () =>
   const inp: React.CSSProperties = { width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '.88rem', boxSizing: 'border-box' as const, fontFamily: 'inherit', color: C.text, outline: 'none' };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0' }}>
           <div style={{ color: '#fff' }}>
@@ -3294,7 +3301,7 @@ const DocViewer: React.FC<{ filePath: string; filename: string; token: string | 
   });
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Barre d'outils ── */}
       <div onClick={e => e.stopPropagation()}

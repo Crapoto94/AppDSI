@@ -635,7 +635,7 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
   }, [ooConfig, ooContainerId]);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: editMode ? 0 : 20 }} onClick={editMode ? undefined : onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: editMode ? 0 : 20 }}>
       <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: editMode ? '100%' : 1100, height: editMode ? '100vh' : '88vh', borderRadius: editMode ? 0 : 12, background: 'white', overflow: 'hidden', boxShadow: editMode ? 'none' : '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #e2e8f0', padding: '10px 16px' }}>
           {editMode ? <Edit3 size={18} color="#2563eb" /> : kind === 'msg' ? <Mail size={18} color="#2563eb" /> : <File size={18} color="#2563eb" />}
@@ -794,7 +794,7 @@ function MetadataSettingsModal({ base, headers, fields, onClose, onChange }: { b
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }}>
       <div style={{ width: '100%', maxWidth: 440, borderRadius: 12, background: 'white', padding: 18, boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Typage des documents (métadonnées)</h3>

@@ -16,6 +16,7 @@ import AdminSQL from './pages/AdminSQL';
 import AdminSettings from './pages/AdminSettings';
 import AdminInventaire from './pages/AdminInventaire';
 import AdminInfra from './pages/AdminInfra';
+import StudioIrsBrowser from './pages/Admin/StudioIrsBrowser';
 import AdminFinance from './pages/AdminFinance';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
@@ -47,6 +48,7 @@ import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
 import ConsommablesManagement from './pages/ConsommablesManagement';
 import PretsManagement from './pages/Prets/PretsManagement';
+import Entretiens from './pages/Entretiens';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklogMerged from './pages/AdminBacklogMerged';
 import AdminOrganisation from './pages/AdminOrganisation';
@@ -79,6 +81,7 @@ import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
+import McpAdmin from './pages/Admin/McpAdmin';
 import AdminNotes from './pages/Admin/AdminNotes';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
@@ -98,6 +101,10 @@ import ParapheurDetail from './pages/Parapheur/ParapheurDetail';
 import SignatureSignataire from './pages/Parapheur/SignatureSignataire';
 import ParapheurVerification from './pages/Parapheur/ParapheurVerification';
 import ParapheurShare from './pages/Parapheur/ParapheurShare';
+import ReunionsServiceIndex from './pages/ReunionsService';
+import ReunionServiceTemplateEdit from './pages/ReunionsService/TemplateEdit';
+import ReunionServiceMeetingView from './pages/ReunionsService/MeetingView';
+import ReunionServiceStats from './pages/ReunionsService/Stats';
 
 const ChatWidgetWrapper = () => {
   const location = useLocation();
@@ -191,6 +198,10 @@ function App() {
         <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
         <Route path="/bpmn" element={<PrivateRoute path="/bpmn"><BpmnEditor /></PrivateRoute>} />
         <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
+        <Route path="/reunions-service" element={<PrivateRoute path="/reunions-service"><ReunionsServiceIndex /></PrivateRoute>} />
+        <Route path="/reunions-service/templates/:id" element={<PrivateRoute path="/reunions-service"><ReunionServiceTemplateEdit /></PrivateRoute>} />
+        <Route path="/reunions-service/meetings/:id" element={<PrivateRoute path="/reunions-service"><ReunionServiceMeetingView /></PrivateRoute>} />
+        <Route path="/reunions-service/statistiques" element={<PrivateRoute path="/reunions-service"><ReunionServiceStats /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
@@ -228,6 +239,7 @@ function App() {
         <Route path="/parapheur/nouveau" element={<PrivateRoute path="/parapheur"><ParapheurCreate /></PrivateRoute>} />
         <Route path="/parapheur/:id" element={<PrivateRoute path="/parapheur"><ParapheurDetail /></PrivateRoute>} />
         <Route path="/fast" element={<PrivateRoute path="/fast"><FastActions /></PrivateRoute>} />
+        <Route path="/entretiens" element={<PrivateRoute path="/entretiens"><Entretiens /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 
@@ -285,8 +297,10 @@ function App() {
           <Route path="ged" element={<AdminGED />} />
           <Route path="inventaire" element={<AdminInventaire />} />
           <Route path="infra" element={<AdminInfra />} />
+          <Route path="studio-irs" element={<StudioIrsBrowser />} />
           <Route path="security" element={<SecurityMenu />} />
           <Route path="api-keys" element={<ApiKeysAdmin />} />
+          <Route path="mcp" element={<McpAdmin />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

@@ -261,7 +261,7 @@ const isNew = (createdAt: string | null) => {
 // d'une largeur fixe) — le conteneur passe en colonne flex pour qu'un enfant avec `flex: 1`
 // (le composant DocPreview) occupe tout l'espace vertical restant sous l'en-tête.
 const Overlay: React.FC<{ onClose: () => void; children: React.ReactNode; maxWidth?: number; fullscreen?: boolean }> = ({ onClose, children, maxWidth = 560, fullscreen }) => (
-  <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
     <div
       onClick={e => e.stopPropagation()}
       style={fullscreen

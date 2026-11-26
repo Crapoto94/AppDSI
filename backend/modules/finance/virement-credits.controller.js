@@ -2,6 +2,7 @@ const fs = require('fs');
 const { pool, getSqlite } = require('../../shared/database');
 const apmMail = require('../../shared/apm_mail');
 const { buildVirementCreditsPdf } = require('./virement-credits-pdf.service');
+const seditDroits = require('./sedit-droits.service');
 
 const KEY_TO = 'finance.virement_budget_to';
 const KEY_CC = 'finance.virement_budget_cc';
@@ -31,10 +32,32 @@ async function ensureTable() {
         sent_to TEXT,
         sent_cc TEXT
     )`);
+    // Notification du demandeur (signée / refusée / annulée) : dernier état notifié. Lignes existantes = état courant (pas de rafale au 1er démarrage).
+    const col = await pool.query("SELECT 1 FROM information_schema.columns WHERE table_schema='finance' AND table_name='virements_credits' AND column_name='notified_etat'");
+    if (!col.rows.length) {
+        await pool.query('ALTER TABLE finance.virements_credits ADD COLUMN notified_etat TEXT');
+        await pool.query(`UPDATE finance.virements_credits v SET notified_etat = p.status
+                            FROM hub_parapheur.parapheurs p WHERE p.id = v.parapheur_id AND p.status IN ('termine','refuse','annule')`);
+    }
+    // Journal des actions (qui a fait quoi, quand)
+    await pool.query(`CREATE TABLE IF NOT EXISTS finance.virements_credits_log (
+        id SERIAL PRIMARY KEY, virement_id INTEGER NOT NULL, at TIMESTAMPTZ DEFAULT now(), username TEXT, action TEXT NOT NULL, detail JSONB)`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_virements_log_virement ON finance.virements_credits_log(virement_id)');
     tableReady = true;
 }
 
+// Journal : ne doit jamais faire échouer l'action journalisée
+async function logAction(virementId, username, action, detail) {
+    try {
+        await ensureTable();
+        await pool.query('INSERT INTO finance.virements_credits_log (virement_id, username, action, detail) VALUES ($1,$2,$3,$4)',
+            [virementId, username || null, action, detail ? JSON.stringify(detail) : null]);
+    } catch (e) { console.warn('[VirementCredits] journal:', e.message); }
+}
+
 const isManager = (u) => u && ['superadmin', 'admin', 'finances', 'compta'].includes(u.role);
+// Dans MagApp (req.onlyMine), chaque agent ne voit que ses propres demandes, même administrateur.
+const seesAll = (req) => isManager(req.user) && !req.onlyMine;
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const splitEmails = (v) => String(v || '').split(/[;,\s]+/).map(e => e.trim()).filter(e => /^[^@\s]+@[^@\s]+$/.test(e));
@@ -68,7 +91,7 @@ async function loadOwned(req, id) {
     const r = await pool.query('SELECT * FROM finance.virements_credits WHERE id = $1', [id]);
     const row = r.rows[0];
     if (!row) return { error: { status: 404, message: 'Demande introuvable' } };
-    if (!isManager(req.user) && row.created_by_username !== req.user.username) {
+    if (!seesAll(req) && row.created_by_username !== req.user.username) {
         return { error: { status: 403, message: 'Accès refusé' } };
     }
     return { row };
@@ -94,6 +117,7 @@ function sanitizePayload(b) {
     });
     return {
         direction: String(b.direction || ''), service: String(b.service || ''), contact: String(b.contact || ''),
+        budget: String(b.budget || '').slice(0, 80),
         date: String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
         section: b.section === 'F' ? 'F' : 'I', sens: b.sens === 'R' ? 'R' : 'D',
         compense: b.compense !== false, activite: String(b.activite || ''), motivation: String(b.motivation || ''),
@@ -112,7 +136,7 @@ async function senderOf(user) {
     return { name, email };
 }
 
-async function currentPdfBuffer(row, preferSigned) {
+async function currentPdfBuffer(row, preferSigned, opts) {
     if (preferSigned && row.parapheur_id && row.para_status === 'termine') {
         try {
             const parapheur = require('../parapheur/parapheur.service');
@@ -123,7 +147,20 @@ async function currentPdfBuffer(row, preferSigned) {
             }
         } catch (e) { console.warn('[VirementCredits] PDF signé indisponible:', e.message); }
     }
-    return { buffer: await buildVirementCreditsPdf(row.payload), signed: false };
+    return { buffer: await buildVirementCreditsPdf(row.payload, opts), signed: false };
+}
+
+// Le virement de crédits est réservé aux agents ayant un compte SEDIT Finances actif (y compris admin/finances).
+async function requireSeditAccount(req, res, next) {
+    try {
+        const access = await seditDroits.getAccess(req.user);
+        if (!access) return res.status(403).json({ message: 'Fonction réservée aux agents disposant d’un compte SEDIT Finances' });
+        req.seditAccess = access;
+        next();
+    } catch (e) {
+        console.error('[VirementCredits] droits SEDIT:', e.message);
+        res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
+    }
 }
 
 const fail = (res, e, msg) => {
@@ -133,11 +170,31 @@ const fail = (res, e, msg) => {
 };
 
 module.exports = {
+    requireSeditAccount,
+    logAction,
+    ensureTable,
+
+    // Accès de l'agent connecté : compte SEDIT + services sur lesquels il peut modifier le budget
+    async access(req, res) {
+        try {
+            const access = await seditDroits.getAccess(req.user);
+            if (!access) return res.json({ allowed: false });
+            res.json({
+                allowed: access.services.length > 0,
+                sedit: { code: access.sedit.code, nom: access.sedit.nom },
+                services: access.services.map(s => ({ budget: s.budget, service: s.service, libelle: s.libelle })),
+            });
+        } catch (e) {
+            console.error('[VirementCredits] accès SEDIT:', e.message);
+            res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
+        }
+    },
+
     // Lignes d'exécution + disponible lus en direct dans SEDIT (schéma FI)
     async liveLines(req, res) {
         try {
             const { getLiveLines } = require('./virement-credits-lines.service');
-            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, allBudgets: req.query.allBudgets === '1' }));
+            res.json(await getLiveLines({ fiscalYear: req.query.fiscalYear, budget: req.query.budget, allBudgets: req.query.allBudgets === '1', services: req.seditAccess.services, actor: req.user, clientApp: 'DSIHUB' }));
         } catch (e) {
             console.error('[VirementCredits] lignes SEDIT:', e.message);
             res.status(502).json({ message: `SEDIT indisponible : ${e.message}` });
@@ -147,7 +204,7 @@ module.exports = {
     async list(req, res) {
         try {
             await ensureTable();
-            const where = isManager(req.user) ? '' : 'WHERE v.created_by_username = $1';
+            const where = seesAll(req) ? '' : 'WHERE v.created_by_username = $1';
             const r = await pool.query(
                 `SELECT v.id, v.created_by_username, v.created_by_name, v.created_at, v.direction, v.service, v.contact,
                         v.date_demande, v.section, v.sens, v.compense, v.montant, v.motivation, v.payload,
@@ -167,6 +224,10 @@ module.exports = {
             await ensureTable();
             const p = sanitizePayload(req.body || {});
             if (!p.majorer.length && !p.minorer.length) return res.status(400).json({ message: 'Aucune imputation' });
+            // Contrôle serveur : chaque ligne doit relever d'un service que l'agent peut modifier dans SEDIT
+            const okServices = new Set(req.seditAccess.services.map(s => s.service.toUpperCase()));
+            const hors = [...p.majorer, ...p.minorer].find(l => !okServices.has(String(l.activite).trim().toUpperCase()));
+            if (hors) return res.status(403).json({ message: `Ligne non autorisée pour votre compte SEDIT (service ${hors.activite || '?'})` });
             const montant = p.majorer.reduce((a, l) => a + l.montant, 0);
             const { name, email } = await senderOf(req.user);
             const id = req.body && req.body.id ? parseInt(req.body.id, 10) : null;
@@ -179,6 +240,7 @@ module.exports = {
                         compense=$7, montant=$8, motivation=$9, payload=$10, updated_at=now() WHERE id=$11`,
                     [p.direction, p.service, p.contact, p.date, p.section, p.sens, p.compense, montant, p.motivation, JSON.stringify(p), id]
                 );
+                await logAction(id, req.user.username, 'modification', { montant, lignes: p.majorer.length + p.minorer.length });
                 return res.json({ id });
             }
             const r = await pool.query(
@@ -188,6 +250,7 @@ module.exports = {
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
                 [req.user.username, name, email, p.direction, p.service, p.contact, p.date, p.section, p.sens, p.compense, montant, p.motivation, JSON.stringify(p)]
             );
+            await logAction(r.rows[0].id, req.user.username, 'creation', { montant, lignes: p.majorer.length + p.minorer.length });
             res.status(201).json({ id: r.rows[0].id });
         } catch (e) { fail(res, e, 'Erreur enregistrement'); }
     },
@@ -200,7 +263,16 @@ module.exports = {
                 const p = await pool.query('SELECT status FROM hub_parapheur.parapheurs WHERE id = $1', [row.parapheur_id]);
                 row.para_status = p.rows[0] && p.rows[0].status;
             }
-            const { buffer, signed } = await currentPdfBuffer(row, req.query.signed !== '0');
+            // Aperçu MagApp (?hints=1) : repères d'emplacement des signatures dans les cadres « Avis » 1 et 2 (jamais dans le PDF transmis)
+            let opts;
+            if (req.query.hints === '1' && !row.parapheur_id && !row.sent_at) {
+                const nm = (v) => String(v || '').replace(/[^\p{L}\p{N} '’.,-]/gu, '').trim().slice(0, 60);
+                const hints = {};
+                if (nm(req.query.resp)) hints[0] = { title: 'Signature du responsable de service', name: nm(req.query.resp) };
+                if (nm(req.query.dir)) hints[1] = { title: 'Signature du directeur', name: nm(req.query.dir) };
+                opts = { hints };
+            }
+            const { buffer, signed } = await currentPdfBuffer(row, req.query.signed !== '0', opts);
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('X-Pdf-Signed', signed ? '1' : '0');
             res.setHeader('Content-Disposition', 'inline; filename="demande-modification-budgetaire.pdf"');
@@ -214,6 +286,7 @@ module.exports = {
             if (error) return res.status(error.status).json({ message: error.message });
             if (row.parapheur_id || row.sent_at) return res.status(409).json({ message: 'Demande déjà transmise : suppression impossible' });
             await pool.query('DELETE FROM finance.virements_credits WHERE id = $1', [row.id]);
+            await logAction(row.id, req.user.username, 'suppression', { montant: row.montant });
             res.json({ ok: true });
         } catch (e) { fail(res, e, 'Erreur suppression'); }
     },
@@ -245,6 +318,62 @@ module.exports = {
                 req,
             });
             await pool.query('UPDATE finance.virements_credits SET parapheur_id = $1, parapheur_at = now(), updated_at = now() WHERE id = $2', [result.id, row.id]);
+            await logAction(row.id, req.user.username, 'envoi_parapheur', { parapheur_id: result.id, reference: result.reference });
+            res.json({ parapheur_id: result.id, reference: result.reference });
+        } catch (e) { fail(res, e, "Erreur d'envoi au parapheur"); }
+    },
+
+    // MagApp : signataires proposés (défaut = chaîne hiérarchique de l'agent ; choix limité aux services/directions autorisés dans SEDIT)
+    async signataires(req, res) {
+        try {
+            const { getSignataires } = require('./virement-credits-signataires.service');
+            res.json(await getSignataires(req.user, req.seditAccess.services));
+        } catch (e) { fail(res, e, 'Erreur lecture des signataires'); }
+    },
+
+    // MagApp : parapheur à deux signatures successives — responsable de service puis directeur (cadres « Avis » du PDF).
+    async sendToParapheurChain(req, res) {
+        try {
+            const { row, error } = await loadOwned(req, parseInt(req.params.id, 10));
+            if (error) return res.status(error.status).json({ message: error.message });
+            if (row.parapheur_id) return res.status(409).json({ message: 'Déjà envoyée au parapheur' });
+            const { getSignataires } = require('./virement-credits-signataires.service');
+            const allowed = await getSignataires(req.user, req.seditAccess.services);
+            const body = req.body || {};
+            const resolve = (wanted, list) => {
+                const email = String(wanted && wanted.email || '').trim().toLowerCase();
+                if (!email) return null;
+                return list.find(e => String(e.email).toLowerCase() === email) || false;
+            };
+            const resp = resolve(body.responsable, allowed.responsables);
+            const dir = resolve(body.directeur, allowed.directeurs);
+            // false = signataire demandé mais hors du périmètre autorisé de l'agent
+            if (resp === false || dir === false) return res.status(403).json({ message: 'Signataire non autorisé pour votre périmètre budgétaire SEDIT' });
+            if (!resp && !dir) return res.status(400).json({ message: 'Choisissez au moins un signataire' });
+            const buffer = await buildVirementCreditsPdf(row.payload);
+            const [y, m, d] = String(row.payload.date).split('-');
+            const parapheur = require('../parapheur/parapheur.service');
+            // Cadres « Avis du responsable de service » et « Avis de la direction » (centre de la signature, en % de la page)
+            const sg = (e, yPct) => ({
+                nom: `${e.prenom || ''} ${e.nom || ''}`.trim() || e.email, email: e.email,
+                service: e.role === 'directeur' ? e.direction_label : e.service_label, signatureMode: 'simple',
+                positions: [{ documentIndex: 0, page: 1, x: 73.6, y: yPct, w: 150, h: 46 }],
+            });
+            const signataires = [resp && sg(resp, 56.5), dir && sg(dir, 63.4)].filter(Boolean);
+            const result = await parapheur.createParapheur({
+                files: [{ buffer, originalname: 'demande-modification-budgetaire.pdf', mimetype: 'application/pdf', size: buffer.length }],
+                annexes: [],
+                payload: {
+                    title: `Demande de modification budgétaire${row.payload.service ? ' - ' + row.payload.service : ''} - ${d}/${m}/${y}`,
+                    message: String(body.message || ''),
+                    mode: 'sequentiel',
+                    signataires,
+                },
+                user: req.user,
+                req,
+            });
+            await pool.query('UPDATE finance.virements_credits SET parapheur_id = $1, parapheur_at = now(), updated_at = now() WHERE id = $2', [result.id, row.id]);
+            await logAction(row.id, req.user.username, 'envoi_parapheur', { parapheur_id: result.id, reference: result.reference });
             res.json({ parapheur_id: result.id, reference: result.reference });
         } catch (e) { fail(res, e, "Erreur d'envoi au parapheur"); }
     },
@@ -278,6 +407,7 @@ module.exports = {
                 'UPDATE finance.virements_credits SET sent_at = now(), sent_by = $1, sent_to = $2, sent_cc = $3, updated_at = now() WHERE id = $4',
                 [req.user.username, to.join(', '), cc.join(', '), row.id]
             );
+            await logAction(row.id, req.user.username, 'envoi_budget', { to, cc, signed });
             res.json({ to, cc, signed });
         } catch (e) {
             if (!e.status) return res.status(502).json({ message: `Envoi impossible : ${e.message}` });
@@ -291,6 +421,7 @@ module.exports = {
 
     async saveSettings(req, res) {
         try {
+            if (!isManager(req.user)) return res.status(403).json({ message: 'Réservé aux administrateurs / finances' });
             const to = splitEmails(req.body && req.body.to);
             const cc = splitEmails(req.body && req.body.cc);
             await writeSetting(KEY_TO, (to.length ? to : [DEFAULT_TO]).join(', '), 'Virements de crédits : destinataire du mail');

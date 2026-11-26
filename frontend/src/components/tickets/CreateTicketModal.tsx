@@ -259,7 +259,7 @@ export default function CreateTicketModal({ onClose }: Props) {
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000
-    }} onClick={onClose}>
+    }}>
       <div style={{
         background: requesterVip.vip ? (requesterVip.elu ? '#f0fdf4' : '#fefce8') : '#f8fafc',
         borderRadius: 16, width: 700, maxHeight: '95vh', overflow: 'hidden',

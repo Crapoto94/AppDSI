@@ -23,7 +23,11 @@ function basenameOf(filePath) {
     return path.basename(String(filePath).replace(/\\/g, '/'));
 }
 
+// Journal chargé UNE fois par exécution (au lieu d'une requête par pièce jointe : ~1 900 allers-retours, 40 s à chaque démarrage).
+let migratedSet = null;
+
 async function isMigrated(sourceTable, sourceId) {
+    if (migratedSet) return migratedSet.has(`${sourceTable}\u0000${sourceId}`);
     const row = await pgDb.get(
         'SELECT id FROM hub_docs.migration_log WHERE source_table = $1 AND source_id = $2',
         [sourceTable, String(sourceId)]
@@ -32,6 +36,7 @@ async function isMigrated(sourceTable, sourceId) {
 }
 
 async function markMigrated(sourceTable, sourceId, documentId, versionId) {
+    if (migratedSet) migratedSet.add(`${sourceTable}\u0000${sourceId}`);
     try {
         await pgDb.run(
             `INSERT INTO hub_docs.migration_log (source_table, source_id, document_id, version_id)
@@ -371,6 +376,8 @@ async function migrateTelecom() {
 
 async function runAllMigrations() {
     try {
+        const log = await pgDb.all('SELECT source_table, source_id FROM hub_docs.migration_log');
+        migratedSet = new Set(log.map(r => `${r.source_table}\u0000${r.source_id}`));
         await migrateCertificats();
         await migrateContrats();
         await migrateTickets();
@@ -381,6 +388,8 @@ async function runAllMigrations() {
         await migrateTelecom();
     } catch (e) {
         console.error('[DOCS MIGRATION] erreur:', e.message);
+    } finally {
+        migratedSet = null;
     }
 }
 

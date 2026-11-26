@@ -7,6 +7,7 @@ import TicketList from './TicketList';
 import TicketKanban from './TicketKanban';
 import TicketInbox from './TicketInbox';
 import LiveSessionsPanel from './LiveSessionsPanel';
+import RemoteControlAction from './RemoteControlAction';
 import { useAuth } from '../../contexts/AuthContext';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 import { useRealtimeNotifications } from '../../hooks/useRealtimeNotifications';
@@ -1368,8 +1369,7 @@ export default function TicketsDashboard() {
 
       {/* ── Modale enregistrement filtre (portail → rendu dans document.body) ── */}
       {showSaveModal && createPortal(
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowSaveModal(false); }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 700, color: '#1e293b' }}>Enregistrer le filtre</h3>
             <div style={{ marginBottom: 14 }}>
@@ -2067,7 +2067,7 @@ export default function TicketsDashboard() {
     )}
     {/* ── Modal Actions automatiques ─────────────────────────────── */}
     {showAutoActions && createPortal(
-      <div onClick={e => { if (e.target === e.currentTarget) { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); } }}
+      <div
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div style={{ background: '#fff', borderRadius: 16, width: 540, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.18)' }}>
 
@@ -2169,6 +2169,8 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un compte AD, réinitialise son mot de passe et crée automatiquement un ticket résolu.</div>
                   </div>
                 </button>
+
+                <RemoteControlAction />
 
                 {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
                 {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}

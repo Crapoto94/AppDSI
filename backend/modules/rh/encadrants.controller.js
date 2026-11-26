@@ -1,7 +1,7 @@
 /**
  * Encadrants controller
  * Gère la liste des directeurs et responsables de service :
- *  - récupération depuis oracle.rh_v_extract_dsi (Postgres)
+ *  - récupération depuis l'API SEDIT RH (agents en poste)
  *  - email enrichi depuis l'AD (via ad_username)
  *  - téléphone stocké dans hub.encadrants
  *  - comparaison avec la liste de diffusion AD "Directeurs et Chefs de service"
@@ -9,10 +9,14 @@
 const ldap = require('ldapjs');
 const { pgDb, getSqlite } = require('../../shared/database');
 const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
+const sedit = require('../../shared/sedit-rh');
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-const ACTIVE_FILTER = `("POSITION_L" LIKE 'Activité%' OR "POSITION_L" LIKE 'Temps partiel%')`;
+const EXCLURE_POSTE = /CABINET|ARTISTIQUE|MAISON DE QUARTIER|CRECHE|CRÈCHE|MULTI.?ACCUEIL|RESIDENCES AUTONOMIE|RÉSIDENCES AUTONOMIE/i;
+const EST_ENCADRANT = /DIRECTEUR.*GENERAL|DIRECTEUR[EÈ]?TRICE D|RESPONSABLE DU SERVICE/i;
+const estPosteEncadrant = (poste) => EST_ENCADRANT.test(String(poste || '')) && !EXCLURE_POSTE.test(String(poste || ''));
+const legacyAgent = (a) => ({ MATRICULE: a.matricule, NOM: a.nom, PRENOM: a.prenom, DIRECTION: a.direction_code, DIRECTION_L: a.direction, SERVICE: a.service_code, SERVICE_L: a.service, POSTE_L: a.poste, FONCTION_L: a.fonction, POSITION_L: a.statut });
 
 /** Détecte si un service = le service "d'accueil" de sa direction, c'est-à-dire
  *  le service générique qui porte le même libellé que la direction elle-même
@@ -227,33 +231,12 @@ module.exports = {
      */
     getEncadrants: async (req, res) => {
         try {
-            // 1. Récupérer directeurs et resp. de service actifs.
-            // On exclut les « directeurs » d'équipements (crèche, multi-accueil, maison de quartier,
-            // résidences autonomie) et les postes de direction de cabinet ou artistique qui
-            // ne correspondent pas à des chefs de direction administrative.
-            const agents = await pgDb.all(`
-                SELECT
-                    "MATRICULE", "NOM", "PRENOM",
-                    "DIRECTION", "DIRECTION_L",
-                    "SERVICE", "SERVICE_L",
-                    "POSTE_L", "FONCTION_L",
-                    "POSITION_L"
-                FROM oracle.rh_v_extract_dsi
-                WHERE ${ACTIVE_FILTER}
-                  AND (
-                    "POSTE_L" LIKE 'DIRECTEUR%GENERAL%'
-                    OR "POSTE_L" LIKE 'DIRECTEUR·TRICE D%'
-                    OR "POSTE_L" LIKE 'RESPONSABLE DU SERVICE%'
-                  )
-                  AND "POSTE_L" NOT LIKE '%CABINET%'
-                  AND "POSTE_L" NOT LIKE '%ARTISTIQUE%'
-                  AND "POSTE_L" NOT LIKE '%MAISON DE QUARTIER%'
-                  AND "POSTE_L" NOT LIKE '%CRECHE%'
-                  AND "POSTE_L" NOT LIKE '%MULTI ACCUEIL%'
-                  AND "POSTE_L" NOT LIKE '%MULTI-ACCUEIL%'
-                  AND "POSTE_L" NOT LIKE '%RESIDENCES AUTONOMIE%'
-                ORDER BY "DIRECTION", "SERVICE", "NOM", "PRENOM"
-            `);
+            // 1. Récupérer directeurs et resp. de service actifs depuis l'API SEDIT RH.
+            // On exclut les « directeurs » d'équipements et les directions de cabinet/artistiques.
+            const agents = (await sedit.allAgents()).map(sedit.summary)
+                .filter(a => estPosteEncadrant(a.poste))
+                .map(legacyAgent)
+                .sort((a, b) => `${a.DIRECTION}|${a.SERVICE}|${a.NOM}|${a.PRENOM}`.localeCompare(`${b.DIRECTION}|${b.SERVICE}|${b.NOM}|${b.PRENOM}`, 'fr'));
 
             if (!agents.length) return res.json([]);
 
@@ -541,24 +524,8 @@ module.exports = {
         try {
             const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-            // 1. Encadrants actifs
-            const agents = await pgDb.all(`
-                SELECT "MATRICULE","NOM","PRENOM","DIRECTION_L","SERVICE_L","POSTE_L"
-                FROM oracle.rh_v_extract_dsi
-                WHERE ${ACTIVE_FILTER}
-                  AND (
-                    "POSTE_L" LIKE 'DIRECTEUR%GENERAL%'
-                    OR "POSTE_L" LIKE 'DIRECTEUR·TRICE D%'
-                    OR "POSTE_L" LIKE 'RESPONSABLE DU SERVICE%'
-                  )
-                  AND "POSTE_L" NOT LIKE '%CABINET%'
-                  AND "POSTE_L" NOT LIKE '%ARTISTIQUE%'
-                  AND "POSTE_L" NOT LIKE '%MAISON DE QUARTIER%'
-                  AND "POSTE_L" NOT LIKE '%CRECHE%'
-                  AND "POSTE_L" NOT LIKE '%MULTI ACCUEIL%'
-                  AND "POSTE_L" NOT LIKE '%MULTI-ACCUEIL%'
-                  AND "POSTE_L" NOT LIKE '%RESIDENCES AUTONOMIE%'
-            `);
+            // 1. Encadrants actifs depuis l'API SEDIT RH
+            const agents = (await sedit.allAgents()).map(sedit.summary).filter(a => estPosteEncadrant(a.poste)).map(legacyAgent);
 
             // 2. Appareils actifs attribués (téléphones) depuis le parc
             const devices = await pgDb.all(`

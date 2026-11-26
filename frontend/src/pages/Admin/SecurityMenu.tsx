@@ -648,7 +648,7 @@ export default function SecurityMenu() {
 
       {/* Schema selection modal */}
       {showSchemas && schemaInfo && (
-        <div className="sec-modal-overlay" onClick={() => !savingSchemas && setShowSchemas(false)}>
+        <div className="sec-modal-overlay">
           <div className="sec-modal" onClick={(e) => e.stopPropagation()}>
             <div className="sec-modal-head">
               <div className="sec-modal-title"><Layers size={20} color="#10b981" /><h3>Schémas PostgreSQL à sauvegarder</h3></div>

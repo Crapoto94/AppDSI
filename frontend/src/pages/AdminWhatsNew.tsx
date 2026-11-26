@@ -113,7 +113,7 @@ const AdminWhatsNew: React.FC = () => {
       </div>
 
       {editing && (
-        <div onClick={() => setEditing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 760, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
               {editing.id ? `Modifier la version ${editing.version}` : 'Nouvelle version'}

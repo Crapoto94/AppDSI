@@ -1169,7 +1169,7 @@ export default function ReseauDashboard() {
           </div>
         );
         return (
-          <div onClick={() => setDetailLink(null)}
+          <div
             style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#fff', borderRadius: 14, maxWidth: 600, width: '90%', maxHeight: '85vh', overflow: 'auto', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>

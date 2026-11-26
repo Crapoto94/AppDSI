@@ -1535,7 +1535,7 @@ const Copieurs: React.FC = () => {
       </div>
 
       {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editingId ? 'Modifier le copieur' : 'Nouveau copieur'}</h2>
@@ -1591,7 +1591,7 @@ const Copieurs: React.FC = () => {
       )}
 
       {showMoveModal && moveTarget && (
-        <div className="modal-overlay" onClick={() => setShowMoveModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Déménager le copieur</h2>
@@ -1646,7 +1646,7 @@ const Copieurs: React.FC = () => {
       )}
 
       {showIntervModal && intervTarget && (
-        <div className="modal-overlay" onClick={() => setShowIntervModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Nouvelle intervention</h2>
@@ -1699,7 +1699,7 @@ const Copieurs: React.FC = () => {
         const nbTechs = new Set(allInterventions.filter(i => i.technicien).map(i => i.technicien)).size;
         const nbEmails = allInterventions.filter(i => i.email_message_id).length;
         return (
-          <div className="modal-overlay" onClick={() => { setShowAllInterventions(false); setAllIntervSearch(''); setAllIntervSource('all'); }}>
+          <div className="modal-overlay">
             <div className="modal modal-interv" onClick={e => e.stopPropagation()}>
               <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                 <div>
@@ -1826,7 +1826,7 @@ const Copieurs: React.FC = () => {
             (iv.description || '').toLowerCase().includes(q);
         });
         return (
-          <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={() => { setShowCopieurInterv(false); setCopieurIntervSearch(''); }}>
+          <div className="modal-overlay" style={{ zIndex: 1100 }}>
             <div className="modal modal-interv" onClick={e => e.stopPropagation()}>
               <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                 <div>
@@ -1917,7 +1917,7 @@ const Copieurs: React.FC = () => {
       })()}
 
       {selectedInterv && (
-        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => { setSelectedInterv(null); setEmailPreviewHtml(null); }}>
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
           <div className="modal modal-detail" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -2023,7 +2023,7 @@ const Copieurs: React.FC = () => {
       )}
 
       {showVisitesModal && visitesTarget && (
-        <div className="modal-overlay" onClick={() => setShowVisitesModal(false)}>
+        <div className="modal-overlay">
           <div className="modal modal-visites" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -2187,7 +2187,7 @@ const Copieurs: React.FC = () => {
 
       {/* ── Modal Test SNMP ── */}
       {showSnmpModal && snmpTarget && (
-        <div className="modal-overlay" onClick={() => setShowSnmpModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: (snmpWalkData || snmpWalking) ? 780 : 500, transition: 'max-width 0.2s' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -2315,7 +2315,7 @@ const Copieurs: React.FC = () => {
 
       {/* ── Modal Diagnostic Canon (compteurs 100-120) ── */}
       {showRawCanonModal && (
-        <div className="modal-overlay" onClick={() => setShowRawCanonModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 820, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -2380,7 +2380,7 @@ const Copieurs: React.FC = () => {
         const allMainteneurs = [...new Set([...mainteneursList, ...codesAdmin.map(c => c.mainteneur)])].sort();
         const filteredCodes = selectedMainteneur ? codesAdmin.filter(c => c.mainteneur === selectedMainteneur) : codesAdmin;
         return (
-          <div className="modal-overlay" onClick={() => setShowCodesAdmin(false)}>
+          <div className="modal-overlay">
             <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <div>
@@ -2578,7 +2578,7 @@ const Copieurs: React.FC = () => {
         const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
         const hasValues = Object.values(releveValues).some(v => v !== '');
         return (
-          <div className="modal-overlay" onClick={() => setShowRelevesModal(false)}>
+          <div className="modal-overlay">
             <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <div>
@@ -2768,7 +2768,7 @@ const Copieurs: React.FC = () => {
 
       {/* ── Modal import Excel compteurs (multi-étapes) ── */}
       {showImportCompteurModal && (
-        <div className="modal-overlay" onClick={() => !importingCompteur && !importCreating && setShowImportCompteurModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -3002,7 +3002,7 @@ const Copieurs: React.FC = () => {
       )}
 
       {activeLightbox && (
-        <div className="lightbox-overlay" onClick={() => setActiveLightbox(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>
+        <div className="lightbox-overlay" style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>
           <button style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 40, height: 40, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setActiveLightbox(null)}>
             <X size={24} />
           </button>

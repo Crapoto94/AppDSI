@@ -128,3 +128,11 @@ backend/service-fait/
 # Traces du serveur MCP DMZ (contiennent des données)
 chat/logs/
 chat/dist/
+
+# EP de l annee precedente (donnees RH nominatives, jamais versionnees)
+EP/
+
+# Deploiement DMZ (local uniquement)
+pulldmz.ini
+pulldmz.ps1
+pulldmz.bat

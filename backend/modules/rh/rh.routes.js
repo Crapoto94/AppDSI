@@ -9,6 +9,8 @@ const { authenticateAdmin, authenticateJWT } = require('../../shared/middleware'
 // gérés par RH Studio (cf. /api/infra/rh-studio/*) — ces endpoints AppDSI ont été retirés.
 router.get('/organisation-chart', authenticateJWT, rhController.getOrganisationChart);
 router.get('/services-tree', authenticateJWT, rhController.getServicesTree);
+// Agents partis (Studio RH) : KPI réunions de service + widget tableau de bord.
+router.get('/departs', authenticateJWT, rhController.getDeparts);
 
 // Encadrants (directeurs + resp. service) — lecture et téléphones : tout utilisateur connecté
 router.get('/encadrants', authenticateJWT, encadrantsCtrl.getEncadrants);

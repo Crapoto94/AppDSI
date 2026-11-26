@@ -9,6 +9,7 @@ interface BudgetLine {
   'Libellé': string;
   Sens: string;
   Section: string;
+  Budget?: string;
   'Article par nature': string;
   'Chapitre par nature': string;
   'Référence Fonctionnelle': string;
@@ -185,9 +186,25 @@ const VirementCreditsTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Budgets sur lesquels l'agent a un droit de modification (Ville = principal, annexes : CMPP, Cinéma Le Luxy, Restauration…)
+  const [budgets, setBudgets] = useState<string[]>([]);
+  const [budget, setBudget] = useState('');
+  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Ville (budget principal)' : b);
   useEffect(() => {
-    // Lignes et disponibles lus en direct dans SEDIT (aucun import Excel)
-    fetch('/api/budget/virement-credits/lines', { headers })
+    fetch('/api/budget/virement-credits/access', { headers }).then(r => (r.ok ? r.json() : null)).then(a => {
+      const list: string[] = [...new Set<string>(((a && a.services) || []).map((x: { budget: string }) => x.budget))].filter(Boolean)
+        .sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y)));
+      setBudgets(list);
+      setBudget(prev => prev || list.find(b => /^PRINCIPAL$/i.test(b)) || list[0] || '');
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!budget) return;
+    // Lignes et disponibles lus en direct dans SEDIT (aucun import Excel), pour le budget choisi
+    setLoading(true); setLiveError('');
+    fetch(`/api/budget/virement-credits/lines?budget=${encodeURIComponent(budget)}`, { headers })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible');
         return r.json();
@@ -196,18 +213,20 @@ const VirementCreditsTab: React.FC = () => {
       .catch((e: Error) => { setLines([]); setLiveError(e.message); })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [budget]);
 
+  const changeBudget = (b: string) => { if (b !== budget) { setMinorer([]); setMajorer([]); } setBudget(b); };
   // Changer de section / sens invalide les lignes déjà choisies
   const changeScope = (sec: 'I' | 'F', sn: 'D' | 'R') => {
     if (sec !== section || sn !== sens) { setMinorer([]); setMajorer([]); }
     setSection(sec); setSens(sn);
   };
 
-  // Périmètre DSI : services gestionnaires BF* ; en investissement, uniquement les enveloppes ENV16, ENV28 et ENV29
+  // Le serveur ne renvoie que les lignes autorisées à l'agent dans SEDIT (droit de modification par service gestionnaire).
+  // Règle propre à la DSI conservée : en investissement, uniquement les enveloppes ENV16, ENV28 et ENV29 pour les services BF*.
   const scoped = useMemo(
-    () => lines.filter(l => l.Section === section && l.Sens === sens && /^BF/i.test(l['Service Gestionnaire'] || '') && !!l['Référence Fonctionnelle']
-      && (section === 'F' || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
+    () => lines.filter(l => l.Section === section && l.Sens === sens && (!!l['Référence Fonctionnelle'] || !/^PRINCIPAL$/i.test(l.Budget || ''))
+      && (section === 'F' || !/^BF/i.test(l['Service Gestionnaire'] || '') || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
     [lines, section, sens]
   );
 
@@ -241,7 +260,7 @@ const VirementCreditsTab: React.FC = () => {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation,
+          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget,
           majorer: majorer.map(p => toPayloadLine(p, 1)),
           minorer: minorer.map(p => toPayloadLine(p, -1)),
         }),
@@ -274,6 +293,12 @@ const VirementCreditsTab: React.FC = () => {
       <div style={s.card}>
         <h3 style={{ margin: '0 0 1rem', fontSize: '1.05rem' }}>Demande de virement de crédits</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+          <div>
+            <label style={s.label}>Budget</label>
+            <select style={s.input} value={budget} onChange={e => changeBudget(e.target.value)}>
+              {budgets.map(b => <option key={b} value={b}>{budgetLabel(b)}</option>)}
+            </select>
+          </div>
           <div>
             <label style={s.label}>Section</label>
             <select style={s.input} value={section} onChange={e => changeScope(e.target.value as 'I' | 'F', sens)}>

@@ -137,7 +137,7 @@ function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items
   const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: 22, width: '100%', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 16px' }}>Nouveau prêt</h2>
         {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{err}</div>}

@@ -12,6 +12,7 @@ de l'application, depuis Internet. Il tourne dans le conteneur DMZ du chat
 |---|---|
 | `dsi_catalog` | modules (schémas) et tables accessibles |
 | `dsi_describe_table` | colonnes, PK, FK d'une table |
+| `dsi_module_guide` | guide d'un module métier (tickets, parc, télécom, contrats, boîtes partagées, vols et pertes, méthode d'analyse) : tables clés, règles d'interprétation, requêtes types |
 | `dsi_query` | requête SQL en lecture seule (SELECT/WITH…) |
 | `dsi_whoami` | personne connectée, limites |
 

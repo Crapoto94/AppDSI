@@ -40,7 +40,7 @@ LAN ─────────────▶ dsihub.ivry.local : conteneur app
 ```
 
 - **Double authentification** : clé API `dsk_…` (module « Interrogation SQL lecture seule ») **et** identifiant + mot de passe Windows (AD), vérifiés par le backend.
-- **Personnes autorisées** : rôle `superadmin` dans `hub.users`, ou liste `DATAQUERY_ALLOWED_USERS`.
+- **Personnes autorisées** : tout compte du DSIHUB, c'est-à-dire présent dans la table `users` de SQLite (quel que soit son rôle), ou liste `DATAQUERY_ALLOWED_USERS`. Le verrou réel est la clé API (une par personne, avec expiration).
 - **Traçabilité** :
   - côté DMZ, traces JSONL de tous les flux du MCP ;
   - côté backend, audit dans `hub.dataquery_audit` ;
