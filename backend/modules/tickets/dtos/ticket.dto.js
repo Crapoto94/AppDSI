@@ -19,7 +19,11 @@ function computeActiveDays(ticket) {
             : Date.now();
     const totalSeconds = (end - start) / 1000;
     const waitingSeconds = ticket.total_waiting_seconds || 0;
-    const activeSeconds = Math.max(0, totalSeconds - waitingSeconds);
+    // Ticket « déjà résolu » : le travail réel a eu lieu avant la création, on
+    // utilise donc le temps déclaré plutôt que date_solved - date_creation (~0).
+    const activeSeconds = ticket.time_spent_seconds != null
+        ? Number(ticket.time_spent_seconds)
+        : Math.max(0, totalSeconds - waitingSeconds);
     return Math.round(activeSeconds / 86400 * 10) / 10;
 }
 
@@ -81,6 +85,7 @@ module.exports = {
             date_solved: ticket.date_solved,
             date_closed: ticket.date_closed,
             active_days: computeActiveDays(ticket),
+            time_spent_seconds: ticket.time_spent_seconds ?? null,
             total_waiting_seconds: ticket.total_waiting_seconds || 0,
             waiting_reason: ticket.waiting_reason || null,
         };
@@ -135,6 +140,7 @@ module.exports = {
             subcategory_id: ticket.subcategory_id || null,
             subcategory_name: ticket.subcategory_name || null,
             active_days: computeActiveDays(ticket),
+            time_spent_seconds: ticket.time_spent_seconds ?? null,
             total_waiting_seconds: ticket.total_waiting_seconds || 0,
             waiting_reason: ticket.waiting_reason || null,
             sla_status: ticket.sla_status || null,

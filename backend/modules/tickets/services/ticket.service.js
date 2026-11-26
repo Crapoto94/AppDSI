@@ -45,12 +45,29 @@ module.exports = {
     },
 
     async create(data, user, options = {}) {
+        // « Ticket déjà résolu » : le problème a été solutionné hors de l'outil et le
+        // ticket n'est créé que pour documentation/statistiques. On l'enregistre
+        // directement au statut Résolu (5), affecté au créateur, sans passer par le
+        // workflow 1 → 5 ni par l'auto-affectation (qui reprendrait la main).
+        const alreadyResolved = data.already_resolved === true || data.already_resolved === 'true';
+        const RESOLVED_BEFORE_CREATION = 'Ce ticket a été résolu en amont de sa création';
+        const solvedAt = alreadyResolved ? new Date() : null;
+        const timeSpentMinutes = parseInt(data.time_spent_minutes, 10);
+        const timeSpentSeconds = alreadyResolved && Number.isFinite(timeSpentMinutes) && timeSpentMinutes > 0
+            ? timeSpentMinutes * 60
+            : null;
         const ticketData = {
             ...data,
             type: normalizeTicketType(data.type) || 1,
             requester_name: data.requester_name || user.displayName || user.username,
             requester_email: data.requester_email || user.email,
             requester_phone: data.requester_phone || null,
+            ...(alreadyResolved ? {
+                status: 5,
+                solution: data.solution || RESOLVED_BEFORE_CREATION,
+                date_solved: solvedAt,
+                time_spent_seconds: timeSpentSeconds
+            } : {})
         };
 
         const ticketId = await ticketRepo.create(ticketData);
@@ -65,11 +82,56 @@ module.exports = {
             } catch (e) { console.error('[TICKET] save phone to user failed:', e.message); }
         }
 
-        try { await historyRepo.log(ticketId, user.id, 'created', 'status', null, '1', 'Ticket créé', user.username); }
+        try {
+            await historyRepo.log(ticketId, user.id, 'created', 'status', null,
+                String(ticketData.status || 1),
+                alreadyResolved ? 'Ticket créé déjà résolu' : 'Ticket créé',
+                user.username);
+        }
         catch (e) { console.error('[TICKET] history log failed:', e.message); }
 
         try { await slaService.applySLA(ticketId, ticketData); }
         catch (e) { console.error('[TICKET] SLA apply failed:', e.message); }
+
+        if (alreadyResolved) {
+            // Règle « VIP » conservée : on marque le demandeur VIP si besoin, mais on
+            // n'exécute pas les règles d'affectation (Téléphonie notamment).
+            try {
+                await assignmentService.checkVipRequester({ glpi_id: ticketId, ...ticketData });
+            } catch (e) { console.error('[TICKET] VIP check failed:', e.message); }
+
+            // SLA : résolution à l'instant de création. Si un temps passé a été déclaré,
+            // la 1re réponse est datée du début réel du travail (création - temps passé) ;
+            // sinon on date les deux de la création (traitement immédiat).
+            try {
+                const sla = await slaRepo.findByTicket(ticketId);
+                if (sla) {
+                    const firstResponseAt = timeSpentSeconds
+                        ? new Date(solvedAt.getTime() - timeSpentSeconds * 1000)
+                        : solvedAt;
+                    await slaRepo.markResolvedBeforeCreation(ticketId, firstResponseAt, solvedAt);
+                }
+            } catch (e) { console.error('[TICKET] SLA already-resolved failed:', e.message); }
+
+            // Affectation explicite au créateur avant toute règle automatique.
+            try {
+                await assignmentService.assign(
+                    ticketId,
+                    { technician_id: user.id, technician_username: user.username, skipNotification: true },
+                    user
+                );
+            } catch (e) { console.error('[TICKET] assign creator failed:', e.message); }
+
+            // Même instant que date_solved (colonne naïve Paris / historique UTC).
+            try {
+                await historyRepo.log(ticketId, user.id, 'solved', 'solution', null,
+                    ticketData.solution,
+                    timeSpentMinutes > 0
+                        ? `Résolu en amont de la création — ${timeSpentMinutes} min passées sur le problème`
+                        : 'Résolu en amont de la création',
+                    user.username, solvedAt);
+            } catch (e) { console.error('[TICKET] solved history log failed:', e.message); }
+        }
 
         // skipNotification : utilisé par le formulaire "Arrivée d'agent"
         // (request-forms.controller.js), qui enrichit le contenu du ticket
@@ -77,7 +139,9 @@ module.exports = {
         // et le statut AVANT de déclencher lui-même cette notification, pour
         // que l'email de confirmation au demandeur reflète ce contenu final
         // plutôt que le contenu brut à la création.
-        if (!options.skipNotification) {
+        // Un ticket « déjà résolu » est purement documentaire : ni email de création ni
+        // email de résolution ne doivent être envoyés au demandeur.
+        if (!options.skipNotification && !alreadyResolved) {
             try { await notificationService.trigger('ticket.created', { ticket_id: ticketId, user }); }
             catch (e) { console.error('[TICKET] notification failed:', e.message); }
         }
@@ -108,21 +172,29 @@ module.exports = {
             }
         }
 
-        process.nextTick(async () => {
-            try {
-                await teamsService.notifyCrisis(ticketId);
-            } catch (e) {
-                console.error('[TEAMS] notify failed:', e.message);
-            }
-        });
+        // Un ticket déjà résolu est documentaire : aucune carte Teams (crise ou
+        // résolution) ne doit être publiée.
+        if (!alreadyResolved) {
+            process.nextTick(async () => {
+                try {
+                    await teamsService.notifyCrisis(ticketId);
+                } catch (e) {
+                    console.error('[TEAMS] notify failed:', e.message);
+                }
+            });
+        }
 
-        process.nextTick(async () => {
-            try {
-                await assignmentService.autoAssign({ glpi_id: ticketId, ...ticketData });
-            } catch (e) {
-                console.error('[AUTO-ASSIGN]', e.message);
-            }
-        });
+        // Les règles d'auto-affectation sont désactivées pour un ticket déjà résolu :
+        // elles pourraient remplacer le créateur par un autre technicien ou un groupe.
+        if (!alreadyResolved) {
+            process.nextTick(async () => {
+                try {
+                    await assignmentService.autoAssign({ glpi_id: ticketId, ...ticketData });
+                } catch (e) {
+                    console.error('[AUTO-ASSIGN]', e.message);
+                }
+            });
+        }
 
         return ticketId;
     },

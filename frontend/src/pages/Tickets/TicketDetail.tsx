@@ -2006,6 +2006,13 @@ export default function TicketDetail() {
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
                   <div className="ticket-html-content" style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: renderTicketHtml(ticket.solution, cidDocs) }} />
+                  {!!ticket.time_spent_seconds && (
+                    <p style={{ margin: '10px 0 0', paddingTop: 8, borderTop: '1px solid #bbf7d0', fontSize: 12, color: '#15803d' }}>
+                      Temps passé sur le problème : {ticket.time_spent_seconds >= 3600
+                        ? `${Math.round(ticket.time_spent_seconds / 3600 * 10) / 10} h`
+                        : `${ticket.time_spent_seconds / 60} min`}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

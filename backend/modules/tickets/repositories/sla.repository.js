@@ -1,4 +1,5 @@
 const { pgDb } = require('../../../shared/database');
+const { toDbParisTimestamp } = require('../../../shared/utils');
 
 module.exports = {
     async findByTicket(ticketId) {
@@ -83,6 +84,21 @@ module.exports = {
             'UPDATE hub_tickets.ticket_sla SET sla_status = $1 WHERE id = $2',
             [status, slaId]
         );
+    },
+
+    // Ticket « déjà résolu » : le travail s'est déroulé AVANT la création.
+    // resolved_at = instant de création, first_response_at = début du travail
+    // déclaré (création - temps passé), ou création si aucun temps renseigné.
+    async markResolvedBeforeCreation(ticketId, firstResponseAt, resolvedAt) {
+        await pgDb.run(`
+            UPDATE hub_tickets.ticket_sla
+               SET first_response_at = $2, resolved_at = $3, sla_status = 'ok'
+             WHERE ticket_id = $1
+        `, [
+            ticketId,
+            toDbParisTimestamp(firstResponseAt),
+            toDbParisTimestamp(resolvedAt)
+        ]);
     },
 
     async setFirstResponse(ticketId) {

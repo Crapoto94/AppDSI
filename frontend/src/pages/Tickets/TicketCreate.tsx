@@ -5,7 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import Header from '../../components/Header';
 import { useAuth } from '../../contexts/AuthContext';
 import RequesterSearch from '../../components/RequesterSearch';
-import { Phone, Paperclip, X } from 'lucide-react';
+import { Phone, Paperclip, X, CheckCircle2 } from 'lucide-react';
 import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from './ticketEditor';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import SiteSelectField from '../../components/SiteSelectField';
@@ -22,6 +22,14 @@ const ALLOWED_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'application
   'application/zip', 'text/plain'];
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ACCEPT_EXT = '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt';
+const DEFAULT_RESOLUTION_TEXT = 'Ce ticket a été résolu en amont de sa création';
+const TIME_OPTIONS = [
+  { value: '5', label: '5 min' }, { value: '10', label: '10 min' },
+  { value: '15', label: '15 min' }, { value: '30', label: '30 min' },
+  { value: '45', label: '45 min' }, { value: '60', label: '1 h' },
+  { value: '120', label: '2 h' }, { value: '180', label: '3 h' },
+  { value: '240', label: '4 h' }, { value: '480', label: '8 h' },
+];
 
 export default function TicketCreate() {
   const { user } = useAuth();
@@ -50,6 +58,13 @@ export default function TicketCreate() {
   // Ticket « téléphone » : coché d'office quand le demandeur n'est pas un agent DSI (sinon ticket « DSI Hub »), modifiable
   const [isPhone, setIsPhone] = useState(false);
   const [phoneTouched, setPhoneTouched] = useState(false);
+  // Ticket créé pour documentation/stats après une résolution intervenue hors outil :
+  // créé au statut Résolu (5) et affecté au créateur.
+  const [alreadyResolved, setAlreadyResolved] = useState(false);
+  // Texte laissé vide : le message par défaut s'affiche en placeholder et est
+  // appliqué par le backend si l'utilisateur ne saisit rien.
+  const [resolutionText, setResolutionText] = useState('');
+  const [timeSpentMinutes, setTimeSpentMinutes] = useState('');
   const [dsiAgents, setDsiAgents] = useState<{ emails: Set<string>; usernames: Set<string> } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -256,6 +271,9 @@ export default function TicketCreate() {
         location: form.location,
         is_vip: form.is_vip,
         is_phone: isPhone,
+        already_resolved: alreadyResolved,
+        solution: alreadyResolved && !isQuillEmpty(resolutionText) ? resolutionText : undefined,
+        time_spent_minutes: alreadyResolved && timeSpentMinutes ? parseInt(timeSpentMinutes, 10) : undefined,
         observer_ids: observers.map(o => ({ user_id: o.id, name: o.name, email: o.email, username: o.username }))
       };
       const res = await axios.post('/api/tickets', submitData, { headers: { Authorization: `Bearer ${token}` } });
@@ -278,6 +296,15 @@ export default function TicketCreate() {
             await axios.patch(`/api/tickets/${ticketId}`, { content: newContent }, { headers: { Authorization: `Bearer ${token}` } });
           }
         } catch (e) { console.error('Réécriture images inline échouée:', e); }
+      }
+      // Images inline collées dans le message de résolution (même traitement que la description)
+      if (alreadyResolved && !isQuillEmpty(resolutionText)) {
+        try {
+          const newSolution = await uploadInlineImages(resolutionText, ticketId, token);
+          if (newSolution !== resolutionText) {
+            await axios.patch(`/api/tickets/${ticketId}`, { solution: newSolution }, { headers: { Authorization: `Bearer ${token}` } });
+          }
+        } catch (e) { console.error('Réécriture images inline (solution) échouée:', e); }
       }
       window.location.href = `/tickets/${ticketId}`;
     } catch (err: any) {
@@ -366,9 +393,11 @@ export default function TicketCreate() {
 
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Description</label>
-            <ReactQuill theme="snow" value={form.content} onChange={v => setForm(f => ({ ...f, content: v }))}
-              modules={QUILL_MODULES}
-              placeholder="Décrivez votre problème ou demande en détail (images possibles)..." />
+            <div style={{ border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+              <ReactQuill theme="snow" value={form.content} onChange={v => setForm(f => ({ ...f, content: v }))}
+                modules={QUILL_MODULES}
+                placeholder="Décrivez votre problème ou demande en détail (images possibles)..." />
+            </div>
           </div>
 
           {/* Pièces jointes */}
@@ -574,14 +603,58 @@ export default function TicketCreate() {
             </span>
           </label>
 
+          <div style={{
+            border: `1px solid ${alreadyResolved ? '#86efac' : '#e2e8f0'}`,
+            background: alreadyResolved ? '#f0fdf4' : '#fff',
+            borderRadius: 8, padding: '10px 14px', fontSize: 14,
+            color: alreadyResolved ? '#166534' : '#374151',
+            transition: 'background 0.2s, border-color 0.2s'
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={alreadyResolved} onChange={e => setAlreadyResolved(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#16a34a' }} />
+              <CheckCircle2 size={15} color={alreadyResolved ? '#16a34a' : '#64748b'} />
+              <span>
+                <b>Ticket déjà résolu</b> — problème résolu en amont de la création
+                <span style={{ display: 'block', fontSize: 12, color: alreadyResolved ? '#15803d' : '#64748b' }}>
+                  Ticket créé pour documentation / statistiques : affecté au créateur et marqué « Résolu », sans email au demandeur.
+                </span>
+              </span>
+            </label>
+
+            {alreadyResolved && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 14, paddingTop: 14, borderTop: '1px solid #bbf7d0' }}>
+                <div>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 6 }}>Message de résolution</span>
+                  <div style={{ border: '1px solid #86efac', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                    <ReactQuill theme="snow" value={resolutionText} onChange={v => setResolutionText(v)}
+                      modules={QUILL_MODULES}
+                      placeholder={DEFAULT_RESOLUTION_TEXT} />
+                  </div>
+                  <span style={{ display: 'block', marginTop: 6, fontSize: 11, color: '#64748b' }}>
+                    Laissez vide pour conserver le message par défaut.
+                  </span>
+                </div>
+                <div>
+                  <label htmlFor="time-spent" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 6 }}>Combien de temps avez vous passé sur ce problème ?</label>
+                  <select id="time-spent" value={timeSpentMinutes} onChange={e => setTimeSpentMinutes(e.target.value)}
+                    style={{ width: '100%', maxWidth: 260, padding: '9px 12px', border: '1px solid #86efac', borderRadius: 8, fontSize: 14, background: '#fff', outline: 'none' }}>
+                    <option value="">— Non renseigné —</option>
+                    {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <span style={{ display: 'block', marginTop: 5, fontSize: 11, color: '#64748b' }}>Ce temps est utilisé pour les statistiques de traitement (au lieu d'une durée de résolution à zéro).</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: 20, marginTop: 8 }}>
             <a href="/tickets" style={{ padding: '10px 24px', border: '1px solid #e2e8f0', borderRadius: 8, textDecoration: 'none', color: '#475569', fontWeight: 500, fontSize: 14 }}>Annuler</a>
             <button type="submit" disabled={submitting}
               style={{
-                padding: '10px 24px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
+                padding: '10px 24px', background: alreadyResolved ? '#16a34a' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
                 fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: submitting ? 0.6 : 1
               }}>
-              {submitting ? 'Création...' : 'Créer le ticket'}
+              {submitting ? (alreadyResolved ? 'Résolution...' : 'Création...') : (alreadyResolved ? 'Résoudre le ticket' : 'Créer le ticket')}
             </button>
           </div>
         </div>

@@ -230,7 +230,21 @@ module.exports = {
                 return res.status(400).json({ message: errors.join('; ') });
             }
             // Case « ticket téléphone » du formulaire de création : source « Téléphone » (sinon source par défaut : « hub »)
-            const body = req.body.is_phone === true || req.body.is_phone === 'true' ? { ...req.body, source: 'Téléphone' } : req.body;
+            const alreadyResolved = req.body.already_resolved === true || req.body.already_resolved === 'true';
+            if (alreadyResolved) {
+                // Créer un ticket déjà résolu revient à clore directement : réservé aux
+                // techniciens et aux rôles d'encadrement (pas aux demandeurs).
+                const { resolveTicketRole } = require('./middleware/ticket-permissions');
+                const userRole = await resolveTicketRole(req.user);
+                if (!['technician', 'supervisor', 'admin', 'superadmin'].includes(userRole)) {
+                    return res.status(403).json({ message: 'Permission refusée : rôle technicien requis pour créer un ticket déjà résolu' });
+                }
+            }
+            const body = {
+                ...req.body,
+                ...(req.body.is_phone === true || req.body.is_phone === 'true' ? { source: 'Téléphone' } : {}),
+                already_resolved: alreadyResolved
+            };
             const ticketId = await ticketService.create(body, req.user);
             res.status(201).json({ id: ticketId, message: 'Ticket créé' });
             try {
