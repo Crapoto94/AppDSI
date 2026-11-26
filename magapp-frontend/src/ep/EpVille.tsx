@@ -24,6 +24,8 @@ import Retours from './Retours';
 import { BacklogDialog, BacklogAdmin } from './Backlog';
 import logoVille from '../assets/logo-ville.jpg';
 import ModuleVersion from './ModuleVersion';
+import ActAsDialog, { ActAsBanner } from './ActAsPanel';
+import { getActAs } from './actAs';
 
 // Entretiens professionnels de la Ville (MagApp).
 //  - Administrateurs de l'application : désignent les valideurs (directeurs, DGA, DG). Ils ne voient pas le contenu des EP.
@@ -853,6 +855,8 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
     return () => window.clearInterval(t);
   }, [me?.isAdmin]);
   const [showBacklog, setShowBacklog] = useState(false);
+  const [showActAs, setShowActAs] = useState(false);
+  const actingAs = !!getActAs();
   const [showAide, setShowAide] = useState(false);
   const [showTuto, setShowTuto] = useState(false);
   const [editAide, setEditAide] = useState(false);
@@ -914,8 +918,8 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
   const helpOn = dsi?.help_enabled !== false;
   const tutoOn = dsi?.tuto_enabled !== false;
   useEffect(() => {
-    if (tutoOn && tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
-  }, [tutoOn, tutoRole, tutoUser]);
+    if (!actingAs && tutoOn && tutoRole && !tutoSeen(tutoRole, tutoUser)) setShowTuto(true);
+  }, [actingAs, tutoOn, tutoRole, tutoUser]);
   const closeTuto = (markSeen = true) => { if (markSeen && tutoRole) tutoMarkSeen(tutoRole, tutoUser); setShowTuto(false); };
 
   const tabs = [
@@ -988,6 +992,12 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
                 {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
             )}
+            {me?.isAdmin && !actingAs && (
+              <button onClick={() => setShowActAs(true)} title="Afficher en tant que…" aria-label="Afficher en tant que"
+                style={{ border: 'none', background: '#f1f5f9', color: '#475569', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Eye size={16} />
+              </button>
+            )}
             <button onClick={() => setShowBacklog(true)} title="J’ai une question, une idée ou un bug" aria-label="Question, amélioration ou bug" style={{ border: 'none', background: '#fef3c7', color: '#b45309', height: 34, width: 34, borderRadius: 8, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
               <Lightbulb size={17} />
             </button>
@@ -999,6 +1009,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
             <button onClick={onClose} style={{ border: 'none', background: '#f1f5f9', width: 34, height: 34, borderRadius: 8, cursor: 'pointer' }}><X size={18} /></button>
           </div>
         </div>
+        <ActAsBanner />
         <div style={{ padding: 20 }}>
           {error ? <Notice ok={false}>{error}</Notice> : !me ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}><Loader2 size={24} /></div> : (
             <>
@@ -1034,6 +1045,7 @@ export default function EpVille({ onClose, initialTab, dedicated = false }: { on
       </div>
       </div>
       {showTuto && tutoOn && tutoRole && <TutoEp role={tutoRole} onClose={closeTuto} onOpenAide={helpOn ? () => setShowAide(true) : undefined} scanReading={!!dsi?.scan_reading} offlineForm={!!dsi?.offline_form && !simpleMode} simple={simpleMode} esign={!!dsi?.esignAccess?.enabled} />}
+      {showActAs && <ActAsDialog onClose={() => setShowActAs(false)} />}
       {showBacklog && <BacklogDialog onClose={() => setShowBacklog(false)} page={tab || ''} />}
       {editTuto && me?.isAdmin && <TutoEditor onClose={() => setEditTuto(false)} />}
       {((showAide && helpOn) || (editAide && me?.isAdmin)) && (

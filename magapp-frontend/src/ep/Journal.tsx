@@ -27,6 +27,12 @@ const ACTION_LABELS: Record<string, string> = {
   impression_crep: 'Impression CREP renseigné',
   impression_crep_vierge: 'Impression CREP vierge',
   crep_manuscrit: 'CREP manuscrit archivé',
+  en_tant_que_debut: 'Afficher en tant que : début',
+  en_tant_que_fin: 'Afficher en tant que : fin',
+  en_tant_que_action: 'Action faite « en tant que »',
+  agent_desactive: 'Agent·e désactivé·e',
+  agent_reactive: 'Agent·e réactivé·e',
+  agent_ajoute_rh: 'Agent·e ajouté·e depuis la RH',
   raz_ep: 'RAZ – remise à zéro',
 };
 

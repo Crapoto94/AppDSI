@@ -182,7 +182,10 @@ async function loadDirectory() {
 
 /** Agents DSI qui n'ont pas encore d'entretien dans la campagne (chaque agent DSI doit avoir le sien). */
 async function agentsSansEntretien(rows) {
-    const { agents } = await loadDirectory();
+    const { agents: annuaire } = await loadDirectory();
+    const manage = require('../ep-base/ep-base.agents');
+    const off = await manage.disabledKeys().catch(() => new Set());
+    const agents = annuaire.filter(a => !(a.matricule && off.has(manage.mkey(a.matricule))));
     const users = new Set(rows.map(r => svc.norm(r.agent_username)).filter(Boolean));
     const emails = new Set(rows.map(r => svc.norm(r.agent_email)).filter(Boolean));
     return agents.filter(a => !users.has(svc.norm(a.username)) && !(a.email && emails.has(svc.norm(a.email))));

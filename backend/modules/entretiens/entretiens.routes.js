@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const ctrl = require('./entretiens.controller');
 const backlog = require('./backlog');
-const { authenticateJWT } = require('../../shared/middleware');
+const actAs = require('./act-as');
+// Authentification du module : JWT, puis « Afficher en tant que » (en-tête X-Act-As, administrateurs)
+const authenticateJWT = actAs.authenticateEp;
 const multer = require('multer');
 const uploadBatch = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } });
 const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -14,6 +16,11 @@ const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 // Espace personnel et rôle
 router.get('/me', authenticateJWT, ctrl.me);
 router.get('/magapp-url', authenticateJWT, ctrl.magappUrl);
+
+// « Afficher en tant que » (administrateurs)
+router.get('/act-as/search', authenticateJWT, actAs.search);
+router.post('/act-as', authenticateJWT, actAs.start);
+router.delete('/act-as', authenticateJWT, actAs.stop);
 
 // Tableaux de bord
 router.get('/stats', authenticateJWT, ctrl.stats);

@@ -1,8 +1,9 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
-const { authenticateJWT } = require('../../shared/middleware');
+const { authenticateEp: authenticateJWT } = require('../entretiens/act-as');
 const svc = require('./ep-base.service');
+const manage = require('./ep-base.agents');
 const ent = require('../entretiens/entretiens.service');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024 } });
@@ -29,7 +30,7 @@ const wrap = (fn) => async (req, res) => {
     try { await fn(req, res); }
     catch (e) {
         if (!e.status) console.error('[ep-base]', e);
-        res.status(e.status || 500).json({ message: e.status ? e.message : 'Erreur : ' + e.message });
+        res.status(e.status || 500).json({ message: e.status ? e.message : 'Erreur : ' + e.message, ...(e.needsConfirm ? { needsConfirm: true } : {}) });
     }
 };
 
@@ -53,6 +54,12 @@ router.post('/import', authenticateJWT, requireAdmin, upload.single('file'), wra
     out.entretiens = await svc.syncEntretiens({ actor: req.actor }).catch(e => ({ erreur: e.message }));
     res.json(out);
 }));
+// Désactivation (retraite…), réactivation et ajout depuis la base RH
+router.get('/desactives', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ agents: await manage.listDesactives() })));
+router.post('/agents/:matricule/desactiver', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await manage.desactiver(req.params.matricule, req.body || {}, req.actor))));
+router.post('/agents/:matricule/reactiver', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await manage.reactiver(req.params.matricule, req.actor))));
+router.get('/rh/recherche', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json({ agents: await manage.rechercherRh(req.query.q) })));
+router.post('/agents', authenticateJWT, requireAdmin, wrap(async (req, res) => res.json(await manage.ajouter(req.body || {}, req.actor))));
 router.put('/agents/:matricule/valideur', authenticateJWT, requireAdmin, wrap(async (req, res) => {
     await svc.setValideur(req.params.matricule, String((req.body && req.body.valideur_matricule) || ''));
     res.json({ ok: true });

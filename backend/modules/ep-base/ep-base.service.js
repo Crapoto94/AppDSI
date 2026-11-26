@@ -66,6 +66,11 @@ function ensureSchema() {
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS categorie TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS nom TEXT DEFAULT ''");
             await pgDb.run("ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS prenom TEXT DEFAULT ''");
+            // Désactivation (départ en retraite…) et ajout manuel depuis la base RH
+            for (const col of ["desactive BOOLEAN NOT NULL DEFAULT FALSE", "desactive_motif TEXT DEFAULT ''", "desactive_par TEXT DEFAULT ''", 'desactive_at TIMESTAMPTZ',
+                'ajoute_manuel BOOLEAN NOT NULL DEFAULT FALSE', "ajoute_par TEXT DEFAULT ''"]) {
+                await pgDb.run(`ALTER TABLE hub_entretiens.base_agents ADD COLUMN IF NOT EXISTS ${col}`);
+            }
             await pgDb.run(`CREATE TABLE IF NOT EXISTS hub_entretiens.delegations (
                 id SERIAL PRIMARY KEY,
                 secretaire_matricule TEXT NOT NULL,
@@ -385,6 +390,15 @@ async function importWorkbook(buffer, filename, actor) {
                 a.poste_fonction, a.poste_affectation_code, a.est_valideur, JSON.stringify(a.candidats), a.valideur_matricule, a.valideur_source,
                 a.email, a.ad_username, a.ad_status, a.email_deduit, a.nom || '', a.prenom || '', a.categorie || '']);
     }
+    // Désactivations et ajouts manuels : ils survivent au dépôt d'un nouveau classeur.
+    for (const r of oldRows.filter(x => x.desactive || x.ajoute_manuel)) {
+        const now = agents.find(a => mkey(a.matricule) === mkey(r.matricule));
+        await pgDb.run(
+            `UPDATE hub_entretiens.base_agents SET desactive = ?, desactive_motif = ?, desactive_par = ?, desactive_at = ?, ajoute_manuel = ?, ajoute_par = ?,
+                a_conserver = CASE WHEN ? THEN FALSE WHEN ? THEN TRUE ELSE a_conserver END, modele = COALESCE(NULLIF(modele, ''), ?) WHERE matricule = ?`,
+            [!!r.desactive, r.desactive_motif || '', r.desactive_par || '', r.desactive_at ? new Date(r.desactive_at).toISOString() : null, !!r.ajoute_manuel, r.ajoute_par || '',
+                !!r.desactive, !!r.ajoute_manuel, r.modele || '', now ? now.matricule : r.matricule]);
+    }
     for (const [name, d] of Object.entries(templates)) {
         await pgDb.run(
             `INSERT INTO hub_entretiens.crep_templates (name, definition, updated_at) VALUES (?, CAST(? AS jsonb), NOW())
@@ -491,6 +505,18 @@ async function matchAd(agent, cfg) {
 }
 
 const job = { running: false, done: 0, total: 0, found: 0, error: '', startedAt: null };
+
+/** Rapprochement AD d'un seul agent (ajout manuel). Une adresse déjà portée par un autre agent n'est pas reprise. */
+async function rapprocherAd(matricule) {
+    const cfg = await adConfig();
+    const a = cfg && await pgDb.get('SELECT matricule, nom_prenom FROM hub_entretiens.base_agents WHERE matricule = ?', [matricule]);
+    if (!a) return;
+    const { hit, status } = await matchAd(a, cfg);
+    const taken = hit && await pgDb.get('SELECT 1 AS x FROM hub_entretiens.base_agents WHERE matricule <> ? AND (LOWER(ad_username) = LOWER(?) OR LOWER(email) = ?)', [matricule, hit.username, emailOf(hit)]);
+    const keep = hit && !taken ? hit : null;
+    await pgDb.run('UPDATE hub_entretiens.base_agents SET ad_status = ?, ad_username = ?, email = ?, email_deduit = ?, ad_checked_at = NOW() WHERE matricule = ?',
+        [taken ? 'ambigu' : status, keep ? keep.username : '', keep ? emailOf(keep) : '', !!(keep && !text(keep.email)), matricule]);
+}
 
 /** Lance (en arrière-plan) le rapprochement AD des agents à évaluer. `all` : refait aussi ceux déjà rapprochés. */
 async function startAdRefresh({ all = false } = {}) {
@@ -858,7 +884,7 @@ async function removeDelegation(id) {
 
 async function meMatricule(actor) {
     await ensureSchema();
-    const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE a_conserver OR est_valideur");
+    const rows = await pgDb.all("SELECT matricule, nom_prenom, ad_username, email FROM hub_entretiens.base_agents WHERE a_conserver OR est_valideur OR desactive");
     if (!rows.length) return '';
     const user = text(actor.username).toLowerCase(); const mail = text(actor.email).toLowerCase();
     let me = rows.filter(r => (user && text(r.ad_username).toLowerCase() === user) || (mail && text(r.email).toLowerCase() === mail));
@@ -1101,5 +1127,6 @@ module.exports = {
     ensureSchema, importWorkbook, parseAgents, parseTemplates, unitCode, computeCandidates, sameIdentity,
     loadTemplateCache, modeleOfEntretien, invalidateBaseCache, tree, startAdRefresh, listAgents, stats, listTemplates, setValideur, searchValideurs, searchAd, linkAd, meValideur, meMatricule, delegatedIdentities, plannerIdentities, listDelegations, addDelegation, removeDelegation, attachInfo,
     isAboveInBase, equipeEntretiens, pilotageEntretiens, candidatesForAgent, setValideurAndSync, syncEntretiens, linkValideursAd, linkEvaluatorAd, setEmail, purgeLegacyEntretiens,
+    rapprocherAd,
     adJob: job,
 };

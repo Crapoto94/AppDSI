@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { Upload, Users, RefreshCw, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, Mail } from 'lucide-react';
+import { Upload, Users, RefreshCw, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, Mail, UserPlus } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { COLORS, btnGhost, btnPrimary, card, input } from './ui';
 import { repairText } from './types';
+import { AgentsDesactives, AjouterAgentRh, desactiverAgent } from './AgentsHorsClasseur';
 
 interface Candidat { matricule: string; nom: string; fonction?: string; poste?: string }
 /** Agent de catégorie C évalué avec un modèle A et B : il fait fonction de catégorie supérieure. */
@@ -14,6 +15,7 @@ export interface BaseAgent {
   matricule: string; nom_prenom: string; modele: string; direction: string; service: string; poste: string; grade: string;
   chemin: string; unit_code: string; categorie?: string; email: string; email_deduit?: boolean; ad_username: string; ad_status: string;
   valideur_candidats: Candidat[]; valideur_matricule: string; valideur_source: string; valideur_nom: string;
+  ajoute_manuel?: boolean;
 }
 interface Stats {
   a_evaluer: number; avec_email: number; email_deduit: number; avec_valideur: number; valideur_a_choisir: number; sans_valideur: number;
@@ -360,6 +362,8 @@ export default function BaseAgents() {
   const [categorie, setCategorie] = useState('');
   const [vue, setVue] = useState<'liste' | 'hierarchie'>('liste');
   const [treeKey, setTreeKey] = useState(0);
+  const [ajout, setAjout] = useState(false);
+  const [offKey, setOffKey] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -444,6 +448,10 @@ export default function BaseAgents() {
     } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.message || 'Enregistrement impossible.' }); }
   };
 
+  const say = (ok: boolean, text: string) => setMsg({ ok, text });
+  const changed = () => { setTreeKey(k => k + 1); setOffKey(k => k + 1); load(); };
+  const desactiver = async (a: BaseAgent) => { if (await desactiverAgent(a, headers, say)) changed(); };
+
   const th: React.CSSProperties = { textAlign: 'left', fontSize: 11, fontWeight: 700, color: COLORS.muted, padding: '8px 10px', borderBottom: `1px solid ${COLORS.border}`, whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { fontSize: 12.5, padding: '8px 10px', borderBottom: `1px solid ${COLORS.border}`, verticalAlign: 'top' };
   const ad = stats?.ad;
@@ -456,6 +464,9 @@ export default function BaseAgents() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input ref={fileRef} type="file" accept=".xlsm,.xlsx" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+          <button style={btnGhost} disabled={!templates.length} onClick={() => setAjout(o => !o)} title="Recherche dans la base RH un·e agent·e absent·e du classeur">
+            <UserPlus size={14} /> Ajouter un·e agent·e
+          </button>
           <button style={btnPrimary} disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} Déposer le classeur (Outil CREP)
           </button>
@@ -484,6 +495,8 @@ export default function BaseAgents() {
           {msg.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
+
+      {ajout && <AjouterAgentRh headers={headers} templates={templates.map(t => t.name)} say={say} onAdded={changed} />}
 
       {stats && !stats.dernier_import && !loading && (
         <div style={{ padding: 18, textAlign: 'center', color: COLORS.muted, fontSize: 13 }}>
@@ -588,7 +601,8 @@ export default function BaseAgents() {
                 <tbody>
                   {agents.slice(0, 600).map(a => (
                     <tr key={a.matricule}>
-                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}{faisantFonction(a) && <FfPill />}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {repairText(a.grade)}{a.poste ? ` · ${repairText(a.poste)}` : ''}</div></td>
+                      <td style={td}><div style={{ fontWeight: 700 }}>{a.nom_prenom}{faisantFonction(a) && <FfPill />}{a.ajoute_manuel && <span title="Ajouté·e depuis la base RH, hors classeur" style={{ marginLeft: 6, fontSize: 10.5, color: COLORS.primary, background: '#eef2ff', borderRadius: 999, padding: '1px 7px' }}>ajouté·e</span>}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.matricule} · {repairText(a.grade)}{a.poste ? ` · ${repairText(a.poste)}` : ''}</div>
+                        <button style={{ ...btnGhost, padding: '2px 8px', fontSize: 11, marginTop: 4 }} onClick={() => desactiver(a)} title="Retirer de la liste (départ en retraite…)">Désactiver</button></td>
                       <td style={td}>{a.modele.replace(/^Template_/i, '')}</td>
                       <td style={td}><div>{a.service}</div><div style={{ fontSize: 11, color: COLORS.muted }}>{a.unit_code}</div></td>
                       <td style={td}><AdCell agent={a} headers={headers} onLinked={load} onError={t => setMsg({ ok: false, text: t })} /></td>
@@ -602,6 +616,7 @@ export default function BaseAgents() {
           )}
           {agents.length > 600 && <div style={{ fontSize: 11.5, color: COLORS.muted, marginTop: 6 }}>Les 600 premiers agent·e·s sont affichés : affinez la recherche.</div>}
           </>}
+          <AgentsDesactives headers={headers} reloadKey={offKey} say={say} onChanged={changed} />
           <DelegationsPanel headers={headers} onError={t => setMsg({ ok: false, text: t })} />
         </>
       )}

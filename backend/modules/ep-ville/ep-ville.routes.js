@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('./ep-ville.controller');
-const { authenticateJWT } = require('../../shared/middleware');
+const { authenticateEp: authenticateJWT } = require('../entretiens/act-as');
 
 // Chaque route applique sa règle : administrateur de l'application (désignation des valideurs) ou valideur désigné.
 router.get('/me', authenticateJWT, ctrl.me);

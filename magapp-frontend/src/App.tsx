@@ -18,6 +18,7 @@ import MesFactures from './components/MesFactures';
 import { HelpButton } from './components/HelpButton';
 import { ArrowLeftRight, Receipt, ClipboardCheck } from 'lucide-react';
 import EpVille from './ep/EpVille';
+import { clearActAs, getActAs } from './ep/actAs';
 import CrisisForum, { FORUM_PIN_WIDTH, FORUM_OVERLAY_WIDTH } from './components/CrisisForum';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -291,7 +292,7 @@ function App() {
       axios.get('/api/entretiens/me', { headers }).then(r => !!(r.data?.entretien || r.data?.isEvaluator)).catch(() => false),
       // Valideur d'agents dans la base des agents à évaluer (classeur RH) : il a des entretiens à conduire
       axios.get('/api/ep-base/me', { headers }).then(r => !!r.data?.isValideur).catch(() => false),
-    ]).then(([ville, dsi, base]) => { setEpAllowed(ville || dsi || base); if ((ville || dsi || base) && epPending) setShowEp(true); });
+    ]).then(([ville, dsi, base]) => { setEpAllowed(ville || dsi || base); if ((ville || dsi || base || getActAs()) && epPending) setShowEp(true); });
   }, [windowLogin]);
 
   // « Virement de crédits » : proposé seulement aux agents ayant un droit de modification budgétaire dans SEDIT
@@ -693,6 +694,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    clearActAs();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('magapp_user');
@@ -1929,6 +1931,8 @@ function App() {
       {showMesFactures && <MesFactures beta={settings.show_mes_factures && !settings.show_mes_factures_original} onClose={() => setShowMesFactures(false)} />}
       {showEp && <EpVille initialTab={epPending} dedicated={epDedicated} onClose={() => {
         setShowEp(false); setEpPending(null);
+        // Fermer le module met fin au « Afficher en tant que » (et recharge les droits réels)
+        if (getActAs()) { clearActAs(); window.location.assign('/'); return; }
         try { sessionStorage.removeItem('magapp_pending_ep'); } catch { /* ignore */ }
         // Ouvert par l'adresse dédiée : on revient au portail ; sinon on garde la page en cours
         if (epDedicated) { window.location.assign('/'); return; }

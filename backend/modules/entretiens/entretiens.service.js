@@ -78,6 +78,8 @@ async function getActor(req) {
             }
         } catch (e) { /* ignore */ }
     }
+    // « Afficher en tant que » : le journal garde le vrai auteur
+    if (u.impersonatedBy) { actor.impersonatedBy = u.impersonatedBy; actor.impersonatorName = u.impersonatorName; }
     return actor;
 }
 
@@ -811,7 +813,8 @@ async function logAudit({ actor, action, entretien, details } = {}) {
                 (actor_username, actor_email, actor_name, action, entretien_id, agent_nom, details)
              VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb))`,
             [
-                a.username || '', a.email || '', a.displayName || '',
+                a.impersonatedBy || a.username || '', a.impersonatedBy ? '' : a.email || '',
+                a.impersonatedBy ? `${a.impersonatorName || a.impersonatedBy} (en tant que ${a.displayName || a.username || a.email})` : a.displayName || '',
                 String(action || '').slice(0, 80),
                 entretien?.id || null,
                 entretien ? fullName(entretien.agent_prenom, entretien.agent_nom) : '',

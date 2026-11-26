@@ -161,6 +161,9 @@ async function ensureEntretien(rat, valideur, campaign, actorName) {
         return dsi.id;
     }
     if (existing) return existing.id;
+    // Agent désactivé par un administrateur (départ en retraite…) : aucun nouvel entretien
+    const manage = require('../ep-base/ep-base.agents');
+    if (rat.agent_matricule && (await manage.disabledKeys()).has(manage.mkey(rat.agent_matricule))) return null;
     const r = await pgDb.run(
         `INSERT INTO hub_entretiens.entretiens
            (campaign_id, agent_username, agent_email, agent_nom, agent_prenom, direction, service, poste,
