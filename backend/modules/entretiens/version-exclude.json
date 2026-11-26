@@ -2,5 +2,9 @@
   {
     "commit": "ff77a624",
     "motif": "Réunions de service : ne concerne pas le module Entretiens"
+  },
+  {
+    "commit": "35cdcc9e",
+    "motif": "Assistant finances : ne concerne pas le module Entretiens"
   }
 ]

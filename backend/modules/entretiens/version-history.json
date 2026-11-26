@@ -1,8 +1,19 @@
 {
   "module": "entretiens",
-  "version": "0.59.0",
+  "version": "1.0.0",
   "date": "2026-11-26",
   "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-11-26",
+      "groups": {
+        "nouveautes": [
+          "Version 1.0 des entretiens professionnels : première version stable de l'outil"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
     {
       "version": "0.59.0",
       "date": "2026-11-26",

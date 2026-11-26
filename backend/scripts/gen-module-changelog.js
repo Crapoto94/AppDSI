@@ -14,7 +14,10 @@
  * Sortie : backend/modules/<module>/version-history.json  { module, version, date, releases: [{version, date, groups: {nouveautes, ameliorations, corrections}}] }
  *
  * Numérotation (module pas encore stabilisé : 0.x.y) : CHAQUE commit est une version. Le premier est 0.1.0 ; ensuite une « feat » fait +1 mineur
- * (0.x.0) et tout autre commit (fix, perf, refactor, docs…) fait +1 correctif (0.x.y). Le passage en 1.0.0 se décide à la main (option --majeur=1).
+ * (0.x.0) et tout autre commit (fix, perf, refactor, docs…) fait +1 correctif (0.x.y).
+ * Le passage en 1.0.0 (ou 2.0.0…) se décide à la main : backend/modules/<module>/version-milestones.json, liste
+ * [{ "after": "abc12345", "version": "1.0.0", "date": "AAAA-MM-JJ", "notes": ["…"] }]. Le jalon s'insère après ce commit,
+ * les versions antérieures gardent leur numéro et la numérotation repart du jalon.
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -62,13 +65,24 @@ for (const rec of raw.split('').slice(1)) {
 }
 
 // Un commit = une version. 0.1.0 pour le premier ; « feat » : +1 mineur ; sinon : +1 correctif.
-const majeurArg = (process.argv.find(a => a.startsWith('--majeur=')) || '').split('=')[1];
-let major = majeurArg ? Number(majeurArg) : 0, minor = 0, patch = 0;
-const releases = commits.map((c, i) => {
+let milestones = [];
+const milestoneFile = path.join(root, 'backend', 'modules', mod, 'version-milestones.json');
+if (fs.existsSync(milestoneFile)) milestones = JSON.parse(fs.readFileSync(milestoneFile, 'utf8'));
+const sameHash = (a, b) => a.startsWith(b) || b.startsWith(a);
+const orphan = milestones.find(m => !commits.some(c => sameHash(c.hash, m.after)));
+if (orphan) { console.error(`Jalon ${orphan.version} : commit ${orphan.after} introuvable dans l'historique du module.`); process.exit(1); }
+
+let major = 0, minor = 0, patch = 0;
+const releases = commits.flatMap((c, i) => {
     if (i === 0) { minor = 1; patch = 0; } else if (c.type === 'feat') { minor += 1; patch = 0; } else patch += 1;
     const groups = { nouveautes: [], ameliorations: [], corrections: [] };
     groups[c.group] = c.bullets;
-    return { version: `${major}.${minor}.${patch}`, date: c.date, commit: c.hash, groups };
+    const out = [{ version: `${major}.${minor}.${patch}`, date: c.date, commit: c.hash, groups }];
+    for (const m of milestones.filter(x => sameHash(c.hash, x.after))) {
+        [major, minor, patch] = m.version.split('.').map(Number);
+        out.push({ version: m.version, date: m.date, groups: { nouveautes: m.notes, ameliorations: [], corrections: [] } });
+    }
+    return out;
 });
 
 const last = releases[releases.length - 1] || { version: '1.0.0', date: '' };
