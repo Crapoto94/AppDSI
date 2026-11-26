@@ -1,8 +1,22 @@
 {
   "module": "entretiens",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "date": "2026-11-26",
   "releases": [
+    {
+      "version": "0.59.0",
+      "date": "2026-11-26",
+      "commit": "64301668",
+      "groups": {
+        "nouveautes": [
+          "Désactiver un agent (départ en retraite) et le réactiver",
+          "« Afficher en tant que » pour les administrateurs",
+          "Ajouter un agent depuis la base RH"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
     {
       "version": "0.58.0",
       "date": "2026-11-26",
