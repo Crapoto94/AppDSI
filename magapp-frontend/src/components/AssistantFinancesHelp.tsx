@@ -47,6 +47,12 @@ const AssistantFinancesHelp: React.FC<{ onAsk: (question: string) => void }> = (
       <li>« Tous les services », « toutes les factures » ou « sans filtre » lèvent ce qui avait été dit. <b>Nouvelle discussion</b> repart de zéro.</li>
     </ul>
 
+    <h3 style={h}>Dates et périodes</h3>
+    <ul style={ul}>
+      <li>« Hier », « cette semaine », « le mois dernier », « en novembre », « les 30 derniers jours », « depuis le 12/10 », « du 1/09 au 15/09 ».</li>
+      <li>La date est celle de la pièce (réception pour les factures). Le budget n’a pas de date.</li>
+    </ul>
+
     <h3 style={h}>Comparer</h3>
     <ul style={ul}>
       <li>« Les commandes par mois en 2026 <b>par rapport à</b> 2025 » : les mois sont mis face à face, avec l’écart.</li>

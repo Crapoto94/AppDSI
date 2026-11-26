@@ -66,6 +66,13 @@ function scopeClause(def, pairs, bind) {
 }
 
 // ───────── construction ─────────
+/** Période demandée, sur la date de la pièce (ou de paiement pour les mandats « payés »). */
+function periodOf(def, query) {
+    const f = query.filtres;
+    if (!def.dateCol || !f.date_de || !f.date_a) return null;
+    return { col: f.date_paiement && def.pj?.type === 'mandat' ? 'md.DATE_PAIEMENT' : def.dateCol, de: f.date_de, a: f.date_a };
+}
+
 const byMonth = (def, query) => query.mode === 'synthese' && query.regrouper.includes('mois') && !!def.dateCol;
 
 function binder() {
@@ -90,7 +97,9 @@ function buildWhere(def, pairs, query, bind) {
     const where = [...def.where, scopeClause(def, pairs, bind)];
     // Par mois : années calendaires, d'après la date de la pièce (et non l'exercice budgétaire)
     const byDate = byMonth(def, query) ? def.dateCol : def.exerciceDate;
-    if (def.exercice && !byDate) where.push(`${def.exercice} IN (${query.exercices.map(y => bind(y)).join(',')})`);
+    const range = periodOf(def, query);
+    if (range) where.push(`${range.col} >= TO_DATE(${bind(range.de)}, 'YYYY-MM-DD') AND ${range.col} < TO_DATE(${bind(range.a)}, 'YYYY-MM-DD') + 1`);
+    else if (def.exercice && !byDate) where.push(`${def.exercice} IN (${query.exercices.map(y => bind(y)).join(',')})`);
     else where.push(`(${query.exercices.map(y => `(${byDate} >= TO_DATE(${bind(`${y}-01-01`)}, 'YYYY-MM-DD') AND ${byDate} < TO_DATE(${bind(`${y + 1}-01-01`)}, 'YYYY-MM-DD'))`).join(' OR ')})`);
 
     const f = query.filtres;
@@ -132,7 +141,10 @@ function describe(def, query, pairs) {
     if (query.services_exclus?.length) parts.push(`hors ${libelle(query.services_exclus)}`);
     if (f.section && (def.filters.section || def.lineFilters?.section)) parts.push(f.section === 'F' ? 'fonctionnement' : 'investissement');
     if (f.sens && (def.filters.sens || def.sensExpr)) parts.push(f.sens === 'D' ? 'dépenses' : 'recettes');
-    parts.push(yearsLabel(query.exercices));
+    const fr = (s) => s.split('-').reverse().join('/');
+    const range = periodOf(def, query);
+    parts.push(!range ? yearsLabel(query.exercices)
+        : `${f.date_paiement ? 'payés ' : ''}${range.de === range.a ? `le ${fr(range.de)}` : `du ${fr(range.de)} au ${fr(range.a)}`}`);
     if (f.chapitre.length) parts.push(`chapitre ${f.chapitre.join(', ')}`);
     if (f.nature.length) parts.push(`nature ${f.nature.join(', ')}`);
     if (f.fonction.length) parts.push(`fonction ${f.fonction.join(', ')}`);

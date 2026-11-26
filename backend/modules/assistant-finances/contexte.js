@@ -40,7 +40,13 @@ function heriter(query, before, c, repris) {
         repris.push(`hors ${libelle(prev.services_exclus)}`);
     }
     if (!out.budgets.length && !reset.services) out.budgets = prev.budgets;
-    if (!c.exercices && !reset.exercices && prev.annees_fixees) {
+    // La période reste valable tant qu'aucune autre date n'est donnée
+    if (!c.periode && !c.exercices && !reset.exercices && prev.filtres.date_de && SOURCES[query.source].dateCol) {
+        Object.assign(f, { date_de: prev.filtres.date_de, date_a: prev.filtres.date_a, date_paiement: prev.filtres.date_paiement });
+        out.exercices = prev.exercices;
+        repris.push(`période du ${prev.filtres.date_de} au ${prev.filtres.date_a}`);
+    }
+    if (!c.exercices && !c.periode && !reset.exercices && prev.annees_fixees) {
         out.exercices = prev.exercices;
         out.annees_fixees = true;
         repris.push(prev.exercices.join(', '));
@@ -52,9 +58,19 @@ function heriter(query, before, c, repris) {
     }
     if (!c.sens && prev.filtres.sens && (def.filters.sens || def.sensExpr)) f.sens = prev.filtres.sens;
 
+    // Une nouvelle date ouvre une nouvelle recherche (« factures reçues hier ») : on ne garde que le service,
+    // la section et les droits ; pas le fournisseur, le libellé, les montants ni les états de la question d'avant
+    if (c.periode) {
+        f.tiers = c.tiers || [];
+        f.texte = [];
+        if (!c.parleEtat) f.etats = [];
+        f.montant_min = c.montant_min ?? null;
+        f.montant_max = c.montant_max ?? null;
+        return out;
+    }
     // États (service fait, rejet, en cours) : le modèle en invente parfois ; seuls ceux demandés ou déjà posés valent
     if (reset.filtres) {
-        Object.assign(f, { tiers: [], tiers_exclus: [], texte: [], chapitre: [], nature: [], fonction: [], numero: null, etats: [], montant_min: c.montant_min ?? null, montant_max: c.montant_max ?? null });
+        Object.assign(f, { date_de: null, date_a: null, tiers: [], tiers_exclus: [], texte: [], chapitre: [], nature: [], fonction: [], numero: null, etats: [], montant_min: c.montant_min ?? null, montant_max: c.montant_max ?? null });
         return out;
     }
     if (!c.parleEtat) {
@@ -90,7 +106,7 @@ function lever(query, c) {
     const reset = c.reset || {};
     const out = { ...query, filtres: { ...query.filtres } };
     if (reset.services) out.services = [];
-    if (reset.filtres) Object.assign(out.filtres, { tiers: [], tiers_exclus: [], texte: [], chapitre: [], nature: [], fonction: [], numero: null, etats: [], montant_min: c.montant_min ?? null, montant_max: c.montant_max ?? null });
+    if (reset.filtres) Object.assign(out.filtres, { date_de: null, date_a: null, tiers: [], tiers_exclus: [], texte: [], chapitre: [], nature: [], fonction: [], numero: null, etats: [], montant_min: c.montant_min ?? null, montant_max: c.montant_max ?? null });
     return out;
 }
 

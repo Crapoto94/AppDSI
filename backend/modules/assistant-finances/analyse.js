@@ -9,6 +9,7 @@
 const { SOURCES } = require('./datasets');
 const { reconnaitre } = require('./referentiel');
 const { exclus } = require('./exclusions');
+const { periode } = require('./dates');
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, ' ');
 
@@ -22,7 +23,7 @@ const DIMS = [
 const FILLER = new Set(('a au aux avec cette ce ces ceux dans de des du d l la le les un une et ou en sur pour par pas puis plutot aussi alors maintenant meme chose pareil '
     + 'montre montrer affiche afficher donne donner fais faire mets mettre peux tu me moi il te plait stp svp je veux voudrais idem seulement uniquement que qu '
     + 'separe separer separes separement distingue distinguer distinct detaille detailler detail ventile ventiler ventilation repartis repartir repartition decompose regroupe regrouper classe classer '
-    + 'compare comparer compares comparaison versus vs rapport face entre difference ecart ecarts histo histos couleur couleurs differente differentes different multicolore chaque sous forme courbe courbes histogramme graphique graphe diagramme camembert secteurs barres batons tableau tableaux '
+    + 'recu recue recus recues emis emise emises passe passee passees date jour jours compare comparer compares comparaison versus vs rapport face entre difference ecart ecarts histo histos couleur couleurs differente differentes different multicolore chaque sous forme courbe courbes histogramme graphique graphe diagramme camembert secteurs barres batons tableau tableaux '
     + 'fonctionnement investissement depenses depense recettes recette section sections depuis entre jusqu annee annees an ans exercice exercices derniere dernier precedente precedent passee '
     + 'direction directions dir pole service services hors sauf excepte exceptee exception dehors autres autre '
     + 'tous toutes tout ville total global globale sans filtre aucun grosses gros importants importantes eleves elevees dernieres derniers premiers '
@@ -63,7 +64,7 @@ function analyse(question, today = new Date()) {
     const { entites, inconnus, reste } = reconnaitre(question);
     let q = ` ${norm(reste).replace(/(\d)[\s  ](?=\d{3}\b)/g, '$1')} `;
     const y = today.getFullYear();
-    const c = {};
+    const c = { question };
     if (entites.length) {
         c.entites = entites;
         // « hors DSI » : ces services sont à retirer, les autres à retenir
@@ -74,6 +75,13 @@ function analyse(question, today = new Date()) {
         if (removed.length) c.servicesExclus = removed;
     }
     if (inconnus.length) c.inconnus = inconnus;
+
+    // Date ou période (« hier », « en novembre ») : retirée avant la lecture des années et des nombres
+    const dates = periode(question, today);
+    if (dates) {
+        c.periode = dates;
+        q = ` ${q.replace(/-/g, ' ')} `.replace(dates.mot, ' ');
+    }
 
     // Seuils (à retirer avant de chercher les années)
     const amount = (re) => {
@@ -259,6 +267,20 @@ function apply(queries, constats) {
         }
         // Comparaison sur une seule année : la colonne « exercice » n’apporte rien
         if (c.comparaison && exercices.length === 1) regroup = regroup.filter(d => d !== 'exercice');
+        // Période dite : elle remplace l'exercice et porte sur la date de la pièce
+        if (c.periode) {
+            if (def.dateCol) {
+                filtres.date_de = c.periode.de;
+                filtres.date_a = c.periode.a;
+                filtres.date_paiement = source === 'mandats' && /\bpaye|\bpaiement/.test(norm(c.question || ''));
+                const from = Number(c.periode.de.slice(0, 4));
+                exercices = Array.from({ length: Number(c.periode.a.slice(0, 4)) - from + 1 }, (_, i) => from + i);
+                if (def.list && !c.comparaison && !axes.length && c.liste !== false) { mode = 'liste'; limite = c.limite || null; }
+            } else avis.push('Le budget n’a pas de date : la période demandée n’est pas appliquée.');
+        } else if (c.exercices) {
+            filtres.date_de = null;
+            filtres.date_a = null;
+        }
         const supported = [...new Set(axes)].filter(d => def.dims[d]);
         for (const d of dims.filter(x => !def.dims[x])) avis.push(`Le regroupement par ${d} n’existe pas pour les ${def.label.toLowerCase()}.`);
         if (supported.length) {

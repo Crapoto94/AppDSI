@@ -26,6 +26,10 @@ Les listes déroulantes (année, section, chapitre, nature, fonction, budget, di
 
 Nommez-les par leur sigle (**DSI**, **DCOM** ou **DIRCOM**, **DRH**, **DSF**, **DBC**, **DEP**, **DDAC**…) ou en toutes lettres (« la direction de la communication », « le service voirie », « BF6 »). Les sigles de deux ou trois lettres (DS, DJ, DEP…) s'écrivent en majuscules. Pour exclure : « hors DSI », « sauf la communication et la voirie », « hors UGAP ». Les tableaux donnent le nom des services avec leur code, et « par direction » additionne les services de chaque direction. Une **direction** est toujours comptée en entier : ses services sont additionnés (la ligne sous le titre les énumère), le détail n'apparaît que si vous le demandez (« par service »). Un sigle en « D… » inconnu est signalé avec la liste des directions connues. La liste est tenue dans `backend/modules/assistant-finances/referentiel.js`.
 
+## Dates et périodes
+
+« Hier », « cette semaine », « le mois dernier », « en novembre », « les 30 derniers jours », « depuis le 12/10 » : la période porte sur la date de la pièce (réception pour les factures). Une nouvelle date ouvre une nouvelle recherche : le fournisseur, les montants et les états de la question précédente ne sont pas repris (le service et la section, si).
+
 ## Comparer et éduquer
 
 - « Par rapport à », « compare », « vs » : deux années par mois sont mises face à face avec l'écart ; on peut comparer des directions, des services, des fournisseurs, ou le voté et le mandaté. Par mois, ce sont les **mois calendaires** (date de la pièce).
