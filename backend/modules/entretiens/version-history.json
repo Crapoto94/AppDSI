@@ -1,8 +1,33 @@
 {
   "module": "entretiens",
-  "version": "0.57.0",
-  "date": "2026-11-25",
+  "version": "0.58.0",
+  "date": "2026-11-26",
   "releases": [
+    {
+      "version": "0.58.0",
+      "date": "2026-11-26",
+      "commit": "8f2fc292",
+      "groups": {
+        "nouveautes": [
+          "« Suivi » liste tous les EP prévus avec filtres cumulables (sans e-mail, sans évaluateur, évaluateurs), affectation d'un évaluateur et d'une adresse sur la ligne, pagination",
+          "Calendrier des EP"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "0.57.1",
+      "date": "2026-11-26",
+      "commit": "55c0e67e",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "La remise à zéro efface les lots numérisés, les CREP reçus par mail et le canal d'entrée resté sur les entretiens"
+        ]
+      }
+    },
     {
       "version": "0.57.0",
       "date": "2026-11-25",
