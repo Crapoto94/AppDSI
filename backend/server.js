@@ -3362,6 +3362,10 @@ setupDb().then(async database => {
     } catch (e) {
         console.warn('[STARTUP] Synchronisation RH API impossible, miroir existant conservé :', e.message);
     }
+    // Demandes de congés (calendrier DSI) : en tâche de fond, ne retarde pas l'ouverture du serveur
+    require('./shared/rh-api-sync').syncCongesFromApi()
+        .then(r => console.log(`[STARTUP] Congés synchronisés depuis l'API SEDIT RH : ${r.demandes} demandes.`))
+        .catch(e => console.warn('[STARTUP] Synchronisation des congés impossible, miroir existant conservé :', e.message));
     // Chargé en tâche de fond : ne retarde plus l'ouverture du serveur
     try { require('./modules/ep-base/ep-base.service').loadTemplateCache().catch(e => console.warn('[ep-base] modèles de CREP non chargés :', e.message)); } catch (e) { console.warn('[ep-base] modèles de CREP non chargés :', e.message); }
 
@@ -6638,6 +6642,16 @@ cron.schedule('15 5 * * *', async () => {
         console.log(`[CRON rh-api-sync] ${r.agents} agents, ${r.organisations} structures.`);
     } catch (e) {
         console.error('[CRON rh-api-sync]', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+
+// ─── RH : demandes de congés (calendrier DSI), toutes les heures de 6h à 20h
+cron.schedule('5 6-20 * * *', async () => {
+    try {
+        const r = await require('./shared/rh-api-sync').syncCongesFromApi();
+        console.log(`[CRON conges-api-sync] ${r.demandes} demandes.`);
+    } catch (e) {
+        console.error('[CRON conges-api-sync]', e.message);
     }
 }, { timezone: 'Europe/Paris' });
 

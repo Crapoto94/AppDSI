@@ -325,6 +325,13 @@ searchMatricule: async (req, res) => {
 
   syncDemabs: async (req, res) => {
     try {
+      // Rafraîchit d'abord le miroir depuis l'API SEDIT RH : en cas d'échec, on le signale au lieu de recopier des données périmées
+      try {
+        await require('../../shared/rh-api-sync').syncCongesFromApi();
+      } catch (e) {
+        return res.status(502).json({ message: `Congés non resynchronisés : ${e.message}` });
+      }
+
       let totalInSource = 0;
       try {
         const countResult = await pool.query('SELECT COUNT(*) as c FROM oracle.rh_tps_demabs');

@@ -99,4 +99,38 @@ async function syncRhFromApi({ dryRun = false } = {}) {
     return { agents: agentData.length, organisations: orgData.length, dry_run: false, synced_at: stamp };
 }
 
-module.exports = { syncRhFromApi };
+// ─── Demandes de congés (calendrier DSI) ────────────────────────────────────
+const CONGES_COLS = [
+    'ROO_IMA_REF', 'TPS_DMDA_CHRONO', 'RH_AGENT_MATRICULE', 'RH_AGENT_PRENOM', 'RH_AGENT_NOM', 'TPS_DMDA_TYPE',
+    'TPS_DMDA_DT_DEBUT', 'TPS_DMDA_HR_DEBUT', 'TPS_DMDA_TYPJOUR_DEB', 'TPS_DMDA_DT_FIN', 'TPS_DMDA_HR_FIN', 'TPS_DMDA_TYPJOUR_FIN',
+    'TPS_DMDA_ETAT', 'TPS_DMDA_DATE_DEMANDE', 'TPS_DMDA_SUPPR',
+];
+
+const congeRow = (d) => [
+    text(d.id), text(d.chrono), text(d.matricule), text(d.prenom), text(d.nom), text(d.type),
+    text(d.date_debut), text(d.heure_debut), text(d.type_jour_debut), text(d.date_fin), text(d.heure_fin), text(d.type_jour_fin),
+    text(d.etat), text(d.date_demande), '0',   // l'API ne renvoie que les demandes non supprimées
+];
+
+/** Reconstruit oracle.rh_tps_demabs depuis l'API. Erreur ou réponse vide : les données précédentes sont conservées. */
+async function syncCongesFromApi({ fetchDemandes = sedit.demandesConges, dryRun = false } = {}) {
+    const demandes = await fetchDemandes();
+    if (!demandes.length) throw new Error('API SEDIT RH : aucune demande de congés reçue, miroir conservé');
+    const rows = demandes.map(congeRow);
+    if (dryRun) return { demandes: rows.length, dry_run: true };
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await replaceTable(client, 'rh_tps_demabs', CONGES_COLS, rows);
+        await client.query('COMMIT');
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw e;
+    } finally {
+        client.release();
+    }
+    return { demandes: rows.length, dry_run: false };
+}
+
+module.exports = { syncRhFromApi, syncCongesFromApi };

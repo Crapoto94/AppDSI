@@ -149,6 +149,20 @@ async function searchAgentsFull(query, limit = 30) {
     return out.sort((x, y) => (x.nom + x.prenom).localeCompare(y.nom + y.prenom)).slice(0, limit);
 }
 
+/** Toutes les demandes de congés non supprimées (droit conges:read sur la clé), sans cache : données lues à chaque synchronisation. */
+async function demandesConges() {
+    const out = [];
+    let offset = 0;
+    for (let i = 0; i < 400; i++) {
+        const data = await get('/api/v1/demandes-conges', { limit: 500, offset }, 120000);
+        out.push(...(data.data || []));
+        const meta = data.meta || {};
+        if (!meta.has_more) return out;
+        offset = meta.next_offset ?? offset + 500;
+    }
+    throw new SeditError('API SEDIT RH : trop de pages de demandes de congés, synchronisation abandonnée');
+}
+
 /** Fiches (résumés) de plusieurs agents en poste par matricule, depuis le cache mémoire : Map(matricule -> résumé). */
 async function agentsByMatricule(matricules) {
     const wanted = new Set((matricules || []).map(clean).filter(Boolean));
@@ -253,4 +267,4 @@ async function directions() {
     return [...map.entries()].map(([c, l]) => ({ code: c, libelle: l })).sort((x, y) => x.libelle.localeCompare(y.libelle));
 }
 
-module.exports = { SeditError, configured, allAgents, searchAgents, searchAgentsFull, agentsByMatricule, agentsByName, nameKey, getAgent, agentsOfDirections, agentsOfUnits, candidatsValideurs, directions, organisation, summary };
+module.exports = { SeditError, configured, demandesConges, allAgents, searchAgents, searchAgentsFull, agentsByMatricule, agentsByName, nameKey, getAgent, agentsOfDirections, agentsOfUnits, candidatsValideurs, directions, organisation, summary };

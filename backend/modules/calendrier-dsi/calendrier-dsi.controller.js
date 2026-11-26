@@ -59,15 +59,17 @@ function computePeriodes(typjourDeb, typjourFin, hrDeb, hrFin) {
 
   // Case 2: Heure - use actual times
   if (deb === 'HEURE' || fin === 'HEURE') {
-    let startHour = 12;
-    let endHour = 12;
-    if (hrDeb instanceof Date) startHour = hrDeb.getHours();
-    else if (hrDeb && typeof hrDeb === 'object' && hrDeb.getHours) startHour = hrDeb.getHours();
-    if (hrFin instanceof Date) endHour = hrFin.getHours();
-    else if (hrFin && typeof hrFin === 'object' && hrFin.getHours) endHour = hrFin.getHours();
+    // Heures reçues en texte « HH:MM » (miroir alimenté par l'API) ou en Date
+    const heure = (v) => {
+      if (v instanceof Date) return [v.getHours(), v.getMinutes()];
+      const m = String(v || '').match(/(d{1,2}):(d{2})/);
+      return m ? [Number(m[1]), Number(m[2])] : [12, 0];
+    };
+    const [startHour] = heure(hrDeb);
+    const [endHour, endMinutes] = heure(hrFin);
 
     const startsMorning = startHour < 12;
-    const endsAfternoon = endHour > 12 || (endHour === 12 && hrFin instanceof Date && hrFin.getMinutes() > 0);
+    const endsAfternoon = endHour > 12 || (endHour === 12 && endMinutes > 0);
 
     if (startsMorning && endsAfternoon) return ['matin', 'apres-midi'];
     if (startsMorning && !endsAfternoon) return ['matin'];
