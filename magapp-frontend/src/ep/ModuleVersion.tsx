@@ -13,14 +13,14 @@ const fmt = (d?: string) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('f
  * Numéro de version du module. Pour les administrateurs, un clic ouvre les « nouveautés » (historique nourri par les
  * descriptions des commits git : voir backend/scripts/gen-module-changelog.js).
  */
-export default function ModuleVersion() {
+export default function ModuleVersion({ url = '/api/entretiens/version', title = 'Entretiens professionnels' }: { url?: string; title?: string }) {
   const { token } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
 
-  useEffect(() => { axios.get('/api/entretiens/version', { headers }).then(r => setInfo(r.data)).catch(() => setInfo(null)); }, [headers]);
+  useEffect(() => { axios.get(url, { headers }).then(r => setInfo(r.data)).catch(() => setInfo(null)); }, [headers, url]);
   useEffect(() => {
     if (!open) return;
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -42,7 +42,7 @@ export default function ModuleVersion() {
           <div style={{ background: '#fff', borderRadius: 16, width: 'min(680px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(15,23,42,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: `1px solid ${COLORS.border}` }}>
               <Sparkles size={19} color="#7c3aed" />
-              <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.text, flex: 1 }}>Nouveautés — Entretiens professionnels <span style={{ color: COLORS.primary }}>v{info.version}</span></div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.text, flex: 1 }}>Nouveautés — {title} <span style={{ color: COLORS.primary }}>v{info.version}</span></div>
               <button style={{ ...btnGhost, padding: '5px 9px' }} onClick={() => setOpen(false)} aria-label="Fermer"><X size={14} /></button>
             </div>
             <div style={{ overflowY: 'auto', padding: '6px 18px 18px' }}>

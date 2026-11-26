@@ -560,4 +560,4 @@ async function prepareBatch(user, nums) {
     return items;
 }
 
-module.exports = { getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser, listDocuments, streamDocument, getMyDirector, prepareBatch };
+module.exports = { getSources, getAccess, listFactures, listShares, addShare, removeShare, getMandatement, getInvoiceForAction, searchVerifiers, assertVerifierInDirection, getCancellableWorkflowId, getDgpWeeklyForUser, listDocuments, streamDocument, getMyDirector, prepareBatch };

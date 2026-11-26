@@ -1878,6 +1878,11 @@ async function setupPgDbFull() {
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_mes_factures BOOLEAN DEFAULT false`);
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_entretiens_pro BOOLEAN DEFAULT false`);
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_assistant_finances BOOLEAN DEFAULT false`);
+      // Assistant finances : consignes données par les agents (« Éduquer l'IA »)
+      await client.query('CREATE SCHEMA IF NOT EXISTS finance');
+      await client.query(`CREATE TABLE IF NOT EXISTS finance.assistant_regles (
+          id SERIAL PRIMARY KEY, username TEXT NOT NULL, texte TEXT NOT NULL, commune BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`);
     } catch (e) {}
 
     // Application mise en avant (bannière en tête du magasin, /admin/magapp > Paramètres)

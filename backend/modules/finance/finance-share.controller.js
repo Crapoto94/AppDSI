@@ -440,6 +440,28 @@ async function streamFactureDocumentFile(numero, docId, res) {
 }
 exports.streamFactureDocumentFile = streamFactureDocumentFile;
 
+/**
+ * Pièces jointes d'un objet Sedit par son ROO et ses types (facture, commande, engagement, mandat).
+ * Le ROO est complété (CHAR(31)) pour utiliser l'index. L'appelant a DÉJÀ vérifié les droits.
+ */
+async function queryPieceDocuments(roo, objectTypes) {
+    return withFinanceOracle(async (connection) => {
+        const binds = { roo: String(roo || '').trim() };
+        const types = objectTypes.map((t, i) => { binds[`t${i}`] = t; return `:t${i}`; });
+        const result = await connection.execute(
+            `SELECT TRIM(pj.ROO_IMA_REF) AS DOC_ID, pj.NOM_PJ, pj.CHEMIN_FICHIER, pj.FORMAT, pj.TAILLE, lnk.PRINCIPAL
+             FROM FI.FIPES_OBJ_PJ lnk
+             JOIN FI.PJ_PES pj ON pj.ROO_IMA_REF = lnk.PJPES_ROO
+             WHERE lnk.OBJECT_ROO = RPAD(:roo, 31) AND lnk.OBJECT_TYPE IN (${types.join(',')})
+             ORDER BY lnk.PRINCIPAL DESC, pj.NOM_PJ`,
+            binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        return result.rows;
+    });
+}
+exports.buildPieceDocumentsList = async (roo, objectTypes, urlPrefix) => buildDocumentsList(await queryPieceDocuments(roo, objectTypes), urlPrefix);
+exports.streamPieceDocumentFile = async (roo, objectTypes, docId, res) => streamDocumentFile(await queryPieceDocuments(roo, objectTypes), docId, res);
+
 /** Liste les pièces jointes d'une facture (numéro Sedit, ex. "F26008278"). */
 exports.getFactureDocuments = async (req, res) => {
     const numero = String(req.params.numero || '').trim();

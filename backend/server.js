@@ -2429,6 +2429,8 @@ app.use('/api/finance/pj-share', require('./modules/finance/pj-share.routes'));
 app.use('/api/finance/mandatement', require('./modules/finance/mandatement.routes'));
 // DGP (délai global de paiement) des factures — widget dashboard
 app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
+// MagApp « Assistant finances » : questions en français sur Sedit (IA locale, droits de « Mes factures »)
+app.use('/api/assistant-finances', require('./modules/assistant-finances/routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
 app.use('/api/boite-idees', require('./modules/boite-idees/boite-idees.routes'));
