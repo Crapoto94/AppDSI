@@ -1,8 +1,21 @@
 {
   "module": "assistant-finances",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "date": "2026-11-26",
   "releases": [
+    {
+      "version": "0.1.1",
+      "date": "2026-11-26",
+      "commit": "a5d6e681",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "L'assistant finances comprend les dates et les périodes (« hier », « au mois d'août », « les 30 derniers jours »)",
+          "Une nouvelle date ne reprend plus le fournisseur, les montants ni les états de la question précédente"
+        ]
+      }
+    },
     {
       "version": "0.1.0",
       "date": "2026-11-26",
