@@ -554,7 +554,7 @@ const entretiensController = {
     },
 
 
-    // ─── Suivi des retours de CREP (administrateurs) ──────────────────────
+    // ─── Suivi de CREP (administrateurs) ──────────────────────
 
     // GET /api/entretiens/returns/summary?campaign_id= — programmés / réalisés / retournés
     returnsSummary: async (req, res) => {
@@ -2273,7 +2273,7 @@ const entretiensController = {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, crep_canal = NULL, crep_canal_detail = NULL, simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
 
             await svc.logAudit({

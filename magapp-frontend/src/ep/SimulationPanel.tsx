@@ -72,6 +72,7 @@ export default function SimulationPanel() {
             ['Lien Active Directory', 'Réel', 'Non'],
             ['Rendez-vous', 'Provisoire', 'Oui'],
             ['Entretiens professionnels et contenu', 'Provisoire', 'Oui'],
+            ['Lots numérisés et CREP reçus par mail', 'Provisoire', 'Oui'],
           ] as const).map(([a, b, c]) => (
             <tr key={a} style={{ borderTop: `1px solid ${COLORS.border}` }}>
               <td style={{ padding: '4px 8px', fontWeight: 600 }}>{a}</td>

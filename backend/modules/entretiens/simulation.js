@@ -77,14 +77,21 @@ async function resetAll(actor, req) {
                     notes_admin = '', crep = NULL, crep_statut = 'non_envoye', crep_sent_at = NULL,
                     crep_agent_validated_at = NULL, crep_parapheur_id = NULL, crep_parapheur_ref = NULL,
                     crep_signed_path = NULL, crep_signed_name = NULL, crep_signed_at = NULL, crep_signed_by = NULL,
-                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW()
+                    crep_scans = '[]'::jsonb, crep_mode = NULL, drh_received_at = NULL, drh_received_by = NULL, crep_canal = NULL, crep_canal_detail = NULL, simple_sent_at = NULL, simple_sent_by = NULL, updated_at = NOW()
                  WHERE id = ?`, [row.id]);
             n++;
         } catch (e) { warnings.push(`Entretien #${row.id} : ${e.message}`); }
     }
+    // Lots numérisés (téléversés ou reçus par mail) et leurs fichiers. La trace des mails déjà relevés est gardée : ils ne sont pas réimportés.
+    let lots = 0;
+    try {
+        const retours = require('./crep-return.service');
+        await retours.ensureTable();
+        for (const b of await pgDb.all('SELECT id FROM hub_entretiens.crep_return_batches')) { await retours.deleteBatch(b.id); lots++; }
+    } catch (e) { warnings.push('Lots numérisés : ' + e.message); }
     try { await svc.setSetting('formations_analysis', ''); } catch (e) { /* aucune analyse */ }
-    try { await svc.logAudit({ actor, action: 'simulation_raz', entretien: null, details: { entretiens: n, warnings } }); } catch (e) { /* journal */ }
-    return { entretiens: n, warnings };
+    try { await svc.logAudit({ actor, action: 'simulation_raz', entretien: null, details: { entretiens: n, lots, warnings } }); } catch (e) { /* journal */ }
+    return { entretiens: n, lots, warnings };
 }
 
 // ─── Demandes de formation FICTIVES (jamais enregistrées) ──────────────────────────────────────────────────────
