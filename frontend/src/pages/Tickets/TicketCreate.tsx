@@ -24,7 +24,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const ACCEPT_EXT = '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt';
 const DEFAULT_RESOLUTION_TEXT = 'Ce ticket a été résolu en amont de sa création';
 const TIME_OPTIONS = [
-  { value: '5', label: '5 min' }, { value: '10', label: '10 min' },
+  { value: '1', label: '1 min' }, { value: '5', label: '5 min' }, { value: '10', label: '10 min' },
   { value: '15', label: '15 min' }, { value: '30', label: '30 min' },
   { value: '45', label: '45 min' }, { value: '60', label: '1 h' },
   { value: '120', label: '2 h' }, { value: '180', label: '3 h' },
