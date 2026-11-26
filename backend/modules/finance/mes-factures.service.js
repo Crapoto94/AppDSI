@@ -196,7 +196,7 @@ async function listFactures(user, q = {}) {
     for (const [roo, set] of byBudget) {
         const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
         binds[`b${bi}`] = roo;
-        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        blocks.push(`(f.BUDGET = RPAD(:b${bi}, 31) AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
         bi++;
     }
     const baseWhere = [`f.DATENTREE >= TO_DATE(:y0,'YYYY-MM-DD')`, `f.DATENTREE < TO_DATE(:y1,'YYYY-MM-DD')`, `(${blocks.join(' OR ')})`];
@@ -254,7 +254,7 @@ async function listFactures(user, q = {}) {
             `SELECT TRIM(f.ROO_IMA_REF) AS ROO, TRIM(f.FACTURE) AS NUM, TRIM(f.FACTIERS) AS NUM_FOURN, TRIM(f.LIBELLE1) AS LIBELLE,
                     TO_CHAR(f.DATENTREE, 'YYYY-MM-DD') AS DATE_RECEPTION, f.MONTANTTC_E AS MONTANT,
                     TRIM(REGEXP_SUBSTR(t.POBJ_EXTRACT, '[^' || CHR(1) || ']+', 1, 2)) AS TIERS,
-                    TRIM(s.CLEACCES) AS SERVICE, TRIM(bu.LIBELLE) AS BUDGET, f.BUDGET AS BUDGET_ROO, TRIM(f.EF_SERVICE) AS SERVICE_ROO,
+                    TRIM(s.CLEACCES) AS SERVICE, TRIM(bu.LIBELLE) AS BUDGET, TRIM(f.BUDGET) AS BUDGET_ROO, TRIM(f.EF_SERVICE) AS SERVICE_ROO,
                     TO_CHAR(f.DATE_REJET, 'YYYY-MM-DD') AS DATE_REJET
              ${FROM} WHERE ${where.join(' AND ')}
              ORDER BY f.DATENTREE DESC, f.FACTURE DESC OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`, bindsRows, opts)).rows || [];
@@ -324,6 +324,7 @@ async function listFactures(user, q = {}) {
             roo: r.ROO, num: r.NUM, num_fournisseur: r.NUM_FOURN, libelle: r.LIBELLE, date: r.DATE_RECEPTION, montant: Number(r.MONTANT) || 0,
             tiers: r.TIERS || '', service: r.SERVICE || '', budget: r.BUDGET || '',
             etat: etatOf(fs),
+            rapprochee: !!(fs && fs.rapprochement && fs.rapprochement.done),
             service_fait: !!(fs && fs.service_fait && fs.service_fait.done),
             service_fait_date: (fs && fs.service_fait && fs.service_fait.date) || null,
             rejetee: !!r.DATE_REJET,
@@ -354,6 +355,9 @@ async function listFactures(user, q = {}) {
     return { budgets, dgp_alert: dgpAlert, collectivite, sedit_url: seditUrl, rows, total: data.total, stats, a_traiter: data.aTraiter, year, sources: sources.map(s => ({ key: s.key, label: s.label })) };
 }
 
+// Les ROO Sedit sont des CHAR(31) et l'API les rend sans les espaces : les comparaisons sur FACTURE.BUDGET complètent la valeur
+// (RPAD, qui garde l'index), sinon aucune facture ne correspond (« Facture hors de votre périmètre »).
+
 // Mandatement d'une facture (infobulle), uniquement si la facture est dans le périmètre de l'agent
 const dstr = (d) => {
     if (!d) return null;
@@ -377,7 +381,7 @@ async function assertVisible(user, numero) {
     for (const [roo, set] of byBudget) {
         const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
         binds[`b${bi}`] = roo;
-        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        blocks.push(`(f.BUDGET = RPAD(:b${bi}, 31) AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
         bi++;
     }
     const ok = await financeShare.withFinanceOracle(async (conn) => Number((await conn.execute(
@@ -410,7 +414,7 @@ async function getInvoiceForAction(user, numero) {
     for (const [roo, set] of byBudget) {
         const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
         binds[`b${bi}`] = roo;
-        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        blocks.push(`(f.BUDGET = RPAD(:b${bi}, 31) AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
         bi++;
     }
     const row = await financeShare.withFinanceOracle(async (conn) => (await conn.execute(
@@ -515,10 +519,10 @@ async function getDgpWeeklyForUser(user, q = {}) {
     for (const [roo, set] of byBudget) {
         const names = [...set].map(sv => { const k = `s${n++}`; binds[k] = sv; return `:${k}`; });
         binds[`b${bi}`] = roo;
-        blocks.push(`(f.BUDGET = :b${bi} AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
+        blocks.push(`(f.BUDGET = RPAD(:b${bi}, 31) AND TRIM(f.EF_SERVICE) IN (${names.join(',')}))`);
         bi++;
     }
-    const roos = apiData ? apiData.roos : await financeShare.withFinanceOracle(async (conn) => ((await conn.execute(
+    const roos = await financeShare.withFinanceOracle(async (conn) => ((await conn.execute(
         `SELECT TRIM(f.ROO_IMA_REF) AS ROO FROM FI.FACTURE f WHERE f.DATENTREE >= TO_DATE(:y0,'YYYY-MM-DD') AND f.DATENTREE < TO_DATE(:y1,'YYYY-MM-DD') AND (${blocks.join(' OR ')})`,
         binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 100000 })).rows || []).map(r => r.ROO));
     await dgp.ensureDgpForRoos(roos).catch(e => console.warn('[MesFactures] DGP à la demande:', e.message));

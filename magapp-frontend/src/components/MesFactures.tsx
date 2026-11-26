@@ -11,7 +11,7 @@ import { appAlert, appPrompt } from './AppDialogs';
 
 interface Row {
   roo: string; num: string; num_fournisseur: string; libelle: string; date: string; montant: number; tiers: string; service: string; budget: string;
-  etat: 'recue' | 'rapprochee' | 'service_fait' | 'mandatee' | 'refusee'; service_fait: boolean; service_fait_date: string | null; rejetee: boolean;
+  etat: 'recue' | 'rapprochee' | 'service_fait' | 'mandatee' | 'refusee'; rapprochee: boolean; service_fait: boolean;service_fait_date: string | null; rejetee: boolean;
   workflow: string | null; dgp: number | null; dgp_definitif: boolean; dgp_rejete: boolean; via: string[]; can_sf: boolean;
   circuit: { status: string; verificateur: string; depuis: string; demandeur: string; can_cancel: boolean } | null;
 }
@@ -660,10 +660,11 @@ export default function MesFactures({ onClose, beta = false }: { onClose: () => 
                         </td>
                         <td style={s.td}>
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {r.rapprochee && !r.rejetee && r.etat !== 'refusee' && <span title="Facture rapprochée (engagement / bon de commande) dans SEDIT" style={{ background: '#cffafe', color: '#0e7490', borderRadius: 6, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 800 }}>RA</span>}
                             {r.service_fait && <span title={`Service fait validé dans SEDIT${r.service_fait_date ? ' le ' + new Date(r.service_fait_date).toLocaleDateString('fr-FR') : ''}`} style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 6, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 800 }}>SF</span>}
                             {r.etat === 'mandatee' ? (
                               <MandatTip num={r.num}><span style={{ background: e.bg, color: e.color, borderRadius: 6, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help', outline: `1px solid ${e.color}` }}>{e.label}</span></MandatTip>
-                            ) : <span style={{ background: e.bg, color: e.color, borderRadius: 6, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{e.label}</span>}
+                            ) : r.etat !== 'rapprochee' && <span style={{ background: e.bg, color: e.color, borderRadius: 6, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{e.label}</span>}
                             {r.circuit && (
                               <span title={`Service fait en cours de circuit — en attente de ${r.circuit.verificateur || 'validation'}${r.circuit.depuis ? ' (lancé le ' + new Date(r.circuit.depuis).toLocaleDateString('fr-FR') + ')' : ''}${r.circuit.status === 'en_pause' ? ' — en pause' : ''}`}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 6, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'help' }}>

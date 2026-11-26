@@ -774,8 +774,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                             </span>
                           ) : (
                             <>
-                              {/* RA uniquement si le service fait n'est pas encore fait. */}
-                              {st?.sedit_rapproche && !st?.sedit_service_fait && (
+                              {/* RA : facture rapprochée, que le service fait soit fait ou non. */}
+                              {st?.sedit_rapproche && (
                                 <span title="Facture rapprochée (engagement/bon de commande) dans Sedit"
                                   style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
                                   RA
