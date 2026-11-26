@@ -1,0 +1,24 @@
+{
+  "module": "assistant-finances",
+  "version": "0.1.0",
+  "date": "2026-11-26",
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-26",
+      "commit": "35cdcc9e",
+      "groups": {
+        "nouveautes": [
+          "Nouvel assistant finances dans le MagApp (BETA), interrogeable en français sur Sedit avec une IA locale",
+          "Mêmes droits que « Mes factures »",
+          "Budget, engagements, commandes, factures, mandats et titres, avec pièces jointes et fiche Sedit",
+          "Tableaux paginés, exports Excel et Word complets, graphiques et comparaisons",
+          "Directions, services et fournisseurs reconnus, exclusions, contexte de conversation et filtres permanents",
+          "Dictée vocale locale, questions générales et « Éduquer l'IA »"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    }
+  ]
+}
