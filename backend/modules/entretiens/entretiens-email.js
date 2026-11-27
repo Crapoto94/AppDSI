@@ -46,8 +46,8 @@ function preparation({ agent, annee: an, quand, duree, lieu, evaluateur, link, a
             ? 'Merci de le préparer en complétant votre fiche de préparation dans l’application.'
             : 'Le formulaire CREP vierge est joint à ce message : vous pouvez l’imprimer et le préparer sur papier.',
         paragraphe_preparation: avecAcces
-            ? '<p style="font-size:13px;color:#64748b;">Cette préparation (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur·rice. Vous pouvez la modifier jusqu’à l’entretien. Le formulaire CREP vierge est joint à ce message.</p>'
-            : '<p style="font-size:13px;color:#64748b;">Cette préparation facultative (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur·rice : notez-la sur le formulaire CREP vierge joint et apportez-le le jour de l’entretien.</p>',
+            ? '<p style="font-size:13px;color:#64748b;">Cette préparation (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur·rice. Vous pouvez la modifier jusqu’à l’entretien. Le formulaire CREP vierge et le guide pratique de l’agent évalué sont joints à ce message.</p>'
+            : '<p style="font-size:13px;color:#64748b;">Cette préparation facultative (bilan de l’année écoulée, perspectives, besoins de formation) nourrit l’échange avec votre évaluateur·rice : notez-la sur le formulaire CREP vierge joint et apportez-le le jour de l’entretien. Le guide pratique de l’agent évalué est également joint.</p>',
     };
     return T.build('preparation', { agent, annee: annee(an), quand, duree, lieu, evaluateur }, html, { link, noButton: !avecAcces });
 }

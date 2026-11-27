@@ -29,7 +29,7 @@ const EX_INFO = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-
 const DEFS = [
     {
         id: 'preparation', label: 'Convocation : préparer son entretien', to: 'Agent·e', color: '#4f46e5',
-        description: 'Envoyé à l’agent·e quand son entretien est planifié (le CREP vierge est joint). Le texte s’adapte : si l’agent·e n’a pas accès à « Mon entretien », il est invité·e à préparer l’entretien sur papier et le bouton n’apparaît pas.',
+        description: 'Envoyé à l’agent·e quand son entretien est planifié (le CREP vierge et le guide pratique de l’agent évalué sont joints). Le texte s’adapte : si l’agent·e n’a pas accès à « Mon entretien », il est invité·e à préparer l’entretien sur papier et le bouton n’apparaît pas.',
         variables: [V.agent, V.annee, V.evaluateur, V.quand, V.duree, V.lieu, H('info_rdv', 'Bloc « Votre entretien » (date, durée, lieu, évaluateur·rice)', EX_INFO),
             H('phrase_preparation', 'Phrase de préparation (selon l’accès à « Mon entretien »)', 'Merci de le préparer en complétant votre fiche de préparation dans l’application.'),
             H('paragraphe_preparation', 'Paragraphe explicatif (selon l’accès à « Mon entretien »)', '<p style="font-size:13px;color:#64748b;">Cette préparation nourrit l’échange avec votre évaluateur·rice.</p>')],

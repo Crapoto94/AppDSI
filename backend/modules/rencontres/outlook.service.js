@@ -418,6 +418,18 @@ async function updateOutlookEvent(opts) {
     return { id: res.data.id, webLink: res.data.webLink };
 }
 
+/** Ajoute une pièce jointe à un évènement existant, sauf si une pièce du même nom y figure déjà. */
+async function ensureOutlookAttachment({ organizerEmail, eventId, attachment }) {
+    const settings = await getGraphSettings();
+    const axiosOpts = getAxiosOpts();
+    const token = await getGraphToken(settings, axiosOpts);
+    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(organizerEmail)}/events/${encodeURIComponent(eventId)}/attachments`;
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const res = await axios.get(`${url}?$select=name`, { ...axiosOpts, headers });
+    if ((res.data.value || []).some(a => a.name === attachment.name)) return;
+    await axios.post(url, { '@odata.type': '#microsoft.graph.fileAttachment', ...attachment }, { ...axiosOpts, headers });
+}
+
 /** Supprime un évènement Outlook (les participants reçoivent l'annulation). */
 async function deleteOutlookEvent(opts) {
     const { organizerEmail, eventId } = opts;
@@ -435,4 +447,4 @@ async function deleteOutlookEvent(opts) {
     return { deleted: true };
 }
 
-module.exports = { createOutlookEvent, updateOutlookEvent, deleteOutlookEvent, buildStartEnd, findCommonSlots };
+module.exports = { createOutlookEvent, updateOutlookEvent, ensureOutlookAttachment, deleteOutlookEvent, buildStartEnd, findCommonSlots };

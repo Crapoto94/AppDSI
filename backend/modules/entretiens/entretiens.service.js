@@ -13,6 +13,7 @@ const {
     createOutlookEvent,
     updateOutlookEvent,
     deleteOutlookEvent,
+    ensureOutlookAttachment,
 } = require('../rencontres/outlook.service');
 
 const epBeta = require('../../shared/ep-beta-mail');
@@ -150,6 +151,12 @@ function evaluatorClause(identity) {
     return parts.length ? { sql: `(${parts.join(' OR ')})`, params } : null;
 }
 
+/** Guide pratique de l'agent évalué (format pièce jointe Graph), joint à la convocation et à l'invitation. */
+async function readGuideAgent() {
+    const buf = await require('fs').promises.readFile(require('path').join(__dirname, 'assets', 'guide-agent-evalue.pdf'));
+    return { name: 'Guide-pratique-agent-evalue.pdf', contentType: 'application/pdf', contentBytes: buf.toString('base64') };
+}
+
 /**
  * E-mail à l'agent : son entretien est planifié, il doit préparer sa fiche dans l'application.
  * (L'invitation Outlook seule ne suffit pas : elle n'arrive pas, par exemple, quand l'agent est aussi l'organisateur.)
@@ -188,6 +195,13 @@ async function sendPreparationMail(entretien, campaign) {
             }];
         } catch (e) {
             console.warn('[ENTRETIENS] formulaire CREP vierge non joint:', e.message);
+        }
+        // Guide pratique de l'agent évalué, joint à toute convocation.
+        try {
+            const guide = await readGuideAgent();
+            attachments.push({ filename: guide.name, content: guide.contentBytes });
+        } catch (e) {
+            console.warn('[ENTRETIENS] guide de l’agent évalué non joint:', e.message);
         }
         await sendParapheurEmail(entretien.agent_email, tpl, null, attachments);
         return { ok: true };
@@ -926,10 +940,21 @@ async function syncOutlook(entretien, actor, campaign, { forceCreate = false } =
             lieu: entretien.lieu || '',
         };
 
+        // Guide pratique de l'agent évalué, joint aussi à l'invitation. Best effort : l'invitation part même sans lui.
+        const guide = await readGuideAgent().catch((e) => {
+            console.warn('[ENTRETIENS] guide de l’agent évalué non joint à l’invitation:', e.message);
+            return null;
+        });
+
         let evt = null;
         let updated = false;
         if (entretien.outlook_event_id && !forceCreate) {
             const mailbox = entretien.outlook_organizer || organizerEmail;
+            if (guide) {
+                // Avant la mise à jour, pour que les invitations antérieures reçoivent aussi le guide.
+                await ensureOutlookAttachment({ organizerEmail: mailbox, eventId: entretien.outlook_event_id, attachment: guide })
+                    .catch((e) => console.warn('[ENTRETIENS] guide non ajouté à l’invitation:', e.response?.data?.error?.message || e.message));
+            }
             try {
                 evt = await updateOutlookEvent({
                     ...common,
@@ -947,12 +972,23 @@ async function syncOutlook(entretien, actor, campaign, { forceCreate = false } =
         }
 
         if (!evt) {
+            // Graph n'accepte les pièces jointes qu'après la création, et envoie l'invitation dès qu'il y a des
+            // participants : on crée sans eux, on joint le guide, puis on les ajoute (l'invitation part avec le guide).
             evt = await createOutlookEvent({
                 ...common,
                 titre,
                 ordreDuJour: body,
-                attendees,
+                attendees: guide ? [] : attendees,
+                attachments: guide ? [guide] : [],
             });
+            if (guide) {
+                try {
+                    await updateOutlookEvent({ ...common, eventId: evt.id, attendees });
+                } catch (e) {
+                    await deleteOutlookEvent({ organizerEmail, eventId: evt.id }).catch(() => {});
+                    throw e;
+                }
+            }
         }
 
         await pgDb.run(
