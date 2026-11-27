@@ -35,7 +35,7 @@ const Acces: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
     if (!r.ok) { appAlert(data.message || 'Erreur'); return; }
     setList(data); setQ(''); setFound([]); onChanged();
   };
-  const add = async (u: Found) => apply(await fetch(`${API}/traitants`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ username: u.username }) }));
+  const add = async (u: Found) => apply(await fetch(`${API}/traitants`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ username: u.username, displayName: u.displayName, email: u.email }) }));
   const remove = async (t: Traitant) => {
     if (!(await appConfirm(`Retirer l'accès de ${t.display_name || t.username} à l'espace de traitement ?`, { title: 'Retirer un accès', confirmLabel: 'Retirer', danger: true }))) return;
     apply(await fetch(`${API}/traitants/${encodeURIComponent(t.username)}`, { method: 'DELETE', headers: authHeaders() }));

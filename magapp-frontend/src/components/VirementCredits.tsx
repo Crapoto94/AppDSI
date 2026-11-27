@@ -69,11 +69,11 @@ const Picker: React.FC<{
   }, [q, scoped, taken, sign]);
   const delta = sign === '+' ? 1 : -1;
   return (
-    <div style={{ ...s.card, borderTop: `4px solid ${color}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem', color }}>{title}</h3>
-      <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
-        <Search size={15} style={{ position: 'absolute', left: 10, top: 11, color: '#94a3b8' }} />
-        <input style={{ ...s.input, paddingLeft: 32 }} placeholder="Chercher une imputation (chapitre, nature, service, libellé…)"
+    <div style={{ ...s.card, padding: '0.6rem 0.8rem', borderTop: `4px solid ${color}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem', color }}>{title}</h3>
+      <div style={{ position: 'relative', marginBottom: '0.4rem' }}>
+        <Search size={15} style={{ position: 'absolute', left: 10, top: 9, color: '#94a3b8' }} />
+        <input style={{ ...s.input, paddingLeft: 32, paddingTop: '0.32rem', paddingBottom: '0.32rem' }} placeholder="Chercher une imputation (chapitre, nature, service, libellé…)"
           value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} />
         {open && results.length > 0 && (
           <div style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, top: 42, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, maxHeight: 300, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.12)' }}>
@@ -536,6 +536,9 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   const tabBtn = (m: 'new' | 'history' | 'traitement', label: string) => (
     <button onClick={() => setMode(m)} style={{ padding: '0.5rem 1.1rem', border: 'none', borderBottom: mode === m ? '3px solid #2563eb' : '3px solid transparent', background: 'none', fontWeight: 600, cursor: 'pointer', color: mode === m ? '#2563eb' : '#64748b' }}>{label}</button>
   );
+  // Formulaire « Nouvelle demande » compact : tient dans la fenêtre sans défilement.
+  const compactInput: React.CSSProperties = { ...s.input, padding: '0.32rem 0.6rem', fontSize: '0.85rem' };
+  const compactRo: React.CSSProperties = { ...compactInput, background: '#f1f5f9' };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
@@ -549,7 +552,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
           <HelpButton onClick={() => setShowHelp(true)} title="Aide" />
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: mode === 'new' ? '0.55rem 0.9rem' : '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: mode === 'new' ? '0.5rem' : '1.25rem' }}>
           <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e2e8f0' }}>
             {droits.canCreate && tabBtn('new', 'Nouvelle demande')}
             {droits.canCreate && tabBtn('history', 'Suivi des demandes')}
@@ -602,34 +605,36 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
 
           {mode === 'new' && (
             <>
-              <div style={s.card}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+              <div style={{ ...s.card, padding: '0.6rem 0.8rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.45rem 0.7rem' }}>
                   <div><label style={s.label}>Code collectivité</label>
-                    <select style={s.input} value={collectivite} onChange={e => changeCollectivite(e.target.value)}>
+                    <select style={compactInput} value={collectivite} onChange={e => changeCollectivite(e.target.value)}>
                       {collectivites.map(c => <option key={c} value={c}>{collLabel(c)}</option>)}
                     </select></div>
                   <div><label style={s.label}>Budget</label>
-                    <select style={s.input} value={budget} onChange={e => changeBudget(e.target.value)}>
+                    <select style={compactInput} value={budget} onChange={e => changeBudget(e.target.value)}>
                       {budgets.map(b => <option key={b} value={b}>{budgetLabel(b)}</option>)}
                     </select></div>
                   <div><label style={s.label}>Section</label>
-                    <select style={s.input} value={section} onChange={e => changeScope(e.target.value as 'I' | 'F', sens)}><option value="I">Investissement</option><option value="F">Fonctionnement</option></select></div>
+                    <select style={compactInput} value={section} onChange={e => changeScope(e.target.value as 'I' | 'F', sens)}><option value="I">Investissement</option><option value="F">Fonctionnement</option></select></div>
                   <div><label style={s.label}>Sens</label>
-                    <select style={s.input} value={sens} onChange={e => changeScope(section, e.target.value as 'D' | 'R')}><option value="D">Dépenses</option><option value="R">Recettes</option></select></div>
-                  <div><label style={s.label}>Direction</label><input style={{ ...s.input, background: '#f1f5f9' }} readOnly value={direction} /></div>
-                  <div><label style={s.label}>Service</label><input style={{ ...s.input, background: '#f1f5f9' }} readOnly value={service} /></div>
-                  <div><label style={s.label}>Personne contact</label><input style={{ ...s.input, background: '#f1f5f9' }} readOnly value={contact} /></div>
-                  <div><label style={s.label}>Date de la demande</label><input type="date" style={s.input} value={date} onChange={e => setDate(e.target.value)} /></div>
+                    <select style={compactInput} value={sens} onChange={e => changeScope(section, e.target.value as 'D' | 'R')}><option value="D">Dépenses</option><option value="R">Recettes</option></select></div>
+                  <div><label style={s.label}>Direction</label><input style={compactRo} readOnly value={direction} /></div>
+                  <div><label style={s.label}>Service</label><input style={compactRo} readOnly value={service} /></div>
+                  <div><label style={s.label}>Personne contact</label><input style={compactRo} readOnly value={contact} /></div>
+                  <div><label style={s.label}>Date de la demande</label><input type="date" style={compactInput} value={date} onChange={e => setDate(e.target.value)} /></div>
                 </div>
-                <div style={{ margin: '0.9rem 0' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 1.2rem', margin: '0.5rem 0' }}>
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
                     <input type="checkbox" checked={compense} onChange={e => setCompense(e.target.checked)} /> Demande compensée (majorations = minorations)
                   </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 320px' }}>
+                    <span style={{ ...s.label, margin: 0, whiteSpace: 'nowrap' }}>Activité / Projet / Opération impacté</span>
+                    <input style={{ ...compactInput, flex: 1 }} value={activite} onChange={e => setActivite(e.target.value)} />
+                  </div>
                 </div>
-                <div style={{ marginBottom: '0.9rem' }}><label style={s.label}>Activité / Projet / Opération impacté</label>
-                  <input style={s.input} value={activite} onChange={e => setActivite(e.target.value)} /></div>
                 <div><label style={s.label}>Motivation de la demande (raison) <span style={{ color: '#dc2626' }}>* obligatoire</span></label>
-                  <textarea required style={{ ...s.input, minHeight: 80, fontFamily: 'inherit' }} value={motivation} onChange={e => setMotivation(e.target.value)} placeholder="Ex. : Régularisation de lignes d'exécution négatives" /></div>
+                  <textarea required style={{ ...compactInput, minHeight: 54, fontFamily: 'inherit' }} value={motivation} onChange={e => setMotivation(e.target.value)} placeholder="Ex. : Régularisation de lignes d'exécution négatives" /></div>
               </div>
 
               {liveError && <div style={{ ...s.card, borderColor: '#dc2626', color: '#b91c1c', fontSize: '0.85rem' }}><AlertTriangle size={15} style={{ verticalAlign: 'text-bottom' }} /> Impossible de lire vos lignes dans SEDIT : {liveError}</div>}
@@ -640,8 +645,8 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                 </div>
               )}
               {!loading && scoped.length > 0 && (
-                <div style={s.card}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.9rem' }}>
+                <div style={{ ...s.card, padding: '0.6rem 0.8rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.4rem 0.7rem' }}>
                     {FILTRES.map(f => {
                       const options = uniq(scoped.filter(l => match(l, f.key)).map(l => l[f.field]));
                       return (
@@ -653,20 +658,20 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                       );
                     })}
                   </div>
-                  <div style={{ marginTop: 8, fontSize: '0.8rem', color: '#64748b' }}>
+                  <div style={{ marginTop: 4, fontSize: '0.78rem', color: '#64748b' }}>
                     {filtered.length} ligne(s) proposée(s) sur {scoped.length}. Les imputations déjà choisies restent sélectionnées.
                     {filtreActif && <button onClick={() => setFiltres(SANS_FILTRE)} style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>Effacer les filtres</button>}
                   </div>
                 </div>
               )}
               {loading ? <div style={s.card}>Chargement de vos lignes d'exécution…</div> : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '0.7rem', alignItems: 'start' }}>
                   <Picker scoped={filtered} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à minorer (−)" sign="-" picked={minorer} setPicked={setMinorer} color="#dc2626" />
                   <Picker scoped={filtered} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à majorer (+)" sign="+" picked={majorer} setPicked={setMajorer} color="#16a34a" />
                 </div>
               )}
 
-              <div style={{ ...s.card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1.5rem' }}>
+              <div style={{ ...s.card, padding: '0.6rem 0.8rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 1.2rem' }}>
                 <div>Total à minorer : <strong>{fmt(totalMin)} €</strong></div>
                 <div>Total à majorer : <strong>{fmt(totalMaj)} €</strong></div>
                 <div style={{ color: desequilibre ? '#dc2626' : '#16a34a' }}>Écart : <strong>{fmt(ecart)} €</strong></div>

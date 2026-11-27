@@ -569,7 +569,7 @@ module.exports = {
         try {
             await ensureTable();
             if (!(await traitement.rights(req.user)).canManage) return res.status(403).json({ message: 'Accès refusé' });
-            await traitement.addTraitant(req.body && req.body.username, req.user.username);
+            await traitement.addTraitant(req.body && req.body.username, req.user.username, req.body && req.body.displayName, req.body && req.body.email);
             await logAction(0, req.user.username, 'acces_ajout', { agent: req.body.username });
             res.json(await traitement.listTraitants());
         } catch (e) { fail(res, e, "Erreur d'ajout"); }
