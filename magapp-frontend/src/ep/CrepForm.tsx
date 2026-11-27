@@ -606,8 +606,8 @@ export default function CrepForm({ fieldOrigins, entretien, canEdit, onSaved, is
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginTop: 12 }}>
         <Field label="Grade actuel"><input style={input} disabled={dis} value={crep.grade} onChange={e => set('grade', e.target.value)} /></Field>
-        <Field label="Date de convocation" hint="Par défaut : date de création de l’EP. Modifiable.">
-          <input style={input} type="date" disabled={dis} value={crep.date_convocation || isoDay(entretien.created_at)} onChange={e => set('date_convocation', e.target.value)} />
+        <Field label="Date de convocation" hint="Par défaut : date de planification (vide sinon). Modifiable.">
+          <input style={input} type="date" disabled={dis} value={crep.date_convocation || isoDay(entretien.date_convocation_auto)} onChange={e => set('date_convocation', e.target.value)} />
         </Field>
         <Field label="Date de l’entretien" hint="Par défaut : date planifiée. Modifiable.">
           <input style={input} type="date" disabled={dis} value={crep.date_entretien || isoDay(entretien.date_entretien)} onChange={e => set('date_entretien', e.target.value)} />

@@ -8060,6 +8060,27 @@ async function setupPgDbFull() {
       await client.query('ALTER TABLE hub_entretiens.entretiens ALTER COLUMN duree_minutes SET DEFAULT 90');
       // Compte-rendu officiel (CREP) saisi par l'évaluateur : tous les champs du document papier DRH, en JSON.
       await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS crep JSONB`);
+      // Date de convocation proposée sur le CREP : jour (Paris) où la date de l'entretien a été fixée ou modifiée.
+      // Vide si l'entretien n'est pas planifié, ou s'il est saisi après coup (date déjà passée).
+      // Trigger : couvre tous les chemins d'écriture de date_entretien (création, planification, réinitialisation…).
+      await client.query(`ALTER TABLE hub_entretiens.entretiens ADD COLUMN IF NOT EXISTS date_convocation_auto TEXT`);
+      await client.query(`
+        CREATE OR REPLACE FUNCTION hub_entretiens.set_date_convocation_auto() RETURNS trigger AS $$
+        DECLARE
+          aujourdhui TEXT := to_char(NOW() AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD');
+        BEGIN
+          IF TG_OP = 'UPDATE' THEN
+            IF NEW.date_entretien IS NOT DISTINCT FROM OLD.date_entretien THEN RETURN NEW; END IF;
+          END IF;
+          NEW.date_convocation_auto := CASE WHEN LEFT(NEW.date_entretien, 10) >= aujourdhui THEN aujourdhui END;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql
+      `);
+      await client.query('DROP TRIGGER IF EXISTS trg_ep_date_convocation ON hub_entretiens.entretiens');
+      await client.query(`
+        CREATE TRIGGER trg_ep_date_convocation BEFORE INSERT OR UPDATE ON hub_entretiens.entretiens
+        FOR EACH ROW EXECUTE PROCEDURE hub_entretiens.set_date_convocation_auto()
+      `);
       // Reprise des EP de l'année précédente (missions, objectifs du service, objectifs individuels) : valeurs proposées par défaut.
       // Alimentée par backend/scripts/import_ep_precedent.js à partir d'un dossier local non versionné (EP/).
       await client.query(`

@@ -189,7 +189,7 @@ async function buildCrepPdf(entretien, annee, opts = {}) {
 
     // Dates
     const dateCols = [
-        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(crep.date_convocation || entretien.created_at), field: N.date_convocation },
+        { x: MX + 10, w: 150, label: 'Date de convocation :', value: fmtDate(crep.date_convocation || entretien.date_convocation_auto), field: N.date_convocation },
         { x: MX + 190, w: 130, label: 'Date de l\'entretien :', value: fmtDate(crep.date_entretien || entretien.date_entretien), field: N.date_entretien },
         { x: MX + 340, w: 195, label: 'Date de notification agent :', value: fmtDate(crep.date_notification || entretien.crep_sent_at), field: N.date_notification },
     ];

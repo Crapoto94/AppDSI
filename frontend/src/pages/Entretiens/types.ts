@@ -120,6 +120,7 @@ export interface Entretien {
   outlook_error?: string | null;
   notes_admin?: string | null;
   created_at?: string | null;
+  date_convocation_auto?: string | null;
   reprise?: Reprise | null;
   crep_statut?: 'non_envoye' | 'envoye_agent' | 'en_signature' | string;
   crep_sent_at?: string | null;
