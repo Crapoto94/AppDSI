@@ -48,6 +48,15 @@ magappBaseRouter.get('/virement-credits/access', authenticateJWT, virements.acce
 magappBaseRouter.get('/virement-credits/lines', authenticateJWT, virements.requireSeditAccount, virements.liveLines);
 magappBaseRouter.get('/virement-credits/signataires', authenticateJWT, virements.requireSeditAccount, virements.signataires);
 magappBaseRouter.get('/virement-credits', authenticateJWT, virementMine, virements.list);
+// Espace de traitement de la direction des finances (droits vérifiés dans le contrôleur)
+magappBaseRouter.get('/virement-credits/espace', authenticateJWT, virements.espace);
+magappBaseRouter.get('/virement-credits/traitement', authenticateJWT, virements.traitementList);
+magappBaseRouter.get('/virement-credits/traitants', authenticateJWT, virements.traitants);
+magappBaseRouter.get('/virement-credits/traitants/search', authenticateJWT, virements.traitantsSearch);
+magappBaseRouter.post('/virement-credits/traitants', authenticateJWT, virements.addTraitant);
+magappBaseRouter.delete('/virement-credits/traitants/:username', authenticateJWT, virements.removeTraitant);
+magappBaseRouter.post('/virement-credits/:id/traitement', authenticateJWT, virements.acquitter);
+magappBaseRouter.post('/virement-credits/:id/transmettre', authenticateJWT, virementMine, virements.transmettre);
 magappBaseRouter.post('/virement-credits', authenticateJWT, virementMine, virements.requireSeditAccount, virements.save);
 magappBaseRouter.get('/virement-credits/:id/pdf', authenticateJWT, virementMine, virements.pdf);
 magappBaseRouter.post('/virement-credits/:id/parapheur', authenticateJWT, virementMine, virements.requireSeditAccount, virements.sendToParapheurChain);

@@ -27,7 +27,7 @@ interface PublicInfo {
   delegation?: { delegant_nom: string; delegant_email: string; delegate_nom: string; delegate_email: string; date_start: string; date_end: string } | null;
   signatures_summary?: { name: string; mode: string; signed_at?: string | null; delegated_by?: string | null; note?: string | null; technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
   seal?: { sealed_at?: string | null; serial?: string | null } | null;
-  positions: { document_id: number; page: number; x: number; y: number; w: number; h: number; applied: boolean }[];
+  positions: { document_id: number; page: number; x: number; y: number; w: number; h: number; noteX?: number | null; noteY?: number | null; applied: boolean }[];
 }
 
 /**
@@ -403,6 +403,9 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       if (r.status === 403) { setIdentityError(true); setError(d.message || 'Identité non conforme'); return; }
       if (!r.ok) throw new Error(d.message || 'Document introuvable');
       setInfo(d);
+      // Emplacement de la mention prévu par le formulaire (ex. case « Avis » d'un virement de crédits)
+      const zone = (d.positions || []).find((p: { noteX?: number | null; noteY?: number | null }) => p.noteX != null && p.noteY != null);
+      if (zone) setNoteOffset({ x: zone.noteX, y: zone.noteY });
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur'); }
     finally { setLoading(false); }
   }, [token, auth.token]);
@@ -1133,7 +1136,7 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
   const sigLeft = size ? (position.x / 100) * size.width - box.w / 2 : 0;
   const sigBottom = size ? (position.y / 100) * size.height - box.h / 2 + box.h : 0;
   const noteLeft = sigLeft + (noteOffset?.x ?? 0) * pxScale;
-  const noteTop = sigBottom - (noteOffset?.y ?? 72) * pxScale;
+  const noteTop = sigBottom - ((noteOffset?.y ?? 66) + (noteSize || 12)) * pxScale;
 
   if (loading) return <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}><Loader2 size={22} className="spin" /></div>;
   if (error) return <div style={{ padding: 14, background: '#fef2f2', color: '#b91c1c', borderRadius: 8, fontSize: 12 }}>{error}</div>;

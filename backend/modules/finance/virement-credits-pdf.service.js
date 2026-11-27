@@ -32,6 +32,11 @@ function fmtDate(d) {
     return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
 }
 
+function budgetLabel(collectivite, budget) {
+    const coll = collectivite === 'CCAS' ? 'CCAS' : 'Ville';
+    return !budget || /^PRINCIPAL$/i.test(budget) ? `${coll} (budget principal)` : `${coll} - ${budget}`;
+}
+
 function wrap(font, text, size, maxWidth) {
     const out = [];
     for (const para of safe(text).split(/\r?\n/)) {
@@ -45,6 +50,34 @@ function wrap(font, text, size, maxWidth) {
     }
     return out;
 }
+
+// Géométrie du tableau des avis (page 1, points depuis le bas), partagée entre le dessin et le placement des signatures
+const PAGE_W = 595.28, PAGE_H = 841.89, MARGIN = 50;
+const AVIS = { top: 410, header: 18, rowH: 52, gap: 6, labelW: 200, dateW: 82 };
+const avisRowTop = (i) => AVIS.top - AVIS.header - i * (AVIS.rowH + AVIS.gap);
+const pct = (v, total) => Math.round((v / total) * 10000) / 100;
+
+// Position (parapheur) d'une signature sur la ligne d'avis i (0 = responsable de service, 1 = direction, … 5 = élue aux finances) :
+//  - signature et nom dans la case « Nom et Signature » ; date dans la case « Date » ;
+//  - mention manuscrite (avis) sous l'intitulé de la même ligne, pour ne plus déborder sur la ligne du dessus.
+function avisPosition(i) {
+    const rowBottom = avisRowTop(i) - AVIS.rowH;
+    const cy = PAGE_H - (rowBottom + AVIS.rowH / 2);
+    const xDate = MARGIN + AVIS.labelW, xSign = xDate + AVIS.dateW;
+    const w = Math.floor(PAGE_W - MARGIN - xSign - 8), h = AVIS.rowH - 4;
+    const cx = (xSign + PAGE_W - MARGIN) / 2;
+    return {
+        documentIndex: 0, page: 1, x: pct(cx, PAGE_W), y: pct(cy, PAGE_H), w, h,
+        noteX: Math.round((MARGIN + 6) - (cx - w / 2)), noteY: 10, noteW: AVIS.labelW - 12,
+        dateX: pct(xDate + AVIS.dateW / 2, PAGE_W), dateY: pct(cy, PAGE_H),
+    };
+}
+// Ligne d'avis visée par une ordonnée exprimée en % depuis le haut de page
+const avisIndexFromY = (yPct) => {
+    const rowTopPct = (i) => ((PAGE_H - avisRowTop(i)) / PAGE_H) * 100;
+    for (let i = 0; i < 5; i++) if (Number(yPct) < rowTopPct(i + 1)) return i;
+    return 5;
+};
 
 // opts.hints (aperçu uniquement) : { 0: 'texte', 1: 'texte' } = repères d'emplacement de la signature dans les cadres « Avis » n°1 et n°2.
 // Jamais utilisé pour le document envoyé au parapheur ni pour le PDF final : le repère n'apparaît que dans la prévisualisation.
@@ -61,7 +94,7 @@ async function buildVirementCreditsPdf(p, opts = {}) {
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const W = 595.28, H = 841.89, M = 50;
+    const W = PAGE_W, H = PAGE_H, M = MARGIN;
     const black = rgb(0, 0, 0), grey = rgb(0.4, 0.4, 0.4), light = rgb(0.85, 0.85, 0.85);
 
     let page, y, pageNo = 0;
@@ -93,7 +126,7 @@ async function buildVirementCreditsPdf(p, opts = {}) {
 
     for (const [label, val] of [
         ['Direction :', p.direction], ['Service :', p.service],
-        ['Budget :', /^PRINCIPAL$/i.test(p.budget || '') || !p.budget ? 'Ville (budget principal)' : p.budget],
+        ['Budget :', budgetLabel(p.collectivite, p.budget)],
         ['Date de la demande :', fmtDate(p.date)], ['Personne contact :', p.contact],
     ]) {
         text(label, M, y, { bold: true });
@@ -146,28 +179,28 @@ async function buildVirementCreditsPdf(p, opts = {}) {
         'Avis de la direction des services financiers', 'Avis de la direction générale',
         'Avis de l’élu (e) de secteur', 'Avis de l’élue aux finances',
     ];
-    const rowH = 52, labelW = 200;
+    const { rowH, labelW, dateW, gap } = AVIS;
     const drawAvisHeader = () => {
         text('Date', M + labelW + 8, y - 11, { bold: true, size: 9.5 });
-        text('Nom et Signature', M + labelW + 90, y - 11, { bold: true, size: 9.5 });
-        y -= 18;
+        text('Nom et Signature', M + labelW + dateW + 8, y - 11, { bold: true, size: 9.5 });
+        y -= AVIS.header;
     };
     let avisIdx = 0;
     const drawAvis = (label) => {
         const hint = hints && hints[avisIdx++];
         box(M, y - rowH, W - 2 * M, rowH, hint ? { fill: rgb(0.93, 0.96, 1) } : undefined);
         if (hint) {
-            const xs = M + labelW + 90;
+            const xs = M + labelW + dateW + 8;
             page.drawRectangle({ x: xs, y: y - rowH + 8, width: W - M - xs - 8, height: rowH - 16, borderColor: rgb(0.15, 0.39, 0.92), borderWidth: 1, borderDashArray: [4, 3] });
             text(safe(hint.title), xs + 8, y - 22, { bold: true, size: 8.5, color: rgb(0.15, 0.39, 0.92) });
             text(safe(hint.name), xs + 8, y - 36, { size: 8.5, color: rgb(0.28, 0.33, 0.41) });
         }
         page.drawLine({ start: { x: M + labelW, y }, end: { x: M + labelW, y: y - rowH }, thickness: 0.8, color: black });
-        page.drawLine({ start: { x: M + labelW + 82, y }, end: { x: M + labelW + 82, y: y - rowH }, thickness: 0.8, color: black });
+        page.drawLine({ start: { x: M + labelW + dateW, y }, end: { x: M + labelW + dateW, y: y - rowH }, thickness: 0.8, color: black });
         text(label, M + 6, y - 14, { bold: true, size: 9.5 });
-        y -= rowH + 6;
+        y -= rowH + gap;
     };
-    y = 410;
+    y = AVIS.top;
     drawAvisHeader();
     avis.forEach(drawAvis);
 
@@ -236,4 +269,4 @@ async function buildVirementCreditsPdf(p, opts = {}) {
     return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildVirementCreditsPdf };
+module.exports = { buildVirementCreditsPdf, avisPosition, avisIndexFromY };

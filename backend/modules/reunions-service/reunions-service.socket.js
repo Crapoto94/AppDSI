@@ -147,35 +147,12 @@ function handleConnection(io, socket) {
             username: user.username || null,
             at: Date.now(),
         });
-        // Présence automatique : un participant qui se connecte pendant la
-        // séance est marqué présent (il peut ensuite être requalifié à la main
-        // en excusé/absent depuis la rubrique META).
-        if (st.status === 'in_progress') {
-            try {
-                const uname = String(user.username || '').toLowerCase();
-                const email = String(user.email || '').toLowerCase();
-                if (uname || email) {
-                    const row = await pgDb.get(
-                        `SELECT id, present, excused FROM reunions_service.meeting_participants
-                         WHERE meeting_id = ?
-                           AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
-                           AND COALESCE(kind, 'present') <> 'info'
-                         LIMIT 1`,
-                        [id, uname, email, email]
-                    );
-                    if (row && (!row.present || row.excused)) {
-                        await pgDb.run(
-                            `UPDATE reunions_service.meeting_participants
-                             SET present = TRUE, excused = FALSE
-                             WHERE id = ?`,
-                            [row.id]
-                        );
-                        notifyContentChanged(id, { reason: 'presence' });
-                    }
-                }
-            } catch (e) {
-                console.error('[REUNIONS-SERVICE] auto-présence:', e.message);
-            }
+        // Présence automatique : un participant qui se connecte est marqué présent
+        // (requalifiable à la main depuis la rubrique META).
+        try {
+            await markUserPresent(id, user);
+        } catch (e) {
+            console.error('[REUNIONS-SERVICE] auto-présence:', e.message);
         }
         const room = io.sockets.adapter.rooms.get(roomName(id));
         io.to(roomName(id)).emit('rs_presence', { meetingId: id, count: room ? room.size : 1 });
@@ -284,9 +261,53 @@ function handleConnection(io, socket) {
     });
 }
 
+/**
+ * Auto-présence d'un utilisateur qui se connecte à une réunion (socket `rs_join`
+ * et repli HTTP). La séance est « ouverte » si elle est en cours, ou si l'on est
+ * le jour prévu à partir d'une heure avant l'horaire : une réunion tenue sans
+ * jamais cliquer sur « Démarrer » reste « planifiée ». `meeting_date` est
+ * enregistrée en heure de Paris.
+ */
+async function markUserPresent(meetingId, user) {
+    const uname = String(user?.username || '').toLowerCase();
+    const email = String(user?.email || '').toLowerCase();
+    if (!uname && !email) return { changed: false, reason: 'no_identity' };
+    const meeting = await pgDb.get(
+        `SELECT status,
+                (meeting_date IS NOT NULL
+                 AND (NOW() AT TIME ZONE 'Europe/Paris')::date = meeting_date::date
+                 AND (NOW() AT TIME ZONE 'Europe/Paris') >= meeting_date - INTERVAL '1 hour') AS due
+         FROM reunions_service.meetings WHERE id = ?`, [meetingId]
+    );
+    if (!meeting) return { changed: false, reason: 'not_found' };
+    const inProgress = meeting.status === 'in_progress';
+    if (!inProgress && !(meeting.status === 'planned' && meeting.due)) {
+        return { changed: false, reason: 'not_open' };
+    }
+    const row = await pgDb.get(
+        `SELECT id, present, excused FROM reunions_service.meeting_participants
+         WHERE meeting_id = ?
+           AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
+           AND COALESCE(kind, 'present') <> 'info'
+         LIMIT 1`,
+        [meetingId, uname, email, email]
+    );
+    if (!row) return { changed: false, reason: 'not_participant' };
+    if (row.present && !row.excused) return { changed: false, present: true };
+    // Avant le démarrage, une personne notée « excusée » qui consulte la fiche
+    // le reste.
+    if (!inProgress && row.excused) return { changed: false, reason: 'excused' };
+    await pgDb.run(
+        'UPDATE reunions_service.meeting_participants SET present = TRUE, excused = FALSE WHERE id = ?',
+        [row.id]
+    );
+    notifyContentChanged(meetingId, { reason: 'presence' });
+    return { changed: true, present: true };
+}
+
 /** Ferme les jeux de pause d'une réunion (fin de réunion, changement de rubrique…). */
 function closePause(meetingId, message) {
     if (ioRef) require('./tetris-room').closeMeeting(ioRef, meetingId, message);
 }
 
-module.exports = { handleConnection, syncMeetingState, notifyContentChanged, notifyMasterChanged, notifyMeeting, closePause };
+module.exports = { handleConnection, markUserPresent, syncMeetingState, notifyContentChanged, notifyMasterChanged, notifyMeeting, closePause };

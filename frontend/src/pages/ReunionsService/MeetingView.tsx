@@ -18,7 +18,7 @@ import type { KpiConfig } from './KpiConfigurator';
 import useReunionAccess from './useReunionAccess';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-    ArrowLeft, Play, Square, Timer, ListChecks, FileText, Plus, Pencil, Trash2,
+    Star, ArrowLeft, Play, Square, Timer, ListChecks, FileText, Plus, Pencil, Trash2,
     ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Eye, EyeOff, Paperclip, Upload, X,
     Calendar, RotateCcw, Save, Radio, Video, Building2, Link2, ExternalLink, Search, RefreshCw, Sparkles,
     Pause, Gamepad2, GripVertical, User,
@@ -39,6 +39,7 @@ interface Item {
     section_id: number;
     title: string;
     content_html: string;
+    is_important?: boolean | null;
     created_by_name?: string | null;
     updated_at?: string | null;
     attachments: Attachment[];
@@ -255,7 +256,7 @@ export default function ReunionServiceMeetingView() {
     const statusRef = useRef<string | undefined>(undefined);
     const lastScrollEmit = useRef(0);
     const overrunAlertedRef = useRef<string>('');
-    const selfPresenceRef = useRef<number | null>(null);
+    const selfPresenceRef = useRef<string | null>(null);
     const wasMasterRef = useRef(false);
     const pollModalBodyRef = useRef<HTMLDivElement | null>(null);
     const openPollIdRef = useRef<number | null>(null);
@@ -287,18 +288,23 @@ export default function ReunionServiceMeetingView() {
                 if (prev && m.sections.some(s => s.id === prev)) return prev;
                 return m.sections[0]?.id ?? null;
             });
-            // Repli HTTP de l'auto-présence : à l'ouverture d'une séance en
-            // cours, l'utilisateur connecté est marqué présent même si le
-            // socket n'est pas encore établi (le mécanisme socket reste actif).
-            if (m.status === 'in_progress' && selfPresenceRef.current !== m.id) {
-                selfPresenceRef.current = m.id;
+            // Repli HTTP de l'auto-présence : à l'ouverture de la séance,
+            // l'utilisateur connecté est marqué présent même si le socket n'est
+            // pas encore établi. Le serveur décide si la séance est ouverte
+            // (en cours, ou jour et heure prévus) ; sinon on réessaiera au
+            // prochain rechargement.
+            const presenceKey = `${m.id}:${m.status}`;
+            if (m.status !== 'finished' && selfPresenceRef.current !== presenceKey) {
+                selfPresenceRef.current = presenceKey;
                 try {
                     const pr = await axios.post(`/api/reunions-service/meetings/${m.id}/presence/self`, {}, auth);
+                    if (pr.data?.reason === 'not_open') selfPresenceRef.current = null;
                     if (pr.data?.changed) {
                         const fresh = await axios.get(`/api/reunions-service/meetings/${m.id}`, auth);
                         setMeeting(fresh.data);
                     }
                 } catch (e) {
+                    selfPresenceRef.current = null;
                     console.error('[REUNIONS-SERVICE] auto-présence HTTP:', e);
                 }
             }
@@ -545,6 +551,16 @@ export default function ReunionServiceMeetingView() {
         } catch (e) {
             const err = e as ApiErrorLike;
             window.alert(err?.response?.data?.error || 'Impossible de réordonner les items.');
+        }
+    };
+
+    const toggleImportant = async (item: Item) => {
+        try {
+            await axios.patch(`/api/reunions-service/items/${item.id}/important`, { is_important: !item.is_important }, auth);
+            await reload();
+        } catch (e) {
+            const err = e as ApiErrorLike;
+            window.alert(err?.response?.data?.error || "Impossible de changer l'importance de l'item.");
         }
     };
 
@@ -1094,6 +1110,8 @@ export default function ReunionServiceMeetingView() {
                 .rsv-content { padding: 1.1rem 1.2rem; }
                 .rsv-content-live { height: calc(100vh - 260px); min-height: 320px; overflow-y: auto; }
                 .rsv-item { border: 1px solid #e2e8f0; border-radius: 12px; padding: .9rem 1rem; margin-bottom: .9rem; background: #fff; }
+                .rsv-item-important { border: 2px solid #f59e0b; border-left-width: 7px; background: #fffbeb; box-shadow: 0 6px 18px -10px rgba(217,119,6,.6); }
+                .rsv-important-chip { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; vertical-align: 2px; font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #fff; background: #d97706; border-radius: 999px; padding: 2px 8px; }
                 .rsv-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: .5rem; }
                 .rsv-item-title { font-weight: 800; color: #0f172a; font-size: .95rem; }
                 .rsv-item-meta { font-size: .7rem; color: #94a3b8; }
@@ -1506,7 +1524,7 @@ export default function ReunionServiceMeetingView() {
 
                                 {(displayedSection?.items || []).map(item => (
                                     <div
-                                        className="rsv-item"
+                                        className={item.is_important ? 'rsv-item rsv-item-important' : 'rsv-item'}
                                         key={item.id}
                                         data-rs-item={item.id}
                                         draggable
@@ -1531,7 +1549,12 @@ export default function ReunionServiceMeetingView() {
                                                     <GripVertical size={15} />
                                                 </span>
                                                 <div style={{ minWidth: 0 }}>
-                                                    <div className="rsv-item-title">{item.title}</div>
+                                                    <div className="rsv-item-title">
+                                                        {item.is_important && (
+                                                            <span className="rsv-important-chip"><Star size={11} fill="currentColor" /> Important</span>
+                                                        )}
+                                                        {item.title}
+                                                    </div>
                                                     <div className="rsv-item-meta" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                                         <User size={11} />
                                                         <span>{item.created_by_name || 'Auteur inconnu'}</span>
@@ -1541,6 +1564,15 @@ export default function ReunionServiceMeetingView() {
                                             </div>
                                             {meeting.status !== 'finished' && (
                                                 <div style={{ display: 'flex', gap: 6 }}>
+                                                    <button
+                                                        className="rsv-ibtn"
+                                                        title={item.is_important ? 'Ne plus marquer comme important' : 'Marquer comme important'}
+                                                        aria-pressed={!!item.is_important}
+                                                        style={item.is_important ? { color: '#d97706', background: '#fef3c7' } : undefined}
+                                                        onClick={() => toggleImportant(item)}
+                                                    >
+                                                        <Star size={15} fill={item.is_important ? 'currentColor' : 'none'} />
+                                                    </button>
                                                     <button className="rsv-ibtn" title="Modifier" onClick={() => setItemModal({ sectionId: item.section_id, item })}>
                                                         <Pencil size={15} />
                                                     </button>

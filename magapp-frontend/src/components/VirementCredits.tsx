@@ -3,6 +3,8 @@ import logoDsiHub from '../assets/DSI.png';
 import { HelpButton, HelpModal } from './HelpButton';
 import { X, FileText, Trash2, Search, AlertTriangle, Send, Mail, Eye, Download, ArrowLeftRight, Copy } from 'lucide-react';
 import { appAlert, appConfirm } from './AppDialogs';
+import VirementTraitement from './VirementTraitement';
+import { API, authHeaders, jsonHeaders, ETATS, fmt, fmtMoney, fmtDate, s, type Rec, type PayloadLine } from './virementShared';
 
 // BETA « Virement de crédits » : demande de modification budgétaire pour les agents ayant un compte SEDIT Finances.
 // - lignes proposées = celles que l'agent peut modifier dans SEDIT (filtrées côté serveur) ;
@@ -25,53 +27,28 @@ interface SignatairesData {
   responsables: Encadrant[]; directeurs: Encadrant[];
   defaults: { responsable: Encadrant | null; directeur: Encadrant | null };
 }
-interface Rec {
-  id: number; created_by_name: string | null; created_at: string; direction: string | null; service: string | null; contact: string | null;
-  date_demande: string | null; section: string; sens: string; compense: boolean; montant: string | number; motivation: string | null;
-  parapheur_id: number | null; para_reference: string | null; para_status: string | null;
-  sent_at: string | null; sent_to: string | null; sent_cc: string | null;
-  etat: 'brouillon' | 'en_signature' | 'signee' | 'refusee' | 'annulee' | 'envoyee';
-  payload?: { section: string; sens: string; compense: boolean; activite: string; motivation: string; majorer: PayloadLine[]; minorer: PayloadLine[] };
-}
-interface PayloadLine { code: string; montant: number }
-
-const ETATS: Record<Rec['etat'], { label: string; color: string }> = {
-  brouillon: { label: 'Brouillon', color: '#64748b' },
-  en_signature: { label: 'En signature', color: '#d97706' },
-  signee: { label: 'Signée', color: '#16a34a' },
-  refusee: { label: 'Signature refusée', color: '#dc2626' },
-  annulee: { label: 'Parapheur annulé', color: '#dc2626' },
-  envoyee: { label: 'Envoyée au budget', color: '#2563eb' },
-};
-
 // Enveloppes d'investissement proposées pour les services de la DSI (règle historique de la DSI, services BF*)
 const ENVELOPPES = ['ENV16', 'ENV28', 'ENV29'];
 const clean = (v: string) => (!v || v === '-' ? '' : v);
 const shortOp = (v: string) => clean(v).replace(/^([A-Za-z]+)0+(\d)/, '$1$2');
 const toNum = (v: string) => { const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
-const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtMoney = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
-const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString('fr-FR') : '');
 const nameOf = (e: Encadrant) => `${e.prenom || ''} ${e.nom || ''}`.trim();
+const listNameOf = (e: Encadrant) => `${e.nom || ''} ${e.prenom || ''}`.trim();
 const imputation = (l: BudgetLine) =>
   [l['Chapitre par nature'], l['Référence Fonctionnelle'], l['Article par nature'], shortOp(l["Opération d'équipement"]), l['Service Gestionnaire']]
     .map(x => x || '·').join(' / ');
 
+const uniq = (v: string[]) => [...new Set(v.filter(Boolean))].sort((x, y) => x.localeCompare(y, 'fr', { numeric: true }));
 
-
-const API = '/api/magapp/virement-credits';
-const authHeaders = (): Record<string, string> => ({ Authorization: `Bearer ${localStorage.getItem('token') || ''}` });
-const jsonHeaders = (): Record<string, string> => ({ ...authHeaders(), 'Content-Type': 'application/json' });
-
-const s: Record<string, React.CSSProperties> = {
-  card: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '1.1rem' },
-  input: { width: '100%', padding: '0.5rem 0.7rem', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: '0.9rem', boxSizing: 'border-box', background: '#fff', color: '#1e293b' },
-  label: { display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#475569', marginBottom: 4 },
-  btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0.55rem 1.1rem', border: 'none', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', justifyContent: 'center' },
-  th: { textAlign: 'left', padding: '0.5rem', fontSize: '0.72rem', color: '#64748b', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' },
-  td: { padding: '0.5rem', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
-  right: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
-};
+// Filtres des lignes proposées (utiles quand le périmètre compte beaucoup de lignes ou plusieurs services)
+const FILTRES = [
+  { key: 'chapitre', label: 'Chapitre', field: 'Chapitre par nature' },
+  { key: 'nature', label: 'Nature', field: 'Article par nature' },
+  { key: 'fonction', label: 'Fonction', field: 'Référence Fonctionnelle' },
+  { key: 'service', label: 'Code service', field: 'Service Gestionnaire' },
+] as const;
+type Filtres = Record<(typeof FILTRES)[number]['key'], string>;
+const SANS_FILTRE: Filtres = { chapitre: '', nature: '', fonction: '', service: '' };
 
 const Picker: React.FC<{
   title: string; sign: '+' | '-'; picked: Picked[]; setPicked: (p: Picked[]) => void; color: string;
@@ -88,7 +65,7 @@ const Picker: React.FC<{
         const hay = `${l.Code} ${l['Libellé']} ${imputation(l)} ${l["Opération d'équipement"]} ${shortOp(l["Opération d'équipement"])}`.toLowerCase();
         return tokens.every(t => hay.includes(t));
       })
-      .slice(0, 60);
+      .slice(0, 200);
   }, [q, scoped, taken, sign]);
   const delta = sign === '+' ? 1 : -1;
   return (
@@ -162,16 +139,21 @@ const Picker: React.FC<{
   );
 };
 
-// ───────────────────────── Détail : aperçu PDF, signatures, envoi au budget ─────────────────────────
-const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () => void; onChanged: () => void }> = ({ id, sig, onClose, onChanged }) => {
+type Source = 'mine' | 'service' | 'direction' | 'traitement';
+
+// ───────────────────────── Détail : aperçu PDF, signatures, transmission, traitement ─────────────────────────
+// source : liste d'où vient la demande (mes demandes, service, direction, espace de traitement)
+const Detail: React.FC<{ id: number; sig: SignatairesData | null; source: Source; espaceOuvert: boolean; onClose: () => void; onChanged: () => void }> = ({ id, sig, source, espaceOuvert, onClose, onChanged }) => {
+  const finances = source === 'traitement';
   const [rec, setRec] = useState<Rec | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfSigned, setPdfSigned] = useState(false);
   const [resp, setResp] = useState<string | null>(null); // e-mail, '' = aucun, null = pas encore choisi (défaut)
   const [dir, setDir] = useState<string | null>(null);
   const [paraMessage, setParaMessage] = useState('');
   const [mailMessage, setMailMessage] = useState('');
-  const [busy, setBusy] = useState<'' | 'para' | 'mail'>('');
+  const [busy, setBusy] = useState<'' | 'para' | 'mail' | 'espace' | 'traitement'>('');
+  const [statut, setStatut] = useState<'fait' | 'en_cours' | 'refuse'>('fait');
+  const [commentaire, setCommentaire] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -182,15 +164,15 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
     if (dirName) qs.set('dir', dirName);
     const p = await fetch(`${API}/${id}/pdf?${qs}`, { headers: authHeaders() });
     if (p.ok) {
-      setPdfSigned(p.headers.get('X-Pdf-Signed') === '1');
       const blob = await p.blob();
       setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
     }
   }, [id]);
   const reload = useCallback(async () => {
-    const r = await fetch(API, { headers: authHeaders() });
+    const url = source === 'traitement' ? `${API}/traitement` : source === 'mine' ? API : `${API}?scope=${source}`;
+    const r = await fetch(url, { headers: authHeaders() });
     if (r.ok) { const list: Rec[] = await r.json(); setRec(list.find(x => x.id === id) || null); }
-  }, [id]);
+  }, [id, source]);
   useEffect(() => {
     reload().catch(() => {});
     return () => { setPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; }); };
@@ -209,7 +191,7 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
   const paraId = rec?.parapheur_id ?? null;
   const recLoaded = !!rec;
   useEffect(() => {
-    if (!recLoaded || (!sig && !paraId)) return;
+    if (!recLoaded) return;
     const t = setTimeout(() => { loadPdf(paraId ? '' : respName, paraId ? '' : dirName).catch(() => {}); }, 250);
     return () => clearTimeout(t);
   }, [recLoaded, paraId, sig, respName, dirName, loadPdf]);
@@ -230,9 +212,27 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
       await reload(); onChanged();
     } catch (e: any) { setError(e.message); } finally { setBusy(''); }
   };
+  const transmettre = async () => {
+    if (!(await appConfirm('Transmettre cette demande à la direction des finances dans l’application, sans envoyer de mail ?', { confirmLabel: 'Transmettre' }))) return;
+    setBusy('espace'); setError(''); setInfo('');
+    try {
+      await call('transmettre', {});
+      setInfo('Transmise à la direction des finances. Vous recevrez un mail à chaque changement d’état.');
+      await reload(); onChanged();
+    } catch (e: any) { setError(e.message); } finally { setBusy(''); }
+  };
+  const acquitter = async () => {
+    setBusy('traitement'); setError(''); setInfo('');
+    try {
+      const r = await call('traitement', { statut, commentaire });
+      if (r.mail) setInfo(`Enregistré. Mail envoyé à ${r.mail}.`);
+      else setError(`Enregistré, mais le demandeur n'a pas été prévenu par mail : ${r.mailError || 'envoi impossible'}.`);
+      setCommentaire('');
+      await reload(); onChanged();
+    } catch (e: any) { setError(e.message); } finally { setBusy(''); }
+  };
   const sendToBudget = async () => {
     if (!rec) return;
-    if (!pdfSigned && !(await appConfirm("Le document n'est pas encore signé. L'envoyer quand même au service budget ?", { confirmLabel: 'Continuer' }))) return;
     setBusy('mail'); setError(''); setInfo('');
     try {
       const r = await call('send-budget', { message: mailMessage });
@@ -248,7 +248,7 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
       <select style={s.input} value={value} onChange={e => set(e.target.value)}>
         <option value="">— Aucun —</option>
         {list.map(e => (
-          <option key={e.matricule + e.email} value={e.email}>{nameOf(e)} — {labelOf(e)}{def && def.email === e.email ? ' (par défaut)' : ''}</option>
+          <option key={e.matricule + e.email} value={e.email}>{listNameOf(e)} — {labelOf(e)}{def && def.email === e.email ? ' (par défaut)' : ''}</option>
         ))}
       </select>
       {!list.length && <div style={{ fontSize: '0.75rem', color: '#d97706', marginTop: 4 }}>Aucun encadrant avec adresse e-mail pour votre périmètre budgétaire.</div>}
@@ -268,7 +268,41 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
         <div style={{ flex: 1, display: 'flex', minHeight: 0, flexWrap: 'wrap' }}>
           {pdfUrl ? <iframe title="Prévisualisation" src={pdfUrl} style={{ flex: '1 1 420px', minHeight: 300, border: 'none' }} /> : <div style={{ flex: 1, padding: '1rem' }}>Chargement…</div>}
           <div style={{ width: 360, maxWidth: '100%', padding: '1rem', borderLeft: '1px solid #e2e8f0', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {rec && (
+            {rec && !!rec.treatment_status && (
+              <div style={{ ...s.card, borderColor: ETATS[rec.etat].color, fontSize: '0.85rem' }}>
+                <strong>Direction des finances : {ETATS[rec.etat].label}</strong>
+                <div style={{ color: '#64748b' }}>le {fmtDate(rec.treated_at)}{finances && rec.treated_by ? ` par ${rec.treated_by}` : ''}</div>
+                {rec.treatment_comment && <div style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}>{rec.treatment_comment}</div>}
+              </div>
+            )}
+            {rec && finances && (
+              <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+                <strong style={{ fontSize: '0.9rem' }}>Traitement de la demande</strong>
+                <div style={{ fontSize: '0.82rem', color: '#475569' }}>{rec.created_by_name} — {rec.service}<br />{fmtMoney(Number(rec.montant))}</div>
+                <div>
+                  <label style={s.label}>État</label>
+                  <select style={s.input} value={statut} onChange={e => setStatut(e.target.value as typeof statut)}>
+                    <option value="fait">Fait</option>
+                    <option value="en_cours">En cours (ex. nécessite une décision modificative)</option>
+                    <option value="refuse">Refusé</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={s.label}>{statut === 'refuse' ? 'Raison du refus (obligatoire)' : 'Commentaire au demandeur'}</label>
+                  <textarea style={{ ...s.input, minHeight: 90, fontFamily: 'inherit', borderColor: statut === 'refuse' && !commentaire.trim() ? '#dc2626' : '#cbd5e1' }} value={commentaire} onChange={e => setCommentaire(e.target.value)} />
+                </div>
+                <button style={{ ...s.btn, opacity: busy || (statut === 'refuse' && !commentaire.trim()) ? 0.5 : 1 }} disabled={!!busy || (statut === 'refuse' && !commentaire.trim())} onClick={acquitter}>
+                  <Mail size={16} /> {busy === 'traitement' ? 'Enregistrement…' : 'Enregistrer et prévenir le demandeur'}
+                </button>
+              </div>
+            )}
+            {rec && !finances && source !== 'mine' && rec.mine === false && (
+              <div style={{ ...s.card, fontSize: '0.85rem' }}>
+                Demande de <strong>{rec.created_by_name}</strong> ({rec.service}) : consultation seule.
+                {rec.motivation && <div style={{ marginTop: 6, color: '#475569', whiteSpace: 'pre-wrap' }}>{rec.motivation}</div>}
+              </div>
+            )}
+            {rec && !finances && rec.mine !== false && (
               <>
                 <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
                   <strong style={{ fontSize: '0.9rem' }}>1. Signatures (parapheur)</strong>
@@ -276,10 +310,12 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
                     <div style={{ fontSize: '0.85rem' }}>
                       Envoyée au parapheur ({rec.para_reference || `#${rec.parapheur_id}`}) — {rec.para_status === 'termine' ? 'signée' : rec.para_status === 'refuse' ? 'refusée' : rec.para_status === 'annule' ? 'annulée' : 'en attente de signature'}.
                     </div>
+                  ) : !(rec.motivation || '').trim() ? (
+                    <div style={{ fontSize: '0.85rem', color: '#dc2626' }}>Motivation absente : dupliquez la demande et renseignez-la avant de la faire signer.</div>
                   ) : !sig ? <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Chargement des signataires…</div> : (
                     <>
                       <div style={{ fontSize: '0.78rem', color: '#64748b', background: '#f8fafc', borderRadius: 8, padding: '6px 8px' }}>Le PDF comporte aussi les cadres des finances, de la direction générale et des élus : ils sont complétés ensuite par le service budget.</div>
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Signature successive : responsable de service puis directeur. Proposés : ceux de votre chaîne hiérarchique, ou des services/directions de votre périmètre SEDIT.</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Signature successive : responsable de service puis directeur. Proposés : ceux de votre chaîne hiérarchique, ou des services/directions de votre périmètre SEDIT. Listes classées par nom.</div>
                       {selector('Responsable de service', sig.responsables, respEmail, setResp, sig.defaults.responsable, e => e.service_label || e.service_code)}
                       {selector('Directeur', sig.directeurs, dirEmail, setDir, sig.defaults.directeur, e => e.direction_label || e.direction_code)}
                       <div>
@@ -293,16 +329,29 @@ const Detail: React.FC<{ id: number; sig: SignatairesData | null; onClose: () =>
                   )}
                 </div>
                 <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
-                  <strong style={{ fontSize: '0.9rem' }}>2. Envoi au service budget</strong>
-                  <div style={{ fontSize: '0.8rem', color: pdfSigned ? '#16a34a' : '#d97706' }}>{pdfSigned ? 'Le PDF signé sera joint.' : 'Le PDF non signé sera joint.'}</div>
-                  {rec.sent_at && <div style={{ fontSize: '0.8rem', color: '#2563eb' }}>Déjà envoyée le {fmtDate(rec.sent_at)} à {rec.sent_to}.</div>}
-                  <div>
-                    <label style={s.label}>Message</label>
-                    <textarea style={{ ...s.input, minHeight: 130, fontFamily: 'inherit' }} value={mailMessage} onChange={e => setMailMessage(e.target.value)} />
-                  </div>
-                  <button style={{ ...s.btn, opacity: busy ? 0.5 : 1 }} disabled={!!busy} onClick={sendToBudget}>
-                    <Mail size={16} /> {busy === 'mail' ? 'Envoi…' : rec.sent_at ? 'Renvoyer le mail' : 'Envoyer le mail'}
-                  </button>
+                  <strong style={{ fontSize: '0.9rem' }}>2. Transmission à la direction des finances</strong>
+                  {rec.sent_at && <div style={{ fontSize: '0.8rem', color: '#2563eb' }}>Transmise le {fmtDate(rec.sent_at)} à {rec.sent_to}.</div>}
+                  {rec.para_status !== 'termine' ? (
+                    <div style={{ fontSize: '0.82rem', color: '#d97706' }}>La demande ne peut être transmise qu’une fois toutes les signatures faites.</div>
+                  ) : (
+                    <>
+                      {espaceOuvert && !rec.sent_at && (
+                        <>
+                          <button style={{ ...s.btn, background: '#7c3aed', opacity: busy ? 0.5 : 1 }} disabled={!!busy} onClick={transmettre}>
+                            <Send size={16} /> {busy === 'espace' ? 'Transmission…' : 'Transmettre dans l’application'}
+                          </button>
+                          <div style={{ fontSize: '0.78rem', color: '#64748b', textAlign: 'center' }}>ou par mail au service budget :</div>
+                        </>
+                      )}
+                      <div>
+                        <label style={s.label}>Message</label>
+                        <textarea style={{ ...s.input, minHeight: 130, fontFamily: 'inherit' }} value={mailMessage} onChange={e => setMailMessage(e.target.value)} />
+                      </div>
+                      <button style={{ ...s.btn, opacity: busy ? 0.5 : 1 }} disabled={!!busy} onClick={sendToBudget}>
+                        <Mail size={16} /> {busy === 'mail' ? 'Envoi…' : rec.sent_at ? 'Renvoyer par mail' : 'Envoyer le mail'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -331,54 +380,90 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   const [majorer, setMajorer] = useState<Picked[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'new' | 'history'>('new');
+  const [mode, setMode] = useState<'new' | 'history' | 'traitement'>('new');
+  const [scope, setScope] = useState<'mine' | 'service' | 'direction'>('mine');
+  const [droits, setDroits] = useState<{ canCreate: boolean; traitant: boolean; canManage: boolean }>({ canCreate: true, traitant: false, canManage: false });
+  const [espaceOuvert, setEspaceOuvert] = useState(false);
+  const [accessVersion, setAccessVersion] = useState(0);
+  const [version, setVersion] = useState(0);
+  const [filtres, setFiltres] = useState<Filtres>(SANS_FILTRE);
+  const [pendingDup, setPendingDup] = useState<Rec | null>(null);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
   const [rows, setRows] = useState<Rec[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  // Budgets sur lesquels l'agent a un droit de modification (Ville = principal, annexes : CMPP, Cinéma Le Luxy, Restauration…)
-  const [budgets, setBudgets] = useState<string[]>([]);
+  // Collectivité (Ville / CCAS) puis budget, limités aux droits de modification de l'agent (budgets clos écartés côté serveur)
+  const [droitsBudgets, setDroitsBudgets] = useState<{ collectivite: string; budget: string }[]>([]);
+  const [collectivite, setCollectivite] = useState('');
   const [budget, setBudget] = useState('');
-  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Ville (budget principal)' : b);
-  useEffect(() => {
-    fetch(`${API}/access`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(a => {
-      const list: string[] = [...new Set<string>(((a && a.services) || []).map((x: { budget: string }) => x.budget))].filter(Boolean).sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y)));
-      setBudgets(list);
-      setBudget(prev => prev || list.find(b => /^PRINCIPAL$/i.test(b)) || list[0] || '');
-    }).catch(() => {});
-  }, []);
+  const collLabel = (c: string) => (c === 'CCAS' ? 'CCAS' : 'Ville');
+  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Budget principal' : b);
+  const collectivites = useMemo(() => ['VILLE', 'CCAS'].filter(c => droitsBudgets.some(d => d.collectivite === c)), [droitsBudgets]);
+  const budgetsOf = useCallback((c: string) => [...new Set(droitsBudgets.filter(d => d.collectivite === c).map(d => d.budget))]
+    .sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y))), [droitsBudgets]);
+  const budgets = budgetsOf(collectivite);
 
   useEffect(() => {
-    if (!budget) return;
+    fetch(`${API}/access`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(a => {
+      if (!a) return;
+      const canCreate = a.canCreate !== false;
+      setDroits({ canCreate, traitant: !!a.traitement?.traitant, canManage: !!a.traitement?.canManage });
+      setDroitsBudgets((a.services || []).map((x: { collectivite?: string; budget: string }) => ({ collectivite: x.collectivite || 'VILLE', budget: x.budget })));
+      if (!canCreate) { setMode(a.traitement?.canManage ? 'traitement' : 'history'); setLoading(false); }
+    }).catch(() => {});
+  }, [accessVersion]);
+  // La transmission dans l'application n'est proposée que si au moins un agent des finances est désigné
+  useEffect(() => {
+    fetch(`${API}/espace`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(v => setEspaceOuvert(!!v?.ouvert)).catch(() => {});
+  }, [accessVersion]);
+  useEffect(() => {
+    if (!collectivite && collectivites.length) {
+      setCollectivite(collectivites[0]);
+      setBudget(budgetsOf(collectivites[0])[0] || '');
+    }
+  }, [collectivites, collectivite, budgetsOf]);
+
+  const [linesKey, setLinesKey] = useState('');
+  useEffect(() => {
+    if (!collectivite || !budget) return;
+    let stale = false;
     setLoading(true); setLiveError('');
-    fetch(`${API}/lines?budget=${encodeURIComponent(budget)}`, { headers: authHeaders() })
+    fetch(`${API}/lines?collectivite=${collectivite}&budget=${encodeURIComponent(budget)}`, { headers: authHeaders() })
       .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible'); return r.json(); })
-      .then(setLines).catch((e: Error) => { setLines([]); setLiveError(e.message); }).finally(() => setLoading(false));
-  }, [budget]);
+      .then(l => { if (!stale) { setLines(l); setLinesKey(`${collectivite}|${budget}`); } })
+      .catch((e: Error) => { if (!stale) { setLines([]); setLiveError(e.message); } })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [collectivite, budget]);
   useEffect(() => {
     fetch(`${API}/signataires`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(setSig).catch(() => {});
   }, []);
 
   const loadRows = useCallback(() => {
     setRowsLoading(true);
-    fetch(API, { headers: authHeaders() }).then(r => (r.ok ? r.json() : [])).then(setRows).catch(() => setRows([])).finally(() => setRowsLoading(false));
-  }, []);
+    fetch(scope === 'mine' ? API : `${API}?scope=${scope}`, { headers: authHeaders() }).then(r => (r.ok ? r.json() : [])).then(setRows).catch(() => setRows([])).finally(() => setRowsLoading(false));
+  }, [scope]);
   useEffect(() => { if (mode === 'history') loadRows(); }, [mode, loadRows]);
 
   const direction = sig?.me?.direction_label || '';
   const service = sig?.me?.service_label || '';
   const contact = sig?.me ? `${sig.me.prenom || ''} ${sig.me.nom || ''}`.trim() : userName;
 
-  const changeBudget = (b: string) => { if (b !== budget) { setMinorer([]); setMajorer([]); } setBudget(b); };
-  const changeScope = (sec: 'I' | 'F', sn: 'D' | 'R') => { if (sec !== section || sn !== sens) { setMinorer([]); setMajorer([]); } setSection(sec); setSens(sn); };
+  const resetSelection = () => { setMinorer([]); setMajorer([]); setFiltres(SANS_FILTRE); setCurrentId(null); };
+  const changeCollectivite = (c: string) => { if (c !== collectivite) { resetSelection(); setCollectivite(c); setBudget(budgetsOf(c)[0] || ''); } };
+  const changeBudget = (b: string) => { if (b !== budget) { resetSelection(); setBudget(b); } };
+  const changeScope = (sec: 'I' | 'F', sn: 'D' | 'R') => { if (sec !== section || sn !== sens) { setMinorer([]); setMajorer([]); setFiltres(SANS_FILTRE); } setSection(sec); setSens(sn); };
 
   // Le serveur ne renvoie que les lignes autorisées à l'agent. Règle DSI conservée : enveloppes ENV16/28/29 en investissement pour les services BF*.
   const scoped = useMemo(
     () => lines.filter(l => l.Section === section && l.Sens === sens && (!!l['Référence Fonctionnelle'] || !/^PRINCIPAL$/i.test(l.Budget || ''))
       && (section === 'F' || !/^BF/i.test(l['Service Gestionnaire'] || '') || ENVELOPPES.includes(shortOp(l["Opération d'équipement"])))),
     [lines, section, sens]);
+  const match = (l: BudgetLine, except?: string) => FILTRES.every(f => f.key === except || !filtres[f.key] || l[f.field] === filtres[f.key]);
+  const filtered = scoped.filter(l => match(l));
+  const filtreActif = Object.values(filtres).some(Boolean);
   const taken = useMemo(() => new Set([...majorer, ...minorer].map(p => p.line.Code)), [majorer, minorer]);
   const totalMaj = majorer.reduce((a, p) => a + toNum(p.montant), 0);
   const totalMin = minorer.reduce((a, p) => a + toNum(p.montant), 0);
@@ -390,20 +475,30 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
   const interChapitre = new Set([...majorer, ...minorer].map(p => p.line['Chapitre par nature'])).size > 1;
   const noLine = !loading && !liveError && scoped.length === 0;
 
-  // Dupliquer : reprend une demande existante (refusée, annulée, envoyée…) dans un nouveau brouillon
-  const duplicate = (r: Rec) => {
+  // Dupliquer : reprend une demande existante (refusée, annulée, envoyée…) dans un nouveau brouillon, sur son budget d'origine
+  const applyDuplicate = useCallback((r: Rec, from: BudgetLine[]) => {
     const pl = r.payload;
     if (!pl) return;
-    const find = (arr: PayloadLine[]) => arr.map(l => ({ line: lines.find(x => x.Code === l.code), montant: String(l.montant) }))
+    const find = (arr: PayloadLine[]) => arr.map(l => ({ line: from.find(x => x.Code === l.code), montant: String(l.montant) }))
       .filter((x): x is Picked => !!x.line);
     const maj = find(pl.majorer || []), min = find(pl.minorer || []);
     setSection(pl.section === 'F' ? 'F' : 'I'); setSens(pl.sens === 'R' ? 'R' : 'D');
     setCompense(pl.compense !== false); setActivite(pl.activite || ''); setMotivation(pl.motivation || '');
     setDate(new Date().toISOString().slice(0, 10));
-    setMajorer(maj); setMinorer(min); setCurrentId(null); setError(''); setMode('new');
+    setMajorer(maj); setMinorer(min); setCurrentId(null); setFiltres(SANS_FILTRE); setError('');
     const lost = (pl.majorer || []).length + (pl.minorer || []).length - maj.length - min.length;
     if (lost > 0) setError(`${lost} ligne(s) de la demande d'origine ne sont plus disponibles dans votre périmètre et n'ont pas été reprises.`);
+  }, []);
+  const duplicate = (r: Rec) => {
+    const c = r.payload?.collectivite || collectivite;
+    const b = budgetsOf(c).find(x => x === r.payload?.budget) || (c === collectivite ? budget : budgetsOf(c)[0]) || budget;
+    setMode('new');
+    if (c !== collectivite || b !== budget) { resetSelection(); setCollectivite(c); setBudget(b); }
+    setPendingDup(r);
   };
+  useEffect(() => {
+    if (pendingDup && !loading && linesKey === `${collectivite}|${budget}`) { applyDuplicate(pendingDup, lines); setPendingDup(null); }
+  }, [pendingDup, loading, linesKey, collectivite, budget, lines, applyDuplicate]);
 
   const toPayloadLine = (p: Picked, delta: 1 | -1) => ({
     chapitre: p.line['Chapitre par nature'], fonction: p.line['Référence Fonctionnelle'], nature: p.line['Article par nature'],
@@ -417,7 +512,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
       const res = await fetch(API, {
         method: 'POST', headers: jsonHeaders(),
         body: JSON.stringify({
-          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget,
+          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget, collectivite,
           majorer: majorer.map(p => toPayloadLine(p, 1)), minorer: minorer.map(p => toPayloadLine(p, -1)),
         }),
       });
@@ -434,7 +529,11 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
     if (r.ok) loadRows(); else appAlert((await r.json().catch(() => ({}))).message || 'Suppression impossible');
   };
 
-  const tabBtn = (m: 'new' | 'history', label: string) => (
+  const sansMotivation = !motivation.trim();
+  const source: Source = mode === 'traitement' ? 'traitement' : mode === 'history' ? scope : 'mine';
+  const refresh = () => { if (mode === 'history') loadRows(); setVersion(v => v + 1); };
+
+  const tabBtn = (m: 'new' | 'history' | 'traitement', label: string) => (
     <button onClick={() => setMode(m)} style={{ padding: '0.5rem 1.1rem', border: 'none', borderBottom: mode === m ? '3px solid #2563eb' : '3px solid transparent', background: 'none', fontWeight: 600, cursor: 'pointer', color: mode === m ? '#2563eb' : '#64748b' }}>{label}</button>
   );
 
@@ -451,14 +550,28 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e2e8f0' }}>{tabBtn('new', 'Nouvelle demande')}{tabBtn('history', 'Mes demandes')}</div>
+          <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e2e8f0' }}>
+            {droits.canCreate && tabBtn('new', 'Nouvelle demande')}
+            {droits.canCreate && tabBtn('history', 'Suivi des demandes')}
+            {(droits.traitant || droits.canManage) && tabBtn('traitement', 'Traitement (finances)')}
+          </div>
+
+          {mode === 'traitement' && (
+            <VirementTraitement traitant={droits.traitant} canManage={droits.canManage} version={version} onOpen={setOpenId} onAccessChanged={() => setAccessVersion(v => v + 1)} />
+          )}
 
           {mode === 'history' && (
             <div style={{ ...s.card, overflowX: 'auto' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                {([['mine', 'Mes demandes'], ['service', 'Mon service'], ['direction', 'Ma direction']] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => { setRows([]); setScope(k); }}
+                    style={{ border: '1px solid #cbd5e1', borderRadius: 16, padding: '4px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', background: scope === k ? '#2563eb' : '#fff', color: scope === k ? '#fff' : '#475569' }}>{label}</button>
+                ))}
+              </div>
               {rowsLoading ? 'Chargement…' : rows.length === 0 ? <div style={{ color: '#94a3b8' }}>Aucune demande pour le moment.</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr>
-                    <th style={s.th}>N°</th><th style={s.th}>Date</th><th style={s.th}>Service</th><th style={s.th}>Section</th><th style={s.th}>Type</th>
+                    <th style={s.th}>N°</th><th style={s.th}>Date</th>{scope !== 'mine' && <th style={s.th}>Demandeur</th>}<th style={s.th}>Service</th><th style={s.th}>Section</th><th style={s.th}>Type</th>
                     <th style={{ ...s.th, textAlign: 'right' }}>Montant</th><th style={s.th}>Motivation</th><th style={s.th}>État</th><th style={s.th}></th>
                   </tr></thead>
                   <tbody>
@@ -466,16 +579,17 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                       const e = ETATS[r.etat];
                       return (
                         <tr key={r.id}>
-                          <td style={s.td}>{r.id}</td><td style={s.td}>{fmtDate(r.date_demande || r.created_at)}</td><td style={s.td}>{r.service}</td>
+                          <td style={s.td}>{r.id}</td><td style={s.td}>{fmtDate(r.date_demande || r.created_at)}</td>{scope !== 'mine' && <td style={s.td}>{r.created_by_name}</td>}<td style={s.td}>{r.service}</td>
                           <td style={s.td}>{r.section === 'I' ? 'Invest.' : 'Fonct.'} / {r.sens === 'D' ? 'Dép.' : 'Rec.'}</td>
                           <td style={s.td}>{r.compense ? 'Compensée' : 'Non compensée'}</td>
                           <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(Number(r.montant))}</td>
                           <td style={{ ...s.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.motivation || ''}>{r.motivation}</td>
-                          <td style={s.td}><span style={{ background: e.color, color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.label}</span></td>
+                          <td style={s.td}><span style={{ background: e.color, color: '#fff', borderRadius: 12, padding: '2px 10px', fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.label}</span>
+                            {r.treatment_comment && <div style={{ color: '#64748b', fontSize: '0.72rem', maxWidth: 200 }}>{r.treatment_comment}</div>}</td>
                           <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
-                            <button title="Dupliquer dans une nouvelle demande" onClick={() => duplicate(r)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569' }}><Copy size={16} /></button>
-                            <button title="Ouvrir / envoyer" onClick={() => setOpenId(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#2563eb' }}><Eye size={17} /></button>
-                            {!r.parapheur_id && !r.sent_at && <button title="Supprimer" onClick={() => remove(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#dc2626' }}><Trash2 size={16} /></button>}
+                            {r.mine !== false && <button title="Dupliquer dans une nouvelle demande" onClick={() => duplicate(r)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#475569' }}><Copy size={16} /></button>}
+                            <button title="Ouvrir" onClick={() => setOpenId(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#2563eb' }}><Eye size={17} /></button>
+                            {r.mine !== false && !r.parapheur_id && !r.sent_at && <button title="Supprimer" onClick={() => remove(r.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#dc2626' }}><Trash2 size={16} /></button>}
                           </td>
                         </tr>
                       );
@@ -490,6 +604,10 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
             <>
               <div style={s.card}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+                  <div><label style={s.label}>Code collectivité</label>
+                    <select style={s.input} value={collectivite} onChange={e => changeCollectivite(e.target.value)}>
+                      {collectivites.map(c => <option key={c} value={c}>{collLabel(c)}</option>)}
+                    </select></div>
                   <div><label style={s.label}>Budget</label>
                     <select style={s.input} value={budget} onChange={e => changeBudget(e.target.value)}>
                       {budgets.map(b => <option key={b} value={b}>{budgetLabel(b)}</option>)}
@@ -508,10 +626,10 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                     <input type="checkbox" checked={compense} onChange={e => setCompense(e.target.checked)} /> Demande compensée (majorations = minorations)
                   </label>
                 </div>
-                <div style={{ marginBottom: '0.9rem' }}><label style={s.label}>Activité / Projet / Opération impacté (optionnel)</label>
+                <div style={{ marginBottom: '0.9rem' }}><label style={s.label}>Activité / Projet / Opération impacté</label>
                   <input style={s.input} value={activite} onChange={e => setActivite(e.target.value)} /></div>
-                <div><label style={s.label}>Motivation de la demande (raison)</label>
-                  <textarea style={{ ...s.input, minHeight: 80, fontFamily: 'inherit' }} value={motivation} onChange={e => setMotivation(e.target.value)} placeholder="Ex. : Régularisation de lignes d'exécution négatives" /></div>
+                <div><label style={s.label}>Motivation de la demande (raison) <span style={{ color: '#dc2626' }}>* obligatoire</span></label>
+                  <textarea required style={{ ...s.input, minHeight: 80, fontFamily: 'inherit' }} value={motivation} onChange={e => setMotivation(e.target.value)} placeholder="Ex. : Régularisation de lignes d'exécution négatives" /></div>
               </div>
 
               {liveError && <div style={{ ...s.card, borderColor: '#dc2626', color: '#b91c1c', fontSize: '0.85rem' }}><AlertTriangle size={15} style={{ verticalAlign: 'text-bottom' }} /> Impossible de lire vos lignes dans SEDIT : {liveError}</div>}
@@ -521,10 +639,30 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                   (dépenses ou recettes, investissement ou fonctionnement). Essayez l'autre section ou l'autre sens, ou demandez les droits à la direction des finances.
                 </div>
               )}
+              {!loading && scoped.length > 0 && (
+                <div style={s.card}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.9rem' }}>
+                    {FILTRES.map(f => {
+                      const options = uniq(scoped.filter(l => match(l, f.key)).map(l => l[f.field]));
+                      return (
+                        <div key={f.key}><label style={s.label}>{f.label}</label>
+                          <select style={s.input} value={filtres[f.key]} onChange={e => setFiltres({ ...filtres, [f.key]: e.target.value })}>
+                            <option value="">Tous</option>
+                            {options.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select></div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: '0.8rem', color: '#64748b' }}>
+                    {filtered.length} ligne(s) proposée(s) sur {scoped.length}. Les imputations déjà choisies restent sélectionnées.
+                    {filtreActif && <button onClick={() => setFiltres(SANS_FILTRE)} style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>Effacer les filtres</button>}
+                  </div>
+                </div>
+              )}
               {loading ? <div style={s.card}>Chargement de vos lignes d'exécution…</div> : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
-                  <Picker scoped={scoped} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à minorer (−)" sign="-" picked={minorer} setPicked={setMinorer} color="#dc2626" />
-                  <Picker scoped={scoped} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à majorer (+)" sign="+" picked={majorer} setPicked={setMajorer} color="#16a34a" />
+                  <Picker scoped={filtered} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à minorer (−)" sign="-" picked={minorer} setPicked={setMinorer} color="#dc2626" />
+                  <Picker scoped={filtered} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à majorer (+)" sign="+" picked={majorer} setPicked={setMajorer} color="#16a34a" />
                 </div>
               )}
 
@@ -535,8 +673,9 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
                 {desequilibre && <span style={{ color: '#dc2626', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Demande compensée : les totaux doivent être égaux.</span>}
                 {interChapitre && <span style={{ color: '#d97706', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Virement entre chapitres : il peut suivre un circuit de validation différent.</span>}
                 {hasNegative && <span style={{ color: '#d97706', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Une ligne minorée passerait en disponible négatif.</span>}
+                {hasLines && sansMotivation && <span style={{ color: '#dc2626', display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: '0.85rem' }}><AlertTriangle size={15} /> Renseignez la motivation de la demande.</span>}
                 <div style={{ marginLeft: 'auto' }}>
-                  <button style={{ ...s.btn, opacity: busy || !hasLines || desequilibre ? 0.5 : 1 }} disabled={busy || !hasLines || desequilibre} onClick={generate}>
+                  <button style={{ ...s.btn, opacity: busy || !hasLines || desequilibre || sansMotivation ? 0.5 : 1 }} disabled={busy || !hasLines || desequilibre || sansMotivation} onClick={generate}>
                     <FileText size={16} /> {busy ? 'Génération…' : 'Prévisualiser'}
                   </button>
                 </div>
@@ -547,7 +686,7 @@ export default function VirementCredits({ onClose, beta = false, userName = '', 
         </div>
       </div>
       {showHelp && <HelpModal page="/magapp/virement-credits" title="Aide — Virement de crédits" onClose={() => setShowHelp(false)} />}
-      {openId != null && <Detail id={openId} sig={sig} onClose={() => { setOpenId(null); if (mode === 'history') loadRows(); }} onChanged={() => { if (mode === 'history') loadRows(); }} />}
+      {openId != null && <Detail id={openId} sig={sig} source={source} espaceOuvert={espaceOuvert} onClose={() => { setOpenId(null); refresh(); }} onChanged={refresh} />}
     </div>
   );
 }

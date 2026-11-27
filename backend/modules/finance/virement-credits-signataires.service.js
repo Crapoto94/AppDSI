@@ -82,13 +82,17 @@ async function getSignataires(user, services) {
     const allowedServices = new Set((services || []).map(s => norm(s.service)).filter(Boolean));
     const dirOf = await directionsOfServices([...allowedServices]);
     const allowedDirections = new Set(dirOf.values());
+    // Droits sur un budget du CCAS : son directeur (direction RH « BZ ») est proposé, les codes services « J* » n'y menant pas
+    if ((services || []).some(s => s.collectivite === 'CCAS')) allowedDirections.add('BZ');
     // Les services/directions de l'agent lui-même restent proposés (ses propres signataires par défaut)
     if (placement) {
         if (placement.service_code) allowedServices.add(placement.service_code);
         if (placement.direction_code) allowedDirections.add(placement.direction_code);
     }
 
-    const withMail = encadrants.filter(e => e.email && String(e.email).includes('@'));
+    // Tri par nom (la recherche au clavier dans la liste porte sur le début du libellé)
+    const withMail = encadrants.filter(e => e.email && String(e.email).includes('@'))
+        .sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, 'fr'));
     const responsables = withMail
         .filter(e => e.role === 'responsable_service' && allowedServices.has(norm(e.service_code)))
         .map(pick);

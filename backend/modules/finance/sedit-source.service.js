@@ -263,27 +263,42 @@ async function readBudgetLines({ exercice, scope, budget, actor, clientApp } = {
     return { rows: await seditSynthese.getBudgetLines({ exercice: y, scope }), source: 'sedit-live' };
 }
 
-async function readVirementLines({ fiscalYear, budget = '', allBudgets = false, services = [], actor, clientApp } = {}) {
+async function readVirementLines({ fiscalYear, collectivite = '', budget = '', allBudgets = false, services = [], actor, clientApp } = {}) {
     const y = Number(fiscalYear) || new Date().getFullYear();
-    const wanted = String(budget || '').trim().toUpperCase();
-    const allowed = wanted ? services.filter(s => String(s.budget).toUpperCase() === wanted)
-        : (allBudgets ? services : services.filter(s => String(s.budget).toUpperCase() === 'PRINCIPAL'));
+    const perimetre = require('./virement-credits-perimetre.service');
+    const wanted = perimetre.norm(budget);
+    let coll = perimetre.norm(collectivite);
+    let allowed = wanted ? services.filter(s => perimetre.norm(s.budget) === wanted)
+        : (allBudgets ? services : services.filter(s => perimetre.isPrincipal(s.budget)));
+    // Sans collectivité précisée, un budget « PRINCIPAL » désigne celui de la Ville (à défaut celui du CCAS)
+    if (!coll && wanted && perimetre.isPrincipal(wanted)) coll = allowed.some(s => s.collectivite === 'VILLE') ? 'VILLE' : 'CCAS';
+    if (coll) allowed = allowed.filter(s => s.collectivite === coll);
     if (!allowed.length) return { rows: [], source: 'sedit-api' };
 
-    const byBudget = new Map();
+    const groups = new Map();
     for (const s of allowed) {
-        if (!byBudget.has(s.budget)) byBudget.set(s.budget, new Set());
-        byBudget.get(s.budget).add(s.service);
+        const key = `${s.collectivite}|${s.budget}`;
+        if (!groups.has(key)) groups.set(key, { collectivite: s.collectivite, label: s.budget, services: new Set() });
+        groups.get(key).services.add(s.service);
     }
     const out = [];
-    for (const [budgetLabel, set] of byBudget) {
-        const rows = await api.lignesBudgetaires(y, {
-            budget: budgetLabel,
-            service: [...set].join(','),
+    for (const g of groups.values()) {
+        let rows = await api.lignesBudgetaires(y, {
+            budget: g.label,
+            service: [...g.services].join(','),
             sens: '',
             actor, clientApp,
         });
-        out.push(...rows.map(mapBudgetLine));
+        // L'API filtre par libellé : « PRINCIPAL » ramène la Ville ET le CCAS, on sépare par budget annuel
+        if (perimetre.isPrincipal(g.label)) {
+            if (rows.every(r => r.collectivite)) rows = rows.filter(r => r.collectivite === g.collectivite);
+            else { // API Sedit pas encore redéployée : reconnaissance par budget annuel
+                const ccas = await perimetre.ccasPrincipalBudgetAnnuel(y);
+                if (!ccas && g.collectivite === 'CCAS') rows = [];
+                else rows = rows.filter(r => (String(r.id || '').split('.')[1] === ccas) === (g.collectivite === 'CCAS'));
+            }
+        }
+        out.push(...rows.map(r => ({ ...mapBudgetLine(r), Collectivite: g.collectivite })));
     }
     return { rows: out, source: 'sedit-api' };
 }

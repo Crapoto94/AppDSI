@@ -7,7 +7,7 @@ const ctrl = require('./virement-credits.controller');
 // Prévient le demandeur quand sa demande de virement de crédits est signée, refusée ou annulée au parapheur
 // (une seule fois par changement d'état : finance.virements_credits.notified_etat). Lien d'accès = MagApp.
 const MESSAGES = {
-    termine: { subject: 'signée', body: 'Toutes les signatures sont faites. Vous pouvez maintenant l’envoyer au service budget depuis MagApp.' },
+    termine: { subject: 'signée', body: 'Toutes les signatures sont faites. Vous pouvez maintenant la transmettre à la direction des finances depuis MagApp.' },
     refuse: { subject: 'refusée', body: 'Un signataire a refusé de la signer. Vous pouvez la dupliquer dans MagApp pour la corriger.' },
     annule: { subject: 'annulée', body: 'Le circuit de signature a été annulé. Vous pouvez la dupliquer dans MagApp pour la relancer.' },
 };

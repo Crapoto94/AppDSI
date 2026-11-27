@@ -7629,6 +7629,10 @@ async function setupPgDbFull() {
           user_agent TEXT
         )`);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_signatures_pair ON hub_parapheur.signatures(signataire_id, document_id)`);
+      // Emplacement prévu par un formulaire : mention manuscrite (décalage en points depuis le coin bas-gauche de la signature) et date
+      for (const col of ['note_x NUMERIC', 'note_y NUMERIC', 'note_w NUMERIC', 'date_x_pct NUMERIC', 'date_y_pct NUMERIC']) {
+        try { await client.query(`ALTER TABLE hub_parapheur.signatures ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+      }
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.agent_signatures (
@@ -8390,6 +8394,8 @@ async function setupPgDbFull() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_section ON reunions_service.items(section_id)`);
       try { await client.query(`ALTER TABLE reunions_service.items ADD COLUMN IF NOT EXISTS is_pause BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      // Item « important » : remonté en tête de sa rubrique et mis en évidence.
+      try { await client.query(`ALTER TABLE reunions_service.items ADD COLUMN IF NOT EXISTS is_important BOOLEAN DEFAULT FALSE`); } catch (e) {}
       await client.query(`CREATE INDEX IF NOT EXISTS idx_rs_items_meeting ON reunions_service.items(meeting_id)`);
       await client.query(`
         CREATE TABLE IF NOT EXISTS reunions_service.attachments (

@@ -137,7 +137,8 @@ async function getMeetingFull(id) {
         return sa.localeCompare(sb, 'fr') || String(a.name || '').localeCompare(String(b.name || ''), 'fr');
     });
     const items = await pgDb.all(
-        'SELECT * FROM reunions_service.items WHERE meeting_id = ? ORDER BY position, id', [id]
+        // Les items importants passent en tête de leur rubrique.
+        'SELECT * FROM reunions_service.items WHERE meeting_id = ? ORDER BY COALESCE(is_important, FALSE) DESC, position, id', [id]
     );
     const attachments = await pgDb.all(
         `SELECT id, meeting_id, item_id, filename, original_name, mimetype, size, uploaded_by, uploaded_by_name, created_at
@@ -1320,36 +1321,13 @@ const controller = {
     },
 
     /**
-     * Auto-présence à l'ouverture de la page : si la séance est en cours et que
-     * l'utilisateur connecté est participant, il est marqué présent. Repli HTTP
-     * du mécanisme socket (rs_join), pour garantir la présence même si le
-     * temps réel n'est pas encore établi.
+     * Auto-présence à l'ouverture de la page : repli HTTP du mécanisme socket
+     * (rs_join), pour garantir la présence même si le temps réel n'est pas
+     * encore établi. Règles dans `markUserPresent`.
      */
     markSelfPresent: async (req, res) => {
         try {
-            const id = toInt(req.params.id);
-            const meeting = await pgDb.get('SELECT id, status FROM reunions_service.meetings WHERE id = ?', [id]);
-            if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });
-            if (meeting.status !== 'in_progress') return res.json({ changed: false, reason: 'not_in_progress' });
-            const uname = userKey(req.user);
-            const email = String(req.user?.email || '').toLowerCase();
-            if (!uname && !email) return res.json({ changed: false });
-            const row = await pgDb.get(
-                `SELECT id, present, excused FROM reunions_service.meeting_participants
-                 WHERE meeting_id = ?
-                   AND (LOWER(username) = ? OR (LOWER(email) = ? AND ? <> ''))
-                   AND COALESCE(kind, 'present') <> 'info'
-                 LIMIT 1`,
-                [id, uname, email, email]
-            );
-            if (!row) return res.json({ changed: false, reason: 'not_participant' });
-            if (row.present && !row.excused) return res.json({ changed: false, present: true });
-            await pgDb.run(
-                'UPDATE reunions_service.meeting_participants SET present = TRUE, excused = FALSE WHERE id = ?',
-                [row.id]
-            );
-            reunionSocket.notifyContentChanged(id, { reason: 'self_presence' });
-            res.json({ changed: true, present: true });
+            res.json(await reunionSocket.markUserPresent(toInt(req.params.id), req.user));
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1758,6 +1736,22 @@ const controller = {
                  FROM reunions_service.attachments WHERE item_id = ? ORDER BY created_at`, [itemId]
             );
             res.json({ ...updated, attachments: atts });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /** Marque / démarque un item « important ». Ouvert à tous les participants,
+     *  comme la modification ; ne change pas la date de modification. */
+    setItemImportant: async (req, res) => {
+        try {
+            const itemId = toInt(req.params.itemId);
+            const item = await pgDb.get('SELECT id, meeting_id FROM reunions_service.items WHERE id = ?', [itemId]);
+            if (!item) return res.status(404).json({ error: 'Item introuvable' });
+            const important = req.body?.is_important === true || req.body?.is_important === 'true';
+            await pgDb.run('UPDATE reunions_service.items SET is_important = ? WHERE id = ?', [important, itemId]);
+            reunionSocket.notifyContentChanged(item.meeting_id, { itemId });
+            res.json({ success: true, is_important: important });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

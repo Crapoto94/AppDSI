@@ -1713,8 +1713,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
             if (!targetDocId) continue;
             await pgDb.run(
                 `INSERT INTO hub_parapheur.signatures
-                    (signataire_id, document_id, page, x_pct, y_pct, w_pt, h_pt)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    (signataire_id, document_id, page, x_pct, y_pct, w_pt, h_pt, note_x, note_y, note_w, date_x_pct, date_y_pct)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     sid,
                     targetDocId,
@@ -1723,6 +1723,12 @@ async function createParapheur({ files, annexes, payload, user, req }) {
                     Number(pos.y) || 85,
                     Number(pos.w) || 150,
                     Number(pos.h) || 60,
+                    // Facultatif : emplacements imposés par un formulaire (mention manuscrite, date)
+                    Number.isFinite(pos.noteX) ? pos.noteX : null,
+                    Number.isFinite(pos.noteY) ? pos.noteY : null,
+                    Number.isFinite(pos.noteW) ? pos.noteW : null,
+                    Number.isFinite(pos.dateX) ? pos.dateX : null,
+                    Number.isFinite(pos.dateY) ? pos.dateY : null,
                 ]
             );
         }
@@ -1964,6 +1970,8 @@ async function getDetail(id) {
             y: Number(s.y_pct),
             w: s.w_pt,
             h: s.h_pt,
+            noteX: s.note_x == null ? null : Number(s.note_x),
+            noteY: s.note_y == null ? null : Number(s.note_y),
             applied: s.applied,
         })),
         audit: auditLog.map(a => ({ actor: a.actor, action: a.action, details: a.details, ip: a.ip, created_at: a.created_at })),
@@ -1990,7 +1998,7 @@ async function getPublicInfo(token, req) {
         [p.id]
     );
     const signatures = await pgDb.all(
-        `SELECT document_id, page, x_pct, y_pct, w_pt, h_pt, applied FROM hub_parapheur.signatures WHERE signataire_id = ?`,
+        `SELECT document_id, page, x_pct, y_pct, w_pt, h_pt, note_x, note_y, applied FROM hub_parapheur.signatures WHERE signataire_id = ?`,
         [signataire.id]
     );
 
@@ -2081,6 +2089,8 @@ async function getPublicInfo(token, req) {
             y: Number(s.y_pct),
             w: s.w_pt,
             h: s.h_pt,
+            noteX: s.note_x == null ? null : Number(s.note_x),
+            noteY: s.note_y == null ? null : Number(s.note_y),
             applied: s.applied,
         })),
     };
@@ -2166,10 +2176,17 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
         const TITLE_SIZE = 8;
         const hasTitle = !!s.signature_title;
 
+        // La mention passe sur deux lignes (« … par NOM » / « le date heure ») quand elle sortirait de la page — l'heure était
+        // alors coupée — ou, sur un formulaire à cases (date placée), de la case de signature.
+        const maxLabelW = s.date_x_pct != null ? w : width - Math.max(2, boxLeft) - 4;
+        const cut = label.lastIndexOf(' le ');
+        const labelLines = cut > 0 && font.widthOfTextAtSize(label, LABEL_SIZE) > maxLabelW ? [label.slice(0, cut), label.slice(cut + 1)] : [label];
+        const labelH = labelLines.length * (LABEL_SIZE + 1);
+
         // La signature (image) est réduite dans la partie haute du cadre afin que
         // le nom et la fonction restent DANS le rectangle de positionnement.
         if (image) {
-            const textBlockH = LABEL_SIZE + 3 + (hasTitle ? TITLE_SIZE + 3 : 0);
+            const textBlockH = labelH + 2 + (hasTitle ? TITLE_SIZE + 3 : 0);
             const imgAreaH = Math.max(10, h - textBlockH - 3);
             const imgAreaW = w * 0.96;
             const { width: nw, height: nh } = image.scale(1);
@@ -2189,14 +2206,24 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
 
         const textMaxW = Math.max(w, 260);
         const labelY = boxBottom + (hasTitle ? TITLE_SIZE + 3 : 2);
-        page.drawText(label, {
+        labelLines.forEach((line, i) => page.drawText(line, {
             x: Math.max(2, boxLeft),
-            y: Math.max(2, labelY),
+            y: Math.max(2, labelY) + (labelLines.length - 1 - i) * (LABEL_SIZE + 1),
             size: LABEL_SIZE,
             font,
             color: rgb(0.2, 0.2, 0.2),
             maxWidth: textMaxW,
-        });
+        }));
+
+        // Date seule dans la case « Date » d'un formulaire
+        if (s.date_x_pct != null && s.date_y_pct != null && s.signed_at) {
+            const day = new Date(s.signed_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            page.drawText(day, {
+                x: (Number(s.date_x_pct) / 100) * width - font.widthOfTextAtSize(day, LABEL_SIZE) / 2,
+                y: height - (Number(s.date_y_pct) / 100) * height - LABEL_SIZE / 2,
+                size: LABEL_SIZE, font, color: rgb(0.2, 0.2, 0.2),
+            });
+        }
 
         // Intitulé de poste du signataire, sous le nom, dans le cadre.
         if (hasTitle) {
@@ -2214,8 +2241,11 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
         // signataire : décalage (points) depuis le coin bas-gauche de la signature.
         if (s.note_img || s.signature_note) {
             try {
-                const offX = Number.isFinite(Number(s.note_offset_x)) ? Number(s.note_offset_x) : 0;
-                const offY = Number.isFinite(Number(s.note_offset_y)) ? Number(s.note_offset_y) : (h + 6);
+                // Choix du signataire, sinon emplacement prévu par le formulaire, sinon au-dessus de la signature
+                const pickOff = (...v) => v.find(n => n != null && Number.isFinite(Number(n)));
+                const offX = Number(pickOff(s.note_offset_x, s.note_x, 0));
+                const offY = Number(pickOff(s.note_offset_y, s.note_y, h + 6));
+                const zoneW = s.note_w != null ? Number(s.note_w) : null;
                 if (s.note_img) {
                     const noteBuf = await readStorageFile(s.note_img);
                     const lowerNote = String(s.note_img).toLowerCase();
@@ -2229,7 +2259,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     }
                     const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(6, Math.min(40, Number(s.note_size))) : 12;
                     const ns = noteImage.scale(1);
-                    const maxNoteW = Math.max(w * 1.5, 240);
+                    const maxNoteW = zoneW || Math.max(w * 1.5, 240);
                     let nh = noteH;
                     let nw = ns.width * (nh / ns.height);
                     if (nw > maxNoteW) { nw = maxNoteW; nh = ns.height * (nw / ns.width); }
@@ -2244,7 +2274,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                         size: Math.max(8, noteH * 0.7),
                         font,
                         color: rgb(0.12, 0.12, 0.15),
-                        maxWidth: Math.max(w, 220),
+                        maxWidth: zoneW || Math.max(w, 220),
                     });
                 }
             } catch (e) {
@@ -2283,7 +2313,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
         if (doc.has_pades) continue;
 
         const sigs = await pgDb.all(
-            `SELECT s.page, s.x_pct, s.y_pct, s.w_pt, s.h_pt, s.signed_at,
+            `SELECT s.page, s.x_pct, s.y_pct, s.w_pt, s.h_pt, s.signed_at, s.note_x, s.note_y, s.note_w, s.date_x_pct, s.date_y_pct,
                     sg.nom, sg.signature_mode, sg.signature_image_path AS img,
                     sg.signed_by_name, sg.signed_by_email, sg.signature_title,
                     sg.signature_note, sg.signature_note_path AS note_img,

@@ -96,6 +96,7 @@ router.post('/meetings/:id/sections/:sectionId/items', authenticateJWT, ctrl.cre
 router.patch('/meetings/:id/sections/:sectionId/items/order', authenticateJWT, ctrl.reorderItems);
 router.put('/items/:itemId', authenticateJWT, ctrl.updateItem);
 router.patch('/items/:itemId/move', authenticateJWT, ctrl.moveItem);
+router.patch('/items/:itemId/important', authenticateJWT, ctrl.setItemImportant);
 router.delete('/items/:itemId', authenticateJWT, ctrl.deleteItem);
 
 // Pièces jointes

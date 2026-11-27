@@ -188,6 +188,7 @@ function App() {
   // BETA « Virement de crédits » : réservé aux agents ayant un compte SEDIT Finances (droit de modification)
   const [showVirement, setShowVirement] = useState(false);
   const [virementAllowed, setVirementAllowed] = useState(false);
+  const [virementFinances, setVirementFinances] = useState(false); // agent des finances ou administrateur de l'espace de traitement
   // Entretiens professionnels de la Ville : administrateurs (désignation des valideurs) et valideurs désignés
   const [showEp, setShowEp] = useState(false);
   const [epAllowed, setEpAllowed] = useState(false);
@@ -312,7 +313,7 @@ function App() {
     if (!windowLogin) { setVirementAllowed(false); return; }
     const token = localStorage.getItem('token') || '';
     axios.get('/api/magapp/virement-credits/access', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => { setVirementAllowed(!!r.data?.allowed); if (r.data?.allowed && virementDeepLink) setShowVirement(true); })
+      .then(r => { setVirementAllowed(!!r.data?.allowed); setVirementFinances(!!r.data?.traitement?.canManage); if (r.data?.allowed && virementDeepLink) setShowVirement(true); })
       .catch(() => setVirementAllowed(false));
   }, [windowLogin]);
 
@@ -1877,7 +1878,7 @@ function App() {
                 />
               )}
 
-              {windowLogin && virementAllowed && (settings.show_virement_credits || settings.is_beta_user) && (
+              {windowLogin && virementAllowed && (settings.show_virement_credits || settings.is_beta_user || virementFinances) && (
                 <ToolCard
                   icon={<ArrowLeftRight size={22} color="#2563eb" />}
                   bg="#dbeafe"

@@ -23,7 +23,7 @@ async function apiRights(user) {
     const v = {
         sedit: data?.user ? { roo: data.user.roo, code: data.user.code, nom: data.user.nom, mail: data.user.email } : null,
         services: Array.isArray(data?.services) ? data.services.map(s => ({
-            budgetRoo: String(s.budget_roo || '').trim(), budget: s.budget, budgetCode: s.budget_code,
+            budgetRoo: String(s.budget_roo || '').trim(), budget: s.budget, budgetCode: s.budget_code, collectivite: s.collectivite || null,
             serviceRoo: String(s.service_roo || '').trim(), service: s.service, libelle: s.service_libelle, access: s.access,
         })) : [],
     };

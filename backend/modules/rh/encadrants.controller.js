@@ -15,7 +15,10 @@ const sedit = require('../../shared/sedit-rh');
 
 const EXCLURE_POSTE = /CABINET|ARTISTIQUE|MAISON DE QUARTIER|CRECHE|CRÈCHE|MULTI.?ACCUEIL|RESIDENCES AUTONOMIE|RÉSIDENCES AUTONOMIE/i;
 const EST_ENCADRANT = /DIRECTEUR.*GENERAL|DIRECTEUR[EÈ]?TRICE D|RESPONSABLE DU SERVICE/i;
-const estPosteEncadrant = (poste) => EST_ENCADRANT.test(String(poste || '')) && !EXCLURE_POSTE.test(String(poste || ''));
+// SEDIT RH écrit les postes en écriture inclusive (« DIRECTEUR·TRICE DES SPORTS ») : on retire le point médian et les accents
+// avant de reconnaître le poste, sinon plus aucun directeur n'est retenu.
+const normPoste = (poste) => String(poste || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[·•‧∙]/g, '').toUpperCase();
+const estPosteEncadrant = (poste) => EST_ENCADRANT.test(normPoste(poste)) && !EXCLURE_POSTE.test(normPoste(poste));
 const legacyAgent = (a) => ({ MATRICULE: a.matricule, NOM: a.nom, PRENOM: a.prenom, DIRECTION: a.direction_code, DIRECTION_L: a.direction, SERVICE: a.service_code, SERVICE_L: a.service, POSTE_L: a.poste, FONCTION_L: a.fonction, POSITION_L: a.statut });
 
 /** Détecte si un service = le service "d'accueil" de sa direction, c'est-à-dire
@@ -452,7 +455,7 @@ module.exports = {
             const result = agents.map(a => {
                 const adData = emailMap.get(a.MATRICULE) || {};
                 const stored = phoneMap.get(a.MATRICULE) || {};
-                const poste = (a.POSTE_L || '').toUpperCase();
+                const poste = normPoste(a.POSTE_L);
                 const isDirecteur = poste.startsWith('DIRECTEUR');
                 const isDG = isDirecteur && poste.includes('GENERAL');
                 const role = isDG ? 'dg' : (isDirecteur ? 'directeur' : 'responsable_service');

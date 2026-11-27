@@ -23,7 +23,7 @@ export interface VirementRec {
   sent_by: string | null;
   sent_to: string | null;
   sent_cc: string | null;
-  etat: 'brouillon' | 'en_signature' | 'signee' | 'refusee' | 'annulee' | 'envoyee';
+  etat: 'brouillon' | 'en_signature' | 'signee' | 'refusee' | 'annulee' | 'envoyee' | 'en_traitement' | 'faite' | 'rejetee';
 }
 
 export const ETATS: Record<VirementRec['etat'], { label: string; color: string }> = {
@@ -32,7 +32,10 @@ export const ETATS: Record<VirementRec['etat'], { label: string; color: string }
   signee: { label: 'Signée', color: '#16a34a' },
   refusee: { label: 'Signature refusée', color: '#dc2626' },
   annulee: { label: 'Parapheur annulé', color: '#dc2626' },
-  envoyee: { label: 'Envoyée au budget', color: '#2563eb' },
+  envoyee: { label: 'Transmise aux finances', color: '#2563eb' },
+  en_traitement: { label: 'En cours (finances)', color: '#7c3aed' },
+  faite: { label: 'Faite', color: '#15803d' },
+  rejetee: { label: 'Refusée par les finances', color: '#b91c1c' },
 };
 
 // Cadres « Avis » du PDF : position du centre de la signature (en % de la page)
@@ -150,7 +153,6 @@ const VirementCreditsModal: React.FC<Props> = ({ id, direction, onClose, onChang
 
   const sendToBudget = async () => {
     if (!rec) return;
-    if (!pdfSigned && !window.confirm("Le document n'est pas encore signé. L'envoyer quand même à " + settings.to + ' ?')) return;
     setBusy('mail'); setError(''); setInfo('');
     try {
       const r = await call('send-budget', { message: mailMessage });
@@ -221,7 +223,7 @@ const VirementCreditsModal: React.FC<Props> = ({ id, direction, onClose, onChang
                   <strong style={{ fontSize: '0.9rem' }}>2. Envoi à la cellule budget</strong>
                   <div style={{ fontSize: '0.8rem', color: '#475569' }}>
                     À : <strong>{settings.to}</strong>{settings.cc && <> — copie : {settings.cc}</>}
-                    <div style={{ color: pdfSigned ? '#16a34a' : '#d97706' }}>{pdfSigned ? 'Le PDF signé sera joint.' : 'Le PDF non signé sera joint.'}</div>
+                    <div style={{ color: pdfSigned ? '#16a34a' : '#d97706' }}>{pdfSigned ? 'Le PDF signé sera joint.' : 'Envoi possible une fois toutes les signatures faites.'}</div>
                   </div>
                   {rec.sent_at && (
                     <div style={{ fontSize: '0.8rem', color: '#2563eb' }}>
@@ -232,7 +234,7 @@ const VirementCreditsModal: React.FC<Props> = ({ id, direction, onClose, onChang
                     <label style={s.label}>Message</label>
                     <textarea style={{ ...s.input, minHeight: 130, fontFamily: 'inherit' }} value={mailMessage} onChange={e => setMailMessage(e.target.value)} />
                   </div>
-                  <button style={{ ...s.btn, opacity: busy ? 0.5 : 1 }} disabled={!!busy} onClick={sendToBudget}>
+                  <button style={{ ...s.btn, opacity: busy || !pdfSigned ? 0.5 : 1 }} disabled={!!busy || !pdfSigned} onClick={sendToBudget}>
                     <Mail size={16} /> {busy === 'mail' ? 'Envoi…' : rec.sent_at ? 'Renvoyer le mail' : 'Envoyer le mail'}
                   </button>
                 </div>

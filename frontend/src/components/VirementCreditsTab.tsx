@@ -187,15 +187,22 @@ const VirementCreditsTab: React.FC = () => {
   }, []);
 
   // Budgets sur lesquels l'agent a un droit de modification (Ville = principal, annexes : CMPP, Cinéma Le Luxy, Restauration…)
-  const [budgets, setBudgets] = useState<string[]>([]);
+  // « COLLECTIVITE|budget » : la Ville et le CCAS ont chacun un budget « PRINCIPAL »
+  const [droitsBudgets, setDroitsBudgets] = useState<{ collectivite: string; budget: string }[]>([]);
+  const [collectivite, setCollectivite] = useState('');
   const [budget, setBudget] = useState('');
-  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Ville (budget principal)' : b);
+  const budgetLabel = (b: string) => (/^PRINCIPAL$/i.test(b) ? 'Budget principal' : b);
+  const collectivites = ['VILLE', 'CCAS'].filter(c => droitsBudgets.some(d => d.collectivite === c));
+  const budgetsOf = (c: string, list = droitsBudgets) => [...new Set(list.filter(d => d.collectivite === c).map(d => d.budget))]
+    .sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y)));
+  const budgets = budgetsOf(collectivite);
   useEffect(() => {
     fetch('/api/budget/virement-credits/access', { headers }).then(r => (r.ok ? r.json() : null)).then(a => {
-      const list: string[] = [...new Set<string>(((a && a.services) || []).map((x: { budget: string }) => x.budget))].filter(Boolean)
-        .sort((x, y) => (/^PRINCIPAL$/i.test(x) ? -1 : /^PRINCIPAL$/i.test(y) ? 1 : x.localeCompare(y)));
-      setBudgets(list);
-      setBudget(prev => prev || list.find(b => /^PRINCIPAL$/i.test(b)) || list[0] || '');
+      const list: { collectivite: string; budget: string }[] = ((a && a.services) || []).map((x: { collectivite?: string; budget: string }) => ({ collectivite: x.collectivite || 'VILLE', budget: x.budget }));
+      setDroitsBudgets(list);
+      const c = list.some(d => d.collectivite === 'VILLE') ? 'VILLE' : list[0]?.collectivite || '';
+      setCollectivite(c);
+      setBudget(budgetsOf(c, list)[0] || '');
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -204,7 +211,7 @@ const VirementCreditsTab: React.FC = () => {
     if (!budget) return;
     // Lignes et disponibles lus en direct dans SEDIT (aucun import Excel), pour le budget choisi
     setLoading(true); setLiveError('');
-    fetch(`/api/budget/virement-credits/lines?budget=${encodeURIComponent(budget)}`, { headers })
+    fetch(`/api/budget/virement-credits/lines?collectivite=${collectivite}&budget=${encodeURIComponent(budget)}`, { headers })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'SEDIT indisponible');
         return r.json();
@@ -213,9 +220,10 @@ const VirementCreditsTab: React.FC = () => {
       .catch((e: Error) => { setLines([]); setLiveError(e.message); })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [budget]);
+  }, [collectivite, budget]);
 
   const changeBudget = (b: string) => { if (b !== budget) { setMinorer([]); setMajorer([]); } setBudget(b); };
+  const changeCollectivite = (c: string) => { if (c !== collectivite) { setMinorer([]); setMajorer([]); setCollectivite(c); setBudget(budgetsOf(c)[0] || ''); } };
   // Changer de section / sens invalide les lignes déjà choisies
   const changeScope = (sec: 'I' | 'F', sn: 'D' | 'R') => {
     if (sec !== section || sn !== sens) { setMinorer([]); setMajorer([]); }
@@ -260,7 +268,7 @@ const VirementCreditsTab: React.FC = () => {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget,
+          id: currentId, direction, service, contact, date, section, sens, compense, activite, motivation, budget, collectivite,
           majorer: majorer.map(p => toPayloadLine(p, 1)),
           minorer: minorer.map(p => toPayloadLine(p, -1)),
         }),
@@ -293,6 +301,12 @@ const VirementCreditsTab: React.FC = () => {
       <div style={s.card}>
         <h3 style={{ margin: '0 0 1rem', fontSize: '1.05rem' }}>Demande de virement de crédits</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+          <div>
+            <label style={s.label}>Code collectivité</label>
+            <select style={s.input} value={collectivite} onChange={e => changeCollectivite(e.target.value)}>
+              {collectivites.map(c => <option key={c} value={c}>{c === 'CCAS' ? 'CCAS' : 'Ville'}</option>)}
+            </select>
+          </div>
           <div>
             <label style={s.label}>Budget</label>
             <select style={s.input} value={budget} onChange={e => changeBudget(e.target.value)}>
@@ -337,11 +351,11 @@ const VirementCreditsTab: React.FC = () => {
           </label>
         </div>
         <div style={{ marginBottom: '0.9rem' }}>
-          <label style={s.label}>Activité / Projet / Opération impacté (optionnel)</label>
+          <label style={s.label}>Activité / Projet / Opération impacté</label>
           <input style={s.input} value={activite} onChange={e => setActivite(e.target.value)} />
         </div>
         <div>
-          <label style={s.label}>Motivation de la demande (raison)</label>
+          <label style={s.label}>Motivation de la demande (raison) <span style={{ color: '#dc2626' }}>* obligatoire</span></label>
           <textarea style={{ ...s.input, minHeight: 80, fontFamily: 'inherit' }} value={motivation} onChange={e => setMotivation(e.target.value)}
             placeholder="Ex. : Régularisation de lignes d'exécution négatives" />
         </div>
@@ -377,7 +391,8 @@ const VirementCreditsTab: React.FC = () => {
         )}
         <div style={{ marginLeft: 'auto' }}>
           <button style={{ ...s.btn, opacity: busy || !hasLines || desequilibre ? 0.5 : 1 }}
-            disabled={busy || !hasLines || desequilibre} onClick={generate}>
+            disabled={busy || !hasLines || desequilibre || !motivation.trim()} onClick={generate}
+            title={!motivation.trim() ? 'La motivation de la demande est obligatoire' : undefined}>
             <FileText size={16} /> {busy ? 'Génération…' : 'Prévisualiser'}
           </button>
         </div>

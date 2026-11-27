@@ -57,7 +57,7 @@ const Budget: React.FC = () => {
   useEffect(() => {
     fetch('/api/budget/virement-credits/access', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : { allowed: false }))
-      .then(a => setVirementAllowed(!!a.allowed))
+      .then(a => setVirementAllowed(!!(a.canCreate ?? a.allowed))) // onglet réservé aux agents pouvant créer une demande
       .catch(() => setVirementAllowed(false));
   }, [token]);
 
