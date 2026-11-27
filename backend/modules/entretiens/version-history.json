@@ -1,8 +1,32 @@
 {
   "module": "entretiens",
-  "version": "1.0.0",
-  "date": "2026-11-26",
+  "version": "1.1.0",
+  "date": "2026-11-27",
   "releases": [
+    {
+      "version": "1.1.0",
+      "date": "2026-11-27",
+      "commit": "a19de78f",
+      "groups": {
+        "nouveautes": [
+          "Le guide pratique de l'agent évalué est joint automatiquement au mail de convocation et à l'invitation Outlook"
+        ],
+        "ameliorations": [],
+        "corrections": []
+      }
+    },
+    {
+      "version": "1.0.1",
+      "date": "2026-11-27",
+      "commit": "e9b89e5e",
+      "groups": {
+        "nouveautes": [],
+        "ameliorations": [],
+        "corrections": [
+          "La date de convocation du CREP prend par défaut la date de planification de l'entretien (vide s'il n'est pas planifié) et non plus la date de création"
+        ]
+      }
+    },
     {
       "version": "1.0.0",
       "date": "2026-11-26",
