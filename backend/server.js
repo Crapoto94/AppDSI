@@ -5277,7 +5277,7 @@ app.use(updateLastActivity);
 
 app.get('/api/users', authenticateAdmin, async (req, res) => {
     try {
-        const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement FROM users');
+        const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement, email, displayName FROM users');
         const userTiles = await db.all('SELECT user_id, tile_id FROM user_tiles');
 
         const tileMap = {};
@@ -5299,21 +5299,47 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/users', authenticateAdmin, async (req, res) => {
-    const { username, password, role, service_code, service_complement, authorized_tiles } = req.body || {};
+    const { username, password, role, service_code, service_complement, authorized_tiles, email, displayName, ad_account } = req.body || {};
     const uname = String(username || '').trim();
     if (!uname) return res.status(400).json({ message: 'Identifiant requis' });
-    if (!password || !String(password).trim()) return res.status(400).json({ message: 'Mot de passe requis' });
+    // Compte Active Directory : pas de mot de passe local, l'authentification se fait dans l'AD.
+    const isAdAccount = ad_account === true || ad_account === 1 || ad_account === 'true' || ad_account === '1';
     try {
         if (role === 'superadmin' && req.user.role !== 'superadmin') {
             return res.status(403).json({ message: 'Seul un super-administrateur peut attribuer ce rôle.' });
         }
+        if (!isAdAccount && (!password || !String(password).trim())) {
+            return res.status(400).json({ message: 'Mot de passe requis' });
+        }
         const existing = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [uname]);
         if (existing) return res.status(409).json({ message: 'Cet identifiant existe déjà' });
-        const hashed = await bcrypt.hash(String(password).trim(), 10);
+
+        // Agent ajouté depuis l'AD : on complète nom / email / service depuis l'annuaire
+        // (le front peut aussi les fournir, ils sont alors prioritaires).
+        let adInfo = null;
+        if (isAdAccount) {
+            try {
+                const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+                if (adSettings && adSettings.is_enabled) {
+                    const matches = await searchADUsersByQuery(uname, adSettings);
+                    adInfo = (matches || []).find(m => (m.username || '').toLowerCase() === uname.toLowerCase()) || null;
+                }
+            } catch (e) { console.warn('[USERS] AD lookup failed:', e.message); }
+        }
+
+        const finalEmail = (email && String(email).trim()) || adInfo?.email || null;
+        const finalDisplayName = (displayName && String(displayName).trim()) || adInfo?.displayName || null;
+        // Même convention que le login AD : service_code ← company, service_complement ← department.
+        const finalServiceCode = (service_code && String(service_code).trim()) || adInfo?.direction || null;
+        const finalServiceComplement = (service_complement && String(service_complement).trim()) || adInfo?.service || null;
+        const hashed = isAdAccount ? null : await bcrypt.hash(String(password).trim(), 10);
+        // Login stocké en minuscules (le login AD compare sur username.toLowerCase()).
+        const login = uname.toLowerCase();
+
         const result = await db.run(
-            `INSERT INTO users (username, password, role, is_approved, service_code, service_complement)
-             VALUES (?, ?, ?, 1, ?, ?)`,
-            [uname, hashed, role || 'user', service_code || null, service_complement || null]
+            `INSERT INTO users (username, password, role, is_approved, service_code, service_complement, email, displayName)
+             VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+            [login, hashed, role || 'user', finalServiceCode, finalServiceComplement, finalEmail, finalDisplayName]
         );
         const userId = result.lastID;
         if (Array.isArray(authorized_tiles) && authorized_tiles.length > 0) {
@@ -5321,7 +5347,24 @@ app.post('/api/users', authenticateAdmin, async (req, res) => {
                 await db.run('INSERT INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [userId, tileId]);
             }
         }
-        res.json({ id: userId, username: uname });
+        // Miroir dans hub.users (PostgreSQL) pour les modules métier qui s'y rattachent.
+        try {
+            // Réutilise la casse existante pour ne pas créer de doublon (pas d'index lower(username)).
+            const existingPg = await pgDb.get('SELECT username FROM hub.users WHERE LOWER(username) = LOWER($1)', [login]);
+            const pgUsername = existingPg?.username || login;
+            await pgDb.run(
+                `INSERT INTO hub.users (username, displayname, email, role, service_code, service_complement, is_approved)
+                 VALUES ($1, $2, $3, $4, $5, $6, 1)
+                 ON CONFLICT (username) DO UPDATE SET
+                   displayname = COALESCE(NULLIF(EXCLUDED.displayname, ''), hub.users.displayname),
+                   email = COALESCE(NULLIF(EXCLUDED.email, ''), hub.users.email),
+                   service_code = COALESCE(NULLIF(EXCLUDED.service_code, ''), hub.users.service_code),
+                   service_complement = COALESCE(NULLIF(EXCLUDED.service_complement, ''), hub.users.service_complement)`,
+                [pgUsername, finalDisplayName, finalEmail, role || 'user', finalServiceCode, finalServiceComplement]
+            );
+        } catch (e) { console.warn('[USERS] hub.users mirror failed:', e.message); }
+
+        res.json({ id: userId, username: login, email: finalEmail, displayName: finalDisplayName, ad_account: isAdAccount });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la création', error: error.message });
     }

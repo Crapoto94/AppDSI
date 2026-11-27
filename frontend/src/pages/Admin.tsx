@@ -13,6 +13,7 @@ import * as LucideIcons from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import TilesAuthorizationPanel from '../components/TilesAuthorizationPanel';
+import AgentSearch from '../components/AgentSearch';
 
 interface TileLink {
   id: number;
@@ -43,6 +44,8 @@ interface UserData {
   last_activity: string | null;
   service_code: string | null;
   service_complement: string | null;
+  email?: string | null;
+  displayName?: string | null;
   authorized_tiles?: number[];
 }
 
@@ -115,7 +118,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [originalLinks, setOriginalLinks] = useState<any[]>([]);
   const [newLink, setNewLink] = useState<Partial<TileLink>>({ label: '', url: '', is_internal: 0 });
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] as number[] });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '', email: '', displayName: '', ad_account: false, authorized_tiles: [] as number[] });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editingUserPassword, setEditingUserPassword] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1838,15 +1841,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload: Record<string, unknown> = { ...newUser };
+    if (newUser.ad_account) delete payload.password;
     const response = await fetch('/api/users', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(newUser)
+      body: JSON.stringify(payload)
     });
     if (response.ok) {
-      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '', authorized_tiles: [] });
+      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '', email: '', displayName: '', ad_account: false, authorized_tiles: [] });
       setIsAddingUser(false);
       fetchUsers();
+    } else {
+      let msg = `Erreur ${response.status}`;
+      try { const d = await response.json(); msg = d.message || msg; } catch { /* ignore */ }
+      alert(msg);
     }
   };
 
@@ -1895,6 +1904,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const filteredUsers = (users || []).filter(u => 
     u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (u.service_code && u.service_code.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -2355,9 +2366,33 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </div>
                   <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
                     <div className="form-grid">
+                      {!editingUser && (
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                          <label>Ajouter un agent depuis l'Active Directory</label>
+                          <AgentSearch
+                            placeholder="Rechercher un agent par nom, email ou identifiant…"
+                            onSelect={(a) => setNewUser(prev => ({
+                              ...prev,
+                              username: a.username || prev.username,
+                              email: a.email || prev.email,
+                              displayName: a.displayName || prev.displayName,
+                              service_code: a.direction || prev.service_code,
+                              service_complement: a.service || prev.service_complement,
+                              ad_account: true,
+                              password: '',
+                            }))}
+                            onClear={() => setNewUser(prev => ({ ...prev, ad_account: false }))}
+                          />
+                          <p style={{ margin: '8px 0 0 0', fontSize: 12, color: newUser.ad_account ? '#0f766e' : '#94a3b8', fontWeight: 500 }}>
+                            {newUser.ad_account
+                              ? `Compte AD sélectionné${newUser.displayName ? ` : ${newUser.displayName}` : ''}${newUser.email ? ` (${newUser.email})` : ''} — nom, email et service pré-remplis.`
+                              : "Optionnel : sélectionnez un agent de l'annuaire pour remplir automatiquement son identifiant, son nom, son email et son service."}
+                          </p>
+                        </div>
+                      )}
                       <div className="form-group">
                         <label>Identifiant</label>
-                        <input disabled={!!editingUser} value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({...newUser, username: e.target.value})} required />
+                        <input disabled={!!editingUser} value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({ ...newUser, username: e.target.value, ...(newUser.ad_account ? { ad_account: false } : {}) })} required />
                       </div>
                       <div className="form-group">
                         <label>Rôle</label>
@@ -2371,10 +2406,19 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         </select>
                       </div>
                       {!editingUser ? (
-                        <div className="form-group">
-                          <label>Mot de passe</label>
-                          <input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
-                        </div>
+                        newUser.ad_account ? (
+                          <div className="form-group">
+                            <label>Mot de passe</label>
+                            <div style={{ padding: '14px 18px', borderRadius: 16, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: '0.85rem', fontWeight: 600 }}>
+                              Compte Active Directory — l'agent se connecte avec son mot de passe AD, aucun mot de passe local n'est requis.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="form-group">
+                            <label>Mot de passe</label>
+                            <input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+                          </div>
+                        )
                       ) : (
                         <div className="form-group">
                           <label>Nouveau mot de passe <span style={{fontSize:11,color:'#94a3b8',fontWeight:400}}>(laisser vide pour ne pas changer)</span></label>
@@ -2472,7 +2516,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           <td className="user-cell">
                             <div className={`avatar role-${user.role}`}>{user.username?.substring(0, 2).toUpperCase() || '??'}</div>
                             <div className="user-ident">
-                              <span className="username">{user.username}</span>
+                              <span className="username" title={user.username}>{user.displayName || user.username}</span>
                               <span className="user-service-sub">
                                 {user.service_code || 'Aucun service'}
                                 {user.service_complement ? ` · ${user.service_complement}` : ''}
